@@ -1,3 +1,5 @@
+using GameServer.Core.Projectiles;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -250,6 +252,200 @@ public sealed class CombatBugFixesTests
             Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!);
             TestEnvironment.ReleaseSaves(path);
+        }
+    }
+
+    [Fact]
+    public async Task Tribal_Fury_splashes_melee_strikes_at_full_damage_scales_area_and_skips_non_strikes()
+    {
+        // Unit check: melee_splash activates with no less-damage penalty, melee_splash_area_of_effect_+% adds to
+        // increased area (not to melee_splash_area_of_effect_+%_final), and support penalty still applies when linked.
+        var tribalOnly = MeleeSplash.Settings(key => key == Stat.MeleeSplash ? 1 : 0);
+        Assert.NotNull(tribalOnly);
+        Assert.Equal(14, tribalOnly.Value.Radius);
+        Assert.Equal(1.0, tribalOnly.Value.More, 9);
+
+        var withSmallNodes = MeleeSplash.Settings(key => key switch
+        {
+            Stat.MeleeSplash => 1,
+            Stat.MeleeSplashAreaOfEffectPlusPct => 30,
+            _ => 0,
+        });
+        Assert.Equal(15, withSmallNodes!.Value.Radius);
+        Assert.Equal(1.0, withSmallNodes.Value.More, 9);
+
+        // (1 + 1.0 generic + 1.0 splash increased) * (1 + 0.5 splash more) = 4.5 -> floor(14 * sqrt(4.5)) = 29.
+        var combinedArea = MeleeSplash.Settings(key => key switch
+        {
+            Stat.MeleeSplash => 1,
+            Stat.SkillAreaOfEffectPlusPct => 100,
+            Stat.MeleeSplashAreaOfEffectPlusPct => 100,
+            Stat.MeleeSplashAreaOfEffectPlusPctFinal => 50,
+            _ => 0,
+        });
+        Assert.Equal(29, combinedArea!.Value.Radius);
+
+        var withSupport = MeleeSplash.Settings(key => key switch
+        {
+            Stat.MeleeSplash => 1,
+            Stat.SupportMeleeSplashDamagePlusPctFinalForSplash => -40,
+            _ => 0,
+        });
+        Assert.Equal(0.6, withSupport!.Value.More, 9);
+
+        // End-to-end with the real Tribal Fury passive (blight_special_notable6, graphId 27119) and real small
+        // Splash AoE nodes (strikes_speed2734 / strikes_speed2735, graphIds 25175 / 53791).
+        var tribalFury = Program.Passives.FindById("blight_special_notable6");
+        Assert.NotNull(tribalFury);
+        var splashAoe1 = Program.Passives.FindById("strikes_speed2734");
+        var splashAoe2 = Program.Passives.FindById("strikes_speed2735");
+        Assert.NotNull(splashAoe1);
+        Assert.NotNull(splashAoe2);
+
+        var clock = new StepClock();
+        using var f = new TriggeredSummonTests.Fixture(clock);
+        var player = f.Player;
+        var previous = Game.AreaUpdateContext.Value;
+        player.ProjectileRuntimeState = f.Session;
+        player.Walk.Teleport(100, 100, clock.At);
+        Game.AreaUpdateContext.Value = new(f.Lifetime, clock);
+        int extraStrikes = 0;
+        using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (ReferenceEquals(owner, player))
+            {
+                values[Stat.GlobalAlwaysHit] = 1;
+                values[Stat.GlobalCannotCrit] = 1;
+                values[Stat.AttackMinimumAddedPhysicalDamage] = values[Stat.AttackMaximumAddedPhysicalDamage] = 500;
+                if (extraStrikes > 0) values[Stat.MeleeAttackNumberOfSpiritStrikes] = extraStrikes;
+            }
+            return values;
+        });
+
+        try
+        {
+            SpawnedMonster Monster(uint id, int x, int y = 100)
+            {
+                var monster = new SpawnedMonster("tribal fury target", new(x, y, 0), 0, 0, 1_000_000)
+                {
+                    ObjectId = id,
+                    Hostile = true,
+                    NoRewards = true,
+                };
+                player.Area.Monsters[id] = monster;
+                player.Area.Grid.Set(new(id), (x, y));
+                return monster;
+            }
+
+            void AdvanceUntilHit(SpawnedMonster watched, uint lifeBefore)
+            {
+                double deadline = clock.At + 2;
+                while (watched.Life == lifeBefore && clock.At < deadline)
+                {
+                    clock.At += .025;
+                    f.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                }
+            }
+
+            // 1. Baseline without Tribal Fury: Heavy Strike hits primary (109, 100) and cannot reach nearby (122, 100, dist 13 > 12).
+            ushort heavyStrike = Assert.Single(f.Equip(("Heavy Strike", 1)));
+            var primary = Monster(901, 109);
+            var nearby = Monster(902, 122);   // distance 13 from primary (> 12 direct sweep, <= 14 base splash)
+            var edge = Monster(903, 124);     // distance 15 from primary (> 14 base splash, <= 15 with +30% splash AoE)
+            var far = Monster(904, 130);      // distance 21 from primary (> 15)
+
+            Assert.True(await Game.CastGemSkill(player, heavyStrike, (100, 100), (109, 100), 901));
+            AdvanceUntilHit(primary, primary.Life);
+            Assert.True(primary.Life < primary.MaxLife, "Baseline Heavy Strike did not hit primary.");
+            Assert.Equal(nearby.MaxLife, nearby.Life);
+            Assert.Equal(edge.MaxLife, edge.Life);
+            Assert.Equal(far.MaxLife, far.Life);
+
+            // 2. With Tribal Fury (no Melee Splash Support): splashes nearby (dist 13 <= 14) at full damage without double-hitting primary.
+            player.Character.Passives.Add(tribalFury!.GraphId);
+            Assert.Equal(1, Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.MeleeSplash));
+            clock.At = Math.Max(clock.At + 1, player.NextAttackAt + .1);
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            uint primaryBeforeSplash = primary.Life;
+            Assert.True(await Game.CastGemSkill(player, heavyStrike, (100, 100), (109, 100), 901));
+            AdvanceUntilHit(primary, primaryBeforeSplash);
+
+            uint primaryDamage = primaryBeforeSplash - primary.Life;
+            uint nearbyDamage = nearby.MaxLife - nearby.Life;
+            Assert.True(primaryDamage > 0, "Primary Heavy Strike target was not hit.");
+            // Unarmed base damage rolls min..max independently per victim, so compare within 5% to prove full splash
+            // damage (no -40% support penalty) and no double-hit on the primary target.
+            Assert.InRange(nearbyDamage, primaryDamage * 95 / 100, primaryDamage * 105 / 100);
+            Assert.Equal(edge.MaxLife, edge.Life);
+            Assert.Equal(far.MaxLife, far.Life);
+
+            // 3. Allocating the two +15% melee_splash_area_of_effect_+% passives grows radius 14 -> 15 and hits edge.
+            player.Character.Passives.Add(splashAoe1!.GraphId);
+            player.Character.Passives.Add(splashAoe2!.GraphId);
+            clock.At = Math.Max(clock.At + 1, player.NextAttackAt + .1);
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            uint primaryBefore2 = primary.Life;
+            Assert.True(await Game.CastGemSkill(player, heavyStrike, (100, 100), (109, 100), 901));
+            AdvanceUntilHit(primary, primaryBefore2);
+            Assert.True(edge.Life < edge.MaxLife, "Splash AoE passives should extend Tribal Fury splash to distance 15.");
+            Assert.Equal(far.MaxLife, far.Life);
+
+            // 4. Non-Strike melee skill (Ground Slam) must NOT splash with Tribal Fury.
+            player.Area.Monsters.Clear();
+            ushort groundSlam = Assert.Single(f.Equip(("Ground Slam", 1)));
+            var inFront = Monster(911, 108);
+            var behindPlayer = Monster(912, 98); // distance 10 from inFront (<= 15 splash radius) but behind Ground Slam's cone
+            clock.At = Math.Max(clock.At + 1, player.NextAttackAt + .1);
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            Assert.True(await Game.CastGemSkill(player, groundSlam, (100, 100), (108, 100), 911));
+            AdvanceUntilHit(inFront, inFront.Life);
+            Assert.True(inFront.Life < inFront.MaxLife, "Ground Slam did not hit its front target.");
+            Assert.Equal(behindPlayer.MaxLife, behindPlayer.Life);
+
+            // 5. Molten Strike + additional strike target with Tribal Fury splashes around the second struck target too.
+            player.Area.Monsters.Clear();
+            extraStrikes = 1;
+            ushort molten = Assert.Single(f.Equip(("Molten Strike", 1)));
+            var first = Monster(921, 109);
+            var second = Monster(922, 125);
+            var secondSplash = Monster(923, 131); // distance 6 from second, 22 from first
+            clock.At = Math.Max(clock.At + 1, player.NextAttackAt + .1);
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            Assert.True(await Game.CastGemSkill(player, molten, (100, 100), (109, 100), 921));
+            AdvanceUntilHit(first, first.Life);
+            Assert.True(first.Life < first.MaxLife, "Molten Strike primary target did not take melee damage.");
+            Assert.True(second.Life < second.MaxLife, "Molten Strike additional strike target was not hit.");
+            Assert.True(secondSplash.Life < secondSplash.MaxLife, "Molten Strike additional strike did not splash with Tribal Fury.");
+
+            // 6. Default Attack (melee unarmed) is also a Strike skill and splashes with Tribal Fury.
+            player.Area.Monsters.Clear();
+            extraStrikes = 0;
+            var defaultPrimary = Monster(931, 104);
+            var defaultSplash = Monster(932, 114); // distance 10 from primary (<= 15)
+            var defaultFar = Monster(933, 130);    // distance 26 from primary (> 15)
+            clock.At = Math.Max(clock.At + 2, player.NextAttackAt + .5);
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            await Game.Attack(player, new InstanceTransfer.UseSkillOnObject(931, SkillCatalog.FirstSkillId, 1, 0),
+                defaultPrimary, clock.At);
+            Assert.True(defaultPrimary.Life < defaultPrimary.MaxLife, "Default Attack did not hit primary target.");
+            Assert.True(defaultSplash.Life < defaultSplash.MaxLife, "Default Attack did not splash with Tribal Fury.");
+            Assert.Equal(defaultFar.MaxLife, defaultFar.Life);
+        }
+        finally
+        {
+            Game.AreaUpdateContext.Value = previous;
+        }
+    }
+
+    sealed class StepClock : IPlayerUpdateSchedule
+    {
+        public double At = 1;
+        public double Now(Player player) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            At += milliseconds / 1000d;
+            return Task.CompletedTask;
         }
     }
 }

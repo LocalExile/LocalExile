@@ -66,7 +66,7 @@ public static partial class Game
                 radiusOverride: single is null ? SkillRadius(player, skill.Stats, false, gem.Effect) : WeaponFor(player).Range + 4,
                 damageMore: MeleeRepeatDamageMore(player, id, repeat), singleStrikeTarget: single,
                 once: once, onHit: victim => { hit = true; once?.Add(victim); }, scheduledSession: session, repeat: repeat, cryExerted: cryExerted,
-                ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage);
+                allowMeleeSplash: single is not null, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage);
             if (!task.IsCompleted) throw new InvalidOperationException("Scheduled Smite contact must not yield.");
             task.GetAwaiter().GetResult();
         }

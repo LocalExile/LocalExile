@@ -568,6 +568,7 @@ public static partial class Game
         await WhilePaused(player);
         // One use, one Fortification and one Rage gain (as one AreaSkillHit sweep), whichever of its hits lands first.
         bool fortified = false, raged = false;
+        var primaryAt = m.Walk.Position(AreaTime(player));
         if (!await HitTarget(use.TargetId, m, target)) return;
         List<(uint Id, SpawnedMonster M, (int X, int Y) At)> extras;
         double now2 = AreaTime(player);
@@ -581,10 +582,30 @@ public static partial class Game
             extras.Add((echoId, echoed, echoed.Walk.Position(now2)));
         foreach (var (extraId, extra, at) in extras)
             if (!await HitTarget(extraId, extra, at)) return;
+        if (weapon.Melee)
+        {
+            var merged = SkillAreaStats(player, ownPenetration ?? new Dictionary<uint, int>(), attackEffect);
+            if (MeleeSplash.Settings(key => merged.GetValueOrDefault(key)) is { } splash)
+            {
+                var struck = new HashSet<uint> { use.TargetId };
+                foreach (var (extraId, _, _) in extras) struck.Add(extraId);
+                var origins = new List<(int X, int Y)>(1 + extras.Count) { primaryAt };
+                foreach (var (_, _, at) in extras) origins.Add(at);
+                var splashTargets = new List<(uint Id, SpawnedMonster M, (int X, int Y) At)>();
+                foreach (var splashAt in origins)
+                    foreach (var (sid, sm) in player.Area.MonstersNear(splashAt, splash.Radius))
+                        if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null && !sm.WorldHidden
+                            && sm.Walk.Position(now2) is var smAt && Dist(smAt, splashAt) <= splash.Radius && struck.Add(sid))
+                            splashTargets.Add((sid, sm, smAt));
+                foreach (var (sid, sm, smAt) in splashTargets)
+                    if (!await HitTarget(sid, sm, smAt, splash.More, isSplash: true)) return;
+            }
+        }
 
         // One hit of this swing on one monster: accuracy, block, impale, crit and on-hit as the target's own. False when a
         // later action replaced the swing.
-        async Task<bool> HitTarget(uint targetId, SpawnedMonster m, (int X, int Y) target)
+        async Task<bool> HitTarget(uint targetId, SpawnedMonster m, (int X, int Y) target,
+            double splashDamageMore = 1, bool isSplash = false)
         {
             uint life;
             bool stageStarts = false;
@@ -677,12 +698,13 @@ public static partial class Game
                     hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), additionalElementalTakenPct: witheredElemental);
                 hitCode = HitCode(mitigated);
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
+                if (splashDamageMore != 1) damage = (int)Math.Floor(damage * Math.Max(0, splashDamageMore));
                 int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, at, damage, takenRules);
                 LeechOnHitTargetLocked(player, m, MonsterTakenComponents(m, mitigated, spell: false, at, takenRules), damage,
                     HitLeechSources(playerStats, true, ownPenetration, weapon.LocalSources, weapon.Melee), targetId);
                 (damage, stored, impaled) = WithImpaleHitLocked(player, m, damage, ownRolled, critical,
                     sourceCriticalMultiplier + FullLifeCriticalMultiplier(m, playerStats, ownPenetration),
-                    WeaponImpaleSettings(playerStats, Stats, attack: true, ownPenetration, weapon, critical));
+                    WeaponImpaleSettings(playerStats, Stats, attack: true, ownPenetration, weapon, critical), splashDamageMore);
                 impaleStacks = m.Impale.Stacks;
                 impaleStored = m.Impale.Bonus;
                 var fortificationDamage = RawFortificationDamage(ownRolled, critical, criticalMultiplier);
@@ -753,7 +775,7 @@ public static partial class Game
                         BleedReflected(playerStats)) is { } cut)
                     (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(player, m, hit: damage > 0, killed: life == 0);
-                ExertedMeleeHitLocked(player, warcryTriggers, target, at);
+                if (!isSplash) ExertedMeleeHitLocked(player, warcryTriggers, target, at);
                 if (!raged) raged = RageOnHitWithWeaponLocked(player, attack: true, melee: weapon.Melee, critical, weapon.ItemClass, target: m);
                 if (weapon.ItemClass is not null) RecordWeaponContactLocked(player, at, weaponContactSource);
                 if (critical) ItemMinionsOnWeaponCriticalLocked(player, weaponContactSource, m, at);
@@ -3720,8 +3742,10 @@ public static partial class Game
                 elementalHitStruck = struck;
                 elementalHitContacts = targets.Count;
             }
-            // Melee Splash: each struck enemy splashes onto the enemies around it, for the support's less damage.
-            if (!spell && hammer is null && allowMeleeSplash && boneshatter?.Pulse != true && infernalBlast is null)
+            // Melee Splash: each struck enemy splashes onto the enemies around it (Melee Strike skills only).
+            if (!spell && hammer is null && allowMeleeSplash && boneshatter?.Pulse != true && infernalBlast is null
+                && (targets.Count > 0 || elementalHit)
+                && SkillsFor(player).IsStrike(gem.Effect) && MeleeAttack(player, gem.Effect))
             {
                 var merged = SkillAreaStats(player, SupportedSkill(player, skillId).Stats, gem.Effect);
                 int SplashStat(uint key) => merged.GetValueOrDefault(key);
@@ -3731,7 +3755,7 @@ public static partial class Game
                     {
                         var splashAt = m.Walk.Position(now);
                         foreach (var (sid, sm) in player.Area.MonstersNear(splashAt, splash.Radius))
-                            if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null
+                            if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null && !sm.WorldHidden
                                 && Dist(sm.Walk.Position(now), splashAt) <= splash.Radius && struck.Add(sid))
                             {
                                 targets.Add((sid, sm));

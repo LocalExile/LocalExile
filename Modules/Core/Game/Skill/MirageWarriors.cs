@@ -544,9 +544,10 @@ public static partial class Game
                 var centre = isArea
                     ? MeleeAreaCentre.Of(SkillsFor(player).ActionHash(gem.Effect), warriorPos, aim, radius + weapon.Range)
                     : aim;
-                int splashRadius = !isArea && GolemStat(skillStats, Stat.MeleeSplashAreaOfEffectPlusPct) != 0
-                    || !isArea && GolemStat(skillStats, Stat.MeleeSplash) != 0
-                    ? SkillRadius(player, 14, skillStats, spell: false, gem.Effect) : 0;
+                var splashMore = new Dictionary<uint, double>();
+                (int Radius, double More)? splash = SkillsFor(player).IsStrike(gem.Effect) && MeleeAttack(player, gem.Effect)
+                    ? MeleeSplash.Settings(SkillAreaStats(player, skillStats, gem.Effect, playerStats).GetValueOrDefault)
+                    : null;
 
                 List<(uint Id, SpawnedMonster Monster, (int X, int Y) At)> victims;
                 if (isArea)
@@ -570,17 +571,21 @@ public static partial class Game
                             .OrderBy(e => Dist(warriorPos, e.At)).FirstOrDefault();
                         if (fallback.Value is not null) victims.Add(fallback);
                     }
-                    if (splashRadius > 0 && victims.Count > 0)
-                    {
-                        var primaryAt = victims[0].At;
-                        uint primaryId = victims[0].Id;
+                }
+                if (splash is { } splashSettings && victims.Count > 0)
+                {
+                    var struck = victims.Select(v => v.Id).ToHashSet();
+                    foreach (var (_, _, primaryAt) in victims.ToArray())
                         foreach (var (id, m) in player.Area.Monsters)
                         {
-                            if (id == primaryId || !m.Hostile || m.Dead || m.Life == 0 || m.OwnerId is not null || m.WorldHidden) continue;
+                            if (!m.Hostile || m.Dead || m.Life == 0 || m.OwnerId is not null || m.WorldHidden) continue;
                             var mAt = m.Walk.Position(now);
-                            if (Dist(mAt, primaryAt) <= splashRadius) victims.Add((id, m, mAt));
+                            if (Dist(mAt, primaryAt) <= splashSettings.Radius && struck.Add(id))
+                            {
+                                victims.Add((id, m, mAt));
+                                splashMore[id] = splashSettings.More;
+                            }
                         }
-                    }
                 }
 
                 var hitRolls = HitRollsFor(playerStats);
@@ -612,9 +617,11 @@ public static partial class Game
                     var (damage, _, mitigated, takenRules) = ResolveMonsterHit(m, rolled, critical, attack: true, now, resMods, pen,
                         hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player));
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
+                    double splashScale = splashMore.GetValueOrDefault(id, 1);
+                    if (splashScale != 1) damage = (int)Math.Floor(damage * Math.Max(0, splashScale));
                     int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, now, damage, takenRules);
                     damage = WithImpaleHitLocked(player, m, damage, rolled, critical,
-                        sourceMultiplier + FullLifeCriticalMultiplier(m, playerStats, skillStats), critical ? critImpale : impale, 1).Damage;
+                        sourceMultiplier + FullLifeCriticalMultiplier(m, playerStats, skillStats), critical ? critImpale : impale, splashScale).Damage;
                     var stun = OwnerStun(player, gem.Effect, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats);
                     if (ApplyMonsterHitLocked(player, m, damage, rampageSource: null, playerStats: null, allyAt: warriorPos,
                         cull: Cull.Of(playerStats, skillStats, critical, spell: false).WithWeapon(local), cullPlayer: playerStats,
