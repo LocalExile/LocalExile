@@ -65,6 +65,30 @@ public static class BuffRows
         };
     }
 
+    /// <summary>The wire recovery values (<c>IsRecovery</c> / <c>BuffDefinitions+0x7c</c>) for <paramref name="info"/>:
+    /// null when the row is not <c>IsRecovery</c> or grants no stats, otherwise exactly <c>GrantedStats.Count</c> u32
+    /// entries (preserving caller values and zero-filling any missing slots so the <c>0x01c1</c> reader never reads past
+    /// the end of the message and desyncs the lockstep stream).</summary>
+    public static IReadOnlyList<uint>? WireValues(Row? info, IReadOnlyList<uint>? values)
+    {
+        if (info is not { IsRecovery: true } || info.GrantedStats.Count == 0) return null;
+        int expected = info.GrantedStats.Count;
+        if (values is not null && values.Count == expected) return values;
+        var sized = new uint[expected];
+        if (values is not null)
+        {
+            int copy = Math.Min(values.Count, expected);
+            for (int i = 0; i < copy; i++) sized[i] = values[i];
+        }
+        return sized;
+    }
+
+    /// <summary>The wire u16 field (<c>__col44</c> / <c>BuffDefinitions+0xff</c>) for <paramref name="info"/>:
+    /// null when the row has no u82 field, otherwise the caller value or <c>0</c> so the client never over-reads
+    /// following bytes as <c>+0x82</c>.</summary>
+    public static ushort? WireU82(Row? info, ushort? u82) =>
+        info is { HasU82: true } ? u82 ?? (ushort)0 : null;
+
     /// <summary>The wire list for <paramref name="info"/>: keeps caller-supplied words and fills any missing words
     /// required by <see cref="DefaultList"/> so the client never dereferences a null or short <c>Buff+0x80</c> buffer.</summary>
     public static IReadOnlyList<uint>? WireList(Row? info, IReadOnlyList<uint>? list)

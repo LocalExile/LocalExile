@@ -1,3 +1,5 @@
+using GameServer.Core.Protocol.Instance;
+
 namespace GameServer.Gateway.Tests;
 
 public sealed class BuffWireShapeTests
@@ -39,5 +41,40 @@ public sealed class BuffWireShapeTests
         // Other unchecked-list behaviours (ChronomancerBuff 1915, QuickGuardBuff 1302) also get safe defaults.
         Assert.Equal([42u, 100u], BuffRows.Spec(AuraCatalog.BuffRow("TemporalRift"), 0x1000, null).List);
         Assert.Equal([0u], BuffRows.Spec(BuffRows.Find("quick_guard"), 0x1000, null, 4).List);
+    }
+
+    [Fact]
+    public void Recovery_and_u82_rows_pad_missing_wire_fields_to_definition_shape()
+    {
+        // taunted (row 408) is IsRecovery with 2 GrantedStats [taunt_target_id, is_taunted].
+        // Omitting Values used to under-write 8 bytes on 0x01c1 (Gemling Captain Taunt), desyncing 0x141fe6090.
+        ushort tauntedRow = FlaskGrounds.TauntedBuffRow;
+        uint captainId = 0x0400_0042;
+        uint playerId = 0x2000_0001;
+
+        var omitted = new Buff(tauntedRow, captainId, U68: Buff.Seconds(3.5)).Add(playerId, 7);
+        var zeroed = new Buff(tauntedRow, captainId, Values: [0u, 0u], U68: Buff.Seconds(3.5)).Add(playerId, 7);
+        Assert.Equal(zeroed, omitted);
+
+        var tauntedInfo = BuffRows.Of(tauntedRow);
+        Assert.Equal([captainId, 0u], BuffRows.WireValues(tauntedInfo, [captainId]));
+        Assert.Equal([captainId, 1u], BuffRows.WireValues(tauntedInfo, [captainId, 1u, 99u]));
+
+        uint[] exactValues = [captainId, 1u];
+        Assert.Same(exactValues, BuffRows.WireValues(tauntedInfo, exactValues));
+        var explicitTaunt = new Buff(tauntedRow, captainId, Values: exactValues, U68: Buff.Seconds(3.5)).Add(playerId, 7);
+        Assert.Equal(
+            InstanceEntities.AddBuff(playerId, 7, tauntedRow, captainId, values: exactValues, u68: Buff.Seconds(3.5)),
+            explicitTaunt);
+
+        // frozen (row 2) has __col44 (HasU82) without IsRecovery: omitting U82 must still write u16 0.
+        Assert.Equal(
+            new Buff(2, captainId, U82: 0).Add(playerId, 8),
+            new Buff(2, captainId).Add(playerId, 8));
+
+        // chilled (row 1) has both HasU82 and IsRecovery (1 GrantedStat): omitting both must still write u16 0 + u32 0.
+        Assert.Equal(
+            new Buff(1, captainId, Values: [0u], U82: 0).Add(playerId, 9),
+            new Buff(1, captainId).Add(playerId, 9));
     }
 }
