@@ -433,7 +433,7 @@ public static partial class Game
                         GolemReserveLocked(player, reaper, ultimate, target, player.Area.Monsters.GetValueOrDefault(target), aim, AreaTime(player));
                         return true;
                     }
-                if (definition.Id is "BlinkArrow" or "BlinkArrowAltX" or "BlinkArrowAltY")
+                if (definition.Id is "BlinkArrow" or "BlinkArrowAltX" or "BlinkArrowAltY" or "BlinkArrowRoyale")
                 {
                     var origin = player.Walk.Position(AreaTime(player));
                     var landing = MovementLanding(player, gem.Effect, origin, aim);

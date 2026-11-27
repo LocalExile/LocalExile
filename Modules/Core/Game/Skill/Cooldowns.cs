@@ -83,7 +83,7 @@ public static partial class Game
                 scoped += (long)perMine * Math.Max(0, playerStats.GetValueOrDefault(Stat.NumberOfMinesDetonatedRecently));
         }
         else trapUses = 0;
-        if (skills.EffectId(effect) is "BlinkArrow" or "BlinkArrowAltX" or "BlinkArrowAltY"
+        if (skills.EffectId(effect) is "BlinkArrow" or "BlinkArrowAltX" or "BlinkArrowAltY" or "BlinkArrowRoyale"
                 or "MirrorArrow" or "MirrorArrowAltX" or "MirrorArrowAltY")
             scoped += Bonus(Stat.BlinkAndMirrorArrowCooldownSpeedPlusPct);
         if (Bonus(Stat.PactCooldownSpeedPlusPct) is long pact and not 0 && skills.HasType(effect, "Pact"))
