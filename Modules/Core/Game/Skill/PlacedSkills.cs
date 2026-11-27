@@ -1284,8 +1284,12 @@ public static partial class Game
                 if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused) return null;
                 var bytes = new WorldRecordBuilder(player, admission);
                 var playerAt = player.Walk.Position(now);
-                foreach (var placed in player.Placed.All.Values.ToArray())
+                var pending = player.Placed.All.Values.ToArray();
+                Queue<PlacedSkills.Placed>? chained = null;
+                for (int index = 0; index < pending.Length || chained is { Count: > 0 }; index++)
                 {
+                    var placed = index < pending.Length ? pending[index] : chained!.Dequeue();
+                    if (!player.Placed.All.ContainsKey(placed.Id)) continue;
                     if (player.Connection.LockstepClient && !player.Connection.WorldOutput.PublishedObject(placed.Id).IsReady) continue;
                     // A trap goes off when its duration ends (seen on the official client 2026-11-19); a mine is removed.
                     // A Conversion Trap that was never set off converts nobody at its end: it only leaves.
@@ -1303,7 +1307,8 @@ public static partial class Game
                     }
 
                     bool skitter = false;
-                    if (!placed.SkitterTriggered && Dist(placed.At, playerAt) <= 100)
+                    bool chainTriggered = !placed.Mine && now >= placed.DetonateAt;
+                    if (!chainTriggered && !placed.SkitterTriggered && Dist(placed.At, playerAt) <= 100)
                     {
                         var bot = player.Reservations.Fighters.Values
                             .Where(g => g.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal)
@@ -1338,11 +1343,26 @@ public static partial class Game
                         player.RecentEvents.RecordAmount(StatConditions.DetonatedMine, now);
                     }
                     else if (placed.Mine) placed.Chain = 0;
-                    else player.RecentEvents.Record(TriggeredTrapEvent, now);
+                    else
+                    {
+                        player.RecentEvents.Record(TriggeredTrapEvent, now);
+                        int chainRadius = PlayerStat(player, Stat.NearbyTrapsWithinXUnitsAlsoTriggerOnTriggeringTrap);
+                        if (chainRadius > 0)
+                            foreach (var other in player.Placed.All.Values)
+                            {
+                                if (other.Id == placed.Id || other.Mine || now < other.LandAt || now < other.Armed
+                                    || now >= other.Until || now >= other.DetonateAt || Dist(placed.At, other.At) > chainRadius)
+                                    continue;
+                                if (player.Connection.LockstepClient && !player.Connection.WorldOutput.PublishedObject(other.Id).IsReady)
+                                    continue;
+                                other.DetonateAt = now;
+                                (chained ??= new()).Enqueue(other);
+                            }
+                    }
                     if (conversion) TriggerConversionTrap(player, placed, trigger, now, bytes);
                     else PlacedDamageLocked(player, placed, now, trigger, bytes);
                     PlacedChargesLocked(player, placed, nearby, now);
-                    if (!placed.Mine && (nearby || skitter || expired))
+                    if (!placed.Mine)
                     {
                         var ownerStats = PlayerStatValues(player);
                         if (nearby && ownerStats.GetValueOrDefault(Stat.GainXEsOnTrapTriggeredByAnEnemy) is > 0 and var shield
