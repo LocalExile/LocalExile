@@ -16,13 +16,14 @@ public static class ExpeditionLogbooks
         var areas = ClientTables.TableOrEmpty("WorldAreas").ToArray();
         var tags = ClientTables.TableOrEmpty("Tags").Select(t => t.TextOrNull("Id") ?? "").ToArray();
         string Tag(int row) => row >= 0 && row < tags.Length ? tags[row] : "";
+        factionTags = [.. ClientTables.TableOrEmpty("ExpeditionFactions").Select(f => Tag(f.IntOrNull("Tags") ?? -1))];
+        int[] factions = [.. Enumerable.Range(0, Math.Min(4, factionTags.Count))];
         locations = [.. ClientTables.TableOrEmpty("ExpeditionAreas")
             .Where(r => r.Index > 0 && r.IntOrNull("Area") is > 0 && r.Int("Area") < areas.Length)
             .Select(r => new Location((ushort)areas[r.Int("Area")].Int("HASH16"),
-                r.Ints("__col4").Where(f => f is >= 0 and < 4).ToArray(),
+                factions,
                 r.Ints("Tags").Select(Tag).Append("default").ToHashSet()))
             .Where(l => l.Factions.Count > 0)];
-        factionTags = [.. ClientTables.TableOrEmpty("ExpeditionFactions").Select(f => Tag(f.Int("Tags")))];
         implicits = [.. Items.Mods.All.Where(m => m.GenerationType == 23)];
     }
 

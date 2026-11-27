@@ -267,22 +267,27 @@ public sealed class IncursionEncounter
             await SyncFlagOff(player);
             return;
         }
-        lock (live.Inside) live.Inside.Remove(player);
-        if (live.Bindings is { } bindings)
+        await live.Gate.WaitAsync();
+        try
         {
-            var used = new HashSet<uint>(); var ids = new Dictionary<uint, uint>();
-            foreach (var body in bindings)
+            lock (live.Inside) live.Inside.Remove(player);
+            if (live.Bindings is { } bindings)
             {
-                var found = player.Area.Monsters.FirstOrDefault(p => !used.Contains(p.Key) && !p.Value.Dead && p.Value.Variety?.Row == body.Variety
-                    && (p.Key == body.Id || Distance(p.Value.Walk.Position(AreaTime(player)), (body.X, body.Y)) <= 4));
-                if (found.Value is null) continue;
-                used.Add(found.Key); ids[body.Id] = found.Key;
+                var used = new HashSet<uint>(); var ids = new Dictionary<uint, uint>();
+                foreach (var body in bindings)
+                {
+                    var found = player.Area.Monsters.FirstOrDefault(p => !used.Contains(p.Key) && !p.Value.Dead && p.Value.Variety?.Row == body.Variety
+                        && (p.Key == body.Id || Distance(p.Value.Walk.Position(AreaTime(player)), (body.X, body.Y)) <= 4));
+                    if (found.Value is null) continue;
+                    used.Add(found.Key); ids[body.Id] = found.Key;
+                }
+                live.Run.Rebind(ids); live.Bindings = null;
             }
-            live.Run.Rebind(ids); live.Bindings = null;
+            if (live.Building) { await Rollback(player, live); live.Building = false; }
+            await SyncPlayer(player, live);
+            Persist(player, live);
         }
-        if (live.Building) { await Rollback(player, live); live.Building = false; }
-        await SyncPlayer(player, live);
-        Persist(player, live);
+        finally { live.Gate.Release(); }
     }
 
     /// <summary>A player leaves: their flag goes with them, whether the instance still has incursions or not; the
@@ -291,8 +296,13 @@ public sealed class IncursionEncounter
     {
         if (LiveOf(player) is { } live)
         {
-            lock (live.Inside) live.Inside.Remove(player);
-            Persist(player, live);
+            await live.Gate.WaitAsync();
+            try
+            {
+                lock (live.Inside) live.Inside.Remove(player);
+                Persist(player, live);
+            }
+            finally { live.Gate.Release(); }
         }
         await SyncFlagOff(player);
     }

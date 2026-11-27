@@ -17,7 +17,8 @@ public static class MapAllflame
             .Where(r => r.IntOrNull("__col1") == 5 && r.IntOrNull("StatsKey") is int stat
                 && Program.Stats.Name((uint)stat + 1).StartsWith("map_num_allflame_", StringComparison.Ordinal))
             .Select(r => new Entry((uint)r.Int("StatsKey") + 1,
-                r.Ints("MonsterPacksKeys").Select(k => Game.Packs.Find(packs[k].Text("Id") ?? ""))
+                r.Ints("MonsterPacksKeys").Where(k => k >= 0 && k < packs.Length)
+                    .Select(k => Game.Packs.Find(packs[k].Text("Id") ?? ""))
                     .OfType<PackCatalog.Pack>().Where(p => p.Entries.Count > 0).ToArray()))];
     }
 

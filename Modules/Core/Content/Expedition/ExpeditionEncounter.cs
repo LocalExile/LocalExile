@@ -94,6 +94,7 @@ public sealed class ExpeditionEncounter : IDisposable
         public readonly System.Collections.Concurrent.ConcurrentDictionary<uint, SpawnedMonster> Monsters = [];
         /// <summary>The faction leader spawned as a monster in this area: 0 when not spawned.</summary>
         public readonly System.Collections.Concurrent.ConcurrentDictionary<uint, Reward> Rewards = [];
+        public SavedBody[]? PendingBodies;
         public uint LeaderId;
         /// <summary>Where the leader stands, and the talk entry its monster body is registered under.</summary>
         public (int X, int Y) LeaderCell;
@@ -113,29 +114,59 @@ public sealed class ExpeditionEncounter : IDisposable
     static void Persist(Player player, State state)
     {
         if (state.Plan is null) return;
-        var bodies = new List<SavedBody>();
-        foreach (var (id, reward) in state.Rewards)
-            if (player.Area.Monsters.TryGetValue(id, out var body) && !body.Dead && body.Life > 0 && body.Variety is { } variety)
-            {
-                var at = body.Walk.Position(AreaTime(player));
-                bodies.Add(new(id, variety.Row, at.X, at.Y, reward));
-            }
+        SavedBody[] bodies;
+        if (state.PendingBodies is { } pending)
+        {
+            bodies = pending;
+        }
+        else
+        {
+            var live = new List<SavedBody>();
+            foreach (var (id, reward) in state.Rewards)
+                if (player.Area.Monsters.TryGetValue(id, out var body) && !body.Dead && body.Life > 0 && body.Variety is { } variety)
+                {
+                    var at = body.Walk.Position(AreaTime(player));
+                    live.Add(new(id, variety.Row, at.X, at.Y, reward));
+                }
+            bodies = [.. live];
+        }
         player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(new Saved(state.Owner, state.Plan, state.Stage,
             state.Revealed, state.DetonatorId,
             [.. state.Pieces.Values.Select(p => (Piece: p, Blob: p.Blob())).Where(p => p.Blob is not null)
                 .Select(p => new SavedPiece(p.Piece.Id, p.Piece.Type, p.Piece.Note, p.Blob!))],
             [.. state.Explosives], [.. state.ExplosiveIds], [.. state.Chains], state.Left, state.Clock, [.. state.Queue],
-            [.. state.Dug], [.. state.Broken], state.Chests, state.Blasts, [.. bodies]), Json);
+            [.. state.Dug], [.. state.Broken], state.Chests, state.Blasts, bodies), Json);
+    }
+
+    static void BindBodies(Player player, State state)
+    {
+        if (state.PendingBodies is null) return;
+        lock (state)
+        {
+            if (state.PendingBodies is not { } pending) return;
+            var used = new HashSet<uint>();
+            foreach (var body in pending)
+            {
+                var match = player.Area.Monsters.FirstOrDefault(p => !used.Contains(p.Key) && !p.Value.Dead
+                    && p.Value.Variety?.Row == body.Variety && (p.Key == body.Id
+                        || Distance(p.Value.Walk.Position(AreaTime(player)), (body.X, body.Y)) <= 4));
+                if (match.Value is null) continue;
+                used.Add(match.Key); state.Monsters[match.Key] = match.Value; state.Rewards[match.Key] = body.Reward;
+            }
+            state.PendingBodies = null;
+        }
     }
 
     static State Restore(Player player, string text)
     {
         var saved = JsonSerializer.Deserialize<Saved>(text, Json)!;
+        byte areaLevel = AreaLevel(player);
         var state = new State
         {
             Checked = true, Placed = true, Made = true, Owner = saved.Owner, Plan = saved.Plan,
             Stage = saved.Stage, Revealed = saved.Revealed, DetonatorId = saved.Detonator,
             Left = saved.Left, Clock = saved.Clock, Blasts = saved.Blasts,
+            PendingBodies = saved.Bodies.Length > 0 ? saved.Bodies : null,
         };
         state.Explosives.AddRange(saved.Explosives); state.ExplosiveIds.AddRange(saved.ExplosiveIds);
         state.Chains.AddRange(saved.Chains); state.Queue.AddRange(saved.Queue);
@@ -148,22 +179,13 @@ public sealed class ExpeditionEncounter : IDisposable
                 blob = () => ExpeditionWire.Object(DetonatorType, plan.Detonator, plan.Rotation, animated: 0x40,
                     interaction: (byte)(state.Stage < Stage.Chain ? 1 : 0), stateValues: DetonatorStates(state));
             else if (state.Chests.TryGetValue(piece.Id, out var chest))
-                blob = () => ExpeditionWire.Object(chest.Type, chest.Cell, 0, AreaLevel(player),
+                blob = () => ExpeditionWire.Object(chest.Type, chest.Cell, 0, areaLevel,
                     interaction: (byte)(chest.Ready && !chest.Opened ? 1 : 0), stateValues: [chest.Opened ? 3 : chest.Ready ? 2 : 1]);
             else if (piece.Type == RelicType && state.Plan?.Remnants.FirstOrDefault(r => r.Id == piece.Id) is { } remnant)
                 blob = () => ExpeditionWire.Object(RelicType, remnant.Cell, remnant.Rotation, ao: ExpeditionTables.RelicAo,
                     mods: [.. remnant.Mods.Select(m => new ItemMod(ModSection.Explicit, m.Hash, m.Values))],
                     stateValues: state.Broken.Contains(state.Plan.Remnants.IndexOf(remnant)) ? BrokenRemnant : null);
             state.Pieces[piece.Id] = new(piece.Id, piece.Type, piece.Note, blob);
-        }
-        var used = new HashSet<uint>();
-        foreach (var body in saved.Bodies)
-        {
-            var match = player.Area.Monsters.FirstOrDefault(p => !used.Contains(p.Key) && !p.Value.Dead
-                && p.Value.Variety?.Row == body.Variety && (p.Key == body.Id
-                    || Distance(p.Value.Walk.Position(AreaTime(player)), (body.X, body.Y)) <= 4));
-            if (match.Value is null) continue;
-            used.Add(match.Key); state.Monsters[match.Key] = match.Value; state.Rewards[match.Key] = body.Reward;
         }
         return state;
     }
@@ -413,6 +435,7 @@ public sealed class ExpeditionEncounter : IDisposable
             foreach (var piece in state.Pieces.Values.ToList())
                 if (!player.Area.Objects.Has(piece.Id)) await Show(player, piece);
         }
+        BindBodies(player, state);
     }
 
     // ---- The faction leader ----------------------------------------------------------------------------------------------
@@ -650,6 +673,7 @@ public sealed class ExpeditionEncounter : IDisposable
         try
         {
             if (state.Stage == Stage.Over) return;
+            BindBodies(player, state);
             state.Clock += seconds;
             var near = Clients(player).Select(c => PlayerOf(c).Position).ToList();
             if (!state.Revealed && near.Any(p => Distance(p, plan.Detonator) <= ExpeditionTables.RevealDist)) await Reveal(player, state);
@@ -694,7 +718,9 @@ public sealed class ExpeditionEncounter : IDisposable
 
     public void Drops(DropRoll roll)
     {
-        if (StateOf(roll.Player) is not { } state || !state.Rewards.TryGetValue(roll.Monster.ObjectId, out var reward)
+        if (StateOf(roll.Player) is not { } state) return;
+        BindBodies(roll.Player, state);
+        if (!state.Rewards.TryGetValue(roll.Monster.ObjectId, out var reward)
             || !reward.Runic) return;
         var rng = AreaRng(roll.Player);
         // Baseline runic logbook chance is a server calibration; remnant quantity and Infusion scale the same roll.
@@ -708,6 +734,7 @@ public sealed class ExpeditionEncounter : IDisposable
     public void OnKill(KillContext kill)
     {
         if (kill.Player.Instance is null || !_states.TryGetValue(kill.Player.Instance, out var state)) return;
+        BindBodies(kill.Player, state);
         foreach (var (id, body) in state.Monsters)
             if (ReferenceEquals(body, kill.Monster)) state.Monsters.TryRemove(id, out _);
     }

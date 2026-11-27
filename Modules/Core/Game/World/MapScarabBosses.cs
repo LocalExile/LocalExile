@@ -36,7 +36,7 @@ public static class MapScarabBosses
     {
         if (request.Campaign || request.Opening is not { } opening || Bosses.Count == 0) return;
         request.HandledContent.Add(Terrors);
-        if (AreaTransitionCatalog.HashOf(opening.Area.Id) is ushort hash && MapDevices.IsMapArea(hash))
+        if (MapDevices.IsMapArea(opening.Area.Hash16))
             request.HandledContent.Add(AtlasPacks);
     }
 

@@ -115,6 +115,10 @@ public sealed class NextFourScarabTests
                 Assert.All(area.Implicits, m => Assert.Equal(Program.Items.Mods.ByHash(m.Hash)!.Stats.Count, m.Values.Count));
             }
             Assert.All(ExpeditionLogbooks.Create(83, new Random(505), false)!.ExpeditionSaga!.Areas, a => Assert.Equal(3, a.Implicits.Count));
+            var rolledFactions = Enumerable.Range(0, 64)
+                .SelectMany(seed => ExpeditionLogbooks.Create(83, new Random(seed), false)!.ExpeditionSaga!.Areas.Select(a => a.Faction))
+                .ToHashSet();
+            Assert.Equal(new byte[] { 0, 1, 2, 3 }, rolledFactions.Order());
             var temple = IncursionTemple.Create("ScarabReward", 83)!;
             string original = temple.ToJson();
             var templeType = Program.Items.Find("Metadata/Items/Incursion/ItemisedTemple")!;
