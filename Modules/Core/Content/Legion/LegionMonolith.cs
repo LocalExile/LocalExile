@@ -297,8 +297,24 @@ static partial class LegionMonolith
                     var rebound = LegionStasis.RebindArmy(player, old);
                     if (!old.Select(m => m.Id).SequenceEqual(rebound.Select(m => m.Id)))
                     {
+                        bool repeat = e.Phase == Phase.Running && Multiple(player);
+                        if (repeat) rebound = [.. rebound.Select(m => m.Chest ? m : m with { Broken = false })];
                         e.Army = rebound;
-                        foreach (var member in rebound) Arm(module, player, e, member);
+                        foreach (var member in rebound)
+                        {
+                            if (repeat && !member.Chest && player.Area.Monsters.TryGetValue(member.Id, out var m))
+                            {
+                                var reset = (m.States ?? m.Variety?.StateMachine)?.Set("breakout", 0);
+                                if (reset is not null)
+                                {
+                                    m.States = reset;
+                                    if (player.Instance.World.MonsterOrigins.TryGetValue(member.Id, out var origin))
+                                        player.Instance.World.MonsterOrigins[member.Id] = origin with { Object = origin.Object with { StateMachine = reset } };
+                                }
+                                LegionStasis.SetOriginState(player, member.Id, LegionStasis.Revealed);
+                            }
+                            Arm(module, player, e, member);
+                        }
                     }
                 }
                 if (e.ReleasedIds is { } released) e.ReleasedIds = LegionStasis.RebindReleased(player, released);

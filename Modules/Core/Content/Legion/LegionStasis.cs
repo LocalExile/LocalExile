@@ -78,7 +78,7 @@ static class LegionStasis
                 var restored = player.Area.Monsters.FirstOrDefault(p => !p.Value.Dead && !map.ContainsKey(p.Key)
                     && p.Value.Variety?.Id == fighter.Variety && Near(p.Value, fighter.X, fighter.Y, player));
                 if (restored.Value is null) continue;
-                map.TryRemove(id, out _); map[restored.Key] = fighter;
+                map.TryRemove(id, out _); map[restored.Key] = fighter with { OriginalId = id };
             }
             PersistFighters(player, map);
         }
