@@ -73,13 +73,20 @@ public sealed class VillageRewardsService(IOperationsHost host)
         return false;
     }
 
-    /// <summary>Notifies the client about updated reward availability (<c>0x02c9 0x08</c> + <c>0x001e check_reward_icon_visibility</c>).</summary>
+    /// <summary>
+    /// Notifies the client about updated reward availability (<c>0x02c9 0x08</c> + <c>0x001e check_reward_icon_visibility</c>).
+    /// In 3.29, <c>ActiveRewardNotice</c> carries the 1-based ship slot (<c>1..3</c>) whose shipping reward stash is currently
+    /// opened (locking other ships' REWARDS buttons until collected/discarded), or <c>0</c> when none is locked.
+    /// </summary>
     public async Task SyncRewardVisibilityAsync(Player player, byte? activeNoticeValue = null)
     {
-        var (account, league) = VillageStore.ScopeOf(player);
-        bool hasShip = HasAnyRewards(account, league, SourceShipping);
-        bool hasMap = HasAnyRewards(account, league, SourceMapping);
-        byte notice = activeNoticeValue ?? (hasShip ? (byte)1 : hasMap ? (byte)2 : (byte)0);
+        byte notice = activeNoticeValue ?? 0;
+        if (activeNoticeValue is null && _sessions.TryGetValue(player, out var open) && open.SourceKind == SourceShipping)
+        {
+            bool hasLeft;
+            lock (open.Gate) hasLeft = open.ByItemId.Count > 0;
+            if (hasLeft) notice = (byte)(open.SlotIndex + 1);
+        }
         await Send(player, InstanceVillage.ActiveRewardNotice(notice), $"0x02c9 village ActiveRewardNotice({notice})");
         await Send(player, InstanceVillage.RulesetEvent(InstanceVillage.EventCheckRewardIconVisibility),
             "0x001e village check_reward_icon_visibility");
@@ -141,6 +148,9 @@ public sealed class VillageRewardsService(IOperationsHost host)
             ? InstanceVillage.ShippingRewardItems(cmd.SlotIndex, session.PageInventoryIds)
             : InstanceVillage.MappingRewardItems(cmd.SlotIndex, session.PageInventoryIds);
         await Send(player, openPkt, $"0x02c9 village {(cmd.SourceKind == SourceShipping ? "Shipping" : "Mapping")}RewardItems(slot={cmd.SlotIndex}, tabs={session.PageInventoryIds.Count})");
+        if (cmd.SourceKind == SourceShipping && session.ByItemId.Count > 0)
+            await Send(player, InstanceVillage.ActiveRewardNotice((byte)(cmd.SlotIndex + 1)),
+                $"0x02c9 village ActiveRewardNotice({cmd.SlotIndex + 1})");
         return true;
     }
 
@@ -454,7 +464,7 @@ public sealed class VillageRewardsService(IOperationsHost host)
                 await OperationsSubsystem.Shipping.OnRewardsEmptiedAsync(player, session.SlotIndex);
             else if (session.SourceKind == SourceMapping)
                 await OperationsSubsystem.Mapping.OnRewardsEmptiedAsync(player, session.SlotIndex);
-            await SyncRewardVisibilityAsync(player);
+            await SyncRewardVisibilityAsync(player, activeNoticeValue: 0);
         }
     }
 

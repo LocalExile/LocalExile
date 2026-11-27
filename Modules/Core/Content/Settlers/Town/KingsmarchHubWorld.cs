@@ -152,6 +152,7 @@ public static class KingsmarchHubWorld
         var visuals = AreaVisuals.GetOrCreateValue(player.Area);
         var townState = VillageTownService.GetState(player);
         var toPresent = new List<(uint Id, string Type, QuestObject Obj, string Log)>(_armObjects.Count);
+        bool builtNow = false;
 
         lock (townState.Gate)
         {
@@ -181,11 +182,12 @@ public static class KingsmarchHubWorld
                             TrackSpawnedLocked(visuals, id, obj, spec, sm);
                         }
                         visuals.Built = true;
+                        builtNow = true;
                     }
                 }
 
-                if (!visuals.PresentedPlayers.Add(player))
-                    return; // Already presented to this connection.
+                if (!visuals.PresentedPlayers.Add(player) || !builtNow)
+                    return; // Already presented to this connection, or AreaObjectRecords.Join will deliver to later joiners.
 
                 for (int i = 0; i < visuals.AllObjects.Count; i++)
                 {
@@ -208,9 +210,9 @@ public static class KingsmarchHubWorld
             }
         }
 
-        // Send all creates cleanly in one non-stalling batch (wake: true, awaitBirth: false prevents a 349-frame lockstep stall).
+        // Send all creates cleanly with ViewOf = null so AreaObjectRecords records every object for later joiners AND hot-reload recovery.
         var previousView = Program.ViewOf.Value;
-        Program.ViewOf.Value = player;
+        Program.ViewOf.Value = null;
         try
         {
             foreach (var (id, type, qObj, log) in toPresent)
