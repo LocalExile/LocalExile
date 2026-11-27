@@ -94,7 +94,7 @@ public static partial class Game
         int Own(uint n) => GolemStat(curseStats, n);
         int Get(uint n) => GolemStat(playerStats, n) + Own(n);
         bool hexMaster = Get(Stat.KeystoneHexMaster) != 0;
-        if (monster.Mods.Effects[Stat.ImmuneToCurses] != 0 || !definition.Mark && monster.Mods.Effects[Stat.Hexproof] != 0
+        if (monster.Effects[Stat.ImmuneToCurses] != 0 || !definition.Mark && monster.Effects[Stat.Hexproof] != 0
             && Get(Stat.IgnoreHexproof) == 0 && Get(Stat.Of("hexes_ignore_hexproof")) == 0
             && (effect != "ElementalWeakness" || Get(Stat.ElementalWeaknessIgnoresHexproof) == 0)
             && !RandomRolls.Chance(Get(Stat.ChanceToIgnoreHexproofPct), 100, AreaRng(player))) return false;
@@ -470,7 +470,7 @@ public static partial class Game
                 m.Bleeds.SetExpiryRate(now, BleedingExpiryRate(m, now));
             }
             // SlowestActionFactor is <= 1, so when slow == 0 (no Temporal Chains), Max(floor, 1) is always 1.
-            m.ReceivedActionFactor = slow == 0 ? 1 : Math.Max(BossMods.SlowestActionFactor(m.Variety), 1 + slow / 100);
+            m.ReceivedActionFactor = slow == 0 ? 1 : Math.Max(BossMods.SlowestActionFactor(m.Variety), TemporalChainsActionFactor(slow));
             m.ReceivedActionUntil = slow != 0 ? double.PositiveInfinity : now;
         }
         if (m.HasCurses && m.Curses.PresentedVersion != m.Curses.Version)

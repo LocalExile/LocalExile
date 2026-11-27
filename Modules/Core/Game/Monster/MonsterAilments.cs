@@ -30,10 +30,15 @@ public static partial class Game
     public static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental = false, bool hit = false,
         bool chaos = false) => MonsterDamageTaken(m, spell, now, elemental, hit, chaos, 0);
 
+    /// <summary>Distinguishes damage over time from non-hit damage such as a reflected Molten Shell burst.</summary>
+    public static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental, bool hit,
+        bool chaos, bool overTime) => MonsterDamageTaken(m, spell, now, elemental, hit, chaos, 0, overTime);
+
     static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental, bool hit,
-        bool chaos, double increasedPct) =>
+        bool chaos, double increasedPct, bool overTime = false) =>
         m.Effects.DamageTaken(spell, increasedPct + m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
-            + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
+            + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental + m.Effects[Stat.ElementalDamageTakenPlusPct] : 0)
+            + (overTime ? m.Effects[Stat.DegenEffectPlusPct] : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
             + m.SpiderWebs.Taken(now)
             + (chaos ? WitheredTaken(m, now) : 0)
             + m.Ignites.DamageTaken(now)
@@ -359,8 +364,12 @@ public static partial class Game
         if (playerHit) QueueLivingLightningLocked(player, targetId, m, sourceSkill, skill, mitigated, now);
         if (playerHit && !spell && skill is not null && GolemStat(skill, Stat.HolyStrikeAnimatesOwnersMainHandWeapon) != 0)
             QueueHolyArmamentLocked(player, targetId, m, sourceSkill);
+        if (sourceSkill != 0 && !spell && (ownHit ?? playerHit) && m.Hostile
+            && skill?.GetValueOrDefault(Stat.TriggerPrismaticBurstOnHitPctChance) is > 0 and var burstChance)
+            TriggerPrismaticBurstLocked(player, sourceSkill, sourceEffect, m.Walk.Position(now), now, playerStats, burstChance);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, owned, random);
+        if (ownHit ?? playerHit) ItemMarksOnHitLocked(player, m, now);
         if (playerHit && critical) ArcaneSurgeOnCritLocked(player, playerStats, now, random);
         if (critical && (ownHit ?? playerHit) && m.Hostile && !m.Invulnerable)
             LoseLifeOnCriticalStrikeLocked(player, Player(Stat.LosePctOfLifeOnCrit), now);

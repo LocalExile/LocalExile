@@ -249,6 +249,10 @@ public static partial class Game
         public long Revision, Presented;
         public (int Movement, int Avoid) AppliedElusive;
         public int AppliedOnslaughtEffect;
+        // The poison count the pools were last built with (-1 before any build through PoolsFor).
+        // The sources sum never reads the count, so the cached key keeps the count from the last sum
+        // build; only this record can tell whether the pools still match the poison count now.
+        public int AppliedPoisonStacks = -1;
         public long CheckedInventoryMutations = -1;
         public int CheckedPassivesCount = -1;
         public int CheckedTattooRevision = -1;
@@ -323,11 +327,19 @@ public static partial class Game
         int level = player.Pools.Level;
         bool god = player.God;
         var cached = player.StatSourcesCache;
+        // Read once for the fast path and both no-rebuild returns below: the cached key keeps the
+        // poison count from the last sum build, which a cache hit never refreshes.
+        int poisonStacks = player.IncomingAilments.PoisonStacks(AreaTime(player));
+        // -1: the pools were never built through PoolsFor, which as before this record means "no poison seen" (the old
+        // first-build shortcut required a zero count), not a change: a rebuild here would reset a fresh player's pools.
+        bool samePoison = state.AppliedPoisonStacks < 0 ? poisonStacks == 0 : poisonStacks == state.AppliedPoisonStacks;
         var elusive = ElusivePanelState(player);
         long itemStatRevision = GameEvents.ItemStatSources.Revision;
         bool providersChanged = state.ItemStatRevision != itemStatRevision;
         // Fast path: when equipment, passives, level, god mode, and StatSourcesCache are unchanged, and no worn item
         // carries a conditional pool modifier or beast companion, skip rebuilding EquipmentStatSources on every incoming hit.
+        // The poison count is compared against the pools' own record (AppliedPoisonStacks), not the cached key:
+        // a cache hit never refreshes the key, so the key would fail this check forever once poison is nonzero.
         if (!providersChanged && cached is not null && ReferenceEquals(state.Applied, cached)
             && state.CheckedInventoryMutations == invMutations
             && state.CheckedPassivesCount == passivesCount
@@ -339,7 +351,7 @@ public static partial class Game
             && !HasAnyBeastCompanionState(player)
             && state.AppliedElusive == elusive
             && GameEvents.ExemptItems(player).Count == 0
-            && player.IncomingAilments.PoisonStacks(AreaTime(player)) == cached.Key.PoisonStacks)
+            && samePoison)
             return false;
         state.ItemStatRevision = itemStatRevision;
         EquipmentStatSources(player, EquipmentForStats(player));
@@ -364,7 +376,10 @@ public static partial class Game
         int onslaughtEffect = Stat.OnslaughtEffectPlusPct is var effectKey
             ? current?.Sources.GetValueOrDefault(effectKey) ?? 0 : 0;
         bool sameOnslaughtEffect = state.AppliedOnslaughtEffect == onslaughtEffect;
-        if (current is null || !providersChanged && ReferenceEquals(before, current) && sameElusive && sameOnslaughtEffect) return false;
+        // ReferenceEquals(before, current) alone cannot tell a poison change apart: a cache hit returns
+        // the same result object, so the poison count has to be checked against the pools' own record.
+        if (current is null || !providersChanged && ReferenceEquals(before, current) && sameElusive && sameOnslaughtEffect
+            && samePoison) return false;
         state.Applied = current;
         state.AppliedElusive = elusive;
         state.AppliedOnslaughtEffect = onslaughtEffect;
@@ -381,10 +396,10 @@ public static partial class Game
         bool sameHerEmbrace = (before?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true)
             == (current.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true);
         if (!providersChanged && sameElusive && sameHerEmbrace && sameOnslaughtEffect
-            && (before is null && !conditionalEquipment && current.Key.PoisonStacks == 0
+            && samePoison
+            && (before is null && !conditionalEquipment
             || before is not null && before.Attributes == current.Attributes
             && before.Inactive.SetEquals(current.Inactive)
-            && before.Key.PoisonStacks == current.Key.PoisonStacks
             && before.Sources.Count == current.Sources.Count
             && before.Sources.All(p => current.Sources.TryGetValue(p.Key, out int value) && value == p.Value))) return false;
         player.Pools = PoolsFor(player, player.Pools.Level);

@@ -90,6 +90,7 @@ public static partial class Game
             return ProjectileHitResult.Miss;
         double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond,
             AreaTime(player));
+        if (MonsterAvoidsProjectile(target, contact.Projectile.RandomSource)) return ProjectileHitResult.Miss;
         if (shot.TemporaryAllyUntil is double until)
         {
             if (now >= until || shot.Monster.TemporaryAllyUntil != until

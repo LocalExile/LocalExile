@@ -4,7 +4,7 @@ public static partial class Game
 {
     static bool TimedAreaSpellEffect(string? effect) =>
         CorpseDamageSpell(effect) || CremationEffect(effect) || BladefallEffect(effect)
-        || FrostBombEffect(effect) || effect == "BallLightningAltY";
+        || FrostBombEffect(effect) || IsBladeVortex(effect) || effect is "BallLightningAltY" or VaalBladeVortexEffect;
 
     public sealed partial class ProjectileSession
     {
@@ -27,6 +27,27 @@ public static partial class Game
             {
                 if (!Current() || !commit()) return;
                 double now = ProjectileWorldTime(Player);
+                if (effect == VaalBladeVortexEffect)
+                {
+                    ReleaseVaalBladeVortex(source, CharacterPlayerStats(Player), Player.Walk.Position(now), Current,
+                        (at, radius) => Hit(at, radius, ProjectileWorldTime(Player)));
+                    return;
+                }
+                if (IsBladeVortex(effect))
+                {
+                    ReleaseBladeVortex(Player.Id, gem.Id, SkillArtVariation(Player, gem.Gem), source, CharacterPlayerStats(Player), Current,
+                        (radius, scale, critIncrease) =>
+                        {
+                            var at = Player.Walk.Position(ProjectileWorldTime(Player));
+                            // Repeats add blades to the same vortex. Its subsequent hits use the blade count.
+                            var task = AreaSkillHitForUse(null, Player, gem.Id, gem, at, at, immediate: true, sequence: sequence,
+                                radiusOverride: radius, sacrifice: sacrifice, triggeredCurrent: Current, scheduledSession: this,
+                                extraCriticalIncrease: critIncrease, hitAndAilmentMore: scale);
+                            if (!task.IsCompleted) throw new InvalidOperationException("Blade Vortex contact must not yield.");
+                            task.GetAwaiter().GetResult();
+                        });
+                    return;
+                }
                 if (VolatileDeadEffect(effect))
                 {
                     ReleaseVolatileDead(gem.Id, aim, now, Current, (at, radius, time) => Hit(at, radius, time), more: more * beidatMore);

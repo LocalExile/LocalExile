@@ -22,7 +22,7 @@ public static partial class Game
     {
         foreach (var (stat, effect) in ItemCurseOnHitStats)
             ApplyItemCurseLocked(player, target, effect, hitStats.GetValueOrDefault(stat), now, hitStats);
-        if (mayTriggerMark)
+        if (mayTriggerMark && !ItemEffectRules.Enabled)
             TryTriggeredAssassinsMarkLocked(player, target, hitStats.GetValueOrDefault(Stat.CurseOnHitLevelAssassinsMark),
                 now, hitStats, "AssassinsMarkTriggered");
     }
@@ -40,7 +40,8 @@ public static partial class Game
             || ActiveMarkTarget(player, now) is not null) return;
         var skills = SkillsFor(player);
         int row = skills.EffectRow(sourceEffect);
-        if (row < 0 || now < player.SkillReadyAt.GetValueOrDefault(row)) return;
+        if (row < 0 || now < player.SkillReadyAt.GetValueOrDefault(row)
+            || GemDisabled(player, row) is not null) return;
         var own = ItemCurseStats(skills, sourceEffect, level);
         if (own.Count == 0) return;
         var triggered = new SupportedGem(row, level, 0, [], own, Granted: true);

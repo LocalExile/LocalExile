@@ -812,6 +812,29 @@ public static partial class Game
             RequalifyHerEmbrace(player, conditionFlags, active, phaseInputs), phaseInputs, active), phaseInputs, active);
         conditionFlags = RequalifySourcePhasing(player, conditionFlags, phaseInputs, recentEvents, auraEffects, conditionNow);
         conditionFlags = QualifiedEquipmentItemFlags(conditionFlags, equipment, catalog, active);
+        // From here the map is only read, never requalified: wrap it so the build records which flags it
+        // reads. The cached key then compares only those (Matches), like ReadAmounts. Nine flags are
+        // marked read on purpose, so their flips must still miss the cache even when no conditional stat
+        // reads them: seven are consumed from the cached key by other decisions -- source_phasing
+        // (player.SourcePhasing), _while_in_her_embrace (ConditionalItemPools sameHerEmbrace),
+        // _while_you_have_avatar_of_fire and _while_affected_by_elusive (the avatar / elusive gates),
+        // source_onslaught (the charge-onslaught gate), _while_no_life_is_reserved and
+        // _while_no_mana_reserved (the reservation mastery gate) -- and two are the ring-slot flags,
+        // _if_left_ring_is_magic_item and _if_right_ring_is_magic_item: the ring-slot conditions are
+        // answered through ConditionalRings(...).Value, which reads the equipment list directly and never
+        // touches this map, so without the mark a same-item move between ring slots would flip no read
+        // flag and the cached sum would be reused with the old slot's answer.
+        var flagReads = new ReadFlags(conditionFlags);
+        flagReads.MarkRead("source_phasing");
+        flagReads.MarkRead("_while_in_her_embrace");
+        flagReads.MarkRead("_while_you_have_avatar_of_fire");
+        flagReads.MarkRead("_while_affected_by_elusive");
+        flagReads.MarkRead("source_onslaught");
+        flagReads.MarkRead("_while_no_life_is_reserved");
+        flagReads.MarkRead("_while_no_mana_reserved");
+        flagReads.MarkRead("_if_left_ring_is_magic_item");
+        flagReads.MarkRead("_if_right_ring_is_magic_item");
+        conditionFlags = flagReads;
         int qualifiedItemReservationPercent = LifeReservation.ItemPercentStat is var itemReservationKey
             ? WornItemSum(player, itemBonuses).GetValueOrDefault(itemReservationKey)
             : 0;
@@ -838,8 +861,15 @@ public static partial class Game
         {
             var chargeFlags = RequalifySourcePhasing(player,
                 RequalifyChargeConditions(player, conditionFlags, sources), phaseInputs, recentEvents, auraEffects, conditionNow);
-            if (chargeFlags.All(p => conditionFlags.TryGetValue(p.Key, out bool prior) && p.Value == prior)) break;
-            conditionFlags = chargeFlags;
+            // Compare without recording: this check touches every flag in the requalified map,
+            // and a recorded read would mark all of them read -- the moving flag included --
+            // even though no conditional stat reads them. The requalification result, not the
+            // comparison, is what the build keeps.
+            if (chargeFlags.All(p => conditionFlags is ReadFlags recorded
+                ? recorded.TryGetValueUnrecorded(p.Key, out bool prior) && p.Value == prior
+                : conditionFlags.TryGetValue(p.Key, out bool plain) && p.Value == plain)) break;
+            // Keep the read set across the replacement: the new map is a requalification of the same build.
+            conditionFlags = conditionFlags is ReadFlags recorded ? recorded.Rewrap(chargeFlags) : chargeFlags;
             var passSubject = ConditionSubject(rawAttributes, active, equippedActive);
             sources = ItemModStats.Plus(FoldPassiveConditions(passives, passSubject),
                 ItemModStats.Global(itemBonuses, ItemsFor(player).Mods, Stats, passSubject));
@@ -847,13 +877,16 @@ public static partial class Game
             GrandSpectrum.Apply(sources, Stats);
         }
         sourcesKey = sourcesKey with { Flags = conditionFlags };
-        // Assassin's Mark has an item-local trigger level that applies to eligible hits by the wearer.
-        const uint itemMark = Stat.CurseOnHitLevelAssassinsMark;
-        int markLevel = 0;
-        foreach (Item item in itemBonuses)
-            markLevel = Math.Max(markLevel, ItemModStats.LocalValue(item, catalog.Mods, itemMark));
-        if (markLevel > 0)
-            sources[itemMark] = Math.Max(sources.GetValueOrDefault(itemMark), markLevel);
+        if (!ItemEffectRules.Enabled)
+        {
+            // The legacy trigger reads the item-local level from actual active equipment.
+            const uint itemMark = Stat.CurseOnHitLevelAssassinsMark;
+            int markLevel = 0;
+            foreach (var (_, equipped) in ItemsOf(player).EquipmentSnapshot())
+                if (!inactive.Contains(equipped.Id))
+                    markLevel = Math.Max(markLevel, ItemModStats.LocalValue(equipped.Item, catalog.Mods, itemMark));
+            if (markLevel > 0) sources[itemMark] = markLevel;
+        }
         ApplyMinionSocketConversions(active, catalog, sources);
         // Clamp only this outgoing integer view; the authoritative attribute inputs remain wide beside it.
         foreach (var (name, value) in rawAttributes)
@@ -972,6 +1005,11 @@ public static partial class Game
     static readonly Store<Player, AttributeRequirementSource> AttributeRequirementSources = new();
 
     /// <summary>The inputs of CharacterStatSources' passive and equipment sum, compared by value (items by reference).</summary>
+    /// PoisonStacks stays in the shape so existing callers keep compiling, but it is not compared: no part of
+    /// the sum reads it (the poison regeneration is applied after the cache), so a poison gained or lost alone
+    /// must not discard the cached sum. The pools layer tracks the count separately
+    /// (ConditionalItemPoolState.AppliedPoisonStacks): the pools are built from the post-cache layers that do
+    /// read it, so a poison change still rebuilds the pools even though the sum itself is reused.
     public sealed record StatSourcesKey(ushort[] Nodes, IReadOnlyDictionary<ushort, ushort> Masteries,
         GameServer.Core.Protocol.Instance.InventoryItem[] Worn, int ClassRow, bool God, int Level,
         IReadOnlySet<uint>? Before, ushort[] ClusterPassives, int TattooRevision, uint[] RunItems,
@@ -995,9 +1033,9 @@ public static partial class Game
             && Auras.SetEquals(o.Auras) && Recent.SetEquals(o.Recent)
             && Strength == o.Strength && Dexterity == o.Dexterity && Intelligence == o.Intelligence
             && Life == o.Life && Mana == o.Mana && EnergyShield == o.EnergyShield
-            && PoisonStacks == o.PoisonStacks
-            && (Flags?.Count ?? 0) == (o.Flags?.Count ?? 0)
-            && (Flags is null || Flags.All(p => o.Flags is not null && o.Flags.TryGetValue(p.Key, out bool active) && p.Value == active))
+            // The poison count is not compared: nothing in the sources sum reads it, and the poison
+            // regeneration is applied after the cache, so a poison gained or lost alone keeps the hit.
+            && FlagsMatch(Flags, o.Flags)
             && (Amounts?.Count ?? 0) == (o.Amounts?.Count ?? 0)
             && (Amounts is null || o.Amounts is not null && Amounts.ReadSame(o.Amounts));
 
@@ -1018,11 +1056,30 @@ public static partial class Game
             : !Recent.SetEquals(o.Recent) ? "recent event " + (o.Recent.Except(Recent).FirstOrDefault() is { } began ? "+" + began : "-" + Recent.Except(o.Recent).FirstOrDefault())
             : Strength != o.Strength || Dexterity != o.Dexterity || Intelligence != o.Intelligence ? "attributes"
             : Life != o.Life || Mana != o.Mana || EnergyShield != o.EnergyShield ? "pools"
-            : PoisonStacks != o.PoisonStacks ? "poison stacks"
-            : Flags is not null && o.Flags is not null && o.Flags.FirstOrDefault(p => !Flags.TryGetValue(p.Key, out bool was) || was != p.Value) is { Key: { } flag } ? "flag " + flag
+            : FlagDifference(Flags, o.Flags) is { } flagDiff ? flagDiff
             : Amounts is not null && o.Amounts is not null && !Amounts.ReadSame(o.Amounts) ? "recent amounts"
             : "other";
     }
+
+        /// <summary>Whether the two flag maps agree on every flag the cached build read. A map that is not a
+        /// <see cref="ReadFlags"/> (a caller-built key, a test) falls back to the old full comparison, so the
+        /// answer never changes for callers that do not record reads. Only the cached-to-fresh direction is
+        /// used in production (the lookup at the top of EquipmentStatSources), and only that direction can
+        /// use the read set: the fresh key carries a plain map whose read set is empty.</summary>
+        static bool FlagsMatch(IReadOnlyDictionary<string, bool>? mine, IReadOnlyDictionary<string, bool>? other) =>
+            mine is null ? (other?.Count ?? 0) == 0
+            : other is null ? false
+            : (mine as ReadFlags) is { } read ? read.ReadSame(other)
+            : mine.Count == other.Count
+                && mine.All(p => other.TryGetValue(p.Key, out bool active) && p.Value == active);
+
+        /// <summary>The first flag the cached build read whose value differs, as a probe reason, or null when
+        /// the maps agree on every read flag (or when either side is not a <see cref="ReadFlags"/> and the
+        /// full comparison finds no difference).</summary>
+        static string? FlagDifference(IReadOnlyDictionary<string, bool>? mine, IReadOnlyDictionary<string, bool>? other) =>
+            mine is null || other is null ? null
+            : (mine as ReadFlags) is { } read ? read.ReadDifference(other) is { } flag ? "flag " + flag : null
+            : other.FirstOrDefault(p => !mine.TryGetValue(p.Key, out bool was) || was != p.Value) is { Key: { } key } ? "flag " + key : null;
 
     /// <summary>The named amounts of one stat-sources build (kills and mana spent recently, living minions and totems),
     /// remembering which of them the build read. Its result depends on those alone, so a kill or a paid cost does not
@@ -1055,6 +1112,72 @@ public static partial class Game
         }
     }
 
+    /// <summary>The named condition flags of one stat-sources build (on low life, poisoned, moving, ...),
+    /// remembering which of them the build read. Its result depends on those alone, so a flag that flips
+    /// without any conditional stat reading it does not discard the cached sum. Mirrors
+    /// <see cref="ReadAmounts"/>: the key compares only what the build read. One deliberate difference:
+    /// <see cref="ContainsKey"/> also records a read, because unlike amounts a flag can be absent --
+    /// <c>CelestialBossInPresence</c> is only present while a worn item carries the mod, and a resolver
+    /// gates on its presence (StatConditions.PlainOf) -- so presence itself is an input to the result.
+    /// Nine flags are always read on purpose (see the build site): <c>source_phasing</c>,
+    /// <c>_while_in_her_embrace</c>, <c>_while_you_have_avatar_of_fire</c>,
+    /// <c>_while_affected_by_elusive</c>, <c>source_onslaught</c>,
+    /// <c>_while_no_life_is_reserved</c> and <c>_while_no_mana_reserved</c> are consumed from the
+    /// cached key by other decisions, and <c>_if_left_ring_is_magic_item</c> and
+    /// <c>_if_right_ring_is_magic_item</c> are read because the ring-slot conditions are answered
+    /// through the equipment list, never through this map; their flips must still miss the cache.</summary>
+    public sealed class ReadFlags(IReadOnlyDictionary<string, bool> values, System.Collections.Concurrent.ConcurrentDictionary<string, bool>? sharedRead = null) : IReadOnlyDictionary<string, bool>
+    {
+        readonly IReadOnlyDictionary<string, bool> values = values;
+        // A resolver kept by a later consumer may read on another thread. Shared with re-wraps: the charge
+        // loop replaces the flag map, and the new map must keep the reads recorded before the replacement.
+        readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> read = sharedRead ?? new();
+        public bool TryGetValue(string key, out bool value) { read[key] = true; return values.TryGetValue(key, out value); }
+        public bool WasRead(string key) => read.ContainsKey(key);
+        /// <summary>Read <paramref name="key"/> without recording it: for comparisons that check
+        /// whether a requalification changed anything, not for values the build consumes. A
+        /// comparison that recorded would mark every flag it touches as read, even ones no stat uses.</summary>
+        public bool TryGetValueUnrecorded(string key, out bool value) => values.TryGetValue(key, out value);
+        /// <summary>Mark <paramref name="key"/> read without reading its value: for flags other decisions
+        /// consume from the cached key, whose flips must still miss the cache.</summary>
+        public void MarkRead(string key) => read[key] = true;
+        // A comparison reads the other map without recording into it.
+        static bool Peek(IReadOnlyDictionary<string, bool> other, string key, out bool value) =>
+            other is ReadFlags recorded ? recorded.TryGetValueUnrecorded(key, out value) : other.TryGetValue(key, out value);
+        /// <summary>The values as a new map, recording no read: for a requalification that copies the map
+        /// to change some flags, where the copy is not a use of any value.</summary>
+        public Dictionary<string, bool> CopyUnrecorded() => new(values);
+        /// <summary>A new wrapper over <paramref name="values"/> sharing this read set, for when the build
+        /// replaces the flag map (the charge requalification loop).</summary>
+        public ReadFlags Rewrap(IReadOnlyDictionary<string, bool> values) => new(values, read);
+        public bool this[string key] { get { read[key] = true; return values[key]; } }
+        // Presence is an input (see the class summary), so asking whether a flag is present reads it.
+        public bool ContainsKey(string key) { read[key] = true; return values.ContainsKey(key); }
+        public int Count => values.Count;
+        public IEnumerable<string> Keys => values.Keys;
+        public IEnumerable<bool> Values => All().Select(p => p.Value);
+        public IEnumerator<KeyValuePair<string, bool>> GetEnumerator() => All().GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        Dictionary<string, bool> All() { foreach (string key in values.Keys) read[key] = true; return values.ToDictionary(p => p.Key, p => p.Value); }
+        /// <summary>Whether every flag this build read has the same value in <paramref name="other"/>.</summary>
+        public bool ReadSame(IReadOnlyDictionary<string, bool> other)
+        {
+            // Enumerated in place: ConcurrentDictionary.Keys takes every lock and copies (4% of a lookup).
+            foreach (var (key, _) in read)
+                if (values.TryGetValue(key, out bool mine) != Peek(other, key, out bool theirs) || mine != theirs)
+                    return false;
+            return true;
+        }
+        /// <summary>The first flag this build read whose value differs in <paramref name="other"/>, if any.</summary>
+        public string? ReadDifference(IReadOnlyDictionary<string, bool> other)
+        {
+            foreach (var (key, _) in read)
+                if (values.TryGetValue(key, out bool mine) != Peek(other, key, out bool theirs) || mine != theirs)
+                    return key;
+            return null;
+        }
+    }
+
     public sealed record StatSourcesResult(StatSourcesKey Key, Dictionary<uint, int> Sources, AttributeModifiers Attributes,
         HashSet<uint> Inactive, List<ItemModStats.Worn> Worn);
 
@@ -1069,6 +1192,8 @@ public static partial class Game
             var state = ConditionalItemPools.GetOrCreateValue(player);
             bool building = state.Building;
             state.Building = true;
+            // The poison count the pools were built with is recorded inside BuildPoolsFor (AppliedPoisonStacks):
+            // direct rebuilds bypass PoolsFor, so recording here would miss them.
             try
             {
                 var pools = BuildPoolsFor(player, level);
@@ -1081,6 +1206,11 @@ public static partial class Game
 
     public static CharacterStats.Pools BuildPoolsFor(Player player, int level)
     {
+        // The pools are built from the live poison count (the post-cache layers read it fresh), so remember the count
+        // they were built with, next to Applied: a poison gained or lost after this build must rebuild them, even
+        // though the sources sum itself never reads the count and its cache still hits. Recorded here, in the build
+        // itself, so the direct rebuilds (which bypass PoolsFor) record it too.
+        ConditionalItemPools.GetOrCreateValue(player).AppliedPoisonStacks = player.IncomingAilments.PoisonStacks(AreaTime(player));
         // The stat sources first: they decide which worn items are inactive, which the weapon profile reads.
         var snapshot = CharacterStatSources(player, level: level);
         // Cat starts its Stealth phase in the same build that first sees its accepted root aura. Re-read sources because
@@ -1196,7 +1326,7 @@ public static partial class Game
             ManaStrengthDivisor = HandDivisor(Stat.MaximumManaPlus1PctPerXStrengthWhenInMainHandFromFoulbornDoonCuebiyari, ActiveMainHand),
             EnergyShieldStrengthDivisor = HandDivisor(Stat.EnergyShieldPlus1PctPerXStrengthWhenInOffHandFromFoulbornDoonCuebiyari, ActiveOffHand),
         };
-        bool Gemless(byte row) => EquipmentForStats(player).Any(e => e.Row == row && !IsInactive(player, e.Item.Id)
+        bool Gemless(byte row) => ItemsOf(player).EquipmentSnapshot().Any(e => e.Row == row && !IsInactive(player, e.Item.Id)
             && e.Item.Item.Sockets.All(s => s.Gem is null));
         if (EquipmentInput(Stat.MaximumLifePlusPctWhileNoGemsInGloves) is int glovesLife and not 0 && Gemless(PlayerInventories.Gloves))
             bonus = bonus with { LifePct = ActorScale.Saturate((long)bonus.LifePct + glovesLife) };
@@ -2496,6 +2626,21 @@ public static partial class Game
         if (gain == 0 || HardcoreProgressBlocked(player)) return ([], false);
         double gemShare = LeagueFor(player).Rules.GemExperienceMultiplier ?? 1.0;
         int share = LeagueGameplay.GemExperience(gain, gemShare, ref player.Character.GemExperienceCarry);
+        return CommitGemShare(player, share, projectRows);
+    }
+
+    // A direct gem XP award is already the amount for each eligible gem.
+    public static async Task GrantGemExperience(Player player, int share)
+    {
+        if (HardcoreProgressBlocked(player)) return;
+        var (packets, leveled) = CommitGemShare(player, share, null);
+        foreach (var packet in packets) await Send(player, packet, "gem experience");
+        if (leveled) await SendSkills(player);
+    }
+
+    static (List<byte[]> Packets, bool Leveled) CommitGemShare(Player player, int share,
+        List<(byte Row, uint[] Items)>? projectRows)
+    {
         if (share <= 0) return ([], false);
         var items = ItemsOf(player);
         var catalog = ItemsFor(player);

@@ -14,7 +14,7 @@ static partial class Game
     // and extra contacts together, then releases a volley from each branch of the attack.
     internal static Task ScheduleProjectileStrike(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, int recoveryGeneration,
-        CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted = false)
+        CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted = false, int ancestralTargets = 0)
     {
         var session = ProjectilesFor(player);
         session.Advance();
@@ -35,7 +35,7 @@ static partial class Game
             {
                 (var spirits, var echo, memoryBuff) = StrikeExtrasLocked(player, skillId, gem.Effect, skill.Stats, from, aim, sequence, targetId, now,
                     groundTarget: () => LightningStrikeTarget(player, from, aim, 0, now,
-                        frostBlades ? FrostBladesReach(player, skill.Stats) : 0));
+                        frostBlades ? FrostBladesReach(player, skill.Stats) : 0), exertedTargets: ancestralTargets);
                 if (spirits.Count > 0 || echo is not null)
                 {
                     extras = new(spirits.Count + 1);
@@ -65,11 +65,11 @@ static partial class Game
             if (wildStrike)
                 session.Schedule(contactAt, RepeatValid, () =>
                     ReleaseWildStrike(player, session, skillId, gem, from, aim, targetId,
-                        criticalRoll, sequence, index, cryExerted, ruthless));
+                        criticalRoll, sequence, index, cryExerted, ruthless, ancestralTargets));
             else
                 session.ScheduleContact(contactAt, RepeatValid, () =>
                     ReleaseProjectileStrike(player, session, skillId, gem, from, aim, targetId, criticalRoll, sequence,
-                        index, cryExerted, ruthless, frostBlades, extras));
+                        index, cryExerted, ruthless, frostBlades, extras, ancestralTargets));
         }
         return Task.CompletedTask;
     }
@@ -77,7 +77,7 @@ static partial class Game
     static void ReleaseProjectileStrike(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll, ushort sequence,
-        int repeat, bool cryExerted, double ruthlessMore, bool frostBlades, List<ExtraProjectileStrike>? extras)
+        int repeat, bool cryExerted, double ruthlessMore, bool frostBlades, List<ExtraProjectileStrike>? extras, int ancestralTargets)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         var stats = SupportedSkill(player, skillId).Stats;
@@ -117,13 +117,15 @@ static partial class Game
                 {
                     if (target == primary.Target) primaryHit = true;
                     else extraHits?.Add(target);
-                }, scheduledSession: session, cryExerted: cryExerted, repeat: repeat, additionalStrikeTargets: additionalTargets);
+                }, scheduledSession: session, cryExerted: cryExerted, repeat: repeat, additionalStrikeTargets: additionalTargets,
+                ancestralTargets: ancestralTargets);
             if (!melee.IsCompleted) throw new InvalidOperationException("Scheduled projectile strike contact must not yield.");
             melee.GetAwaiter().GetResult();
         }
 
         if (frostBlades && !primaryHit && extraHits is not { Count: > 0 }) return;
-        var use = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, cryExerted: cryExerted);
+        var use = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, cryExerted: cryExerted,
+            otherWarcryExertions: ancestralTargets > 0 ? 1 : 0);
         if (frostBlades)
         {
             if (primaryHit) session.ReleaseNow(FrostBladesVolley(player, use, stats, now, from, aim, primary, more));

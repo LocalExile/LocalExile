@@ -1932,7 +1932,7 @@ the contact (`HeldMove`) would align them.
 **Winter Orb** fires `Metadata/Projectiles/FrostFuryMortar` (the effect's own name has no Projectiles row). While
 channelling, a volley every `frost_fury_base_fire_interval_ms` (1200), with the 80% more while channelling and cast
 speed added (`display_frost_fury_additive_cast_speed_modifiers_apply_to_fire_speed`), lands
-`base_number_of_projectiles` area hits along a line across the nearest enemy. Stages build at the channel cast tick
+its volley along a line across the nearest enemy: the count goes through the general projectile path, so the row's base count plus additional projectiles, with its gates and caps, decides how many area hits land. Stages build at the channel cast tick
 (`hundred_times_casts_per_second` 400 with cast speed, the client's own rate) up to
 `frost_fury_max_number_of_stages` (8) plus quality's `frost_fury_additional_max_number_of_stages`, each adding
 `frost_fury_fire_speed_+%_per_stage` (20; the first none).
@@ -2869,7 +2869,7 @@ The Spirit chieftains are the first (section 10f).
   charges skip it; an area change or logout drops it with the connection.
 - AI (`StartMonsterAi`): the monster AI walks a friendly monster with the player and never lets an owned one give up.
   A fighting one goes for the nearest living hostile monster within its aggro range of both itself and the player,
-  not one lurking unrisen.
+  one a minion may target: a lurking one is, one a script holds is not.
   In reach (its `MaximumAttackDistance` plus the target's body) it stops and swings; otherwise it walks to the
   target's edge, re-ordered when the target moves 3 cells or, once there, every 0.5 s.
 - Swing (`MinionSwing`): S→C 0x1ab with its first skill aimed at the target (flags 0x0408 | 0x80), the contact at half
@@ -2880,8 +2880,10 @@ The Spirit chieftains are the first (section 10f).
   and a kill gives the player experience and loot through `MonsterKilled` (no on-kill charges: the player did not
   kill it).
   A minion's hit does not count as the player hitting.
-- End: at its duration's end or the player's death it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is
-  removed a second later (0x2bd).
+- End: when it ends in play (its time is up, it is killed, its owner dies, or a new one replaces it past the
+  limit) it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is removed 21 frames later (0x2bd).
+  The 21 frames are the Gateway's implemented value (SummonBodySeconds); no live or capture source for the 21 frames
+  is cited yet.
 
 The timed chieftain controller still uses only its first skill. Golems have a separate controller and saved source
 intent (`GolemState`), rather than persisting their area objects. Minion commands and party buff sharing remain partial.
@@ -3609,7 +3611,7 @@ The client reads these two to know the player's minion (the link-target filter 0
 `Player.Minions` keeps each one's skill, kind, end time, aura on the owner and death explosion, under the Monsters
 lock. `StartPlayerMinions` runs `PlayerMinionsTick` every 100 ms of game time:
 
-- A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bd) a second later.
+- A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bd) 1 second later (`PlayerMinions.cs` adds `now + 1`). Only `Summons.cs` uses `SummonBodySeconds` (21 * `Program.TickSeconds`, for golem bodies).
 - The owner's death or the loss of the granting passive kills it without an explosion; with the passive lost, the
   living owner's links to it end without killing him.
 - The queued summons are made, with the owner's `minion_maximum_life_+%` as the monster's `maximum_life_+%` and his

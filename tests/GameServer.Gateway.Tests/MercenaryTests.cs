@@ -97,6 +97,11 @@ public sealed class MercenaryTests
             Assert.True(opponent.Hostile);
             Assert.False(opponent.Scripted);
             Assert.Equal(MercenaryWire.DuelStates, opponent.States!.SharedStates);
+            Assert.NotEmpty(opponent.Kit);
+            Assert.Null(opponent.Kit[0].Attack.Use);
+            Assert.Equal(0, opponent.Kit[0].TriggerThreshold);
+            var skills = Game.SkillsFor(owner.Player);
+            Assert.DoesNotContain(opponent.Kit, k => BossKits.IsLeavePortal(skills, k.Effect));
 
             // Its death leaves the hired mercenary, in the hired states and its own team.
             opponent.Dead = true;

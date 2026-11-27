@@ -88,7 +88,7 @@ public static partial class Game
     // Read when the player stats are built, not per death: an area hit that kills a pack does not rebuild them per corpse.
     public static void ConfigureKillOnslaught(Player player, Func<uint, int> get)
     {
-        var rolls = KillOnslaught.From(get);
+        var rolls = ItemEffectRules.Enabled ? ItemEffectRules.Current.OnslaughtRolls(get) : KillOnslaught.From(get);
         var onslaught = KillOnslaughtOf(player);
         onslaught.Rolls = rolls;
         onslaught.HitMs = get(Stat.GainOnslaughtOnHitDurationMs);

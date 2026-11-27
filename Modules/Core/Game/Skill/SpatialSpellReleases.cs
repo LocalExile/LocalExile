@@ -3,10 +3,34 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    internal const string ManabondEffect = "Manabond";
+
+    static (int Reach, Func<uint, (int X, int Y), bool>? Covers) ManabondArea(
+        Player player, int effect, IReadOnlyDictionary<uint, int> own, (int X, int Y) centre,
+        IReadOnlyDictionary<uint, int>? proxyCaster = null)
+    {
+        var area = SkillAreaStats(player, own, effect, proxyCaster);
+        int Radius(int @base) => SkillArea.Radius(@base, area.GetValueOrDefault, spell: true);
+        int radius = Radius(SkillArea.BaseRadius(ManabondEffect, own.GetValueOrDefault));
+        int unreserved = proxyCaster is null ? UnreservedMana(player) : 0;
+        // Totems, traps and mines have a full, empty mana pool of their own.
+        int quarters = unreserved > 0 ? (int)Math.Clamp((long)player.PlayerMana * 4 / unreserved, 0, 4) : 4;
+        if (quarters == 0) return (radius, null);
+        int reach = radius + 6 * quarters;
+        int halfWidth = Radius(6);
+        return ((int)Math.Ceiling(Math.Sqrt((double)reach * reach + (double)halfWidth * halfWidth)), (_, at) =>
+        {
+            int x = Math.Abs(at.X - centre.X), y = Math.Abs(at.Y - centre.Y);
+            return (double)x * x + (double)y * y <= (double)radius * radius
+                || Math.Max(x, y) <= reach && Math.Min(x, y) <= halfWidth;
+        });
+    }
+
     static bool SpatialSpellEffect(string? effect) =>
-        effect is "CracklingLanceAltX" or "CracklingLanceAltY"
-            or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurge" or "FlameSurgeAltX" or ArcSurgingEffect or TrarthanBargain
-            || ShockNovaEffect(effect) || GlacialCascadeEffect(effect);
+        IsPurifyingFlame(effect) || IsWaveOfConviction(effect) || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect)
+            || IsCracklingLance(effect) || effect is "LightningConduitAltX" or ManabondEffect or "VortexAltX"
+            or "FlameSurge" or "FlameSurgeAltX" or ArcSurgingEffect or TrarthanBargain
+            || ShockNovaEffect(effect) || GlacialCascadeEffect(effect) || effect == DivineRetributionEffect;
 
     static DamagePacket BladeBlastDaggerDamage(Player player, int gain)
     {
@@ -26,9 +50,6 @@ public static partial class Game
 
     public sealed partial class ProjectileSession
     {
-        // The gem rows provide the branch angle modifier. Beam lengths use local collision estimates.
-        const int LanceLength = 60;
-        const double LanceBranchAngle = 24;
 
         internal void ScheduleSpatialSpell((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
             (int X, int Y) from, (int X, int Y) aim, double windup, Func<bool> current, SacrificeUse sacrifice,
@@ -37,6 +58,7 @@ public static partial class Game
         {
             if (!Active || !current()) return;
             var source = SupportedSkill(Player, gem.Id);
+            var intensity = CastingIntensity(Player, gem.Id);
             double beidatMore = CastingBeidatSpell(Player, gem.Id)?.More ?? 1;
             double dotMore = GhorrDotMore(Player, gem.Id);
             long released = Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))) + ProjectileRuntime.Time(windup);
@@ -52,14 +74,39 @@ public static partial class Game
                 void Hit((int X, int Y) centre, int radius, double more = 1,
                     Func<uint, (int X, int Y), bool>? targetFilter = null, bool centred = false,
                     int extraShockChance = 0, double burstMore = 1, CascadeBurst cascadeBurst = CascadeBurst.None,
-                    long baseChaos = 0) =>
+                    long baseChaos = 0, bool nearbyOnly = false) =>
                     Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, centred ? centre : from, centre, immediate: true, sequence: sequence,
                         repeat: repeat, damageMore: damageMore * more, radiusOverride: radius, criticalRoll: critical,
                         sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget, targetFilter: targetFilter,
                         hitAndAilmentMore: beidatMore * burstMore, extraShockChance: extraShockChance, cascadeBurst: cascadeBurst,
-                        baseChaos: baseChaos));
+                        baseChaos: baseChaos, nearbyOnly: nearbyOnly));
 
-                if (effect == "LightningConduitAltX")
+                if (IsPurifyingFlame(effect))
+                {
+                    SchedulePurifyingFlame(Player, this, gem.Effect, source.Stats, caster, from, aim, CurrentSource,
+                        (radius, filter, waveMore, onHit) => Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, from, aim,
+                            immediate: true, sequence: sequence, repeat: repeat, damageMore: damageMore, radiusOverride: radius,
+                            criticalRoll: critical, sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget,
+                            targetFilter: filter, hitAndAilmentMore: waveMore * beidatMore, onDirectHit: onHit)), repeat);
+                }
+                else if (IsWaveOfConviction(effect))
+                {
+                    ReleaseConvictionWave(Player.Id, gem.Effect, source.Stats, caster, from, aim, CurrentSource,
+                        (origin, reach, filter) => Hit(origin, reach, targetFilter: filter, centred: true), repeat);
+                }
+                else if (IsGroundBladeBlast(effect))
+                    ReleaseBladeBlast(gem.Effect, source.Stats, caster, aim, CurrentSource,
+                        (centre, radius, detonation) => Hit(centre, radius, centred: detonation), repeat);
+                else if (IsBladeBlastOfUnloading(effect))
+                    ReleaseBladeBlastOfUnloading(Player.Id, gem.Effect, source.Stats, caster,
+                        () => SpellCentre(Player, gem.Effect,
+                            brandedTarget is null ? Player.Walk.Position(ProjectileWorldTime(Player)) : from, aim),
+                        CurrentSource, (centre, radius, scale) => Enqueue(() => AreaSkillHitForUse(
+                            null, Player, gem.Id, gem, centre, centre, immediate: true, sequence: sequence,
+                            repeat: repeat, damageMore: damageMore, radiusOverride: radius, criticalRoll: critical,
+                            sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget,
+                            hitAndAilmentMore: scale * beidatMore)), repeat);
+                else if (effect == "LightningConduitAltX")
                 {
                     int radius = Radius(Own(Stat.ActiveSkillBaseAreaOfEffectRadius));
                     double now = ProjectileWorldTime(Player);
@@ -71,21 +118,17 @@ public static partial class Game
                         .Take(Math.Max(0, Own(Stat.LightningConduitMaxNumTargets))).Select(p => p.Id).ToHashSet();
                     if (selected.Count > 0) Hit(aim, radius, targetFilter: (id, _) => selected.Contains(id));
                 }
-                else if (effect == "Manabond")
-                {
-                    int maximum = UnreservedMana(Player);
-                    int quarters = maximum > 0 ? (int)Math.Clamp((long)Player.PlayerMana * 4 / maximum, 0, 4) : 0;
-                    int radius = SkillRadius(Player, source.Stats, spell: true, gem.Effect);
-                    int reach = radius + 6 * quarters;
-                    int halfWidth = Radius(6);
-                    Hit(aim, (int)Math.Ceiling(Math.Sqrt((double)reach * reach + (double)halfWidth * halfWidth)),
-                        targetFilter: (_, at) =>
-                        {
-                            int x = Math.Abs(at.X - aim.X), y = Math.Abs(at.Y - aim.Y);
-                            return ((double)x * x + (double)y * y) <= (double)radius * radius
-                                || Math.Max(x, y) <= reach && Math.Min(x, y) <= halfWidth;
-                        });
-                }
+                else if (effect == ManabondEffect)
+                    Enqueue(() =>
+                    {
+                        if (!CurrentSource()) return Task.CompletedTask;
+                        // Resolve geometry and base lightning in the same contact, after the skill's payment.
+                        var area = ManabondArea(Player, gem.Effect, source.Stats, aim);
+                        return AreaSkillHitForUse(null, Player, gem.Id, gem, from, aim, immediate: true, sequence: sequence,
+                            repeat: repeat, damageMore: damageMore, radiusOverride: area.Reach, criticalRoll: critical,
+                            sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget, targetFilter: area.Covers,
+                            hitAndAilmentMore: beidatMore);
+                    });
                 else if (effect == "VortexAltX")
                     ReleaseVortexProjection(gem, from, aim, source.Stats, caster, critical, sacrifice, CurrentSource,
                         sequence, repeat, damageMore, brandedTarget, dotMore);
@@ -137,35 +180,21 @@ public static partial class Game
                     int reach = Radius(30 + Own(Stat.ActiveSkillBaseAreaLengthPlus));
                     Hit(from, reach, targetFilter: (_, at) => GroundSlamWave.Covers(direction, from, at, 25, reach));
                 }
-                else if (effect is "CracklingLanceAltX" or "CracklingLanceAltY")
-                {
-                    int width = Radius(effect == "CracklingLanceAltX" ? 4 : 3);
-                    double length = LanceLength * Math.Max(.25, Radius(12) / 12d);
-                    if (width > 0)
-                        Hit(from, (int)Math.Ceiling(length + width), targetFilter: (_, at) => LanceCovers(at));
-
-                    bool LanceCovers((int X, int Y) at)
-                    {
-                        double x = at.X - from.X, y = at.Y - from.Y;
-                        double along = x * direction.X + y * direction.Y;
-                        double lateral = y * direction.X - x * direction.Y;
-                        if (along < 0 || along > length) return false;
-                        if (Math.Abs(lateral) <= width) return true;
-                        if (effect != "CracklingLanceAltX") return false;
-                        double radians = Math.Clamp(LanceBranchAngle * (1 + Own(Stat.DisintegrateSecondaryBeamAnglePlusPct) / 100d), 0, 80)
-                            * Math.PI / 180d;
-                        double forward = Math.Cos(radians), side = Math.Sin(radians);
-                        return BranchAt(.34) || BranchAt(.60);
-
-                        bool BranchAt(double fraction)
+                else if (IsCracklingLance(effect))
+                    ReleaseCracklingLance(gem.Effect, source.Stats, caster, from, aim,
+                        (reach, filter, intensityMore) => Enqueue(() =>
                         {
-                            double a = along - length * fraction, b = Math.Abs(lateral);
-                            double branchAlong = a * forward + b * side;
-                            return branchAlong >= 0 && branchAlong <= length * .56
-                                && Math.Abs(b * forward - a * side) <= width;
-                        }
-                    }
-                }
+                            using var scope = intensity is null ? null : new IntensityScope(intensity);
+                            return AreaSkillHitForUse(null, Player, gem.Id, gem, from, from, immediate: true, sequence: sequence,
+                                repeat: repeat, damageMore: damageMore, radiusOverride: reach, criticalRoll: critical,
+                                sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget,
+                                targetFilter: filter, hitAndAilmentMore: intensityMore * beidatMore);
+                        }), intensity?.Stacks ?? 0, repeat);
+                else if (effect == DivineRetributionEffect)
+                    ScheduleDivineRetribution(Player.Walk.Position(ProjectileWorldTime(Player)), aim,
+                        Own(Stat.DivineRetributionNumWaves), Own(Stat.DivineRetributionBlastsPerWave), Radius,
+                        SkillArea.BaseRadius(effect, Own), CurrentSource,
+                        (centre, radius) => Hit(centre, radius, nearbyOnly: true));
                 else if (effect is not null && GlacialCascadeEffect(effect))
                     ScheduleGlacialCascade(effect, from, aim, source.Stats,
                         () => SkillRadius(Player, source.Stats, spell: true, gem.Effect), CurrentSource,

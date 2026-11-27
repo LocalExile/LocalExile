@@ -345,7 +345,8 @@ public static partial class Game
     {
         double common = MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false,
             increasedPct: additionalTakenPct);
-        double elemental = m.TakenFromPlayer.Elemental == 0 && additionalElementalTakenPct == 0 ? common
+        double elemental = m.TakenFromPlayer.Elemental == 0 && m.Effects[Stat.ElementalDamageTakenPlusPct] == 0
+            && additionalElementalTakenPct == 0 ? common
             : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false,
                 increasedPct: (double)additionalTakenPct + additionalElementalTakenPct);
         double withered = hasChaos ? WitheredTaken(m, now) : 0;
@@ -512,11 +513,10 @@ public static partial class Game
             DamageType.Lightning => m.Effects[Stat.LightningDamageTakenPlusPct],
             _ => 0,
         };
-        increasedTaken += m.Effects[Stat.DegenEffectPlusPct];
         increasedTaken += FleshrendDamageTaken(m, now);
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
             * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type), hit: false,
-                chaos: type == DamageType.Chaos, increasedPct: increasedTaken);
+                chaos: type == DamageType.Chaos, increasedPct: increasedTaken, overTime: true);
         // Pride is a separate more multiplier; Flesh and Stone's Blood Stance affects hits only.
         if (type == DamageType.Physical)
             factor *= 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;

@@ -322,6 +322,14 @@ public static partial class Game
             if (TotemNova(player, effect)) strike = new(TotemActionSkill, radius);
         }
         ushort grantedId = action is null ? (ushort)0 : TotemActionSkill;
+        var flamewood = TotemFlamewood(player, skillId);
+        GrantedSkill[] totemSkills = (action, flamewood) switch
+        {
+            ({ } primary, { } flame) => [primary, flame.Grant],
+            ({ } primary, null) => [primary],
+            (null, { } flame) => [flame.Grant],
+            _ => [],
+        };
         // Devouring Totem's effect is not a hit: it eats the corpses near it (TotemDevourLocked).
         int Perk(uint name) => Get(name) is var value && value != 0 ? value : GolemStat(own, name);
         TotemState.Devour? devour = SkillsFor(player).EffectId(effect) == "DevouringTotem"
@@ -366,6 +374,7 @@ public static partial class Game
             placed.BonusSlots = BonusSlots(ordinaryLimit, singleTotem);
             if (spellTotem) BindTotemSource(player, placed);
             BindFocusedBallista(player, placed);
+            if (flamewood is not null) FlamewoodTotems.Add(placed, flamewood with { });
             var replaced = player.Totems.Place(placed, limit, now, singleTotem ? null : ordinaryLimit);
             // The owner's minion roster lists a placed totem, as the official servers do; the client's totem counter counts
             // these. Written where the totem enters its state, so a cancelled placement never lists one, and in the same
@@ -433,7 +442,7 @@ public static partial class Game
                 place = requested;
                 place = ClearPosition(objectId);
                 var blob = new MonsterObject(place.X, place.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
-                    TransitionState: variety.TransitionStates, Team: 0, Skills: action is null ? null : [action],
+                    TransitionState: variety.TransitionStates, Team: 0, Skills: totemSkills.Length == 0 ? null : totemSkills,
                     Stats: objectStats) { LifeData = variety.LifeData, Chain = variety.Chain };
                 bytes.Create(objectId, InstanceEntities.CreateObject(objectId,
                     InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level)), blob.Blob()));
@@ -678,7 +687,8 @@ public static partial class Game
         var retired = new List<uint>();
         MinionOwnershipChange[] rosterChanges;
         bool canDetonateMines = false;
-        using (ProjectileMutation(player, advance: false))
+        // Area exit can retire owner-local objects off-frame; shared delta changes are deferred below.
+        using (LevelUpdatesFor(player).Gate.EnterScope())
         {
             var totems = player.Totems;
             if (totems.All.Count == 0 && totems.PendingPlacements.Count == 0) return;
@@ -855,7 +865,8 @@ public static partial class Game
     static void TotemNovaLocked(Player player, ProjectileSession session, TotemState.Totem totem,
         (int X, int Y) centre, double radius, ushort sequence, bool hitSummon = false, int? ringArt = null,
         Func<(int X, int Y), bool>? covers = null, double damageMore = 1, bool spellImpale = false, int extraCriticalIncrease = 0,
-        int extraShockChance = 0, CascadePulse? cascade = null, long baseChaos = 0)
+        int extraShockChance = 0, CascadePulse? cascade = null, long baseChaos = 0,
+        Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null, SkillCriticalRoll? sharedCritical = null)
     {
         var skill = SupportedSkill(player, totem.SkillId);
         if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true) is not { } inputs) return;
@@ -869,7 +880,7 @@ public static partial class Game
         if (damageMore != 1) hit = hit.Scale(damageMore);
         if (hit.IsZero) return;
         var accuracy = attack ? SupportedAccuracy(player, totem.SkillId) : default;
-        var criticalRoll = CaptureSkillCriticalRoll(player, totem.SkillId);
+        var criticalRoll = sharedCritical ?? CaptureSkillCriticalRoll(player, totem.SkillId);
         var penetration = Penetration.Of(caster, Stats, attack, skill.Stats);
         var resistance = HitResistMods(caster, skill.Stats);
         var weaponLocal = attack && !SkillsFor(player).RequiresShield(skill.Effect)
@@ -882,7 +893,7 @@ public static partial class Game
             double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
             var targetAt = m.Walk.Position(now);
             if (!TotemTargetable(m) || cascade is not null && m.WorldHidden || MonsterAsleep(player, id) || Dist(targetAt, centre) > radius
-                || covers?.Invoke(targetAt) == false) return;
+                || covers?.Invoke(targetAt) == false || targetFilter?.Invoke(id, targetAt) == false) return;
             if (attack && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(
                 AttackHitChanceAt(player, id, m, now, accuracy, caster), now, player.AttackAccuracyRandom)) return;
             if (MonsterBlocks(m, AreaRng(player), spell: !attack)) return;
@@ -906,6 +917,7 @@ public static partial class Game
                     sourceMultiplier + FullLifeCriticalMultiplier(m, caster, skill.Stats), settings).Damage;
             }
             if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: totem.At) is not { } accepted) return;
+            onHit?.Invoke(id);
             if (!attack) ArcaneSurgeOnSpellHitLocked(player, ownerStats, m);
             LeechFromTotemHitLocked(player, m, directDamage, now, ownerStats);
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }

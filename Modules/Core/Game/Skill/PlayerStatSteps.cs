@@ -155,11 +155,13 @@ public static partial class Game
             int attackMorePerCast = GetIn(stats, Stat.InquisitorAttackDamagePlusPctFinalPerNonInstantSpellCastIn8SecondsMax30Pct);
             if (castSpeedPerSpell != 0 || attackMorePerCast != 0)
             {
-                var casts = player.RecentEvents.NonInstantSpells(now, castSpeedPerSpell != 0, attackMorePerCast != 0);
+                var casts = player.RecentEvents.CountIndexed(NonInstantCastHistory, now,
+                    castSpeedPerSpell != 0 ? RecentEvents.WindowSeconds : 0,
+                    attackMorePerCast != 0 ? RecentEvents.EightSecondWindow : 0);
                 if (castSpeedPerSpell != 0)
                     AddTo(stats, Stat.BaseCastSpeedPlusPct, (long)castSpeedPerSpell * casts.Distinct);
                 if (attackMorePerCast != 0)
-                    stats[PlayerHitDamage.AttackHitDamageMore] = (int)Math.Clamp((long)attackMorePerCast * casts.Total, -100, 30);
+                    stats[NonInstantAttackMore] = (int)Math.Clamp((long)attackMorePerCast * casts.Total, -100, 30);
                 if (casts.Expiry is double pastCast) StatsChangeIn(pastCast - now);
             }
             if (player.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
@@ -366,11 +368,10 @@ public static partial class Game
         {
             double now = AreaTime(player);
             if (player.WardBreak.RecoveryUntil(now) is var stun && stun > now) StatsChangeIn(stun - now);
-            if (player.EnduringCryRecovery.Rate(now) > 0) StatsChangeIn(player.EnduringCryRecovery.Until - now);
             // Turtle Shell's exact one-second integral is consumed separately by the resource writer.
             if (Stat.BaseLifeRegenerationRatePerMinute is var turtle)
                 stats[turtle] = (int)Math.Clamp(stats.GetValueOrDefault(turtle)
-                    + (player.WardBreak.RecoveryPerSecond(now) + player.EnduringCryRecovery.Rate(now)) * 60, 0, int.MaxValue);
+                    + player.WardBreak.RecoveryPerSecond(now) * 60, 0, int.MaxValue);
             var session = FortificationOf(player);
             var value = EvaluateFortificationLocked(player, now, stats).Value;
             if (value.NextExpiry is double expires) StatsChangeIn(expires - now);
@@ -456,6 +457,8 @@ public static partial class Game
     public static Dictionary<uint, int> CharacterPlayerStatsSnapshot(Player player, out double baselineLifePerSecond,
         out PanelSourceSnapshot? panelSources, bool capturePanelSources = false)
     {
+        // Snapshots made inside a graph step belong to the outer measurement.
+        long statProbe = StatGraph.InRule ? 0 : ConnectionPerformance.ProbeStart();
         var stats = new PlainStatMap();
         var outputs = new PlayerStepOutputs();
         panelSources = null;
@@ -466,6 +469,7 @@ public static partial class Game
             PlayerSteps[i](player, stats, outputs);
         }
         baselineLifePerSecond = outputs.BaselineLifePerSecond;
+        if (statProbe != 0) player.Connection.Performance.StatBuild(statProbe);
         return stats.Stats;
     }
 
