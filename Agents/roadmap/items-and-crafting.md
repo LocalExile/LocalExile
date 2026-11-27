@@ -14,6 +14,9 @@ essence upgrading remain separate features.
 
 ### Items: mods, rarity, using flasks and currency
 
+- Future item triggers can reuse the [world rule sources, events, conditions and actions](../docs/dev/combat-effect-rules.md) introduced for
+  Onslaught, granted marks and Svalinn. Additional actions need combat support and behavior checks.
+
 - **Jeweller's Orb:** initial local 0x71/Shift 0x72 implementation rerolls counts, colours and links with class and
   item-level caps; the live-found refusal at the item-level cap is fixed (only base capacity blocks use), verified
   live.

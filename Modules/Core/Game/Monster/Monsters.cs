@@ -3229,7 +3229,7 @@ public static partial class Game
             if (leeched > 0) m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + leeched);
         }
         RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, damage > 0, monsterCritical,
-            projectile: projectile, attack: attackHit);
+            projectile: projectile, attack: attackHit, attacker: m);
         RecentHitLifeLossOnHitLocked(player, now);
         UnhingedHitRecoveryLocked(player, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki

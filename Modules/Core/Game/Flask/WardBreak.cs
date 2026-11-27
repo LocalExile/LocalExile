@@ -56,7 +56,7 @@ public static partial class Game
     {
         if (player.PlayerLife != 0) return;
         if (player.ResourceEffectsState is ResourceEffectsState resources) RetireFlameTouched(player, resources);
-        player.WardBreak.Clear(); player.EnduringCryRecovery.Clear(); player.Ward.SetMaximum(0);
+        player.WardBreak.Clear(); player.Ward.SetMaximum(0);
     }
 
     public static byte[]? WardBreakPresentation(Player player)
@@ -68,17 +68,15 @@ public static partial class Game
         double adrenaline = player.PlayerLife > 0 && player.WardBreak.Adrenaline(AreaTime(player))
             ? player.WardBreak.AdrenalineUntil : double.NegativeInfinity;
         double recovery = player.WardBreak.RecoveryUntil(AreaTime(player));
-        double cry = player.EnduringCryRecovery.Rate(AreaTime(player)) > 0
-            ? player.EnduringCryRecovery.Until : double.NegativeInfinity;
         if (player.SentWard == ward && player.SentAdrenalineUntil == adrenaline
-            && player.SentStunRecoveryUntil == recovery && player.SentEnduringCryUntil == cry)
+            && player.SentStunRecoveryUntil == recovery)
             return null;
-        // First area tick with no Ward, Adrenaline, Stun Recovery or Enduring Cry active: baseline already sent at area entry.
+        // The first area tick can reuse the entry baseline when Ward, Adrenaline and Stun Recovery are inactive.
         if (player.SentWard is null && ward == (0u, false)
-            && double.IsNegativeInfinity(adrenaline) && double.IsNegativeInfinity(recovery) && double.IsNegativeInfinity(cry))
+            && double.IsNegativeInfinity(adrenaline) && double.IsNegativeInfinity(recovery))
         {
             player.SentWard = ward; player.SentAdrenalineUntil = adrenaline;
-            player.SentStunRecoveryUntil = recovery; player.SentEnduringCryUntil = cry;
+            player.SentStunRecoveryUntil = recovery;
             return null;
         }
         var bytes = new List<byte>();
@@ -89,8 +87,6 @@ public static partial class Game
             buffs.Set(player.Id, new(WardBreakEffects.AdrenalineDefinition, player.Id,
                 U68: double.IsFinite(adrenaline) ? Buff.Seconds(adrenaline - AreaTime(player)) : null));
         else buffs.Clear(player.Id, WardBreakEffects.AdrenalineDefinition, player.Id);
-        if (double.IsFinite(cry)) buffs.Set(player.Id, new(1541, player.Id, U68: Buff.Seconds(cry - AreaTime(player))));
-        else buffs.Clear(player.Id, 1541, player.Id);
         bytes.AddRange(PlayerStatsOffFrames(player));
         // The native client predicts regeneration between corrections. Removing the rate alone leaves
         // its predicted overshoot in place when the server has no further recovery tick to publish.
@@ -98,7 +94,6 @@ public static partial class Game
         bytes.AddRange(PlayerSkillsIfChanged(player, PlayerSkills(player)));
         player.SentWard = ward; player.SentAdrenalineUntil = adrenaline;
         player.SentStunRecoveryUntil = recovery;
-        player.SentEnduringCryUntil = cry;
         Console.WriteLine($"[gateway] Ward {player.Ward.Current}/{player.Ward.Maximum}, "
             + $"broken={player.Ward.Broken}, Adrenaline={adrenaline > double.NegativeInfinity}");
         return [.. bytes];
@@ -108,7 +103,7 @@ public static partial class Game
         Send(player, [], null, atGate: () => WardBreakPresentation(player));
 
     public sealed record WardBreakTransfer(string Character, DateTime At, WardBreakState.Carried Buffs,
-        bool Broken, double WardSeconds, TimedLifeRecovery.Carried Cry);
+        bool Broken, double WardSeconds, (double Remaining, int Regeneration) Cry);
     public static readonly ConcurrentDictionary<uint, WardBreakTransfer> CarriedWardBreak = new();
 
     public static void CarryWardBreak(Player player, uint ticket)
@@ -121,7 +116,7 @@ public static partial class Game
             if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedWardBreak.TryRemove(old, out _);
         CarriedWardBreak.TryAdd(ticket, new(CharacterName(player), DateTime.UtcNow,
             player.WardBreak.Carry(now), player.Ward.Broken, Math.Max(0, player.Ward.RestoresAt - now),
-            player.EnduringCryRecovery.Carry(now)));
+            CarryEnduringCry(player, now)));
     }
 
     public static void RestoreWardBreak(Player player)
@@ -132,7 +127,7 @@ public static partial class Game
         if (player.PlayerLife == 0 || DateTime.UtcNow - carry.At > TimeSpan.FromMinutes(5)) return;
         double now = AreaTime(player);
         player.WardBreak.Restore(carry.Buffs, now);
-        player.EnduringCryRecovery.Restore(carry.Cry, now);
+        RestoreEnduringCry(player, now, carry.Cry);
         player.Pools = PoolsFor(player, player.Pools.Level);
         player.Ward.RestoreCarried(carry.Broken, carry.WardSeconds, now);
         player.ApplyMovementSpeed();

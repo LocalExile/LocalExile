@@ -125,6 +125,11 @@ public sealed partial class PlayerInventories
         lock (_lock) return _items.TryGetValue(row, out var l) ? [.. l] : [];
     }
 
+    public bool AnyOwnedItem(Func<Item, bool> match)
+    {
+        lock (_lock) return _items.Values.Any(row => row.Any(item => match(item.Item)));
+    }
+
     public InventoryItem Add(byte row, byte x, byte y, Item item)
     {
         InventoryItem placed;
@@ -537,6 +542,31 @@ public sealed partial class PlayerInventories
             _equipmentSnapshotMutation = version;
             return snapshot;
         }
+    }
+
+    /// <summary>Persists an id for the same physical gem selected by the bind request.</summary>
+    public Guid? EnsureSkillBarGemId(uint hostId, int socket, Item selected)
+    {
+        Guid id;
+        lock (_lock)
+        {
+            var hostRow = ItemModStats.EquipmentRows.FirstOrDefault(row =>
+                _items.TryGetValue(row, out var list) && list.Any(item => item.Id == hostId));
+            if (hostRow == MainInventory) return null;
+            var items = _items[hostRow];
+            int index = items.FindIndex(item => item.Id == hostId);
+            var host = items[index];
+            if (socket < 0 || socket >= host.Item.Sockets.Count || host.Item.Sockets[socket].Gem is not { } gem
+                || !ReferenceEquals(GemIdentity(selected), GemIdentity(gem))) return null;
+            if (gem.SkillBarGemId is Guid saved) return saved;
+            id = Guid.NewGuid();
+            var sockets = host.Item.Sockets.ToArray();
+            sockets[socket] = sockets[socket] with { Gem = PreserveGemIdentity(gem, gem with { SkillBarGemId = id }) };
+            items[index] = host with { Item = host.Item with { Sockets = sockets } };
+            Interlocked.Increment(ref _mutations);
+        }
+        Persist();
+        return id;
     }
 
     public Item? SocketHost(uint id)

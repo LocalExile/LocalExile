@@ -544,7 +544,7 @@ public static partial class Game
         if (skill == SkillCatalog.FirstSkillId) return true;
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skill);
         return gem.Name is not null && !IsTotemSkill(player, skill) && !SkillsFor(player).IsChannelled(gem.Effect)
-            && SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).IsMovement(gem.Effect)
+            && SkillsFor(player).IsAttack(gem.Effect) && AttackUsesWalkUp(player, gem.Effect)
             && PlacedKind(SupportedSkill(player, skill)) is { Trap: false, Mine: false }
             && (!SkillsFor(player).IsProjectile(gem.Effect)
                 || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)));
@@ -670,7 +670,7 @@ public static partial class Game
         bool defersHold = monster
             ? requested == SkillCatalog.FirstSkillId
                 || gem.Name is not null && !thrown && !IsTotemSkill(player, requested)
-                    && SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).IsMovement(gem.Effect)
+                    && SkillsFor(player).IsAttack(gem.Effect) && AttackUsesWalkUp(player, gem.Effect)
                     && (player.LockstepSkill.Flags & 0x1) == 0
             : LockstepGroundMelee(player, requested, player.LockstepSkill.Flags);
         if (defersHold)

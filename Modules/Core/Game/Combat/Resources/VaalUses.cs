@@ -8,6 +8,7 @@ public sealed record VaalUseReservation(ushort Skill, int Effect, int Action, in
     public long WorkGeneration;
     public int RecoveryGeneration;
     public bool RageConverted;
+    public int? TotemPlacements;
     internal Game.KtashEmpowerment? Ktash { get; init; }
     internal double PactDamageMore => Ktash?.DamageMore ?? 1;
 }
@@ -21,7 +22,7 @@ public static partial class Game
         return id is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike" or "VaalFireTrap" or "VaalSweep" or VaalReaveEffect
             or VaalImmortalCallEffect or VaalArcticArmourEffect or VaalRejuvenationTotemEffect
             or "VaalHaste" or "VaalSmite" or "VaalHeavyStrike" or VaalMoltenShellEffect or VaalLightningWarpEffect
-            or VaalAncestralWarchiefEffect or "VaalDetonateDead" or VaalArcEffect
+            or VaalAncestralWarchiefEffect or "VaalDetonateDead" or VaalArcEffect or VaalBladeVortexEffect
             || IsVaalMinion(id) || TimedVaalAuraBuffRows.ContainsKey(id);
     }
     static double VaalResourceTime(Player player) => player.LeavingArea && player.RampageTransferAt is double frozen

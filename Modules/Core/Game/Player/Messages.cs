@@ -211,7 +211,7 @@ public static partial class Game
                 // Toxic Rain with Trap Support, throws 0.385 s apart against a 0.45 s attack).
                 bool attack = cast && gem.Name is not null && SkillsFor(player).IsAttack(gem.Effect)
                     && PlacedKind(SupportedSkill(player, use.SkillId)) is { Trap: false, Mine: false };
-                if (attack && (use.Flags & 0x1) == 0 && !SkillsFor(player).IsMovement(gem.Effect)
+                if (attack && (use.Flags & 0x1) == 0 && AttackUsesWalkUp(player, gem.Effect)
                     && (!SkillsFor(player).IsProjectile(gem.Effect) || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)))
                     && WeaponProfileFor(player).Melee)
                 {
@@ -309,6 +309,8 @@ public static partial class Game
                 // refused when none is; the server teleports the player, which the client does not.
                 bool flicker = cast && gem.Name is not null && SkillsFor(player).ActionHash(gem.Effect) == FlickerStrike.Action;
                 (uint Id, (int X, int Y) At, (int X, int Y) Landing)? flickerTo = null;
+                bool flameDash = cast && gem.Name is not null && chargeBonus == 0 && IsFlameDashEffect(SkillsFor(player).EffectId(gem.Effect));
+                (int X, int Y)? flameDashTo = null;
                 LeapSlam.Use? leap = null;
                 bool movedByCast = false;
                 (int X, int Y) moveLanding = default;
@@ -333,6 +335,12 @@ public static partial class Game
                     // there at its own speed instead (ShieldCharge.cs).
                     if (leap is not null) { CommitLeapSlam(player, leap); movedByCast = leap.Landing != leap.From; }
                     else if (flicker && flickerTo is { } to) { player.Walk.Teleport(to.Landing.X, to.Landing.Y, at); movedByCast = to.Landing != (px, py); }
+                    else if (flameDash && flameDashTo is { } fd)
+                    {
+                        player.Walk.Teleport(fd.X, fd.Y, at);
+                        moveLanding = fd;
+                        movedByCast = fd != (px, py);
+                    }
                     else if (chargeBonus == 0 && gem.Name is not null && !IsDashEffect(SkillsFor(player).EffectId(gem.Effect)) && LandsAtAim(player, gem.Effect))
                     {
                         var landing = MovementLanding(player, gem.Effect, (px, py), (use.X, use.Y), use.SkillId, use.Flags);
@@ -357,6 +365,12 @@ public static partial class Game
                     if (!TryBeginAttackUse(player, use.SkillId, gem.Effect, at,
                         acceptedAt => { at = acceptedAt; StartAction(); }, out cooldownUse,
                         acceptedAt => (leap = PlanLeapSlam(player, use.SkillId, gem.Effect, (use.X, use.Y), acceptedAt)) is not null))
+                        continue;
+                }
+                else if (flameDash)
+                {
+                    if (!TryBeginFlameDashUse(player, use.SkillId, gem.Effect, use.Flags, at, _ => (use.X, use.Y),
+                        (acceptedAt, _, _, landing) => { at = acceptedAt; flameDashTo = landing; StartAction(); }, out cooldownUse))
                         continue;
                 }
                 else if (cast && gem.Name is not null)
@@ -437,13 +451,18 @@ public static partial class Game
                         + $"at ({flickerDestination.At.X}, {flickerDestination.At.Y}) (t={at:0.000})");
                 }
                 if (flicker) await GrantFlickerSpeed(player, use.SkillId);
-                if (cast && gem.Name is not null && movedByCast && IsFlameDashEffect(SkillsFor(player).EffectId(gem.Effect)))
+                if (flameDash && movedByCast)
+                {
                     await SendWorldRecord(player, player.Id,
                         FlameDashGroundSegment(player, use.SkillId, gem.Effect, use.Slot, (px, py), moveLanding),
                         $"0x02c8 Flame Dash burning ground ({px}, {py}) -> ({moveLanding.X}, {moveLanding.Y})");
-                // Flicker Strike strikes from where it lands, at the monster it went to.
-                var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At) : ((px, py), (use.X, use.Y));
-                if (cast && !projectileRuntime) _ = CastGemSkill(player, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
+                    PlaceFlameDashGround(player, (px, py), moveLanding, use.SkillId, gem.Effect, at);
+                }
+                // Flicker Strike strikes from where it lands, at the monster it went to; Flame Dash hits at its resolved landing.
+                var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At)
+                    : flameDash ? ((px, py), moveLanding)
+                    : ((px, py), (use.X, use.Y));
+                if (cast && !projectileRuntime && (!flameDash || movedByCast)) _ = CastGemSkill(player, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
                     actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse, swingAt: swingAt, movedByCast: movedByCast);
                 // Reconcile the skills that use the immediate landing estimate once their action has finished.
                 if (leap is { } jump)
@@ -509,11 +528,10 @@ public static partial class Game
             else if (id == InstanceProtocol.BindSkillId)
             {
                 var (slot, skill) = InstanceProtocol.ReadBindSkill(bytes);
-                string? entry = SkillBarEntry(player, skill);
+                string? entry = BindSkillBar(player, slot, skill);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x004e bind skill 0x{skill:x4} ({(entry is null ? "unknown, not saved" : entry == "" ? "empty" : entry)}) to slot {slot}: {Convert.ToHexString(bytes)}");
-                if (entry is not null && slot < InstanceProtocol.SkillBarSlots)
+                if (entry is not null)
                 {
-                    SkillBarLayout.Bind(CharacterName(player), slot, entry);
                     // Echo 0x0053 so the client updates its server-authoritative skill bar cache (instance +0xc7d8);
                     // otherwise the next 0x02bc Actor update (e.g. unsocketing a support gem) rebuilds the bar from stale data.
                     await SendSkillBar(player);

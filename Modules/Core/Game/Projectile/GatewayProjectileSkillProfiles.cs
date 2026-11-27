@@ -95,6 +95,14 @@ public static class GatewayProjectileSkillProfiles
                 EndArea = new("forbidden-rite", 0),
                 EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain }
             };
+        else if (effect == "AvengingFlame")
+            p = p with
+            {
+                Lobbed = true, DirectDamage = false,
+                CannotPierce = true, CannotFork = true, CannotSplit = true, CannotChain = true, CannotReturn = true,
+                EndArea = new("avenging-flame", 0),
+                EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing },
+            };
         // Wiki Spark: a set of sparks forgets the enemies it hit every 0.66 seconds, so one cast can hit a target again.
         // The transfigured and Vaal versions share the rule.
         // Their wander is the client's own legs (SparkLegs, set at release from the use's sequence).
