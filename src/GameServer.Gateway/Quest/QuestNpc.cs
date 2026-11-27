@@ -25,7 +25,7 @@ public sealed class QuestNpc(NpcCatalog.Npc npc, int x, int y, float angle, stri
 
     /// <summary>Whether it stands there for a character with these flags, by these tables: an NPC that appeared until its
     /// GoneWith (and while its type exists), a placed one by its placement gates, its area's NpcRules and its type's ExistsRules.</summary>
-    public bool Present(Quests.RuleSet rules, Func<string, bool> has) => Appears is { } rule
+    public bool Present(Quests.RuleSet rules, Func<string, bool> has, Func<int, bool>? hasLeague = null) => Appears is { } rule
         ? rules.Exists(rule.NpcType, has) && (rule.GoneWith is null || !has(rule.GoneWith) || rule.StayAfterReward && Id != 0)
-        : (ShownBy is null || has(ShownBy)) && (GoneWith is null || !has(GoneWith)) && rules.NpcPresent(Area, NpcType, has);
+        : (ShownBy is null || has(ShownBy)) && (GoneWith is null || !has(GoneWith)) && rules.NpcPresent(Area, NpcType, has, hasLeague);
 }

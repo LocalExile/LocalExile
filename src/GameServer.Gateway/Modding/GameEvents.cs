@@ -788,6 +788,11 @@ public static class GameEvents
     public static readonly GameEvent<Func<Player, int, Task>> PlayerLevelUp = new();
     /// <summary>Request opening a town portal at (x, y) on behalf of a player (e.g., on-death or item effects); true when handled.</summary>
     public static readonly GameEvent<Func<Player, int, int, string, Task<bool>>> PortalRequested = new();
+    /// <summary>An NPCTalk script dispatched a ruleset event (<c>DispatchRulesetEvent(...)</c>) or scripted world action:
+    /// (player, npcObjectId, npc, talk, eventName). True when handled by this subscriber.</summary>
+    public static readonly GameEvent<Func<Player, uint, SpawnedNpc, NpcCatalog.Talk, string, Task<bool>>> RulesetEvent = new();
+    /// <summary>The player interacted with a Map Device (hideout or Karui Shores) right before the Map Device window opens.</summary>
+    public static readonly GameEvent<Func<Player, Task>> MapDeviceOpened = new();
 
     public static async Task<bool> AnyNpcTalk(Player player, uint id, SpawnedNpc npc)
     {
@@ -854,6 +859,23 @@ public static class GameEvents
     {
         foreach (var run in NpcOptionPicked.For(player)) if (!await run(player, talk)) return false;
         return true;
+    }
+
+    public static async Task<bool> DispatchRulesetEvent(Player player, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk, string eventName)
+    {
+        bool handled = false;
+        foreach (var (owner, run) in RulesetEvent.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(RulesetEvent), async () =>
+            {
+                if (await run(player, npcId, npc, talk, eventName)) handled = true;
+            });
+        return handled;
+    }
+
+    public static async Task RunMapDeviceOpened(Player player)
+    {
+        foreach (var (owner, run) in MapDeviceOpened.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(MapDeviceOpened), () => run(player));
     }
 
     public static bool UsesNpcLeagueFlags(Player player, NpcCatalog.Npc npc)

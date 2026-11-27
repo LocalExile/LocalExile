@@ -6,6 +6,51 @@ namespace GameServer.Gateway.Tests;
 public sealed class ProjectileReleaseRegressionTests
 {
     [Fact]
+    public async Task Spectral_Helix_launches_one_spiral_and_converts_extra_projectiles_to_wall_bounces()
+    {
+        var clock = new Clock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = Prepare(fixture, clock.At, "Corroded Blade");
+        using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (owner == player) values[Stat.NumberOfAdditionalProjectiles] = 2;
+            return values;
+        });
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            ushort skill = Assert.Single(fixture.Equip(("Spectral Helix", 1)));
+            var wire = Game.PlayerSkills(player).Single(row => row.Id == skill).Stats!;
+            Assert.Equal(5, wire.Single(stat => stat.Key == Stat.SpectralSpiralWeaponNumberOfBounces).Value);
+            Assert.Equal(1, wire.Single(stat => stat.Key == Stat.TotalNumberOfProjectilesToFire).Value);
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (80, 100)));
+            clock.At += 1.1;
+            fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            var flight = Assert.Single(fixture.Session.Runtime.Projectiles);
+            Assert.Equal("Metadata/Projectiles/ThrownWeapon", flight.Profile.Id);
+            Assert.Equal(new ProjectileVector(97, 100), flight.Use.Origin);
+            var legs = Assert.IsAssignableFrom<IProjectileLegs>(flight.Profile.Legs?.Invoke(0));
+            var leg = legs.First(flight.Use.Origin, flight.Use.Aim, flight.Profile.Speed);
+            for (int i = 0; i < 38; i++) leg = Assert.IsType<ProjectileLegTurn>(legs.NextTurn(leg.Target, false)).Leg;
+            for (int i = 0; i < 5; i++)
+                leg = Assert.IsType<ProjectileLegTurn>(legs.NextTurn(leg.Target, true)).Leg;
+            Assert.Null(legs.NextTurn(leg.Target, true));
+
+            var items = Game.ItemsOf(player);
+            var main = Assert.Single(items.Items(PlayerInventories.Weapon1));
+            items.Change(PlayerInventories.Weapon1, main.Id, item => ItemCatalog.Create(Program.Items.Find("Rusted Sword")!)
+                with { Sockets = item.Sockets, Links = item.Links });
+            Assert.NotNull(items.Add(PlayerInventories.Offhand1, 0, 0, ItemCatalog.Create(Program.Items.Find("Glass Shank")!)));
+            var gem = Game.SupportedSkill(player, skill);
+            Assert.Equal((true, true), Game.HandsFit(player, gem.Effect, gem.Stats));
+            Assert.Equal(AttackHand.Main, Game.AttackHandFor(player, skill, sequence: 1));
+            Assert.Equal(AttackHand.Main, Game.PanelHands(player, skill));
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    [Fact]
     public async Task Gathering_lightning_is_granted_after_a_paid_melee_hit()
     {
         var clock = new Clock();

@@ -44,6 +44,8 @@ public static class CharacterSaves
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ushort? ScryingAreaHash { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ChartData? Chart { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public RitualEncounterData? RitualEncounter { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IncursionTempleData? IncursionTemple { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ExpeditionSagaData? ExpeditionSaga { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Note { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? CustomName { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Guid? SkillBarGemId { get; init; }
@@ -804,6 +806,7 @@ public static class CharacterSaves
         i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods), i.Vestigial, i.HeistBlueprint)
         { SkinTransferSource = i.SkinTransferSource is null ? null : ToSaved(i.SkinTransferSource, mods), MemoryStrands = i.MemoryStrands, Intangibility = i.Intangibility, RequiredLevel = i.RequiredLevel,
             RelicStyle = i.RelicStyle, ScryingAreaHash = i.ScryingAreaHash, Chart = i.Chart, RitualEncounter = i.RitualEncounter,
+            IncursionTemple = i.IncursionTemple, ExpeditionSaga = i.ExpeditionSaga,
             Note = i.Note, CustomName = i.CustomName, SkillBarGemId = i.SkillBarGemId };
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
@@ -832,6 +835,7 @@ public static class CharacterSaves
                 ? FromSaved(source, catalog) : throw new InvalidDataException("Nested skin transfers are not supported"),
             Influences = s.Influences, Split = s.Split, Synthesised = s.Synthesised, Vestigial = s.Vestigial,
             HeistBlueprint = s.HeistBlueprint, Chart = s.Chart, RitualEncounter = s.RitualEncounter,
+            IncursionTemple = s.IncursionTemple, ExpeditionSaga = s.ExpeditionSaga,
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
             MemoryStrands = s.MemoryStrands, Intangibility = s.Intangibility,
             RelicStyle = s.RelicStyle, ScryingAreaHash = s.ScryingAreaHash, Note = s.Note, CustomName = s.CustomName, SkillBarGemId = s.SkillBarGemId,

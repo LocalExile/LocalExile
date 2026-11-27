@@ -19,6 +19,9 @@ public static partial class Game
         foreach (string effect in new[] { "HolyFlameTotem", "HolyFlameTotemAltX", "HolyFlameTotemRoyale" })
             definitions[effect] = SkillProjectileDefinition(effect, holyFlameProjectile,
                 SkillProjectileParameters(effect, holyFlameProjectile));
+        const string shrapnelBallista = "Metadata/Projectiles/CrossbowShotgunProjectile";
+        definitions[SteelShrapnelBallistaEffect] = SkillProjectileDefinition(SteelShrapnelBallistaEffect, shrapnelBallista,
+            SkillProjectileParameters(SteelShrapnelBallistaEffect, shrapnelBallista));
         const string frostBlade = "Metadata/Projectiles/IceStrikeProjectileNew";
         definitions["FrostBlades"] = SkillProjectileDefinition("FrostBlades", frostBlade,
             SkillProjectileParameters("FrostBlades", frostBlade));
@@ -37,6 +40,14 @@ public static partial class Game
         definitions[AvengingFlameEffect] = SkillProjectileDefinition(AvengingFlameEffect, InfernalBoltProjectile,
             SkillProjectileParameters(AvengingFlameEffect, InfernalBoltProjectile));
         RegisterSpectralShieldThrows(definitions);
+        foreach (string effect in new[] { "VenomGyre", "VenomGyreAltX", "VenomGyreAltY", "VenomGyreRoyale",
+                     "VenomGyreMercenary", VaalVenomGyreEffect })
+            definitions[effect] = SkillProjectileDefinition(effect, VenomGyreProjectile,
+                SkillProjectileParameters(effect, VenomGyreProjectile));
+        const string spectralWeaponProjectile = "Metadata/Projectiles/ThrownWeapon";
+        foreach (string effect in new[] { SpectralHelixEffect, SpectralHelixTrapEffect })
+            definitions[effect] = SkillProjectileDefinition(effect, spectralWeaponProjectile,
+                SkillProjectileParameters(effect, spectralWeaponProjectile));
         RegisterEyeOfWinter(definitions);
         const string boneLance = "Metadata/Projectiles/BoneLance";
         foreach (string effect in new[] { "Unearth", "UnearthRoyale" })
@@ -140,6 +151,7 @@ public static partial class Game
                 if (GatewayProjectileSkillProfiles.IsKineticBlast(effect) && profile.ContactArea is { } area
                     && Stat.VirtualKinecticBlastNumberOfClusters is var key)
                     stats[key] = area.Count;
+                if (IsSpectralHelix(effect)) stats[Stat.SpectralSpiralWeaponNumberOfBounces] = profile.TerrainBounces;
             }
         };
 
@@ -154,11 +166,13 @@ public static partial class Game
                 int Get(uint id) => areaStats.GetValueOrDefault(id);
                 use = use with { Profile = GatewayProjectileSkillProfiles.ScaleAreas(use.Profile, effect, Get,
                     !Skills.IsAttack(context.Gem.Effect)) };
-                if (effect is "LancingSteel" or "LancingSteelAltX" or "ShatteringSteelAltX")
+                if (effect is "LancingSteel" or "LancingSteelAltX" or "ShatteringSteelAltX" or "SplittingSteelAltX"
+                    or SteelShrapnelBallistaEffect)
                     return PrepareSteelRelease(context, use, effect);
                 if (IsGalvanicArrow(effect)) return GalvanicArrowRelease(context, use, effect, areaStats);
                 if (IsIceSpear(effect)) return IceSpearRelease(context, use);
                 if (effect == "BallLightningAltX") return ReleaseOrbitingBallLightning(context, use);
+                if (IsSpectralHelix(effect)) return ReleaseSpectralHelix(context, use);
                 if (GatewayProjectileSkillProfiles.IsBlazingSalvo(effect)) return BlazingSalvoRelease(use, Get);
                 if (effect == "SpectralShieldThrowAltY") return StationaryShieldRelease(context, use);
                 if (effect is "IcicleMine" or "IcicleMineAltX" or "IcicleMineAltY")

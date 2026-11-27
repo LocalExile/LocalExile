@@ -1,4 +1,5 @@
 using GameServer.Modding;
+using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Modules.Incursion;
 
@@ -20,6 +21,8 @@ public sealed class IncursionModule : IModule
     {
         LoadData();
         string id = module.Manifest.Id;
+        GameEvents.MapOpening.Add(id, Opening);
+        GameEvents.GroundItemPreparing.Add(id, Prepare);
         module.Lifetime.Own(new Cleanup(encounter.Clear));
         module.Lifetime.Own(RegisterDeliriumPauseSource(encounter.IsActivePause));
         GameEvents.AreaPopulated.Add(id, encounter.Populated);
@@ -42,6 +45,25 @@ public sealed class IncursionModule : IModule
             return await encounter.Talk(player);
         });
         GameEvents.ObjectUse.Add(id, encounter.OnUse);
+    }
+
+    public static Item Prepare(Player player, Item item)
+    {
+        if (item.IncursionTemple is not { } temple || MapModsOf(player)?.Get(Stat.MapFinalIncursionArchitectCopiesTemple) is not > 0) return item;
+        var rng = AreaRng(player);
+        return item with { IncursionTemple = temple with { Rooms = [.. temple.Rooms.Select(hash =>
+        {
+            if (IncursionTables.AllRooms.FirstOrDefault(r => r.Hash16 == hash)?.ArchitectKey is not { } family
+                || !IncursionTables.TempleFamilies.TryGetValue(family, out var tiers)) return hash;
+            var choices = tiers.Where(t => t.Key is >= 1 and <= 3).OrderBy(t => t.Key).Select(t => t.Value).ToArray();
+            return choices.Length == 0 ? hash : IncursionTables.RoomHash16(choices[rng.Next(choices.Length)]);
+        })] } };
+    }
+
+    public static void Opening(MapOpening request)
+    {
+        if (!request.Campaign && request.Opening is { } opening && MapDevices.IsMapArea(opening.Area.Hash16)
+            && IncursionTables.RulesetRow is not null && IncursionTemple.TempleGraph is not null) request.HandledContent.Add("Incursion");
     }
 
     sealed class Cleanup(Action clean) : IDisposable

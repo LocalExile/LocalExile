@@ -491,6 +491,31 @@ public static partial class Game
         await CtrlClickToStash(player, move.Tab, move.ItemId, move.Flags, $"0x00e0 ({move})");
     }
 
+    // C→S 0x1a2: Ctrl + click on an inventory item while the Merchant window is open; the client asked for the price first.
+    // Moves the item from MainInventory or ExpandedInventory (0x54) into the merchant tab with its price note in one
+    // transaction; on refusal or partial stack remainder the inventory item keeps the note it had.
+    public static async Task ListInMerchantTab(Player player, InstanceItems.ListWithPrice request)
+    {
+        string what = $"0x01a2 item {request.ItemId} \"{request.Note}\" to merchant inventory 0x{request.InventoryId:x}";
+        if (!player.TradeStashOpen || player.Character.Ssf || player.Closed || player.LeavingArea || player.PlayerLife == 0)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= {what}: refused (merchant window closed)");
+            return;
+        }
+        var trade = TradeStashOf(player);
+        if (trade.TabOf(request.InventoryId) is not int tab || !trade.IsShownTab(tab) || trade.TabType(tab) != StashRules.Trade)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= {what}: refused (no merchant tab)");
+            return;
+        }
+        byte sourceRow = request.Expanded ? PlayerInventories.ExpandedInventory : PlayerInventories.MainInventory;
+        var items = ItemsOf(player);
+        var moved = ItemMoves.ListInMerchantTab(trade, items, tab, sourceRow, request.ItemId, request.Note, ShapeOf, out string refused);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= {what}: move item {request.ItemId} from row {sourceRow} to merchant tab {tab}"
+            + (moved is null ? $": refused ({refused})" : ""));
+        if (moved is not null) await SendTransfer(player, items, trade, moved, tabFirst: false);
+    }
+
     // C→S 0xe1: Ctrl + click on an inventory item that has an affinity tab (currency …): into the first matching tab
     // the client picked for it (StashTabAffinities) with room, emitting S→C 0x00d5 on both success and refusal.
     public static async Task MoveToAffinityTab(Player player, InstanceStash.MoveToAffinityTab move, string hex)

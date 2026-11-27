@@ -388,6 +388,14 @@ Faustus's "Manage Shop" option (`NPCTalkCategory` 62 `ManageAsyncTrade`, `SendOp
 `StashType` row 2 (`TradeStash`, 12 × 12) in inventory manager 0 (ids `0xa00..`, item ids `0x60000000..`, refused in
 SSF). Pricing an unpriced held cursor item sends `C→S 0x01a1` with bit 31 set (`Flag == true`, sender `0x1402fbbf0`)
 before `C→S 0x002a`.
+Merchant tabs are always Public (S→C 0x0136 flags 0x0a), so a note survives placement; a tab saved without the flag
+gets it on load, and C→S 0xcf cannot clear it.
+
+- **C→S 0x01a2** (variable length, writer `0x141fa2510`, sender `0x140b05b50`): Ctrl + click of an inventory item while
+  the Merchant window is open, after the client asked for its price. `u8` (1: item in the expanded inventory, type
+  0x54), `u32 BE itemId`, `WStr note` (as in 0x1a1), `u32 BE inventoryId` of the merchant tab, `u8 + u8` token (low
+  byte first, as in 0xe0). Live 2026-11-26: `01A2 00 4000000D 000D "~b/o 1 divine" 00000A00 90 86` (28 B). The note
+  goes on the item and the 0xe0 move takes it into that tab; a refused move leaves the item's old note.
 
 - **C→S 0x02ac** (2 B) → **S→C 0x02ad** (`0x1421b9520`, case `0xe4`): `CompactUInt count`, `count × (RawU64 timestamp,
   u32 BE currencyTypeHash, u32 BE amount, u8 sold, u16 BE itemWireLen, byte[itemWireLen])`, trailing `u8 isIncremental`
