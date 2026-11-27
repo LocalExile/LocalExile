@@ -3087,6 +3087,7 @@ public static partial class Game
         var skillStats = admittedGem.Stats;
         bool shockwaveSupport = linkedSource && !spell
             && skillStats.GetValueOrDefault(global::Stat.SupportBluntChanceToTriggerShockwaveOnHitPct) > 0;
+        bool pyreSupport = linkedSource && !spell && skillStats.GetValueOrDefault(PyreTriggerChance) > 0;
         bool wildStrike = IsWildStrike(gem.Effect);
         if (wildStrike && WildStrikeElements.TryGetValue(player, out var choices)
             && choices.TryGetValue(gem.Effect, out var strikeElement))
@@ -4280,6 +4281,7 @@ public static partial class Game
                     // current raw source so a refund between victims cannot keep granting from the sweep's old snapshot.
                     var rampagePlayer = freshPlayer ? playerStats : null;
                     var rampageSource = RampageOnMeleeHitLocked(player, m, ownerContact && !spell && SkillsFor(player).IsMelee(gem.Effect), rampagePlayer);
+                    bool pyreTarget = pyreSupport && m.Ignites.IgnitedAt(at);
                     uint lifeBefore = m.Life;
                     var cull = Cull.Of(playerStats, skillStats, critical, spell).WithWeapon(weaponLocal);
                     if (shatterFrozen && !splashMore.ContainsKey(id)) cull = cull with { ShatterFrozen = true };
@@ -4429,6 +4431,8 @@ public static partial class Game
                                 ExertedMeleeHitLocked(player, warcryTriggers, m.Walk.Position(at), at);
                             if (shockwaveSupport)
                                 TriggerShockwaveLocked(player, skillId, admittedGem, hand, weapon, offCritical, m.Walk.Position(at), at);
+                            if (pyreTarget)
+                                TriggerPyreLocked(player, skillId, admittedGem, hand, weapon, offCritical, m.Walk.Position(at), at);
                             if (goreShockwave is { } gore)
                                 TriggerGoreShockwaveLocked(player, gore, m.Walk.Position(at), at);
                             GainValourFromMeleeLocked(player, m, applied.Value.Life == 0, at, playerStats);

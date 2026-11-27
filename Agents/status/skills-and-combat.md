@@ -247,6 +247,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Infernal Cry marks enemies for a timed fire explosion that consumes their corpses on death.
 - Battlemage's Cry triggers one linked spell on each of five exerted attacks' first melee hits, with the spell's cost.
 - Shockwave supports spend a stored use on a melee hit, and Void Shockwave repeats from enemies hit by its first wave.
+- Pyre Support triggers successive flame pillars on supported melee hits against already ignited enemies.
 - Limbsplit and The Cauteriser trigger their own Gore Shockwave on a melee hit with at least 150 Strength.
 - Poison hits and spread use increased Poison Duration. Viper Strike of the Mamba applies one poison per hit
   to a target with no active poisons. Unnatural Strength grants minions conversion and Wither on hit.

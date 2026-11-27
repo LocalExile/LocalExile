@@ -808,6 +808,7 @@ public static partial class Game
                 && own.GetValueOrDefault(Stat.TriggeredByCrystalfallSupport) == 0
                 && own.GetValueOrDefault(Stat.TriggeredByInfernalCry) == 0
                 && own.GetValueOrDefault(Stat.TriggeredByShockwaveSupport) == 0
+                && own.GetValueOrDefault(Stat.TriggeredByPyreSupport) == 0
                 && supported.WornGrant is not { EffectId: GoreShockwaveEffect }
                 && own.GetValueOrDefault(Stat.TriggeredByDivineCry) == 0
                 && own.GetValueOrDefault(Stat.TriggeredPrismaticBurst) == 0 && TriggerOnlyReason(supported) is not null)
