@@ -89,7 +89,7 @@ public static partial class Game
             session.Runtime.Schedule(session.Runtime.Now + ProjectileRuntime.Time(flight), () =>
             {
                 if (!session.Active || player.PlayerLife == 0) return;
-                session.Runtime.Impact(use, position, new(effect, radius));
+                session.RainImpact(use, position, new(effect, radius));
                 if (anomaly is not null) session.PlantKineticAnomaly(anomaly, position, anomalyRadius, anomalyDuration, anomalyLimit);
             });
         }

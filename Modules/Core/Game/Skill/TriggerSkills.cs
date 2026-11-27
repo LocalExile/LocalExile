@@ -82,6 +82,8 @@ public static partial class Game
             return "Seize the Flesh triggers on use of a supported warcry";
         if (GolemStat(gem.Stats, Stat.TriggeredByKineticInstabilitySupport) != 0)
             return "Kinetic Flux triggers from attacks supported by Kinetic Instability";
+        if (GolemStat(gem.Stats, Stat.TriggeredByVoidstormSupport) != 0)
+            return "Voidstorm triggers when a supported ranged attack lands";
         if (gem.WornGrant is { EffectId: GoreShockwaveEffect })
             return "Gore Shockwave triggers on melee hits with at least 150 Strength";
         if (GolemStat(gem.Stats, Stat.TriggeredByDivineCry) != 0)

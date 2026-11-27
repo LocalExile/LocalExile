@@ -335,6 +335,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Explosive and Poisonous Concoction land area hits and spend charges for their attack bonuses. Bouncing chains along
   the ground.
 - Thunderstorm blinds inside the storm, grows while occupied, and releases Thunderburst on a timely full-stage exit.
+- Voidstorm from supported rain landings grows and blinds enemies until its owner enters and detonates it.
 - Kinetic Fusillade and Detonation refresh their capped hover queues and discharge in sequence.
   See [projectile skills](../docs/game/projectile-skills.md).
 - Kinetic Instability supports place Kinetic Flux on the linked wand attack's killing hit or, for Greater, its critical hit.

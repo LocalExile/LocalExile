@@ -552,6 +552,8 @@ public static partial class Game
             ActualCaster = totem is null ? null : TotemCasterStats(playerStats), FromTotem = totem is not null,
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId, Gem = gem.Gem,
             HitPacket = true, ActionSequence = sequence,
+            VoidstormDriver = Own(VoidstormTrigger) > 0 && !spell && totem is null && from is null && !fromMirage
+                && sacrifice?.Triggered != true && !SkillsFor(player).HasType(gem.Effect, "InbuiltTrigger") ? admittedGem : null,
             SkillStats = new Dictionary<uint, int>(own), FirstHit = new(),
             FreezingPulseFalloff = SkillsFor(player).EffectId(gem.Effect) is
                 "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale",

@@ -113,7 +113,7 @@ public static partial class Game
             while (storms.Count >= plan.Limit) RemoveThunderstormAt(0);
             var storm = new Thunderstorm(plan, Runtime.Now + plan.Life);
             storms.Add(storm);
-            Runtime.Impact(plan.Landing, storm.Centre, new("Thunderstorm landing", plan.Radius));
+            RainImpact(plan.Landing, storm.Centre, new("Thunderstorm landing", plan.Radius));
             RainArt(storm.Centre, WindstormImpactArt, .6, storm.Radius);
             DrawThunderstorm(storm);
             if (idle) CheckThunderstorms();

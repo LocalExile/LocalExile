@@ -112,7 +112,7 @@ public static partial class Game
         session.Runtime.Schedule(landAt, () =>
         {
             if (!session.Active || player.PlayerLife == 0) return;
-            session.Runtime.Impact(use, at, new(TrarthusBlastRain, radius));
+            session.RainImpact(use, at, new(TrarthusBlastRain, radius));
             session.RainArt(at, "Metadata/Effects/Spells/blast_rain/blastrainexplosion_aoe.ao", 1, radius);
             if (waveRadius <= 0) return;
             session.RainArt(at, "Metadata/Effects/Spells/blast_rain/wave_effect_new.ao", 1, waveRadius, facing);

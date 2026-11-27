@@ -354,6 +354,7 @@ public static partial class Game
             ClearDamageGrounds();
             ClearEarthshatterSpikes();
             ClearBonespires();
+            ClearVoidstorms();
             ClearProjectileBladeSources();
             ClearBladeVortices();
             ClearPlacedVolatileOrbs();
@@ -1191,6 +1192,9 @@ public static partial class Game
                     CatchVenomGyre(p.Use, caught);
                 if (value.Reason == ProjectileEndReason.Landing && p.Use.Payload is ProjectileOffense { Unearth: { } corpse })
                     LandUnearth(corpse, (x, y));
+                if (value.Reason == ProjectileEndReason.Landing && p.ParentId == 0
+                    && p.Use.Payload is ProjectileOffense { VoidstormDriver: { } driver } shot)
+                    TriggerVoidstorm(shot.SourceSkill, driver, value.Position);
             }
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile end use={p.UseId} entity={p.Id}"
