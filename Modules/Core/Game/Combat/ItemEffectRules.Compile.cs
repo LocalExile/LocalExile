@@ -5,8 +5,7 @@ using GameServer.Storage;
 sealed partial class ItemEffectRules
 {
     // Compile once per world snapshot. Combat only sees resolved stat keys and typed values.
-    void Compile(GameDataStore.FxRuleRow row, List<ChargeGains.Rule> beforeAdditional, List<ChargeGains.Rule> afterAdditional,
-        List<ChargeGains.Rule> minionKills)
+    void Compile(GameDataStore.FxRuleRow row, ChargeRuleLists charges)
     {
         try
         {
@@ -17,10 +16,19 @@ sealed partial class ItemEffectRules
             if (!Matches(targetArgs, "{}") || !Matches(value, "{}"))
                 throw new FormatException("unsupported target or value arguments");
             bool player = false, minion = false;
-            foreach (var (eventName, eventArgs) in row.When)
+            long? playerHitOrder = null, monsterHitOrder = null;
+            foreach (var (eventName, eventArgs, order) in row.When)
             {
                 if (eventName != trigger) throw new FormatException("expected one event kind per rule");
-                if (!player && Matches(eventArgs, "{}")) player = true;
+                if ((trigger, action, target) == ("hit", "charge", "self"))
+                {
+                    if (order is null or <= 0) throw new FormatException("expected a positive hit charge roll_order");
+                    if (playerHitOrder is null && Matches(eventArgs, "{}")) playerHitOrder = order;
+                    else if (monsterHitOrder is null && Matches(eventArgs, """{"who":"monster"}""")) monsterHitOrder = order;
+                    else throw new FormatException($"unsupported or duplicate hit charge trigger with args {eventArgs}");
+                }
+                else if (order is not null) throw new FormatException($"unsupported roll_order for {trigger} with {action}");
+                else if (!player && Matches(eventArgs, "{}")) player = true;
                 else if (!minion && (trigger, action, target) == ("kill", "charge", "self")
                     && Matches(eventArgs, """{"who":"minion"}""")) minion = true;
                 else throw new FormatException($"unsupported or duplicate {trigger} trigger with args {eventArgs}");
@@ -46,11 +54,18 @@ sealed partial class ItemEffectRules
                         throw new FormatException("multiple duration sources require a guaranteed gain from their strongest roll");
                     onKill.Add(new(stats, roll, seconds, durationStat, fromRoll));
                     break;
-                case ("kill", "charge", "self") when Matches(timers, "[]"):
+                case ("hit" or "kill", "charge", "self") when Matches(timers, "[]"):
                     if (JsonNode.Parse(args) is not JsonObject { Count: 1 } charge ||
                         charge["charge"]?.GetValue<string>() is not string name || Charges.Parse(name) is not { } type ||
                         !Take("chance", """{"percent":{"from":"roll"}}"""))
                         throw new FormatException("expected a named charge and chance from its source stat");
+                    if (trigger == "hit")
+                    {
+                        var hitRules = Sources("stat").Select(stat => (stat, type)).ToArray();
+                        if (playerHitOrder is long playerOrder) charges.PlayerHits.Add(playerOrder, hitRules);
+                        if (monsterHitOrder is long monsterOrder) charges.MonsterHits.Add(monsterOrder, hitRules);
+                        break;
+                    }
                     if (row.KillChargeOrder is null or 0)
                         throw new FormatException("expected a nonzero kill_charge_order");
                     bool frozen = Take("enemy_frozen_at_death", "{}");
@@ -74,12 +89,12 @@ sealed partial class ItemEffectRules
                     bool Applies(ChargeEvent e, WeaponProfile w) => e is ChargeEvent.Kill kill
                         && kill.Poisons >= minPoisons && kill.Poisons <= maxPoisons
                         && (!frozen || kill.Frozen) && (!shield || w.Shield) && (!dualWield || w.DualWield);
-                    var destination = row.KillChargeOrder < 0 ? beforeAdditional : afterAdditional;
+                    var destination = row.KillChargeOrder < 0 ? charges.BeforeAdditional : charges.AfterAdditional;
                     foreach (uint stat in Sources("stat"))
                     {
                         var rule = new ChargeGains.Rule(stat, type, Applies);
                         if (player) destination.Add(rule);
-                        if (minion) minionKills.Add(rule);
+                        if (minion) charges.MinionKills.Add(rule);
                     }
                     break;
                 case ("hit", "skill", "enemy") when Matches(args, """{"skill":"granted"}""") && Matches(timers, "[]"):

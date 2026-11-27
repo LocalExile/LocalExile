@@ -96,12 +96,15 @@ public static class ChargeGains
         new(Stat.GainPowerChargeOnKillVsEnemiesWithLessThan5PoisonsPct, ChargeType.Power, (e, _) => e is ChargeEvent.Kill { Poisons: < 5 }),
     ];
 
-    internal static readonly IReadOnlyList<Rule> OtherRules =
+    static readonly Rule[] LegacyHitChances =
     [
-        // On hit
         new(Stat.AddFrenzyChargeOnSkillHitPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit),
         new(Stat.AddPowerChargeOnHitPct, ChargeType.Power, (e, _) => e is ChargeEvent.Hit),
         new(Stat.AddPowerChargeOnSkillHitPct, ChargeType.Power, (e, _) => e is ChargeEvent.Hit),
+    ];
+
+    internal static readonly IReadOnlyList<Rule> OtherRules =
+    [
         new(Stat.GainFrenzyChargeOnHitWhileBleeding, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit, Flag: true),
         new(Stat.GainFrenzyChargeOnHittingRareOrUniqueEnemyPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit h && RareOrUnique(h.Rarity)),
         new(Stat.ChanceToGainPowerChargeOnRareOrUniqueEnemyHitPct, ChargeType.Power, (e, _) => e is ChargeEvent.Hit h && RareOrUnique(h.Rarity)),
@@ -174,7 +177,8 @@ public static class ChargeGains
         new(Stat.GainPowerChargeWhenThrowingTrapPct, ChargeType.Power, (e, _) => e is ChargeEvent.SkillUse { Trap: true }),
     ];
 
-    public static readonly IReadOnlyList<Rule> Rules = [.. LegacyKillChances, .. AdditionalKillRules, .. LegacyConditionalKillChances, .. OtherRules];
+    static readonly IReadOnlyList<Rule> LegacyHitRules = [.. LegacyHitChances, .. OtherRules];
+    public static readonly IReadOnlyList<Rule> Rules = [.. LegacyKillChances, .. AdditionalKillRules, .. LegacyConditionalKillChances, .. LegacyHitRules];
 
     /// <summary>One gain: a charge type, how many (negative: a loss; <see cref="All"/>: every charge above the
     /// minimum), and the stat or rule that granted it (for the log). <paramref name="ToMaximum"/>: up to the maximum.</summary>
@@ -194,9 +198,12 @@ public static class ChargeGains
     /// </summary>
     public static List<Gain> Roll(ChargeEvent e, Func<uint, int> get, WeaponProfile weapon, Random rng)
     {
-        var rules = e is ChargeEvent.Kill
-            ? (ItemEffectRules.Enabled ? ItemEffectRules.Current.ChargeRules : Rules)
-            : OtherRules;
+        var rules = e switch
+        {
+            ChargeEvent.Kill => ItemEffectRules.Enabled ? ItemEffectRules.Current.ChargeRules : Rules,
+            ChargeEvent.Hit => ItemEffectRules.Enabled ? ItemEffectRules.Current.HitChargeRules : LegacyHitRules,
+            _ => OtherRules
+        };
         return Roll(e, get, weapon, rng, rules);
     }
 
