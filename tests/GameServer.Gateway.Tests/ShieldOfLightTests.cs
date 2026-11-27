@@ -7,6 +7,22 @@ namespace GameServer.Gateway.Tests;
 public sealed class ShieldOfLightTests
 {
     [Fact]
+    public void A_peer_keeps_its_tile_order_while_moving_and_joins_the_tail_on_reentry()
+    {
+        var grid = new AreaGrid();
+        EntityId peer = new(0x20000002), minion = new(0x04000001);
+        grid.Set(peer, (116, 114));
+        grid.Set(minion, (118, 114));
+        grid.Set(peer, (130, 114));
+        Assert.True(grid.ClientTileScanOrder(peer, (130, 114)).CompareTo(grid.ClientTileScanOrder(minion, (118, 114))) < 0);
+
+        // The x=115 client tile boundary is inside one 16-cell server bucket.
+        grid.Set(peer, (114, 114));
+        grid.Set(peer, (116, 114));
+        Assert.True(grid.ClientTileScanOrder(minion, (118, 114)).CompareTo(grid.ClientTileScanOrder(peer, (116, 114))) < 0);
+    }
+
+    [Fact]
     public async Task The_first_enemy_contact_emits_four_independent_waves_from_eligible_allies()
     {
         var clock = new ViperStrikeMambaTests.AttackClock();

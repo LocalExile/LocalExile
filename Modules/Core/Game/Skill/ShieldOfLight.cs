@@ -7,7 +7,6 @@ public static partial class Game
     const int ShieldOfLightSteps = 10;
     const double ShieldOfLightStepSeconds = .025;
     const double ShieldOfLightSin = .8660254037844386, ShieldOfLightCos = .5;
-    const int NativeShieldWaveBucketSize = 23;
 
     static void ScheduleShieldOfLightLocked(Player player,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, SupportedGem source,
@@ -44,7 +43,7 @@ public static partial class Game
                     seekAllies = false;
                     double at = ProjectileWorldTime(player);
                     var anchor = targets.Select(id => (Id: id, At: player.Area.Monsters[id].Walk.Position(at)))
-                        .MinBy(target => ShieldOfLightScanOrder(target.Id, target.At)).At;
+                        .MinBy(target => player.Area.Grid.ClientTileScanOrder(new(target.Id), target.At)).At;
                     foreach (var ally in ShieldOfLightAllies(player, anchor, at, allyRadius).Take(allyLimit))
                         StartWave(ally, GroundSlamWave.Direction(ally, anchor), alliedAttack, primary: false);
                 }
@@ -54,12 +53,9 @@ public static partial class Game
         }
     }
 
-    static (int Y, int X, uint Id) ShieldOfLightScanOrder(uint id, (int X, int Y) at) =>
-        (at.Y / NativeShieldWaveBucketSize, at.X / NativeShieldWaveBucketSize, id);
-
     static IEnumerable<(int X, int Y)> ShieldOfLightAllies(Player player, (int X, int Y) anchor, double now, int radius)
     {
-        // The native 23-cell buckets are visited row by row, with the oldest object first in each bucket.
+        // The native scan takes allies in the order they entered each 23-cell tile, across players and minions.
         var peers = AreaPlayers(player).Where(ally => ally.Area == player.Area && !ally.Closed && !ally.LeavingArea).ToArray();
         var eligible = new List<(uint Id, (int X, int Y) At)>();
         foreach (var ally in peers)
@@ -85,6 +81,6 @@ public static partial class Game
                 && stats.Any(s => s.Key == Stat.IsSemanticMinion && s.Value != 0))
                 eligible.Add((id, at));
         }
-        return eligible.OrderBy(ally => ShieldOfLightScanOrder(ally.Id, ally.At)).Select(ally => ally.At);
+        return eligible.OrderBy(ally => player.Area.Grid.ClientTileScanOrder(new(ally.Id), ally.At)).Select(ally => ally.At);
     }
 }

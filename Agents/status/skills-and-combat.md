@@ -357,8 +357,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   swaps it for its more melee physical damage (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Crushing Fist, Glacial Shield Swipe, Swordstorm, Eviscerate and Shield of Light open a use window on block.
   Swordstorm deals eight timed dual-weapon hits. Glacial Shield Swipe advances a forward cone.
-  Eviscerate advances two waves that can each hit a target. Shield of Light sends a forward cone and, on its
-  first contact, independent waves from nearby allies (checked live in prediction and lockstep).
+  Eviscerate advances two waves that can each hit a target.
+  Shield of Light sends a forward cone and waves from nearby allies in tile entry order on its first contact.
   Crushing Fist fixes its ground position on the first animation contact and hits on the following slam contact.
 - Bloodscent applies its Rage grant to the weapon that landed the hit (checked offline).
 - Blood Rage: attack speed, physical attack life leech, Frenzy Charge chance on kill and its physical degeneration;
