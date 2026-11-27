@@ -19,6 +19,7 @@ public static partial class Game
     public static int BeginPaidChannel(Player player, ushort skill, int effect, int action, ushort sequence)
     {
         EndCycloneStages(player, player.ChannelGeneration, AreaTime(player));
+        RetireDivineIre(player, player.ChannelGeneration);
         int generation = ++player.ChannelGeneration;
         player.ChannelSkill = skill;
         player.ChannelSkillSequence = sequence;
@@ -39,6 +40,7 @@ public static partial class Game
             double at = AreaTime(player);
             RetireChargedDashLocked(player, started);
             RetireBladeFlurry(player, started);
+            RetireDivineIre(player, started);
             if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill)
             {
                 var (x, y) = player.Walk.Position(at);
@@ -1656,6 +1658,8 @@ public static partial class Game
                     lock (LevelUpdatesFor(player).Gate)
                     {
                         channelGeneration = BeginPaidChannel(player, skillId, gem.Effect, action, sequence);
+                        if (IsDivineIre(player, gem.Effect))
+                            BeginDivineIre(player, skillId, sequence, paymentGem, channelGeneration.Value, action, to);
                         if (IsBladeFlurry(player, gem.Effect))
                             BeginBladeFlurry(player, paymentGem, skillId, action, channelGeneration.Value, sequence, to);
                         if (IsChargedDash(player, gem.Effect))
@@ -1746,6 +1750,7 @@ public static partial class Game
             { AbortStartedChannel(player, channelGeneration); return false; }
             player.NextChannelHitAt = AreaTime(player) + (IsSnipe(gem.Effect) ? interval / 2 : interval);
             _ = RunChannel(player, skillId, gem, action, to, initialCostPaid: true);
+            if (IsDivineIre(player, gem.Effect)) return CompleteSupportedUse(true);
             if (IsChargedDash(player, gem.Effect))
             {
                 if (SkillsFor(player).IsTravel(gem.Effect))
@@ -2582,9 +2587,6 @@ public static partial class Game
     sealed class ChannelEndTracker { public int FinishedGeneration = -1; }
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, ChannelEndTracker> ChannelEnds = new();
 
-    public static bool IsDivineIre(Player player, int effect) =>
-        SkillsFor(player).EffectId(effect) is "DivineIre" or "DivineIreAltX" or "DivineIreAltY" or "DivineIreRoyale";
-
     public static Task EmitPredictiveChannelFinished(Player player, int generation, ushort sequence) =>
         EmitPredictiveChannelFinished(player, generation, sequence, null);
 
@@ -2623,7 +2625,7 @@ public static partial class Game
         ChargedDashChannel? dash;
         lock (LevelUpdatesFor(player).Gate) dash = CurrentChargedDash(player);
         bool OwnsChannel() => player.ChannelGeneration == generation && player.ChannelSkill == skillId && player.ActionCount == action;
-        async Task EndPaidDash(double now)
+        async Task EndPaidChannel(double now)
         {
             (int X, int Y)? dashLanding;
             lock (LevelUpdatesFor(player).Gate)
@@ -2635,11 +2637,10 @@ public static partial class Game
                 player.LockstepSkill.Clear();
             }
             await SendWorldRecord(player, player.Id, ChannelFinishedRecord(player, channelSequence, dashLanding),
-                $"0x01ae Charged Dash 0x{channelSequence:x4} ended");
+                $"0x01ae {gem.Name} 0x{channelSequence:x4} ended");
         }
         bool divineIre = IsDivineIre(player, gem.Effect);
-        int divineIreMaxStages = divineIre && SkillsFor(player).EffectId(gem.Effect) == "DivineIreRoyale" ? 20 : 10;
-        int divineIreStages = 0;
+        var divine = divineIre ? CurrentDivineIre(player) : null;
         try
         {
             if (dash is not null) StartChargedDashWave(player, dash, channelStarted);
@@ -2649,13 +2650,8 @@ public static partial class Game
                 await SnipeStart(player, skillId, gem, action, initialAim);
             else if (scourge)
                 StartScourgeChannel(player, gem, action, generation, channelSequence, initialAim, initialCostPaid);
-            else if (divineIre)
-            {
-                divineIreStages = 1;
-                await SendWorldRecord(player, player.Id,
-                    InstanceEntities.StatsUpdate(player.Id, [(Stat.DivineTempestCurrentNumberOfStages, divineIreStages)]),
-                    $"0x01b3 Divine Ire stage {divineIreStages}");
-            }
+            else if (initialCostPaid && divine is not null)
+                PulseDivineIre(player, divine, gem, lycia?.Pact.DamageMore ?? 1);
             // Overheat's per-3 value, read once for the channel rather than a skill build on every tick.
             const uint overheatStat = Stat.SupportOverheatAilmentDamagePlusPctFinalPer3FortificationConsumed;
             int overheatPerThree = overheatStat is var overheatKey
@@ -2685,7 +2681,12 @@ public static partial class Game
                 bool blocked = PlayerActionBlocked(player, now, now);
                 if (dash is not null && (blocked || dash.Interruption != player.ActionInterruptionGeneration))
                 {
-                    await EndPaidDash(now);
+                    await EndPaidChannel(now);
+                    return;
+                }
+                if (divine is not null && (blocked || divine.Interruption != player.ActionInterruptionGeneration))
+                {
+                    AbortStartedChannel(player, generation);
                     return;
                 }
                 if (blocked) { player.NextChannelHitAt = now + TickSeconds; continue; }
@@ -2707,7 +2708,7 @@ public static partial class Game
                 }
                 else if (!PayMana(player, skillId, out cost, out lifeCost, 100, useSpell: false))
                 {
-                    if (dash is not null) await EndPaidDash(now);
+                    if (dash is not null || divineIre) await EndPaidChannel(now);
                     else
                     {
                         lock (LevelUpdatesFor(player).Gate)
@@ -2766,12 +2767,10 @@ public static partial class Game
                     GainScourgeStage(player, generation, action);
                     continue;
                 }
-                if (divineIre && divineIreStages < divineIreMaxStages)
+                if (divineIre)
                 {
-                    divineIreStages++;
-                    await SendWorldRecord(player, player.Id,
-                        InstanceEntities.StatsUpdate(player.Id, [(Stat.DivineTempestCurrentNumberOfStages, divineIreStages)]),
-                        $"0x01b3 Divine Ire stage {divineIreStages}");
+                    if (divine is not null) PulseDivineIre(player, divine, gem, lycia?.Pact.DamageMore ?? 1);
+                    continue;
                 }
                 double focusedMore = FocusedChannelMore(now - channelStarted,
                     GolemStat(SupportedSkill(player, skillId).Stats, Stat.SupportFocusChannelDamagePlusPctFinalPerSecondChannellingUpTo60Pct));
@@ -2810,11 +2809,8 @@ public static partial class Game
                 }
             if (!player.Connection.LockstepClient)
                 await EmitPredictiveChannelFinished(player, generation, channelSequence, dashLanding);
-            if (divineIreStages > 0 && !player.Closed && !player.LeavingArea
-                && (player.ChannelSkill == 0 || player.ChannelGeneration == generation))
-                await SendWorldRecord(player, player.Id,
-                    InstanceEntities.StatsUpdate(player.Id, [(Stat.DivineTempestCurrentNumberOfStages, 0)]),
-                    "0x01b3 Divine Ire stages cleared");
+            if (divine is not null)
+                lock (LevelUpdatesFor(player).Gate) RetireDivineIre(player, generation);
         }
     }
 
@@ -2839,7 +2835,8 @@ public static partial class Game
         SnipeAimedAt(player, (x, y));
         ScourgeAimedAt(player, (x, y));
         if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill) player.Walk.Order(x, y, at);
-        return AimBladeFlurry(player, (x, y)) || dashAimed;
+        bool aimed = AimDivineIre(player, (x, y));
+        return AimBladeFlurry(player, (x, y)) || dashAimed || aimed;
     }
 
     // C→S 0x193 (class 0x1431767e8, writer 0x140911210, sender 0x14011ecb0): retarget an active held or channelled
@@ -2917,12 +2914,15 @@ public static partial class Game
 
     static (int X, int Y)? EndChannel(Player player, double at)
     {
-        if (player.ProjectileRuntime is ProjectileSession { LyciaChannel: { } lycia } session)
+        var session = player.ProjectileRuntime as ProjectileSession;
+        var lycia = session?.LyciaChannel;
+        if (session is not null && lycia is not null)
             using (ProjectileMutation(player, advance: false))
                 FinishLyciaChannel(session, lycia, GameServer.Core.Projectiles.ProjectileRuntime.Time(at));
         lock (LevelUpdatesFor(player).Gate)
         {
             var landing = ReleaseChargedDashLocked(player, at);
+            ReleaseDivineIreLocked(player, at, lycia);
             SnipeReleasedByInput(player, at);
             ReleaseScourgeChannel(player, at);
             _ = ReleaseBladeFlurry(player, at);
@@ -3066,7 +3066,7 @@ public static partial class Game
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false, bool seismicExerted = false, int ancestralTargets = 0,
         int? rallyingDamage = null, RetainedAreaAttack? retainedAttack = null, IReadOnlyList<uint>? contactTargets = null,
-        TraumaUse? traumaUse = null) =>
+        double hitMore = 1, double ailmentMore = 1, TraumaUse? traumaUse = null) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
@@ -3077,7 +3077,8 @@ public static partial class Game
             boneshatter: boneshatter, infernalBlast: infernalBlast, strikeSeconds: strikeSeconds,
             extraShockChance: extraShockChance, cascadeBurst: cascadeBurst,
             flurryRelease: flurryRelease, nearbyOnly: nearbyOnly, seismicExerted: seismicExerted, ancestralTargets: ancestralTargets,
-            rallyingDamage: rallyingDamage, contactTargets: contactTargets, traumaUse: traumaUse);
+            rallyingDamage: rallyingDamage, contactTargets: contactTargets, hitMore: hitMore, ailmentMore: ailmentMore,
+            traumaUse: traumaUse);
 
     private static async Task AreaSkillHitStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -3097,7 +3098,8 @@ public static partial class Game
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         IReadOnlyList<uint>? contactTargets = null, BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false,
         LacerateUse? lacerate = null, SupportedGem? triggeredSpellSource = null, bool seismicExerted = false,
-        int ancestralTargets = 0, int? rallyingDamage = null, TraumaUse? traumaUse = null, int extraOtherWarcries = 0)
+        int ancestralTargets = 0, int? rallyingDamage = null, TraumaUse? traumaUse = null, int extraOtherWarcries = 0,
+        double hitMore = 1, double ailmentMore = 1)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
@@ -4139,9 +4141,12 @@ public static partial class Game
                         if (m.FlinchUntil > ProjectileWorldTime(player))
                             profileMore *= Math.Max(0, 1 + Stat(global::Stat.ActiveSkillDamagePlusPctFinalVsStunnedEnemies) / 100d);
                     }
-                    if (profileMore != 1)
-                        profile = new(profile.Hit.Scale(profileMore), RepeatAilment(profile.Ignite, profileMore),
-                            RepeatAilment(profile.Bleed, profileMore), RepeatAilment(profile.Poison, profileMore));
+                    if (profileMore != 1 || hitMore != 1 || ailmentMore != 1)
+                    {
+                        double damagingAilments = profileMore * ailmentMore;
+                        profile = new(profile.Hit.Scale(profileMore * hitMore), RepeatAilment(profile.Ignite, damagingAilments),
+                            RepeatAilment(profile.Bleed, damagingAilments), RepeatAilment(profile.Poison, damagingAilments));
+                    }
                     if (!spell && repeat > 0 && retainedAttack is null)
                     {
                         double repeatMore = MeleeRepeatDamageMore(player, skillId, repeat);

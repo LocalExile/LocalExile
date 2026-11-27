@@ -13,6 +13,7 @@ public static partial class Game
             && player.LockstepSkill.Channel == player.ChannelSkillSequence
             && (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill
                 || CurrentChargedDash(player) is not null
+                || CurrentDivineIre(player) is not null
                 || IsBladeFlurryChannelling(player, player.ChannelSkill, player.ChannelGeneration, player.ActionCount));
 
     // C→S 0x18e, 0x18f, 0x192, 0x195 and 0x196, which a client sends only in lockstep. They only change what the player asks
@@ -212,6 +213,7 @@ public static partial class Game
                 {
                     AimChargedDash(player, channelAimAtRelease, at);
                     AimBladeFlurry(player, channelAimAtRelease);
+                    AimDivineIre(player, channelAimAtRelease);
                 }
                 ended = channel;
                 player.LockstepChannelAimPending = false;

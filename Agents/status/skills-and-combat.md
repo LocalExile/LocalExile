@@ -546,6 +546,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Player-cast Blade Flurry and Blade Flurry of Incision with aimed acquisition, paid stages, and release strikes.
   Docs: [11](../docs/protocol/11-skills.md#blade-flurry).
 - Both Charged Dash gems channel in place, hit along the steered path and release a final wave. Only the base gem teleports.
+- Player-cast Divine Ire zaps a limited number of nearby enemies while building stages. Release uses the current aim
+  and the gem’s beam or burst, with independent hit and damaging ailment multipliers.
   The normal gem moves to a legal landing; the Projection variant stays in place.
   Docs: [11](../docs/protocol/11-skills.md#charged-dash-projection-and-release).
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.
