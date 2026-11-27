@@ -185,7 +185,10 @@ public sealed partial class BestiaryEncounter
         }
         var run = new BestiaryRun { MissionId = plan.Mission.Id, Level = area.Level };
         var live = new Live(run, rng);
-        int rageStacks = Math.Clamp(stats.GetValueOrDefault(Stat.MapBestiaryBeastHasXBestialRage), 0, 100);
+        // A real map's saved area stats already include the opener's Atlas bonuses.
+        var rageSources = MapRunOf(player) is not null && instance.KeptAreaStats is { Count: > 0 } mapStats
+            ? mapStats : stats;
+        int rageStacks = Math.Clamp(rageSources.GetValueOrDefault(Stat.MapBestiaryBeastHasXBestialRage), 0, 100);
         MonsterModSet? rageMods = rageStacks == 0 ? null : new([], [], new MonsterModEffects(new Dictionary<uint, int>
         {
             [Stat.BaseActorScalePlusPct] = 10 * rageStacks,
