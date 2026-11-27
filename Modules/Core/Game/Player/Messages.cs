@@ -956,6 +956,8 @@ public static partial class Game
                             $"0x00bf stash tab {noteTab}: item {updated.Id} note updated");
                 }
             }
+            else if (id == InstanceItems.ListWithPriceId)
+                await ListInMerchantTab(player, InstanceItems.ReadListWithPrice(bytes));
             else if (id == InstanceAsyncTrade.RequestHistoryId)
                 await SendAsyncTradeHistory(player);
             else if (id == InstanceAsyncTrade.TakeEarningsId)
