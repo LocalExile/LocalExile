@@ -2797,7 +2797,8 @@ public static partial class Game
                 double t = Math.Clamp((now - sweepStart) / Math.Max(0.01, sweepEnd - sweepStart), 0, 1);
                 angle = startAngle + SweepRadians * t;
                 bool protectedByGrace = InGracePeriod(player) || MonsterAsleep(player, id);
-                if (!protectedByGrace && player.Golems.All.Count + player.Reservations.Fighters.Count + player.Summons.Fighters.Count > 0)
+                if (!protectedByGrace && (player.Golems.All.Count + player.Reservations.Fighters.Count + player.Summons.Fighters.Count > 0
+                    || player.Companion is not null))
                 {
                     minionAttack ??= a with { Damage = a.Damage.Scale(MinionDamageFactor) };
                     foreach (var golem in player.Golems.All.Values.Concat(player.Reservations.Fighters.Values).Concat(player.Summons.Fighters.Values).ToArray())
@@ -2808,6 +2809,16 @@ public static partial class Game
                         if (!InSweptBeam(origin, golem.Monster.Walk.Position(now), prevAngle, angle, Length, HalfWidth)) continue;
                         nextMinionHit[golem.Id] = now + HitCooldown;
                         if (GolemTakeHitLocked(player, golem, id, m, minionAttack, now, area: true)) minionHit = true;
+                    }
+                    if (player.Companion is { } comp && CompanionAliveInArea(player, comp))
+                    {
+                        nextMinionHit ??= [];
+                        if (now >= nextMinionHit.GetValueOrDefault(comp.EntityId, double.NegativeInfinity)
+                            && InSweptBeam(origin, comp.Monster.Walk.Position(now), prevAngle, angle, Length, HalfWidth))
+                        {
+                            nextMinionHit[comp.EntityId] = now + HitCooldown;
+                            if (CompanionTakeEnemyHitLocked(player, comp, id, m, minionAttack, now, area: true)) minionHit = true;
+                        }
                     }
                 }
                 if (!protectedByGrace && now >= nextPlayerHit && InSweptBeam(origin, player.Walk.Position(now), prevAngle, angle, Length, HalfWidth))
@@ -2957,6 +2968,9 @@ public static partial class Game
         foreach (var golem in player.Golems.All.Values.Concat(player.Reservations.Fighters.Values).ToArray())
             if (!golem.Monster.Dead && Dist(golem.Monster.Walk.Position(now), aim) <= radius)
                 GolemTakeHitLocked(player, golem, id, m, a, now, area: true);
+        if (player.Companion is { } comp && CompanionAliveInArea(player, comp)
+            && Dist(comp.Monster.Walk.Position(now), aim) <= radius)
+            CompanionTakeEnemyHitLocked(player, comp, id, m, a, now, area: true);
         double dx = here.X - aim.X, dy = here.Y - aim.Y;
         if (dx * dx + dy * dy > radius * radius) return null;
         return CommitMonsterHitLocked(player, id, m, a, now, here, aim, checkRange: false, sequence: sequence);
@@ -3094,7 +3108,8 @@ public static partial class Game
             (rolled, baseHit) = (rolled.Convert(auraConversion), baseHit.Convert(auraConversion));
         // Glacial Wave and Sap: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.
         double lessened = m.Ailments.ChillDamageDealtFactor(now) * SappedDamageFactor(m, now)
-            * SigilEnemyDamageFactor(player, m, now);
+            * SigilEnemyDamageFactor(player, m, now)
+            * CompanionTauntedHitAgainstOtherFactor(player, m, now);
         if (lessened < 1) (rolled, baseHit) = (rolled.Scale(lessened), baseHit.Scale(lessened));
         // Damage taken as shifts the hit's types before any mitigation. Chill, freeze and shock read the shifted damage
         // taken; ignite still reads the damage dealt (baseHit), as the wiki's Damage taken as says.

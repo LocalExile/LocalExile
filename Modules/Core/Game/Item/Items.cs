@@ -114,6 +114,8 @@ public static partial class Game
             await SendPassiveJewelStats(player);
             if (spentClusterRemoval) await SendPassives(player);
         }
+        await GameEvents.RunInventoryChanged(player, row);
+        if (promoted is not null) await GameEvents.RunInventoryChanged(player, (byte)(row + 1));
     }
 
     // C→S 0x30: the held gem goes into a socket. The cursor loses it (and holds the gem that was in the socket, if any); the
@@ -2131,6 +2133,7 @@ public static partial class Game
     // AccountStash.Merge); anything else (currency on an item …) is not handled yet.
     public static async Task HeldOntoItem(Player player, InstanceItems.ItemAction a, string hex)
     {
+        if (await GameEvents.AnyInventoryItemAction(player, a)) return;
         var items = ItemsOf(player);
         if (StashOf(player).TabOf(a.InventoryId) is int tab)
         {
@@ -2157,7 +2160,7 @@ public static partial class Game
                 var targetItem = items.Items(row).FirstOrDefault(i => i.Id == a.ItemId);
                 if (targetItem is null) why = "no such item";
                 else if (LevelTooLow(player, row, held) is { } low) why = low;
-                else if (held is not null && GameEvents.FirstInventoryRefusal(player, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a))) is { } objection) why = objection;
+                else if (held is not null && GameEvents.FirstInventoryRefusal(player, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a)), (byte)targetItem.X, (byte)targetItem.Y) is { } objection) why = objection;
                 else if (PassiveJewelRefusal(player, targetItem.X, targetItem.Y, held) is { } refusal) why = refusal;
                 else if (ClusterRemovalRefusal(player, targetItem) is { } clusterRefusal) why = clusterRefusal;
                 else if (AllocationBypassRemovalRefusal(player, targetItem) is { } bypassRefusal) why = bypassRefusal;
@@ -2178,7 +2181,10 @@ public static partial class Game
             }
         }
         else if (LevelTooLow(player, row, held) is { } low) why = low;
-        else if (held is not null && GameEvents.FirstInventoryRefusal(player, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a))) is { } objection) why = objection;
+        else if (held is not null && items.Items(row).FirstOrDefault(i => i.Id == a.ItemId) is { } mergeTarget
+            && GameEvents.FirstInventoryRefusal(player, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a)), (byte)mergeTarget.X, (byte)mergeTarget.Y) is { } objection) why = objection;
+        else if (held is not null && items.Items(row).FirstOrDefault(i => i.Id == a.ItemId) is null
+            && GameEvents.FirstInventoryRefusal(player, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a))) is { } fallbackObjection) why = fallbackObjection;
         else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a),
             expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player), player: player);
         if (done is null && PlayerInventories.Row(a.InventoryId) is byte lr && LevelTooLow(player, lr, held) is { } tooLow) why = tooLow;
@@ -2188,7 +2194,12 @@ public static partial class Game
             return;
         }
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x004a held item onto {a}: {hex}");
-        if (done.Merged || done.Rest is not null) { await SendMerged(player, items, done); return; }
+        if (done.Merged || done.Rest is not null)
+        {
+            await SendMerged(player, items, done);
+            await GameEvents.RunInventoryChanged(player, done.Row);
+            return;
+        }
         // Not a stack with room: swapped, as 0x2a on that cell.
         if (done.Row == PlayerInventories.Flask && done.FromRow != PlayerInventories.Flask)
             done = done with { Placed = EmptyIfEquippedInHostileArea(player, items, done.Placed) };
@@ -2210,6 +2221,7 @@ public static partial class Game
             await SendPassiveJewelStats(player);
             if (spentClusterRemoval) await SendPassives(player);
         }
+        await GameEvents.RunInventoryChanged(player, done.Row);
     }
 
     // Shift held on a 0x4a: flag bit 2 (the sender's param 7; live 2026-10-19, Flags = 4 with Shift, 0 without).
@@ -2250,7 +2262,7 @@ public static partial class Game
                 {
                     placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
                     if (LevelTooLow(player, row, placement) is { } low) why = low;
-                    else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0)) is { } objection) why = objection;
+                    else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0), (byte)place.X, (byte)place.Y) is { } objection) why = objection;
                     else
                     {
                         var sourcesBefore = PlayerSkillSourcesLocked(player);
@@ -2272,7 +2284,7 @@ public static partial class Game
                 placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
                 var leaving = items.Items(row).FirstOrDefault(i => i.X == place.X && i.Y == place.Y);
                 if (LevelTooLow(player, row, placement) is { } low) why = low;
-                else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0)) is { } objection) why = objection;
+                else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0), (byte)place.X, (byte)place.Y) is { } objection) why = objection;
                 else if (leaving is not null && ClusterRemovalRefusal(player, leaving) is { } clusterRefusal)
                     why = clusterRefusal;
                 else if (leaving is not null && AllocationBypassRemovalRefusal(player, leaving) is { } bypassRefusal)
@@ -2298,7 +2310,7 @@ public static partial class Game
         {
             placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
             if (LevelTooLow(player, row, placement) is { } low) why = low;
-            else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0)) is { } objection) why = objection;
+            else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0), (byte)place.X, (byte)place.Y) is { } objection) why = objection;
             else
             done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0,
                 expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player), player: player);
@@ -2312,7 +2324,12 @@ public static partial class Game
             done = done with { Placed = EmptyIfEquippedInHostileArea(player, items, done.Placed) };
         var d = done.Displaced;
         uint target = PlayerInventories.InventoryId(done.Row);   // may differ from the clicked one (off hand → main hand)
-        if (done.Merged || done.Rest is not null) { await SendMerged(player, items, done); return; }
+        if (done.Merged || done.Rest is not null)
+        {
+            await SendMerged(player, items, done);
+            await GameEvents.RunInventoryChanged(player, done.Row);
+            return;
+        }
         await Send(player, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), d is null ? [] : [d.Id], [done.Placed]),
             $"0x00bf inventory {target}: add item {done.Placed.Id} at ({done.Placed.X}, {done.Placed.Y})" + (d is null ? "" : $", remove item {d.Id}"));
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
@@ -2329,6 +2346,7 @@ public static partial class Game
             await SendPassiveJewelStats(player);
             if (spentClusterRemoval) await SendPassives(player);
         }
+        await GameEvents.RunInventoryChanged(player, done.Row);
     }
 
     static void CompletePassiveJewelMutationLocked(Player player, IReadOnlyList<PlayerSkillSource> sourcesBefore)

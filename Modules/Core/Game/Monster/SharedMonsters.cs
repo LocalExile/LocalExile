@@ -81,8 +81,19 @@ public static partial class Game
         {
             if (m.Attack is null || InTown(owner) || InGracePeriod(owner)) return (distance, false);
             var minion = GolemTargetLocked(owner, id, m, at, now, distance);
-            return minion.G is null ? (distance, false)
-                : (Math.Min(distance, minion.Distance), minion.G.Taunts.GetValueOrDefault(id) > now);
+            double best = minion.G is null ? distance : Math.Min(distance, minion.Distance);
+            bool taunted = minion.G is not null && minion.G.Taunts.GetValueOrDefault(id) > now;
+            if (owner.Companion is { } comp && CompanionAliveInArea(owner, comp)
+                && !comp.Monster.Invulnerable && comp.Monster.Effects[Stat.BaseCannotBeDamaged] == 0)
+            {
+                double compDist = Dist(at, comp.Monster.Walk.Position(now));
+                if (compDist <= m.AggroRange)
+                {
+                    if (compDist < best) best = compDist;
+                    if (IsTauntedByPlayerCompanion(owner, m, now)) taunted = true;
+                }
+            }
+            return (best, taunted);
         }
         var forcedOwner = DecoyTarget(m, now)?.Owner;
         if (forcedOwner is null && m.TauntedUntil > now && m.TauntingPlayerId is uint source)
