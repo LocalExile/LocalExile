@@ -89,6 +89,7 @@ public static class ItemMoves
             if (tab < 0 || tab >= stash.Count) { reason = "no such tab"; return null; }
             if (items.RowOf(itemId) is not byte from || items.Items(from).FirstOrDefault(i => i.Id == itemId) is not { } item)
             { reason = "the item is not in the inventories"; return null; }
+            if (from == PlayerInventories.MercenaryTemporary) { reason = "temporary mercenary gear is locked"; return null; }
             if (shapeOf(item.Item) is not { } shape) { reason = "unknown item type"; return null; }
             tab = stash.UniqueDestination(tab, item.Item);
             if (tab < 0) { reason = "the item has no collection slot"; return null; }
@@ -132,6 +133,7 @@ public static class ItemMoves
             { reason = "no merchant tab"; return null; }
             if (items.RowOf(itemId) != sourceRow || items.Items(sourceRow).FirstOrDefault(i => i.Id == itemId) is not { } item)
             { reason = "not in the inventory"; return null; }
+            if (sourceRow == PlayerInventories.MercenaryTemporary) { reason = "temporary mercenary gear is locked"; return null; }
             if (shapeOf(item.Item) is not { } shape) { reason = "unknown item type"; return null; }
             if (!stash.Holds(tab, item.Item)) { reason = $"the {stash.TypeOf(tab)} tab doesn't hold that item"; return null; }
             var listed = item.Item with { Note = normalized };
