@@ -234,6 +234,7 @@ public static partial class Game
                     try
                     {
                         DrainPendingExplosiveDetonations();
+                        DrainEarthshatterDetonations();
                         DrainInfernalBlowDeaths();
                         DrainInfernalCryDeaths();
                         TickChannelTriggers(Player, this, AreaTime(Player));
@@ -260,6 +261,7 @@ public static partial class Game
                 try
                 {
                     DrainPendingExplosiveDetonations();
+                    DrainEarthshatterDetonations();
                     DrainInfernalBlowDeaths();
                     DrainInfernalCryDeaths();
                     Runtime.AdvanceTo(at);
@@ -338,6 +340,7 @@ public static partial class Game
             lifetime?.Dispose();
             ClearPods();
             ClearDamageGrounds();
+            ClearEarthshatterSpikes();
             ClearProjectileBladeSources();
             ClearBladeVortices();
             ClearPlacedVolatileOrbs();

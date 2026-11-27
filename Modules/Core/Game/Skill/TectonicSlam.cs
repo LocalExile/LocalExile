@@ -7,11 +7,13 @@ public static partial class Game
 
     static readonly RuleTable<GemSourceLifetimes.SourceLifetime, TectonicCadence> TectonicCadences = new();
 
-    static (double HitFactor, double RadiusFactor) CommitTectonicSlamLocked(Player player, ushort skill, int effect,
+    static (double HitFactor, double RadiusFactor, int BranchChance, bool ExtraBranch) CommitTectonicSlamLocked(Player player, ushort skill, int effect,
         bool cataclysm, Func<uint, int> get, double now)
     {
+        int chance = get(Stat.TectonicSlamSideCrackAdditionalChancePct)
+            + get(Stat.TectonicSlamSideCrackAdditionalChance1PctPer2StatValue) / 2;
         if (CaptureGemSourceLifetimeLocked(player, skill, effect) is not { } source
-            || !player.GemSourceLifetimes.IsCurrent(source)) return (1, 1);
+            || !player.GemSourceLifetimes.IsCurrent(source)) return (1, 1, chance, false);
 
         const ChargeType endurance = ChargeType.Endurance;
         var charges = ChargesOf(player);
@@ -26,7 +28,8 @@ public static partial class Game
                 * (double)consumed / 100);
             int area = ActorScale.Saturate((long)get(Stat.TectonicSlamAreaOfEffectPlusPctFinalPerEnduranceChargeConsumed)
                 * consumed);
-            return (hitFactor, SkillArea.RadiusMultiplier(area));
+            chance += consumed * get(Stat.TectonicSlamSideCrackAdditionalChancePctPerEnduranceChargeConsumed);
+            return (hitFactor, SkillArea.RadiusMultiplier(area), chance, consumed > 0);
         }
 
         var cadence = TectonicCadences.GetValue(source, _ => new());
@@ -36,6 +39,7 @@ public static partial class Game
             if (removable > 0) charges.Spend(endurance, 1, now);
         }
         int heldArea = ActorScale.Saturate((long)get(Stat.ActiveSkillAreaOfEffectPlusPctFinalPerEnduranceCharge) * held);
-        return (1, SkillArea.RadiusMultiplier(heldArea));
+        chance += held * get(Stat.TectonicSlamSideCrackAdditionalChancePctPerEnduranceCharge);
+        return (1, SkillArea.RadiusMultiplier(heldArea), chance, false);
     }
 }
