@@ -140,7 +140,7 @@ public static partial class Game
     static bool BurningTarget(Player player, SpawnedMonster m, double? at = null)
     {
         double now = at ?? ProjectileWorldTime(player);
-        if (m.Ignites.IgnitedAt(now) || m.HeraldBurns.IgnitedAt(now)
+        if (m.Ignites.IgnitedAt(now) || m.HeraldBurns.IgnitedAt(now) || TrarthusBurning(m, now)
             || ProjectileSession.OnBurningDamageGround(player.Area, m, now)
             || InfernalLegionFields.TryGetValue(player, out var field) && field.Burning.Contains(m)) return true;
         foreach (var other in player.Instance?.Presence.PlayersExcept(player.Id) ?? [])

@@ -46,6 +46,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public MonsterPoisons.Settings Poison { get; init; }
     /// <summary>Essence Drain's debuff, put on every monster a projectile hit leaves alive (MonsterEssenceDrains.cs).</summary>
     public MonsterEssenceDrain.Cast? EssenceDrain { get; init; }
+
+    public DamageOverTime? TrarthusBurn { get; init; }
     internal MonsterContagion.Cast? Soulrend { get; init; }
     internal Game.FleshrendCast? Fleshrend { get; init; }
     internal double GhorrDotMore { get; init; } = 1;

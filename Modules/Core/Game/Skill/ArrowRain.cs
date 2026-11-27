@@ -10,7 +10,7 @@ public static partial class Game
 
     static bool IsRainOfArrowsVariant(string? id) => id is RainOfArrowsArtillery or RainOfArrowsSaturation;
 
-    static bool ArrowRain(string? id) => id is "RainOfArrows" or "BlastRain"
+    static bool ArrowRain(string? id) => id is "RainOfArrows" or "BlastRain" or TrarthusBlastRain
         || IsRainOfArrowsVariant(id) || IsToxicRain(id) || IsKineticRain(id);
 
     static bool IsToxicRain(string? id) => id is "ToxicRain" or "ToxicRainAltX" or "ToxicRainAltY";
@@ -193,6 +193,12 @@ public static partial class Game
         if (IsKineticRain(id))
         {
             ReleaseKineticRain(session, use, gem, id, aim, own, playerStats, critical, sequence);
+            return;
+        }
+        if (id == TrarthusBlastRain)
+        {
+            ReleaseTrarthusBlastRain(session, use, own, playerStats, skill, gem.Effect,
+                podDamageFactor, placedKind.Trap, placedKind.Mine, actionStart);
             return;
         }
         int Own(uint stat) => own.GetValueOrDefault(stat);
