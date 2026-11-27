@@ -409,11 +409,15 @@ public static partial class Game
                 if (m.Dead || m.Life == 0) set.Clear();
                 else
                 {
+                    double sample = now;
                     if (settle is not null) settle(m, now);
                     else if (MaimDotTaken.TryGetValue(m, out var maim))
-                        foreach (double boundary in maim.Boundaries(set.AccruedThrough, now).Distinct().Order())
-                            set.Accrue(boundary, factor(m, Math.BitDecrement(boundary)));
-                    double sample = Math.BitDecrement(now);
+                    {
+                        if (maim.Overlaps(set.AccruedThrough, now))
+                            foreach (double boundary in maim.Boundaries(set.AccruedThrough, now).Distinct().Order())
+                                set.Accrue(boundary, factor(m, Math.BitDecrement(boundary)));
+                        sample = Math.BitDecrement(now);
+                    }
                     damage = set.Advance(now, factor(m, sample), aggravated?.Invoke(m, sample) ?? 0);
                 }
                 if (!set.Burning) EndDot(player, id, ref set.Buff, set.BuffSource);

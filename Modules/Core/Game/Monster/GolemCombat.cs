@@ -1309,17 +1309,28 @@ public static partial class Game
                         key => key == Stat.WitheredEffectPlusPct ? GolemStat(g.Own, Stat.MinionWitheredEffectPlusPct) : 0, now);
                     hazard.Carry[id] = now + .3;
                 }
-                double raw = (hazard.DamagePerSecond * elapsed + deltaDamagePerSecond * activeSeconds)
-                    * MeatShieldDamage(player, g.Own, m, now);
+                bool elemental = DamageTypes.IsElemental(hazard.Type), chaos = hazard.Type == DamageType.Chaos;
+                double taken = Taken();
+                double normalDamage = hazard.DamagePerSecond * elapsed, recentDamage = deltaDamagePerSecond * activeSeconds;
+                if (MaimDotTaken.TryGetValue(m, out var maim) && maim.Overlaps(from, through))
+                {
+                    normalDamage *= maim.Average(from, through, percent => Taken(percent));
+                    if (recentDamage != 0)
+                        recentDamage *= maim.Average(Math.Max(from, g.SummonedAt), Math.Min(through, g.SummonedAt + 8),
+                            percent => Taken(percent));
+                    taken = 1;
+                }
+                double raw = (normalDamage + recentDamage) * MeatShieldDamage(player, g.Own, m, now);
                 double resisted = DamageModel.Mitigate(DamagePacket.Of(hazard.Type, raw, raw), t => MonsterHitResistance(m, t, default, now))[hazard.Type].Min;
-                double total = resisted * MonsterDamageTaken(m, spell: true, now, elemental: DamageTypes.IsElemental(hazard.Type), hit: false,
-                    chaos: hazard.Type == DamageType.Chaos, overTime: true)
-                    + hazard.DamageCarry.GetValueOrDefault(id);
+                double total = resisted * taken + hazard.DamageCarry.GetValueOrDefault(id);
                 int damage = (int)Math.Floor(total); hazard.DamageCarry[id] = total - damage;
                 if (damage <= 0 || ApplyTypedMonsterHitLocked(player, m, damage, hazard.Type == DamageType.Chaos ? damage : 0, allyAt: centre) is not { } hit) continue;
                 if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
                 CommitMinionHitLocked(player, id, m, hit, damage, now, $"golem {g.Id:x} ground damage",
                     source: g.Monster, skill: g.Own, fighter: g, damageOverTime: true);
+
+                double Taken(int? maimTaken = null) => MonsterDamageTaken(m, spell: true, now, elemental, hit: false, chaos,
+                    increasedPct: 0, overTime: true, maimTaken: maimTaken);
             }
             if (now >= hazard.Until)
             {

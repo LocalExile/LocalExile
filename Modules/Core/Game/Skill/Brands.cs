@@ -188,7 +188,7 @@ public static partial class Game
 
         public void Apply(double start, double until, double dps) => effects.Add((start, until, dps));
 
-        public int Advance(double now, double factor)
+        public int Advance(double now, double factor, Func<double, double, double>? factorBetween = null)
         {
             double damage = carry;
             while (last < now && effects.Count > 0)
@@ -200,7 +200,8 @@ public static partial class Game
                     else if (effect.Until > last) strongest = Math.Max(strongest, effect.Dps);
                     if (effect.Until > last) next = Math.Min(next, effect.Until);
                 }
-                damage += (next - last) * strongest * factor;
+                if (strongest > 0)
+                    damage += (next - last) * strongest * (factorBetween?.Invoke(last, next) ?? factor);
                 last = next;
             }
             effects.RemoveAll(e => e.Until <= now);
@@ -1460,7 +1461,14 @@ public static partial class Game
             var m = end.Monster;
             bool alive = player.Area.Monsters.TryGetValue(id, out var live) && ReferenceEquals(live, m)
                 && m is { Hostile: true, Dead: false, Life: > 0 };
-            int damage = alive ? end.Advance(now, m.Invulnerable ? 0 : MonsterDotTaken(m, DamageType.Cold, now)) : 0;
+            int damage = 0;
+            if (alive)
+            {
+                double factor = m.Invulnerable ? 0 : MonsterDotTaken(m, DamageType.Cold, now);
+                damage = end.Advance(now, factor, !m.Invulnerable && MaimDotTaken.TryGetValue(m, out _)
+                    ? (from, until) => MonsterDotTakenOver(m, DamageType.Cold, from, until, now)
+                    : null);
+            }
             if (!alive || end.Until <= now)
             {
                 if (end.BuffInstance != 0)

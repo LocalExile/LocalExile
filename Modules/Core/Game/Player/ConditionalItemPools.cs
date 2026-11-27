@@ -17,7 +17,11 @@ public static partial class Game
         ItemConditionFlags(player, now, activeItems, out _);
 
     public static IReadOnlyDictionary<string, bool> ItemConditionFlags(Player player, double now,
-        IEnumerable<Item>? activeItems, out LifeReservationConditionSnapshot reservationSnapshot)
+        IEnumerable<Item>? activeItems, out LifeReservationConditionSnapshot reservationSnapshot) =>
+        ItemConditionFlags(player, now, activeItems, out reservationSnapshot, wardNow: now);
+
+    static IReadOnlyDictionary<string, bool> ItemConditionFlags(Player player, double now,
+        IEnumerable<Item>? activeItems, out LifeReservationConditionSnapshot reservationSnapshot, double wardNow)
     {
         // The active items are worked out once: every check below would otherwise ask each worn item again.
         activeItems = activeItems?.ToArray() ?? EquipmentForStats(player)
@@ -103,7 +107,7 @@ public static partial class Game
         flags["_while_poisoned"] = player.IncomingAilments.PoisonStacks(now) > 0;
         flags["_while_on_consecrated_ground"] = player.FlaskGrounds.Consecrated;
         bool hasWard = alive && player.Ward.Maximum > 0;
-        bool brokenWard = player.Ward.Broken && now < player.Ward.RestoresAt;
+        bool brokenWard = player.Ward.Broken && wardNow < player.Ward.RestoresAt;
         flags[BrokenWardItemFlag] = hasWard && brokenWard;
         flags[UnbrokenWardItemFlag] = hasWard && !brokenWard;
         bool onslaught = HasIndependentOnslaught(player);
@@ -353,7 +357,7 @@ public static partial class Game
         // The poison count is compared against the pools' own record (AppliedPoisonStacks), not the cached key:
         // a cache hit never refreshes the key, so the key would fail this check forever once poison is nonzero.
         if (!providersChanged && cached is not null && ReferenceEquals(state.Applied, cached)
-            && WardFlagsCurrent(player, cached.Key.Flags, now)
+            && WardFlagsCurrent(player, cached.Key.Flags)
             && state.CheckedInventoryMutations == invMutations
             && state.CheckedPassivesCount == passivesCount
             && state.CheckedTattooRevision == tattooRevision
@@ -435,11 +439,12 @@ public static partial class Game
         state.Presented = revision;
     }
 
-    static bool WardFlagsCurrent(Player player, IReadOnlyDictionary<string, bool>? cached, double now)
+    static bool WardFlagsCurrent(Player player, IReadOnlyDictionary<string, bool>? cached)
     {
         if (cached is not ReadFlags flags) return true;
+        if (!flags.WasRead(BrokenWardItemFlag) && !flags.WasRead(UnbrokenWardItemFlag)) return true;
         bool hasWard = player.PlayerLife > 0 && player.Ward.Maximum > 0;
-        bool broken = player.Ward.Broken && now < player.Ward.RestoresAt;
+        bool broken = player.Ward.Broken && ResourceEffectsTime(player) < player.Ward.RestoresAt;
         return SameFlag(BrokenWardItemFlag, hasWard && broken) && SameFlag(UnbrokenWardItemFlag, hasWard && !broken);
 
         bool SameFlag(string key, bool value) =>

@@ -227,7 +227,7 @@ public static partial class Game
             SetBleedingExpiryRate(target, now);
             return;
         }
-        if (MaimDotTaken.TryGetValue(target, out var maim))
+        if (MaimDotTaken.TryGetValue(target, out var maim) && maim.Overlaps(target.Bleeds.AccruedThrough, now))
         {
             foreach (double boundary in maim.Boundaries(target.Bleeds.AccruedThrough, now).Distinct().Order())
                 SettleBleedingUntil(target, boundary);

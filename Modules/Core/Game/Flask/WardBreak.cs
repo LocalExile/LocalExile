@@ -111,7 +111,7 @@ public static partial class Game
     {
         if (player.Closed || player.LeavingArea || player.RageRetired) return null;
         EnsureWardBreakPools(player);
-        AdvanceWardLocked(player, AreaTime(player));
+        AdvanceWardLocked(player, ResourceEffectsTime(player));
         var ward = (player.Ward.Maximum, player.Ward.Broken);
         double adrenaline = player.PlayerLife > 0 && player.WardBreak.Adrenaline(AreaTime(player))
             ? player.WardBreak.AdrenalineUntil : double.NegativeInfinity;

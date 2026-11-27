@@ -1958,7 +1958,8 @@ public static partial class Game
                     var current = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
                     if (current != gem || GemSkillInstanceDisabled(player, gem.Effect, skillId) is not null) return null;
                     (int X, int Y) rawAim;
-                    from = player.Walk.Position(ProjectileWorldTime(player));
+                    double acceptedAt = ProjectileWorldTime(player);
+                    from = player.Walk.Position(acceptedAt);
                     if (targetObjectId is uint target)
                     {
                         if (!InstantLocationSkill.TryCommitObject(player, epoch, target, InTown(player), CurrentStats(),
@@ -1971,12 +1972,12 @@ public static partial class Game
                     }
                     if (cooldownUse?.CommitNativeUse(player, skillId) == false) return null;
                     accepted = true;
+                    RecordAcceptedGemUseAt(player, gem.Effect, to, acceptedAt);
                     return PlayerInstantAction(player, skillId, rawAim, targetObjectId);
                 }
             });
         if (accepted)
         {
-            RecordAcceptedGemUse(player, gem.Effect, to);
             if (player.PlayerLife == 0) return;
             if (SkillsFor(player).IsTravel(gem.Effect)) { QueueFlaskTrigger(player, FlaskEnchantments.Trigger.Travel); LoyaltyTravelSkillTriggered(player); }
             await FrostblinkAreas(player, gem, from, to, cooldownUse);

@@ -186,6 +186,7 @@ static partial class Game
                 m.Aggro = m.Life > 0;
                 if (m.Life == 0)
                 {
+                    if (owner is null) CaptureLootAilmentsAtDeath(m, now);
                     m.Dead = true;
                     CleanupDeadMonsterLocked(player.Area, id, m);
                     m.LastHitBy = owner;

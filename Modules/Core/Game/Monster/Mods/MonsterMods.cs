@@ -511,9 +511,9 @@ public static partial class Game
             .Tick(seconds, m.Burn);
 
     static double MonsterDotTakenOver(SpawnedMonster monster, DamageType type, double from, double until, double sample) =>
-        from < until && MaimDotTaken.TryGetValue(monster, out var maim)
+        from < until && MaimDotTaken.TryGetValue(monster, out var maim) && maim.Overlaps(from, until)
             ? maim.Average(from, until, taken => MonsterDotTaken(monster, type, sample, taken))
-            : MonsterDotTaken(monster, type, sample);
+            : MonsterDotTaken(monster, type, sample, maimTaken: 0);
 
     /// <summary>The share of damage over time of this type a monster takes (Righteous Fire's burn, ignites): less its
     /// resistance (its type's base and its mods', as for hits, without penetration) and with its damage taken

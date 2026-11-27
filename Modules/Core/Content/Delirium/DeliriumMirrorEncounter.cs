@@ -428,7 +428,7 @@ public sealed class DeliriumMirrorEncounter
             {
                 if (state.Stage != MirrorStage.Ready || !Current(player)) return;
                 state.Stage = MirrorStage.Active;
-                state.MapCompletionRewardHandled = global::Game.CurrentMapBossesKilled(player);
+                state.MapCompletionRewardHandled = global::Game.CurrentMapBossesKilled(player, checkCurrentMonsters: true);
                 state.OuterElapsed = WaveStart;
                 state.OutOfFogSeconds = 0f;
                 state.LastTimerSeconds = 0;
@@ -597,12 +597,12 @@ public sealed class DeliriumMirrorEncounter
             await SpawnPack(player, state);
     }
 
-    static void ApplyMapCompletionRewardsLocked(Player player, MirrorState state)
+    static void ApplyMapCompletionRewardsLocked(Player player, MirrorState state, bool checkCurrentMonsters = false)
     {
         if (state.MapCompletionRewardHandled) return;
         int extra = player.Instance.AreaStats(() => AreaLeagueStats(player))
             .GetValueOrDefault(Stat.MapAfflictionAdditionalRewardOnMapComplete);
-        if (extra <= 0 || !global::Game.CurrentMapBossesKilled(player)) return;
+        if (extra <= 0 || !global::Game.CurrentMapBossesKilled(player, checkCurrentMonsters)) return;
         state.MapCompletionRewardHandled = true;
         state.MapCompletionRewardTypes = Math.Min(MaxRewardTiles, extra);
         state.UnlockRewardTiles(state.Rewards.Length + state.MapCompletionRewardTypes);
@@ -678,7 +678,7 @@ public sealed class DeliriumMirrorEncounter
             lock (state)
             {
                 if (state.Stage != MirrorStage.Active) return;
-                ApplyMapCompletionRewardsLocked(player, state);
+                ApplyMapCompletionRewardsLocked(player, state, checkCurrentMonsters: true);
                 state.Stage = MirrorStage.Ended;
                 state.LastTimerSeconds = 0;
                 state.OutOfFogSeconds = 0f;

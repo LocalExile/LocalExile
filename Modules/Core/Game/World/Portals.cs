@@ -23,6 +23,15 @@ public static partial class Game
     public static bool CurrentMapBossesKilled(Player player) => MapRunOf(player) is not null
         && player.Instance is { } instance && MapRuns.TryGetValue(instance, out var progress) && progress.Completed;
 
+    public static bool CurrentMapBossesKilled(Player player, bool checkCurrentMonsters)
+    {
+        if (!checkCurrentMonsters) return CurrentMapBossesKilled(player);
+        if (player.Instance is not { } instance || MapDevice.ForInstance(player) is not { } run) return false;
+        var progress = MapRuns.GetValue(instance, _ => new(run.Run, CompletionBosses(run.Area.Id)));
+        lock (progress)
+            return progress.Completed || MapBossesDefeatedLocked(player, progress);
+    }
+
     static int[] CompletionBosses(string area)
     {
         var bosses = (Packs.For(area)?.Bosses ?? []).Select(row => Monsters.Find(row.ToString()))
@@ -39,19 +48,13 @@ public static partial class Game
             || MapDevice.ForInstance(player) is not { } run) return;
         var progress = MapRuns.GetValue(instance, _ => new(run.Run, CompletionBosses(run.Area.Id)));
         double now = AreaTime(player);
-        if (progress.Completed || progress.Bosses.Count == 0 || !force && now < progress.NextCheck) return;
-        progress.NextCheck = now + 0.25;
-        bool alive = false;
-        foreach (var monster in player.Area.Monsters.Values.Concat(player.Area.DormantMonsters.Values))
+        lock (progress)
         {
-            if (!monster.Hostile || monster.Variety is not { } variety || !progress.Bosses.Contains(variety.Row)) continue;
-            if (monster.Dead || monster.Life <= 0) progress.Killed.Add(variety.Row);
-            else alive = true;
+            if (progress.Completed || progress.Bosses.Count == 0 || !force && now < progress.NextCheck) return;
+            progress.NextCheck = now + 0.25;
+            if (!MapBossesDefeatedLocked(player, progress)) return;
+            progress.Completed = true;
         }
-        // Remember kills before a corpse is consumed, but never complete while a twin or a later boss is alive
-        // or a required boss has not spawned yet.
-        if (alive || !progress.Bosses.IsSubsetOf(progress.Killed)) return;
-        progress.Completed = true;
         Console.WriteLine($"[gateway] {run.Owner} map run {run.Run} completed: {run.Area.Id}");
         if (run.PantheonSoul is { } soul)
             await DeliverCapturedSouls(player, run.Owner, soul.VesselItemId);
@@ -74,6 +77,20 @@ public static partial class Game
                 // A visitor disconnected; the next listing still reads this run's completed state.
             }
         }
+    }
+
+    static bool MapBossesDefeatedLocked(Player player, MapRunProgress progress)
+    {
+        if (progress.Bosses.Count == 0) return false;
+        bool alive = false;
+        foreach (var monster in player.Area.Monsters.Values.Concat(player.Area.DormantMonsters.Values))
+        {
+            if (!monster.Hostile || monster.Variety is not { } variety || !progress.Bosses.Contains(variety.Row)) continue;
+            if (monster.Dead || monster.Life <= 0) progress.Killed.Add(variety.Row);
+            else alive = true;
+        }
+        // Keep a defeated boss after its corpse leaves the roster. Check live twins and later forms too.
+        return !alive && progress.Bosses.IsSubsetOf(progress.Killed);
     }
 
     const string PendingSoulsKey = "pantheon.pendingSouls";

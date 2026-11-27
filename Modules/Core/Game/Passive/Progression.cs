@@ -282,7 +282,8 @@ public static partial class Game
         mana = (int)player.Pools.Mana;
         energyShield = (int)Math.Min(int.MaxValue, player.Pools.EnergyShield);
         poisonStacks = player.IncomingAilments.PoisonStacks(conditionNow);
-        conditionFlags = ItemConditionFlags(player, conditionNow, null, out lifeReservationConditions);
+        conditionFlags = ItemConditionFlags(player, conditionNow, null, out lifeReservationConditions,
+            wardNow: ResourceEffectsTime(player));
         if (conditionFlags.GetValueOrDefault("cursed_by_vulnerability"))
             auraEffects = StatConditions.AuraSet(AffectingAuras(player).Where(a => a.EffectId != "Vulnerability")
                 .Select(a => a.EffectId).Append("Vulnerability"));

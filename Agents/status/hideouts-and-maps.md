@@ -227,11 +227,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   timer, two armies in stasis (`LegionBreakout` action with `present`/`owning_initiator`), full
   combat damage break-out via a non-lethal life floor (hits, DoTs/Contagion, minions, totems, brands, traps, mines,
   culling), release wave, seamless wake, post-battle fade-out and war chests with floating 3D reward symbols opening at
-  release. Rewards (level-gated symbols, icons, rolled drops, splinters, Ruthless scaling) are built, not checked in the
-  client yet.
-- Legion Atlas rules can change the battle's general count. See [Legion](../docs/game/legion.md).
   release. Scarab inputs, repeated breakouts and reward drops have native verification; retail reward weights and
-  difficulty need calibration. The Domain and remaining Atlas rules are separate work. Docs: [Legion](../docs/game/legion.md).
+  difficulty need calibration.
+- Legion Atlas rules can change the battle's general count. See [Legion](../docs/game/legion.md).
 
 - Blight: pump, lanes, enemies, foundations; only 17 of 30 towers act (HUD and chests pending).
 

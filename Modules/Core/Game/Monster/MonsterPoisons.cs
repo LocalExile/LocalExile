@@ -151,10 +151,10 @@ public static partial class Game
                 if (m.Poisons.Idle) { (done ??= []).Add(id); continue; }
                 int damage = 0;
                 if (m.Dead || m.Life == 0) m.Poisons.ClearAtDeath(now);
-                else if (MaimDotTaken.TryGetValue(m, out var maim))
+                else if (MaimDotTaken.TryGetValue(m, out var maim) && maim.Overlaps(m.Poisons.AccruedThrough, now))
                     damage = m.Poisons.Advance(now, maim.Boundaries(m.Poisons.AccruedThrough, now),
                         at => MonsterDotTaken(m, DamageType.Chaos, at), m.Life);
-                else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now), m.Life);
+                else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now, maimTaken: 0), m.Life);
                 if (damage > 0)
                 {
                     int lifeDamage = ApplyMonsterDotEnergyShieldLocked(player.Area, m, damage, chaos: true, AreaTime(player));

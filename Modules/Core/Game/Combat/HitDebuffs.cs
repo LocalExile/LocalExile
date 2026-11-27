@@ -47,17 +47,21 @@ public static partial class Game
     sealed class TimedEnemyModifier
     {
         readonly List<(double From, double Until, int Percent)> effects = [];
+        double firstStart = double.PositiveInfinity, lastEnd = double.NegativeInfinity;
 
         public void Add(double from, double until, int percent)
         {
             if (until <= from || percent <= 0) return;
-            int i = effects.FindIndex(effect => effect.Percent == percent && effect.Until >= from);
+            firstStart = Math.Min(firstStart, from);
+            lastEnd = Math.Max(lastEnd, until);
+            int i = effects.FindIndex(effect => effect.Percent == percent && effect.Until >= from && until >= effect.From);
             if (i < 0) effects.Add((from, until, percent));
             else effects[i] = (Math.Min(effects[i].From, from), Math.Max(effects[i].Until, until), percent);
         }
 
         public int Strongest(double at)
         {
+            if (at < firstStart || at >= lastEnd) return 0;
             int percent = 0;
             foreach (var effect in effects)
                 if (effect.From <= at && at < effect.Until) percent = Math.Max(percent, effect.Percent);
@@ -85,18 +89,36 @@ public static partial class Game
             }
         }
 
+        public bool Overlaps(double from, double until) => from < until && from < lastEnd && until > firstStart;
+
         public double Average(double from, double until, Func<int, double> factor)
         {
             double total = 0, first = from;
-            foreach (double last in Boundaries(from, until).Append(until).Distinct().Order())
+            while (first < until)
             {
-                total += (last - first) * factor(Strongest(first + (last - first) / 2));
+                double last = until;
+                foreach (var effect in effects)
+                {
+                    if (effect.From > first) last = Math.Min(last, effect.From);
+                    if (effect.Until > first) last = Math.Min(last, effect.Until);
+                }
+                total += (last - first) * factor(Strongest(first));
                 first = last;
             }
             return total / (until - from);
         }
 
-        public void ForgetEnded(double now) => effects.RemoveAll(effect => effect.Until <= now);
+        public void ForgetEnded(double now)
+        {
+            if (effects.RemoveAll(effect => effect.Until <= now) == 0) return;
+            firstStart = double.PositiveInfinity;
+            lastEnd = double.NegativeInfinity;
+            foreach (var effect in effects)
+            {
+                firstStart = Math.Min(firstStart, effect.From);
+                lastEnd = Math.Max(lastEnd, effect.Until);
+            }
+        }
     }
 
     static readonly RuleTable<SpawnedMonster, TimedEnemyModifier> IntimidateStunDurations = new();
@@ -215,6 +237,8 @@ public static partial class Game
         if ((physicalTaken > 0 || dotTaken > 0) && m.Bleeds.Burning) SettleBleeding(m, now);
         if (dotTaken > 0)
         {
+            // A delayed DoT can still settle a time before this hit. Keep the monster's accepted windows
+            // until it dies, and skip integration for intervals that cannot overlap any of them.
             var modifiers = MaimDotTaken.GetOrCreateValue(m);
             modifiers.Add(now, now + MaimSeconds, dotTaken);
         }
