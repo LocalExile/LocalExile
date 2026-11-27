@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using GameServer.Data.Ggpk;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Data.Terrain;
 
 namespace GameServer.Modules.Incursion;
@@ -179,6 +180,25 @@ public sealed class IncursionTemple
         if (_temple is not { } graph) return null;
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes($"Incursion temple|{character}"));
         return new IncursionTemple(graph, new Random(BitConverter.ToInt32(hash, 0)), level);
+    }
+
+    public IncursionTempleData ItemData(int areaLevel, Random rng, bool randomizeTiers)
+    {
+        var rooms = new List<ushort>();
+        foreach (int slot in Slots)
+        {
+            int row = _rooms[slot];
+            if (randomizeTiers && Family(slot) is { } family && IncursionTables.TempleFamilies.TryGetValue(family, out var tiers))
+            {
+                var available = tiers.Where(t => t.Key is >= 1 and <= 3).OrderBy(t => t.Key).Select(t => t.Value).ToArray();
+                if (available.Length > 0) row = available[rng.Next(available.Length)];
+            }
+            rooms.Add(IncursionTables.RoomHash16(row));
+        }
+        uint connections = 0;
+        for (int i = 0; i < _graph.Edges.Count && i < 32; i++)
+            if (!_closed.GetValueOrDefault(_graph.Edges[i], true)) connections |= 1u << i;
+        return new((uint)Math.Clamp(areaLevel, 1, 100), rooms, connections);
     }
 
     public const int SaveVersion = 1;

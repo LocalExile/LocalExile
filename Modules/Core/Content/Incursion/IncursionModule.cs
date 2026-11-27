@@ -20,6 +20,7 @@ public sealed class IncursionModule : IModule
     {
         LoadData();
         string id = module.Manifest.Id;
+        GameEvents.MapOpening.Add(id, Opening);
         module.Lifetime.Own(new Cleanup(encounter.Clear));
         GameEvents.AreaPopulated.Add(id, encounter.Populated);
         GameEvents.BeforeEnterMessages.Add(id, encounter.EntryMessages);
@@ -41,6 +42,12 @@ public sealed class IncursionModule : IModule
             return await encounter.Talk(player);
         });
         GameEvents.ObjectUse.Add(id, encounter.OnUse);
+    }
+
+    public static void Opening(MapOpening request)
+    {
+        if (!request.Campaign && request.Opening is { } opening && MapDevices.IsMapArea(opening.Area.Hash16)
+            && IncursionTables.RulesetRow is not null && IncursionTemple.TempleGraph is not null) request.HandledContent.Add("Incursion");
     }
 
     sealed class Cleanup(Action clean) : IDisposable

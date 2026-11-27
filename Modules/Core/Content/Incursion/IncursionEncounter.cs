@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using PlayerWalk = GameServer.Core.World.PlayerWalk;
 
@@ -72,6 +73,51 @@ public sealed class IncursionEncounter
         public bool Started;
         /// <summary>The room is being created: the start delay runs from the last create.</summary>
         public bool Building;
+        public Body[]? Bindings;
+    }
+
+    internal sealed record Body(uint Id, int Variety, int X, int Y);
+    sealed record Saved(IncursionRun.Snapshot Run, uint Alva, uint Portal, uint Effect,
+        (int X, int Y) AlvaCell, (int X, int Y) PortalCell, (int X, int Y) Centre, (int X, int Y) Landing,
+        string? Owner, string[] Inside, string? Temple, IncursionTemple.PickedRoom? Pick, string Room,
+        uint[] Objects, uint[] Spawned, Dictionary<uint, Treasure> Treasures,
+        double Clock, double EnteredAt, double EffectAt, bool Started, bool Building, Body[] Bodies);
+    const string SaveKey = "Incursion.encounter.v1";
+    static readonly JsonSerializerOptions Json = new() { IncludeFields = true };
+
+    static void Persist(Player player, Live live)
+    {
+        var bodies = new List<Body>();
+        foreach (uint id in live.Run.RoomMonsters)
+            if (player.Area.Monsters.TryGetValue(id, out var body) && body.Variety is { } variety && !body.Dead)
+            {
+                var at = body.Walk.Position(AreaTime(player)); bodies.Add(new(id, variety.Row, at.X, at.Y));
+            }
+        string[] inside; lock (live.Inside) inside = [.. live.Inside.Select(CharacterName)];
+        uint[] spawned; lock (live.Spawned) spawned = [.. live.Spawned];
+        player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(new Saved(live.Run.Save(), live.Alva, live.Portal, live.Effect,
+            live.AlvaCell, live.PortalCell, live.RoomCentre, live.Landing, live.Owner is null ? null : CharacterName(live.Owner), inside,
+            live.Temple?.ToJson(), live.Pick, live.RoomId, [.. live.RoomObjects], spawned, new(live.Treasures),
+            live.Clock, live.EnteredAt, live.EffectAt, live.Started, live.Building, [.. bodies]), Json);
+    }
+
+    static Live Restore(Player player, string text)
+    {
+        var s = JsonSerializer.Deserialize<Saved>(text, Json)!;
+        Player? Member(string? name) => name is null ? null : CharacterName(player) == name ? player
+            : InGame.Keys.FirstOrDefault(p => ReferenceEquals(p.Instance, player.Instance) && CharacterName(p) == name);
+        var live = new Live(IncursionRun.Restore(s.Run))
+        {
+            Alva = s.Alva, Portal = s.Portal, Effect = s.Effect, AlvaCell = s.AlvaCell, PortalCell = s.PortalCell,
+            RoomCentre = s.Centre, Landing = s.Landing, Owner = Member(s.Owner), Temple = IncursionTemple.FromJson(s.Temple),
+            Pick = s.Pick, RoomId = s.Room, Clock = s.Clock, EnteredAt = s.EnteredAt, EffectAt = s.EffectAt,
+            Started = s.Started, Building = s.Building, Bindings = s.Bodies,
+        };
+        if (IncursionTables.AllRooms.FirstOrDefault(r => r.Id == s.Room) is { } room) live.Room = IncursionRoom.Read(room.PastArm);
+        live.RoomObjects.AddRange(s.Objects); live.Spawned.AddRange(s.Spawned);
+        foreach (var (id, treasure) in s.Treasures) live.Treasures[id] = treasure;
+        foreach (string name in s.Inside) if (Member(name) is { } member) live.Inside.Add(member);
+        return live;
     }
 
     readonly ConditionalWeakTable<InstanceState, Live> lives = new();
@@ -79,7 +125,12 @@ public sealed class IncursionEncounter
     /// <summary>Drops the module's tables (module unload); the instance's monsters stay as the area's own.</summary>
     public void Clear() => lives.Clear();
 
-    Live? LiveOf(Player player) => player.Instance is { } instance && lives.TryGetValue(instance, out var live) ? live : null;
+    Live? LiveOf(Player player)
+    {
+        if (player.Instance is not { } instance) return null;
+        if (lives.TryGetValue(instance, out var live)) return live;
+        return instance.ContentState.TryGetValue(SaveKey, out var text) ? lives.GetValue(instance, _ => Restore(player, text)) : null;
+    }
 
     /// <summary>Whether the instance has incursions still to advance.</summary>
     public bool Has(Player player) => LiveOf(player) is { } live && live.Run.Current != IncursionRun.Stage.Over;
@@ -176,7 +227,9 @@ public sealed class IncursionEncounter
             spots.Add(at);
         }
         if (spots.Count == 0) return Task.CompletedTask;
-        lives.AddOrUpdate(instance, new Live(new IncursionRun(spots, area.Level, area.Seed)));
+        var live = new Live(new IncursionRun(spots, area.Level, area.Seed));
+        lives.AddOrUpdate(instance, live);
+        Persist(player, live);
         Console.WriteLine($"[incursion] {layout.Id}: {spots.Count} spot(s), level {area.Level}");
         return Task.CompletedTask;
     }
@@ -207,14 +260,32 @@ public sealed class IncursionEncounter
             return;
         }
         lock (live.Inside) live.Inside.Remove(player);
+        if (live.Bindings is { } bindings)
+        {
+            var used = new HashSet<uint>(); var ids = new Dictionary<uint, uint>();
+            foreach (var body in bindings)
+            {
+                var found = player.Area.Monsters.FirstOrDefault(p => !used.Contains(p.Key) && !p.Value.Dead && p.Value.Variety?.Row == body.Variety
+                    && (p.Key == body.Id || Distance(p.Value.Walk.Position(AreaTime(player)), (body.X, body.Y)) <= 4));
+                if (found.Value is null) continue;
+                used.Add(found.Key); ids[body.Id] = found.Key;
+            }
+            live.Run.Rebind(ids); live.Bindings = null;
+        }
+        if (live.Building) { await Rollback(player, live); live.Building = false; }
         await SyncPlayer(player, live);
+        Persist(player, live);
     }
 
     /// <summary>A player leaves: their flag goes with them, whether the instance still has incursions or not; the
     /// incursions stay with the instance.</summary>
     public async Task Leaving(Player player)
     {
-        if (LiveOf(player) is { } live) lock (live.Inside) live.Inside.Remove(player);
+        if (LiveOf(player) is { } live)
+        {
+            lock (live.Inside) live.Inside.Remove(player);
+            Persist(player, live);
+        }
         await SyncFlagOff(player);
     }
 
@@ -235,6 +306,7 @@ public sealed class IncursionEncounter
     {
         if (LiveOf(player) is not { } live || live.Run.Current == IncursionRun.Stage.Over || !IsMonsterRunner(player) || !Current(player)) return;
         if (!await live.Gate.WaitAsync(0)) return;
+        var before = ((int)live.Clock, live.Run.Current, live.Effect);
         try
         {
             live.Clock += seconds;
@@ -254,7 +326,11 @@ public sealed class IncursionEncounter
                     break;
             }
         }
-        finally { live.Gate.Release(); }
+        finally
+        {
+            if (before != ((int)live.Clock, live.Run.Current, live.Effect)) Persist(player, live);
+            live.Gate.Release();
+        }
     }
 
     async Task Run(Player player, Live live, double seconds)
@@ -360,7 +436,7 @@ public sealed class IncursionEncounter
             await Component(player, live.Portal, InstanceEntities.TransitionableUpdate(live.Portal, IncursionWire.PortalTransitionable, 2), "IncursionPortal1 transitionable 2");
             return true;
         }
-        finally { live.Gate.Release(); }
+        finally { Persist(player, live); live.Gate.Release(); }
     }
 
     /// <summary>A click on an object of the incursions, as the other walked-up objects take it (MapStrongboxes.Use): the walk
@@ -397,6 +473,7 @@ public sealed class IncursionEncounter
         }
         finally
         {
+            Persist(player, live);
             live.Gate.Release();
             await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null, still: () => PlayerActionCurrent(player, action));
         }
@@ -527,7 +604,11 @@ public sealed class IncursionEncounter
         for (int a = 0; a < architects.Count; a++)
             if (Monsters.Find(architects[a].Path) is { Supported: true } variety)
                 chosen.Add((variety, MonsterRarity.Unique, spawns[Math.Min(a, spawns.Length - 1)], true, architects[a].Row));
-        int total = rng.Next(IncursionTables.MonstersLo, IncursionTables.MonstersHi + 1);
+        var mods = MapModsOf(player);
+        bool champions = new Random(run.Seed ^ 0x4348414d ^ run.Used * 7919).Next(100)
+            < Math.Clamp(mods?.Get(Stat.MapIncursionAllMonsterPacksMagicAndAllowRareChancePct) ?? 0, 0, 100);
+        int total = (int)Math.Clamp((long)rng.Next(IncursionTables.MonstersLo, IncursionTables.MonstersHi + 1)
+            * Math.Max(0L, 100L + (mods?.Get(Stat.MapIncursionPackSizePlusPct) ?? 0)) / 100, 0, 5000);
         int cultists = (int)Math.Round(total * IncursionTables.CultistShare);
         var packSpots = live.Room is { PackSpots.Count: > 0 } r ? r.PackSpots.Select(p => IncursionRoom.At(centre, p)).ToList() : [centre];
         int next = 0;
@@ -546,6 +627,7 @@ public sealed class IncursionEncounter
                 double roll = rng.NextDouble();
                 var rarity = roll < IncursionTables.RareChance ? MonsterRarity.Rare
                     : roll < IncursionTables.RareChance + IncursionTables.MagicChance ? MonsterRarity.Magic : MonsterRarity.Normal;
+                if (champions && rarity == MonsterRarity.Normal) rarity = MonsterRarity.Magic;
                 if (Monsters.Find(entry.Path) is { Supported: true } variety) chosen.Add((variety, rarity, cell, false, 0));
             }
         }
@@ -632,7 +714,26 @@ public sealed class IncursionEncounter
     public void Killed(KillContext kill)
     {
         if (LiveOf(kill.Player) is not { } live) return;
-        live.Run.Kill(kill.Monster.ObjectId, IncursionTables.KillSeconds(live.Run.Level, kill.Monster.Rarity));
+        if (!live.Run.Kill(kill.Monster.ObjectId, IncursionTables.KillSeconds(live.Run.Level, kill.Monster.Rarity))) return;
+        Persist(kill.Player, live);
+        if (live.Run.Used != live.Run.Spots.Count - 1 || live.Run.KilledArchitects.Count == 0
+            || MapModsOf(kill.Player)?.Get(Stat.MapFinalIncursionArchitectCopiesTemple) is not > 0
+            || live.Temple is null || live.Pick is not { } pick
+            || Items.Find("Metadata/Items/Incursion/ItemisedTemple") is not { Supported: true } type) return;
+        string key = "Incursion.Timelines.reward";
+        if (!kill.Player.Instance.ContentState.TryAdd(key, "1")) return;
+        var copy = IncursionTemple.FromJson(live.Temple.ToJson());
+        if (copy is null) { kill.Player.Instance.ContentState.TryRemove(key, out _); return; }
+        copy.Apply(pick, live.Run.KilledArchitects, live.Run.Level);
+        var rng = new Random(live.Run.Seed ^ 0x54494d45);
+        var item = ItemCatalog.Create(type, random: rng) with
+        {
+            ItemLevel = live.Run.Level, Identified = true,
+            IncursionTemple = copy.ItemData(live.Run.Level, rng, randomizeTiers: true),
+        };
+        var ground = new WorldItemObject(kill.At.X, kill.At.Y, item);
+        uint groundId = kill.Player.Instance.Ground.Add(ground, kill.Player);
+        kill.Later(() => SendGroundItem(kill.Player, groundId, ground, "Timelines architect temple", justDropped: true));
     }
 
     /// <summary>A click on a cursed treasure: 8 seconds off the clock and the chest's three component updates [capture].</summary>
