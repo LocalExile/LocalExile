@@ -277,7 +277,8 @@ public sealed partial class AccountStash
             if (added.Count > 0) headers = [.. headers, .. added];
             for (int i = 0; i < headers.Count; i++)
             {
-                var header = headers[i] with { Items = [], Public = headers[i].Public || publicTabs.Contains(i) };
+                // A merchant tab is always Public (retail); one saved before that rule gets the flag here.
+                var header = headers[i] with { Items = [], Public = headers[i].Public || publicTabs.Contains(i) || headers[i] is { Type: StashRules.Trade, Hidden: false } };
                 var tab = new TabState(header);
                 // Each tab's items are a row of their own; a stash saved before that (imported) keeps them in its header,
                 // and its first save gives every tab its row.
@@ -401,7 +402,7 @@ public sealed partial class AccountStash
                 int n = 1;
                 string name;
                 do name = $"{prefix} {n++}"; while (!names.Add(name));
-                _tabs.Add(new TabState(new SavedTab(name, type, r, g, b, [])));
+                _tabs.Add(new TabState(new SavedTab(name, type, r, g, b, [], Public: type == StashRules.Trade)));
                 added.Add(_tabs.Count - 1);
             }
         }
@@ -730,7 +731,7 @@ public sealed partial class AccountStash
 
     /// <summary>Sets or clears a premium tab's Public flag (C→S 0xcf, bit 3 = 0x08 in S→C 0x136) and propagates it to
     /// any hidden child pages owned by that tab (matching 0x14216e103). False for no such tab, hidden/deleted tabs,
-    /// child pages, or non-premium tabs.</summary>
+    /// child pages, non-premium tabs, or clearing a merchant tab's flag.</summary>
     public bool SetPublic(int tab, bool isPublic)
     {
         bool changed = false;
@@ -739,6 +740,8 @@ public sealed partial class AccountStash
             if (tab < 0 || tab >= _tabs.Count) return false;
             var saved = _tabs[tab].Saved;
             if (saved.Hidden || saved.UniqueCategory != 0 || !IsPremium(saved.Type)) return false;
+            // A merchant tab stays Public: its items are listed by their price notes, which Place keeps only there.
+            if (saved.Type == StashRules.Trade && !isPublic) return false;
             if (saved.Public != isPublic)
             {
                 _tabs[tab].Saved = saved with { Public = isPublic };
