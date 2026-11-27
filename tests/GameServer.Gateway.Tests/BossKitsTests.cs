@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 
 namespace GameServer.Gateway.Tests;
@@ -68,15 +69,16 @@ public sealed class BossKitsTests
             Assert.False(BossKits.IsCampaignBoss(corpse));
             Assert.Empty(BossKits.Kit(player, corpse, 1, 406));
 
-            // Arakaali's arena-laser activators need the encounter's turret objects. Generic AI has none; calling
-            // the activator with an empty turret list crashes the native client, even while the boss is at full life.
+            // Arakaali's arena-laser activators and ArakaaliHide (ActionType 724, entity-targeted) need arena objects
+            // not created on the client; calling them crashes the native client, even while the boss is at full life.
             var arakaali = Assert.IsType<MonsterCatalog.Variety>(
                 Game.Monsters.Find("Metadata/Monsters/VaalSpiderGod/Arakaali"));
             var catalog = Game.SkillsFor(player);
             int[] laserDrivers = [6879, 7802, 7805];
-            Assert.All(laserDrivers, effect => Assert.Contains(effect, arakaali.GrantedEffects!));
+            int[] hideDrivers = [6885, 6886, 6887];
+            Assert.All(laserDrivers.Concat(hideDrivers), effect => Assert.Contains(effect, arakaali.GrantedEffects!));
             var arakaaliKit = BossKits.Kit(player, arakaali, 55, Game.MavenNucleus.CombatEffect(catalog, arakaali));
-            Assert.DoesNotContain(arakaaliKit, entry => laserDrivers.Contains(entry.Effect));
+            Assert.DoesNotContain(arakaaliKit, entry => laserDrivers.Contains(entry.Effect) || hideDrivers.Contains(entry.Effect));
             // Standalone mortar and melee attacks remain playable; this does not disable the encounter or its actor.
             Assert.Contains(arakaaliKit, entry => entry.Effect == 4438);
             Assert.Contains(arakaaliKit, entry => entry.Effect == 208);
@@ -87,6 +89,14 @@ public sealed class BossKitsTests
                 int slot = arakaaliKit.ToList().FindIndex(entry => entry.Effect == effect);
                 Assert.Contains((artKey, art), arakaaliSkills[slot].Stats!);
             }
+            var arakaaliPlayer = new Player(player.Layout with { Id = Arakaali.Area }, 1, 1);
+            var controllerSkills = Assert.IsAssignableFrom<IReadOnlyList<GrantedSkill>>(
+                Arakaali.SkillsFor(arakaaliPlayer, arakaali, 55));
+            int[] controllerEffects = [.. controllerSkills
+                .Select(s => catalog.EffectsPerLevel((int)s.EffectsPerLevelRow)?.Effect ?? -1)];
+            Assert.DoesNotContain(controllerEffects, effect => laserDrivers.Contains(effect) || hideDrivers.Contains(effect));
+            Assert.Contains(208, controllerEffects);
+            Assert.Contains(4438, controllerEffects);
 
             CheckPietyBlood(player);
 

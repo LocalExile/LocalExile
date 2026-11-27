@@ -49,7 +49,7 @@ public static class ArakaaliLasers
         internal IReadOnlyList<Lane> Lanes => lanes;
         double next;
         int wave;
-        bool stopped, reset = true, scenesBroadcast;
+        bool stopped, reset = true;
 
         public Field(Player c, uint id, SpawnedMonster actor)
         {
@@ -107,19 +107,13 @@ public static class ArakaaliLasers
             var scenes = instance.World.SceneObjects
                 .Where(p => p.Key.StartsWith(Prefix, StringComparison.Ordinal))
                 .Select(p => p.Value).ToArray();
-            if (!scenesBroadcast)
-            {
-                scenesBroadcast = true;
-                foreach (var s in scenes)
-                {
-                    if (await SendWorldCreate(c, s.Id, () => InstanceEntities.CreateObject(s.Id, InstanceEntities.ObjectTypeHash(s.Type), s.Object.Blob()),
-                        "[Arakaali] linked arena turret", wake: true))
-                        foreach (var p in Present.ToArray()) Scenes(p).Add(s.Id);
-                }
-                return;
-            }
             foreach (var s in scenes)
-                Scenes(c).Add(s.Id);
+            {
+                if (Scenes(c).Contains(s.Id)) continue;
+                if (await SendWorldCreate(c, s.Id, () => InstanceEntities.CreateObject(s.Id, InstanceEntities.ObjectTypeHash(s.Type), s.Object.Blob()),
+                    "[Arakaali] linked arena turret", wake: true))
+                    Scenes(c).Add(s.Id);
+            }
         }
 
         async Task State(string key, byte transition, int active)
@@ -188,12 +182,15 @@ public static class ArakaaliLasers
         public async Task Step(Player c, double now)
         {
             if (stopped || !CurrentGameWork || c.Paused || lanes.Count == 0) return;
-            if (reset) { await Reset(); reset = false; next = now + 5; }
             if (boss.Dead || boss.StageRunning || boss.LifePhases?.Active == true)
-            { if (activeSweep.Count > 0) await Reset(); next = now + 5; return; }
-            var target = Present.Where(p => p.PlayerLife > 0 && MonsterShown(p, bossId) && !MonsterAsleep(p, bossId))
-                .MinBy(p => CampaignBossHelpers.Distance(boss.Walk.Position(now), p.Walk.Position(now)));
+            {
+                if (reset || activeSweep.Count > 0) { await Reset(); reset = false; }
+                next = now + 5;
+                return;
+            }
+            var target = CampaignBossHelpers.NearestLivingTarget(c, boss.Walk.Position(now), now, 140, bossId);
             if (target is null) return;
+            if (reset) { await Reset(); reset = false; next = now + 5; return; }
 
             if (activeSweep.Count == 0)
             {

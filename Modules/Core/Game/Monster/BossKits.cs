@@ -127,9 +127,10 @@ public static class BossKits
             || id.Contains("Bond", StringComparison.Ordinal)
             || id.Contains("Mark", StringComparison.Ordinal)
             || id.Contains("Souls", StringComparison.Ordinal)
-            // This action drives the arena's ArakaaliTurret_A/B objects, not a standalone hit. Without them its
-            // native shuffle dereferences an empty turret list (live Arakaali crash at 0x141c7a0e4).
+            // These actions drive Arakaali's arena objects (ArakaaliTurret_A/B for SpiderGodActivateLaser,
+            // live crash at 0x141c7a0e4; TeleportMarkerSerialized1..4 / SilkArakaali for ArakaaliHide, ActionType 724).
             || id.StartsWith("SpiderGodActivateLaser", StringComparison.Ordinal)
+            || id.StartsWith("ArakaaliHide", StringComparison.Ordinal)
             || id.Contains("EmptyAction", StringComparison.Ordinal)
             || id.Contains("Emerge", StringComparison.Ordinal)
             || id.Contains("Retreat", StringComparison.Ordinal)
