@@ -965,11 +965,14 @@ public static partial class Game
             if (shot.CompletedChainDamagePercent != 0)
                 chainsMore *= Math.Max(0, 1 + (double)shot.CompletedChainDamagePercent
                     * (contact.Projectile.Profile.Chain - contact.Projectile.ChainsRemaining) / 100);
+            // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
+            var player = shot.ActualCaster ?? CharacterPlayerStats(Player);
+            int shotExertWarcries = shot.Spell ? 0 : (shot.IntimidatingCryExerted ? 1 : 0) + shot.OtherWarcryExertions + (shot.RallyingDamage.HasValue ? 1 : 0);
             double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
             double elementalMore = shot.DamageMorePerElementalAilment == 0 ? 1
                 : ElementalHitDamageMore(shot.DamageMorePerElementalAilment, ElementalHitAilmentsOn(target, at));
-            double ailmentMore = chainsMore * returnMore * elementalMore
-                * ExertedAttackMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage);
+            double ailmentMore = chainsMore * returnMore * elementalMore * (shot.Spell ? 1
+                : ExertedAttackMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage, player));
             if (ailmentMore != 1)
                 shot = shot with
                 {
@@ -989,18 +992,18 @@ public static partial class Game
             if (shot.ShatteringSteelAmmoHitBonus > 0)
                 more *= 1 + shot.ShatteringSteelAmmoHitBonus * Math.Clamp((70 - contact.Projectile.Distance) / 60, 0, 1);
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
-            // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
-            var player = shot.ActualCaster ?? CharacterPlayerStats(Player);
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more * chainsMore);
             var hitRolls = HitRollsFor(player);
-            var damageRoll = WithIntimidatingCryExert((hitRolls with { DamageMorePct = 0 })
+            var damageRoll = WithExertedAttackRollModifiers((hitRolls with { DamageMorePct = 0 })
                 .ForSkill(name => name is var k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
-                    finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted).ForWeapon(shot.WeaponLocal);
+                    finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted,
+                shotExertWarcries, player, shot.SkillStats).ForWeapon(shot.WeaponLocal);
             long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(player, shot.SkillStats);
             var rolled = WithConditionalSupportDamageLocked(Player, shot.SkillStats, !shot.Spell, target,
                 GameEvents.WithOutgoingDamage(Player, player, target,
                     damageRoll.RollBeforeCritical(packet, random, criticalDoubleDamage)), at);
-            rolled = WithExertedAttackDamage(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage);
+            if (!shot.Spell)
+                rolled = WithExertedAttackDamage(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage, player);
             bool secondForm = contact.Projectile.Form > 0;
             var formCrit = secondForm ? shot.SecondFormOptions : null;
             int chance = secondForm && shot.SecondFormCriticalChance is int second

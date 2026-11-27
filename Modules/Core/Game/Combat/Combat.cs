@@ -526,11 +526,16 @@ public static partial class Game
         NotePlayerAttack(player);
         RecordUsedSkillLocked(player, begun);
         bool eligibleWarcry = weapon.Melee && !ranged;
-        cryExerted = ConsumeIntimidatingCryExertLocked(player, eligibleWarcry);
         var warcries = eligibleWarcry ? CryOf(player) : null;
-        var warcryTriggers = warcries is null ? null : ConsumeMeleeWarcryTriggers(warcries, criticalRoll);
-        int ancestralTargets = warcries is null ? 0 : ConsumeAncestralCry(warcries);
-        double rallyingMore = 1 + (warcries is null ? 0 : ConsumeRallyingCry(warcries).GetValueOrDefault()) / 100d;
+        bool consumeWarcry = eligibleWarcry && !ExertedAttackKeepsCountLocked(player);
+        cryExerted = warcries is not null && IntimidatingCryExerts(player) > 0;
+        if (cryExerted && consumeWarcry) warcries!.Exerts--;
+        var warcryTriggers = warcries is null ? null : ConsumeMeleeWarcryTriggers(warcries, criticalRoll, consumeWarcry);
+        int ancestralTargets = warcries is null ? 0 : ConsumeAncestralCry(warcries, consumeWarcry);
+        int? defaultRallying = warcries is null ? null : ConsumeRallyingCry(warcries, consumeWarcry);
+        if (eligibleWarcry) SyncExertedAttackBuffsLocked(player);
+        int defaultOtherWarcries = (ancestralTargets > 0 ? 1 : 0) + (warcryTriggers?.Count ?? 0);
+        int defaultTotalWarcries = (cryExerted ? 1 : 0) + defaultOtherWarcries + (defaultRallying.HasValue ? 1 : 0);
         PhaseRunOnSkillUse(player, use.SkillId, duration);
         SpiritBurstOnSkillUse(player, target, begun);
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
@@ -633,14 +638,22 @@ public static partial class Game
                 // Settle Rage at accepted contact before this hit's gain. It is a final multiplier on the attack packet,
                 // never on an existing impale bonus or on generic damage/DoT.
                 var playerStats = CharacterPlayerStats(player);
+                long defaultExertedAccuracy = ExertedAttackAccuracyIncrease(defaultTotalWarcries, playerStats, ownPenetration);
                 var accuracy = AttackAccuracyProfile.From(player.Pools, playerStats, Stats, ownPenetration, weapon.LocalSources)
-                    with { Rating = HandAccuracy(player, hand, playerStats) };
+                    with { Rating = HandAccuracy(player, hand, playerStats, defaultExertedAccuracy) };
+                long defaultExertedIncreased = ExertedAttackIncreasedDamage(playerStats, ownPenetration, defaultTotalWarcries,
+                    ancestralExerted: ancestralTargets > 0);
+                var defaultDamageStats = defaultExertedIncreased == 0 ? playerStats
+                    : new Dictionary<uint, int>(playerStats)
+                    {
+                        [Stat.DamagePlusPct] = ActorScale.Saturate((long)playerStats.GetValueOrDefault(Stat.DamagePlusPct) + defaultExertedIncreased),
+                    };
                 IEnumerable<(uint, int)> conversionStats = ownPenetration is null ? [] :
                     ownPenetration.Select(pair => (pair.Key, pair.Value));
                 var conversion = SupportedAttackDamage.WithWeaponGains(
-                    DamageStats.Conversion(playerStats, conversionStats, Stats, attack: true), weapon,
-                    key => playerStats.GetValueOrDefault(key));
-                var prehit = DefaultMeleePrehitProfileLocked(player, targetId, m, playerStats, weapon, conversion,
+                    DamageStats.Conversion(defaultDamageStats, conversionStats, Stats, attack: true), weapon,
+                    key => defaultDamageStats.GetValueOrDefault(key));
+                var prehit = DefaultMeleePrehitProfileLocked(player, targetId, m, defaultDamageStats, weapon, conversion,
                     ownPenetration, ProjectileWorldTime(player), accuracy.Rating);
                 if (prehit is null)
                 {
@@ -648,12 +661,14 @@ public static partial class Game
                         "the registered living hostile monster");
                     return true;
                 }
-                if (rallyingMore != 1)
+                double exertedMore = ExertedAttackMore(ownPenetration, cryExerted,
+                    defaultOtherWarcries, defaultRallying, playerStats);
+                if (exertedMore != 1)
                     prehit = prehit with
                     {
-                        Ignite = RepeatAilment(prehit.Ignite, rallyingMore),
-                        Bleed = RepeatAilment(prehit.Bleed, rallyingMore),
-                        Poison = RepeatAilment(prehit.Poison, rallyingMore)
+                        Ignite = RepeatAilment(prehit.Ignite, exertedMore),
+                        Bleed = RepeatAilment(prehit.Bleed, exertedMore),
+                        Poison = RepeatAilment(prehit.Poison, exertedMore)
                     };
                 double contactAt = AreaTime(player);
                 if (m.Effects[Stat.BaseCannotBeDamaged] > 0
@@ -677,16 +692,21 @@ public static partial class Game
                 if (weapon.Melee)
                     hit = WithMeleeProximityLocked(player, playerStats, ownPenetration, m, hit, contactAt);
                 var hitRolls = HitRollsFor(playerStats);
-                var damageRoll = WithIntimidatingCryExert(hitRolls with { DamageMorePct = 0 }, cryExerted).ForWeapon(weapon.LocalSources);
+                var damageRoll = WithExertedAttackRollModifiers(hitRolls with { DamageMorePct = 0 }, cryExerted,
+                    defaultTotalWarcries, playerStats, ownPenetration).ForWeapon(weapon.LocalSources);
                 long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(playerStats, ownPenetration);
                 var ownRolled = GameEvents.WithOutgoingDamage(player, playerStats, m,
                     damageRoll.RollBeforeCritical(hit, AreaRng(player), criticalDoubleDamage));
-                critical = RollCriticalStrike(player, CriticalChanceOn(player, targetId, HandAttackCriticalChance(player, hand, playerStats),
-                        AttackCriticalChanceVsBlinded(player, playerStats, hand: hand), AttackCriticalChanceVsGround(player, playerStats, hand: hand)),
+                int defaultExertedBaseCrit = ExertedAttackBonusCritPermyriad(defaultTotalWarcries, playerStats, ownPenetration);
+                int defaultCritChance = CriticalChanceOn(player, targetId,
+                    HandAttackCriticalChance(player, hand, playerStats, defaultExertedBaseCrit),
+                    AttackCriticalChanceVsBlinded(player, playerStats, release: false, hand, defaultExertedBaseCrit),
+                    AttackCriticalChanceVsGround(player, playerStats, release: false, hand, defaultExertedBaseCrit));
+                critical = RollCriticalStrike(player, defaultCritChance,
                         ownPenetration, skillRoll: criticalRoll)
                     && GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                 ownRolled = damageRoll.CompleteCriticalMultiplier(ownRolled, AreaRng(player), critical, criticalDoubleDamage);
-                if (rallyingMore != 1) ownRolled = ownRolled.Scale(rallyingMore);
+                if (exertedMore != 1) ownRolled = ownRolled.Scale(exertedMore);
                 long weaponMultiplier = (long)AttackCriticalMultiplier(player, playerStats)
                     + ClawDaggerCriticalBonus(weapon, playerStats, ownPenetration);
                 int sourceCriticalMultiplier = CriticalMultiplierWithWeapon(
@@ -3452,7 +3472,7 @@ public static partial class Game
             if (retainedAttack is null && strikeIndex == 0 && areaAction == PerforateAction)
             {
                 SchedulePerforateLocked(player, gem, admittedGem, from, to, sequence, repeat, hand, weapon, offCritical,
-                    criticalRoll, radiusMore * chargeRadius, damageMore, ruthless, cryExerted == true, seismicExerted, now);
+                    criticalRoll, radiusMore * chargeRadius, damageMore, ruthless, cryExerted == true, seismicExerted, now, rallyingDamage);
                 return;
             }
             if (stormPeriod is double interval && strikeIndex == 0)
@@ -3487,7 +3507,7 @@ public static partial class Game
             if (retainedAttack is null && strikeIndex == 0 && areaAction == HolyHammersAction)
             {
                 ScheduleHolyHammersLocked(player, gem, admittedGem, from, to, sequence, repeat, hand, weapon, offCritical,
-                    criticalRoll, radius, damageMore, ruthless, cryExerted == true, now, rallyingDamage);
+                    criticalRoll, radius, damageMore, ruthless, cryExerted == true, now, rallyingDamage, seismicExerted);
                 return;
             }
             if (divineBlast && !immediate && strikeIndex == 0)
@@ -3994,6 +4014,9 @@ public static partial class Game
                                 Raw = offInputs.Raw.Add(DamageType.Chaos, new(added, added)),
                             };
                         }
+                        int totalExertWarcries = spell ? 0 : (cryExerted == true ? 1 : 0) + otherWarcries + (rallyingDamage.HasValue ? 1 : 0);
+                        long exertedIncreased = spell ? 0 : ExertedAttackIncreasedDamage(playerStats, skillStats,
+                            totalExertWarcries, seismicExerted, ancestralTargets > 0);
                         long additionalIncreased = PlayerHitDamage.VsBlindedDamageStat is var key
                             ? (long)playerStats.GetValueOrDefault(key) + admittedGem.Stats.GetValueOrDefault(key) : 0;
                         AreaSkillDamageProfile Profile(long increased)
@@ -4009,7 +4032,7 @@ public static partial class Game
                                     melee: SkillsFor(player).IsMelee(gem.Effect), increased, capturedInputs),
                                 SupportedPoison(player, skillId, spell, playerStats, swingWeapon, increased, capturedInputs));
                         }
-                        sweepProfile = Profile(0);
+                        sweepProfile = Profile(exertedIncreased);
                         double targetEffectiveness = AddedEffectiveness(player, admittedGem.Effect, admittedGem.Level);
                         sweepSpider = CaptureSpiderDamage(player, capturedInputs, targetEffectiveness, context: true, local: local,
                             bow: false, offHand: hand == AttackHand.Off, required: HasLocalTargetDamage(bothOff?.LocalSources));
@@ -4023,12 +4046,18 @@ public static partial class Game
                                 sweepOffSpider = CaptureSpiderDamage(player, offInputs, targetEffectiveness, context: true,
                                     local: OffhandWeaponFor(player)?.LocalSources, bow: false, offHand: true, required: true);
                         }
-                        if (additionalIncreased != 0) blindedProfile = Profile(additionalIncreased);
+                        if (additionalIncreased != 0) blindedProfile = Profile(exertedIncreased + additionalIncreased);
                         pen = Penetration.Of(playerStats, Stats, attack: !spell, skillStats, local);
                         mods = HitResistMods(playerStats, skillStats);
                         sweepMultiplier = (retainedAttack?.CriticalMultiplier ?? SupportedCriticalMultiplier(player, skillId, sourceWeapon))
                             + flurryBonus.CriticalMultiplier;
-                        if (!spell) accuracy = retainedAttack?.Accuracy ?? SupportedAccuracy(player, skillId, hand);
+                        if (!spell)
+                        {
+                            long exertedAcc = ExertedAttackAccuracyIncrease(totalExertWarcries, playerStats, skillStats);
+                            accuracy = retainedAttack is not null && exertedAcc == 0
+                                ? retainedAttack.Accuracy
+                                : SupportedAccuracy(player, skillId, hand, exertedAcc);
+                        }
                         leech = HitLeechSources(playerStats, !spell, skillStats, local, !spell && SkillsFor(player).IsMelee(gem.Effect));
                         impale = WeaponImpaleSettings(playerStats, Stats, !spell, skillStats, spell || shield is not null ? null : sourceWeapon);
                         criticalImpale = WeaponImpaleSettings(playerStats, Stats, !spell, skillStats, spell || shield is not null ? null : sourceWeapon, critical: true);
@@ -4114,7 +4143,7 @@ public static partial class Game
                             Poison = RepeatAilment(profile.Poison, repeatMore),
                         };
                     }
-                    double overexertionMore = ExertedAttackMore(skillStats, cryExerted == true, otherWarcries, rallyingDamage);
+                    double overexertionMore = spell ? 1 : ExertedAttackMore(skillStats, cryExerted == true, otherWarcries, rallyingDamage, playerStats);
                     if (overexertionMore != 1)
                         profile = profile with
                         {
@@ -4191,9 +4220,10 @@ public static partial class Game
                     {
                         DamageExtraRolls = hitRolls.DamageExtraRolls < 0 ? 0 : Math.Max(hitRolls.DamageExtraRolls, extraArcRolls)
                     };
-                    var damageRoll = WithIntimidatingCryExert((hitRolls with { DamageMorePct = 0 })
+                    int hitExertWarcries = spell ? 0 : (cryExerted == true ? 1 : 0) + otherWarcries + (rallyingDamage.HasValue ? 1 : 0);
+                    var damageRoll = WithExertedAttackRollModifiers((hitRolls with { DamageMorePct = 0 })
                         .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(player, skillId, gem.Effect),
-                            intelligence: player.Pools.Intelligence), cryExerted == true).ForWeapon(weaponLocal);
+                            intelligence: player.Pools.Intelligence), cryExerted == true, hitExertWarcries, playerStats, skillStats).ForWeapon(weaponLocal);
                     long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(playerStats, skillStats);
                     var rolled = WithConditionalSupportDamageLocked(player, skillStats, !spell, m,
                         GameEvents.WithOutgoingDamage(player, playerStats, m,
@@ -4210,9 +4240,11 @@ public static partial class Game
                         rolled = rolled.Add(DamageType.Fire, new(flameFire, flameFire));
                         m.HallowingFlameUntil = 0;
                     }
-                    rolled = WithExertedAttackDamage(rolled, skillStats, cryExerted == true, otherWarcries, rallyingDamage);
+                    if (!spell)
+                        rolled = WithExertedAttackDamage(rolled, skillStats, cryExerted == true, otherWarcries, rallyingDamage, playerStats);
+                    int exertedCritBonus = spell ? 0 : ExertedAttackBonusCritPermyriad(hitExertWarcries, playerStats, skillStats);
                     // The shared roll meets each target's current chance: a source can change between targets.
-                    if (!linkedSource && retainedAttack is { } source)
+                    if (!linkedSource && retainedAttack is { } source && exertedCritBonus == 0)
                     {
                         int capturedChance = CriticalChanceOn(player, id, source.CriticalChance, source.CriticalVsBlind, source.CriticalVsGround);
                         critical = RollCriticalStrike(player, capturedChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
@@ -4221,11 +4253,11 @@ public static partial class Game
                     else
                     {
                         int useCriticalChance = extraCriticalIncrease == 0
-                            ? SupportedCriticalChance(player, skillId, hand, offCritical)
-                            : SupportedCriticalChanceFor(player, skillId, release: false, extraIncrease: extraCriticalIncrease);
+                            ? SupportedCriticalChance(player, skillId, hand, offCritical, extraIncrease: 0, extraBaseCrit: exertedCritBonus)
+                            : SupportedCriticalChanceFor(player, skillId, release: false, extraIncrease: extraCriticalIncrease, weaponCritical: null, extraBaseCrit: exertedCritBonus);
                         int criticalChance = CriticalChanceOn(player, id, useCriticalChance,
-                            SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical),
-                            SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical));
+                            SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical, extraIncrease: 0, extraBaseCrit: exertedCritBonus),
+                            SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical, extraIncrease: 0, extraBaseCrit: exertedCritBonus));
                         // Read an existing bleed before this attack can inflict its own.
                         if (!spell && m.Bleeds.IgnitedAt(ProjectileWorldTime(player)))
                         {
@@ -4233,9 +4265,9 @@ public static partial class Game
                                 + playerStats.GetValueOrDefault(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies);
                             if (bleedingCrit != 0)
                                 criticalChance = CriticalChanceOn(player, id,
-                                    SupportedCriticalChance(player, skillId, hand, offCritical, bleedingCrit),
-                                    SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical, bleedingCrit),
-                                    SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical, bleedingCrit));
+                                    SupportedCriticalChance(player, skillId, hand, offCritical, bleedingCrit, exertedCritBonus),
+                                    SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical, bleedingCrit, exertedCritBonus),
+                                    SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical, bleedingCrit, exertedCritBonus));
                         }
                         if (flurryBonus.CriticalMore != 0)
                             criticalChance = Math.Min(10_000, (int)(criticalChance * flurryBonus.CriticalMore));

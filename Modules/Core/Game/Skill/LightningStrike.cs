@@ -125,8 +125,9 @@ static partial class Game
         }
 
         if (frostBlades && !primaryHit && extraHits is not { Count: > 0 }) return;
-        var use = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, cryExerted: cryExerted,
-            otherWarcryExertions: ancestralTargets > 0 ? 1 : 0, rallyingDamage: rallyingDamage);
+        var use = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, weaponHand: null, sequence: sequence,
+            cryExerted: cryExerted, otherWarcryExertions: ancestralTargets > 0 ? 1 : 0, rallyingDamage: rallyingDamage,
+            ancestralExerted: ancestralTargets > 0);
         if (frostBlades)
         {
             if (primaryHit) session.ReleaseNow(FrostBladesVolley(player, use, stats, now, from, aim, primary, more));

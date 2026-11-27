@@ -321,19 +321,24 @@ public static partial class Game
             var swingWeapon = OffHandSwing(player, hand);
             var pen = Penetration.Of(playerStats, Stats, attack: true, skillStats, local);
             var mods = HitResistMods(playerStats, skillStats);
-            var meleeHit = SupportedSwingHit(player, skillId, hand, w => SupportedHitFor(player, skillId, suppress: true, weapon: w));
+            var warcryTriggers = MeleeWarcryTriggersFor(criticalRoll);
+            int otherWarcries = (ancestralTargets > 0 ? 1 : 0) + (warcryTriggers?.Count ?? 0);
+            int totalExertWarcries = (cryExerted ? 1 : 0) + otherWarcries + (rallyingDamage.HasValue ? 1 : 0);
+            long exertedIncreased = ExertedAttackIncreasedDamage(playerStats, skillStats, totalExertWarcries,
+                ancestralExerted: ancestralTargets > 0);
+            var meleeHit = SupportedSwingHit(player, skillId, hand, w => SupportedHitInputsFor(player, skillId, weapon: w) is { } inputs
+                ? SupportedHitFrom(inputs, suppress: true, additionalIncreased: exertedIncreased)
+                : SupportedHitFor(player, skillId, suppress: true, weapon: w));
             if (ruthless != 1) meleeHit = meleeHit.Scale(ruthless);
             int criticalMultiplierBase = SupportedCriticalMultiplier(player, skillId, swingWeapon);
-            var accuracy = SupportedAccuracy(player, skillId, hand);
+            var accuracy = SupportedAccuracy(player, skillId, hand, ExertedAttackAccuracyIncrease(totalExertWarcries, playerStats, skillStats));
             var leech = HitLeechSources(playerStats, true, skillStats, local, melee: true);
             var impale = WeaponImpaleSettings(playerStats, Stats, true, skillStats, attackSource);
             var criticalImpale = WeaponImpaleSettings(playerStats, Stats, true, skillStats, attackSource, critical: true);
-            var ignite = SupportedIgnite(player, skillId, spell: false, playerStats, swingWeapon);
-            var bleed = SupportedBleed(player, skillId, spell: false, playerStats, swingWeapon, melee: true);
-            var poison = SupportedPoison(player, skillId, spell: false, playerStats, swingWeapon);
-            var warcryTriggers = MeleeWarcryTriggersFor(criticalRoll);
-            int otherWarcries = (ancestralTargets > 0 ? 1 : 0) + (warcryTriggers?.Count ?? 0);
-            double ailmentMore = repeatMore * ExertedAttackMore(skillStats, cryExerted, otherWarcries, rallyingDamage);
+            var ignite = SupportedIgnite(player, skillId, spell: false, playerStats, swingWeapon, exertedIncreased);
+            var bleed = SupportedBleed(player, skillId, spell: false, playerStats, swingWeapon, melee: true, exertedIncreased);
+            var poison = SupportedPoison(player, skillId, spell: false, playerStats, swingWeapon, exertedIncreased);
+            double ailmentMore = repeatMore * ExertedAttackMore(skillStats, cryExerted, otherWarcries, rallyingDamage, playerStats);
             ignite = RepeatAilment(ignite, ailmentMore);
             bleed = RepeatAilment(bleed, ailmentMore);
             poison = RepeatAilment(poison, ailmentMore);
@@ -360,9 +365,9 @@ public static partial class Game
                     continue;
                 }
                 var hitRolls = HitRollsFor(playerStats);
-                var damageRoll = WithIntimidatingCryExert(
+                var damageRoll = WithExertedAttackRollModifiers(
                     (hitRolls with { DamageMorePct = 0 }).ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats,
-                        intelligence: player.Pools.Intelligence), cryExerted).ForWeapon(local);
+                        intelligence: player.Pools.Intelligence), cryExerted, totalExertWarcries, playerStats, skillStats).ForWeapon(local);
                 long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(playerStats, skillStats);
                 var rolled = WithConditionalSupportDamageLocked(player, skillStats, attack: true, m,
                     GameEvents.WithOutgoingDamage(player, playerStats, m,
@@ -373,10 +378,15 @@ public static partial class Game
                     rolled = rolled.Add(DamageType.Fire, new(flameFire, flameFire));
                     m.HallowingFlameUntil = 0;
                 }
-                rolled = WithExertedAttackDamage(rolled, skillStats, cryExerted, otherWarcries, rallyingDamage);
-                int criticalChance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId, hand),
-                    SupportedCriticalChanceVsBlinded(player, skillId, release: false, SwingWeaponCritical(player, hand)),
-                    SupportedCriticalChanceVsGround(player, skillId, release: false, SwingWeaponCritical(player, hand)));
+                rolled = WithExertedAttackDamage(rolled, skillStats, cryExerted, otherWarcries, rallyingDamage, playerStats);
+                int exertedBaseCrit = ExertedAttackBonusCritPermyriad(totalExertWarcries, playerStats, skillStats);
+                int? moltenOffCrit = hand != AttackHand.Main && OffhandWeaponFor(player) is not null
+                    ? HandWeaponCritical(player, AttackHand.Off, playerStats) : null;
+                int? moltenSwingCrit = SwingWeaponCritical(player, hand, playerStats);
+                int criticalChance = CriticalChanceOn(player, id,
+                    SupportedCriticalChance(player, skillId, hand, moltenOffCrit, extraIncrease: 0, extraBaseCrit: exertedBaseCrit),
+                    SupportedCriticalChanceVsBlinded(player, skillId, release: false, moltenSwingCrit, extraIncrease: 0, extraBaseCrit: exertedBaseCrit),
+                    SupportedCriticalChanceVsGround(player, skillId, release: false, moltenSwingCrit, extraIncrease: 0, extraBaseCrit: exertedBaseCrit));
                 bool critical = RollCriticalStrike(player, criticalChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
                     && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                 rolled = damageRoll.CompleteCriticalMultiplier(rolled, AreaRng(player), critical, criticalDoubleDamage);
@@ -483,7 +493,7 @@ public static partial class Game
                 var session = ProjectilesFor(player);
                 emitted = EmitMoltenStrikeBallsLocked(player, session, skillId, gem, playerAt, to, criticalRoll,
                     sequence, (uint)(totalRepeats - repeat), delay, repeatMore, hitOrigins, AreaRng(player), fifthAttack, cryExerted: cryExerted,
-                    otherWarcryExertions: ancestralTargets > 0 ? 1 : 0, rallyingDamage: rallyingDamage);
+                    otherWarcryExertions: ancestralTargets > 0 ? 1 : 0, rallyingDamage: rallyingDamage, ancestralExerted: ancestralTargets > 0);
             }
         }
 
@@ -514,14 +524,25 @@ public static partial class Game
         (int X, int Y) playerAt, (int X, int Y) aim, SkillCriticalRoll criticalRoll, ushort sequence,
         uint repeatsLeft, double releaseDelay, double repeatMore, IReadOnlyList<ProjectileVector> hitOrigins,
         Random random, bool fifthAttack = false, bool cryExerted = false, int otherWarcryExertions = 0,
-        int? rallyingDamage = null)
+        int? rallyingDamage = null) =>
+        EmitMoltenStrikeBallsLocked(player, session, skillId, gem, playerAt, aim, criticalRoll, sequence, repeatsLeft,
+            releaseDelay, repeatMore, hitOrigins, random, fifthAttack, cryExerted, otherWarcryExertions, rallyingDamage,
+            ancestralExerted: false);
+
+    internal static int EmitMoltenStrikeBallsLocked(Player player, ProjectileSession session, ushort skillId,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+        (int X, int Y) playerAt, (int X, int Y) aim, SkillCriticalRoll criticalRoll, ushort sequence,
+        uint repeatsLeft, double releaseDelay, double repeatMore, IReadOnlyList<ProjectileVector> hitOrigins,
+        Random random, bool fifthAttack, bool cryExerted, int otherWarcryExertions,
+        int? rallyingDamage, bool ancestralExerted)
     {
         if (hitOrigins.Count == 0) return 0;
         ProjectileUse baseUse;
         try
         {
-            baseUse = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, repeatsLeft,
-                releaseDelay, cryExerted: cryExerted, otherWarcryExertions: otherWarcryExertions, rallyingDamage: rallyingDamage);
+            baseUse = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, weaponHand: null, sequence: sequence,
+                repeatsLeft: repeatsLeft, releaseDelay: releaseDelay, cryExerted: cryExerted,
+                otherWarcryExertions: otherWarcryExertions, rallyingDamage: rallyingDamage, ancestralExerted: ancestralExerted);
         }
         catch (InvalidOperationException ex)
         {

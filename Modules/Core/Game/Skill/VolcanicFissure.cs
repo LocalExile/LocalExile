@@ -48,8 +48,9 @@ public static partial class Game
         var direction = (origin - ProjectileSession.Vector(from)).Unit;
         var aim = direction.Length > 0 ? origin + direction * 20 : origin + new ProjectileVector(20, 0);
         var target = ((int)Math.Round(aim.X), (int)Math.Round(aim.Y));
-        var use = CaptureGemProjectile(player, session, skillId, gem, target, roll, sequence,
-            cryExerted: cryExerted, repeat: repeat, otherWarcryExertions: seismicExerted ? 1 : 0, rallyingDamage: rallyingDamage);
+        var use = CaptureGemProjectile(player, session, skillId, gem, target, roll, weaponHand: null, sequence: sequence,
+            cryExerted: cryExerted, repeat: repeat, otherWarcryExertions: seismicExerted ? 1 : 0, rallyingDamage: rallyingDamage,
+            seismicExerted: seismicExerted);
         var shot = (ProjectileOffense)use.Payload!;
         var profile = use.Profile with
         {

@@ -40,8 +40,9 @@ public static partial class Game
         if (contacts.Count == 0) return null;
 
         source = WildStrikeDamageSource(source, element.Value, followup: true);
-        var use = CaptureGemProjectile(player, session, skillId, gem, aim, critical, sequence, cryExerted: cryExerted,
-            from: at, capturedSkill: source, otherWarcryExertions: ancestralTargets > 0 ? 1 : 0, rallyingDamage: rallyingDamage);
+        var use = CaptureGemProjectile(player, session, skillId, gem, aim, critical, weaponHand: null, sequence: sequence,
+            cryExerted: cryExerted, from: at, capturedSkill: source, otherWarcryExertions: ancestralTargets > 0 ? 1 : 0,
+            rallyingDamage: rallyingDamage, ancestralExerted: ancestralTargets > 0);
         var shot = ((ProjectileOffense)use.Payload!).ScaleDamage(more) with { ClientPredicted = true, AreaVisual = null };
         foreach (var strike in contacts)
         {

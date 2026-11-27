@@ -333,6 +333,14 @@ public static partial class Game
     static bool RallyingCryAlly(SpawnedMonster ally) =>
         !ally.WorldHidden && (!ally.NonBlocking && ally.Variety?.PositionedBlocking != false || RallyingCryMirage(ally));
 
+    internal static int RallyingCryNearbyAlliesLocked(Player player, (int X, int Y) at, int radius, double now) =>
+        (player.Instance?.PlayersExcept(player.Id) ?? [])
+            .Count(ally => ally.Area == player.Area && !ally.Closed && !ally.LeavingArea && ally.PlayerLife > 0
+                && Dist(ally.Walk.Position(now), at) <= radius)
+        + NearbyRallyingTotems(player, at, radius)
+        + player.Area.Monsters.Values.Count(ally =>
+            !ally.Hostile && !ally.Dead && ally.Life > 0 && RallyingCryAlly(ally) && Dist(ally.Walk.Position(now), at) <= radius);
+
     static int NearbyRallyingTotems(Player player, (int X, int Y) at, int radius)
     {
         int count = 0;

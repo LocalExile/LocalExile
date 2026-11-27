@@ -552,6 +552,169 @@ public sealed class WarcryExertionTests
         finally { Game.AreaUpdateContext.Value = previous; }
     }
 
+    [Fact]
+    public async Task Automation_and_Autoexertion_publish_linked_counts_active_buffs_and_exerted_warcry_triggers()
+    {
+        var clock = new AttackClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        var origin = (X: 100, Y: 100);
+        player.Walk.Teleport(origin.X, origin.Y, clock.At);
+        player.ProjectileRuntimeState = fixture.Session;
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            // Unlinked Automation publishes meta_skill_linked_skill_count = 0 and refuses activation.
+            fixture.Equip(("Automation", 1));
+            var soloAuto = Game.GemSkillEffects(player).Single(g => Program.Skills.EffectId(g.Effect) == "Automation");
+            var soloSkill = Game.PlayerSkills(player).Single(s => s.Id == soloAuto.Id);
+            Assert.Equal(0, soloSkill.Stats!.First(s => s.Key == Stat.MetaSkillLinkedSkillCount).Value);
+            Assert.True(Game.TryBeginSkillCooldownUse(player, soloAuto.Id, soloAuto.Effect,
+                Game.CooldownForSkill(player, soloAuto.Id), instant: true, () => { }, out var soloTicket));
+            Assert.False(await Game.CastGemSkill(player, soloAuto.Id, origin, origin, cooldownUse: soloTicket));
+            clock.At += 2;
+
+            // Linked Automation (Steelskin + Brand Recall) publishes linked count = 2 and activates with ActiveSkill on buff 2437.
+            fixture.Equip(("Automation", 1), ("Steelskin", 1), ("Brand Recall", 1));
+            var auto = Game.GemSkillEffects(player).Single(g => Program.Skills.EffectId(g.Effect) == "Automation");
+            var autoRecord = Game.PlayerSkills(player).Single(s => s.Id == auto.Id);
+            Assert.Equal(2, autoRecord.Stats!.First(s => s.Key == Stat.MetaSkillLinkedSkillCount).Value);
+            Assert.True(Game.TryBeginSkillCooldownUse(player, auto.Id, auto.Effect,
+                Game.CooldownForSkill(player, auto.Id), instant: true, () => { }, out var autoTicket));
+            Assert.True(await Game.CastGemSkill(player, auto.Id, origin, origin, cooldownUse: autoTicket));
+            var autoBuff = player.Area.Buffs.Get(player.Id, 2437, player.Id, tag: auto.Id);
+            Assert.NotNull(autoBuff);
+            Assert.Equal((auto.Id, Program.Skills.ActionHash(auto.Effect)!.Value), autoBuff!.ActiveSkill);
+            Assert.Equal(0, Game.ReservedMana(player));
+
+            // Linked Autoexertion (Rallying Cry + Seismic Cry) publishes linked count = 2, reserves 40% mana, and keeps buff 2438 ActiveSkill.
+            fixture.Equip(("Autoexertion", 1), ("Rallying Cry", 1), ("Seismic Cry", 1));
+            var autoexert = Game.GemSkillEffects(player).Single(g => Program.Skills.EffectId(g.Effect) == "Autoexertion");
+            var rallying = Game.GemSkillEffects(player).Single(g => Program.Skills.EffectId(g.Effect) == "RallyingCry");
+            var autoexertRecord = Game.PlayerSkills(player).Single(s => s.Id == autoexert.Id);
+            Assert.Equal(2, autoexertRecord.Stats!.First(s => s.Key == Stat.MetaSkillLinkedSkillCount).Value);
+            Assert.True(Game.TryBeginSkillCooldownUse(player, autoexert.Id, autoexert.Effect,
+                Game.CooldownForSkill(player, autoexert.Id), instant: true, () => { }, out var exertTicket));
+            Assert.True(await Game.CastGemSkill(player, autoexert.Id, origin, origin, cooldownUse: exertTicket));
+            var exertBuff = player.Area.Buffs.Get(player.Id, 2438, player.Id, tag: autoexert.Id);
+            Assert.NotNull(exertBuff);
+            Assert.Equal((autoexert.Id, Program.Skills.ActionHash(autoexert.Effect)!.Value), exertBuff!.ActiveSkill);
+            int expectedReserved = 2 * PetrifiedBlood.Required(player.Pools.Mana, player.Pools.ManaReservationEfficiencyPct, 2000, 0);
+            Assert.Equal(expectedReserved, Game.ReservedMana(player));
+
+            // Autoexertion-supported Rallying Cry suppresses the Rallying Cry buff (1538) while still counting nearby allies for exertion.
+            var ally = new SpawnedMonster("Rallying Cry ally", new(110, 100, 0), 0, 0, 1000) { Hostile = false, OwnerId = player.Id };
+            player.Area.Monsters.Add(981, ally);
+            var rallyingGem = Game.SupportedSkill(player, rallying.Id);
+            Assert.Equal(1, rallyingGem.Stats.GetValueOrDefault(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies));
+            Assert.Equal(1, Game.RallyingCryNearbyAlliesLocked(player, origin, Game.WarcryRadius, clock.At));
+            Game.GrantRallyingCryExertsLocked(player, rallyingGem.Stats, new Dictionary<uint, int>(), 1, rallying.Id);
+            Assert.False(player.Area.Buffs.Has(player.Id, Game.RallyingCryBuffRow, player.Id));
+            var hudBuff = player.Area.Buffs.Get(player.Id, Game.EmpoweredAttacksBuffRow, player.Id, tag: 4);
+            Assert.NotNull(hudBuff);
+            Assert.Equal((rallying.Id, Program.Skills.ActionHash(rallying.Effect)!.Value), hudBuff!.ActiveSkill);
+            Assert.Equal((ushort)rallyingGem.Stats[Stat.SkillEmpowersNextXMeleeAttacks], hudBuff.Stacks);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    [Fact]
+    public async Task Warcry_exertion_publishes_HUD_counts_and_applies_passive_exerted_attack_modifiers()
+    {
+        var clock = new AttackClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        var origin = (X: 100, Y: 100);
+        var aim = (X: 112, Y: 100);
+        player.Walk.Teleport(origin.X, origin.Y, clock.At);
+        player.ProjectileRuntimeState = fixture.Session;
+        var items = Game.ItemsOf(player);
+        var weapon = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        items.Change(PlayerInventories.Weapon1, weapon.Id, _ => ItemCatalog.Create(Program.Items.Find("Driftwood Club")!));
+        fixture.Equip(("Seismic Cry", 1), ("Ground Slam", 1));
+        var cry = Game.GemSkillEffects(player).Single(g => Program.Skills.EffectId(g.Effect) == "SeismicCry");
+        var slam = Game.GemSkillEffects(player).Single(g => g.Name == "Ground Slam");
+        var cryOwn = Game.SupportedSkill(player, cry.Id).Stats;
+        Assert.Equal(6, cryOwn[Stat.SkillEmpowersNextXMeleeAttacks]);
+
+        using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (ReferenceEquals(owner, player))
+            {
+                values[Stat.GlobalAlwaysHit] = 1;
+                values[Stat.GlobalCannotCrit] = 1;
+                values[Stat.AttackMinimumAddedPhysicalDamage] = 1000;
+                values[Stat.AttackMaximumAddedPhysicalDamage] = 1000;
+                values[Stat.WarcryEmpowersNextXMeleeAttacks] = 1; // Measured Fury (+1 exerted attack)
+                values[Stat.EmpoweredAttackDamagePlusPct] = 100; // +100% increased exerted attack damage
+                values[Stat.EmpoweredAttackDamagePlusPctFinal] = 50; // +50% more exerted attack damage
+            }
+            return values;
+        });
+
+        var target = new SpawnedMonster("exerted slam target", new(110, 100, 0), 0, 0, 10_000_000);
+        player.Area.Monsters.Add(971, target);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            async Task<uint> SlamDamage()
+            {
+                uint before = target.Life;
+                player.NextAttackAt = 0;
+                Assert.True(await Game.CastGemSkill(player, slam.Id, origin, aim));
+                return before - target.Life;
+            }
+
+            uint unexerted = await SlamDamage();
+            Assert.True(unexerted > 0);
+            Assert.Null(player.Area.Buffs.Get(player.Id, Game.EmpoweredAttacksBuffRow, player.Id, tag: 2));
+
+            // Grant Seismic Cry with Measured Fury (+1 => 7 exerts) and verify HUD counter buff 1579.
+            var playerStats = Game.CharacterPlayerStats(player);
+            Game.GrantSeismicCryExertsLocked(player, cryOwn, playerStats, cry.Id);
+            var hud = player.Area.Buffs.Get(player.Id, Game.EmpoweredAttacksBuffRow, player.Id, tag: 2);
+            Assert.NotNull(hud);
+            Assert.Equal((cry.Id, Program.Skills.ActionHash(cry.Effect)!.Value), hud!.ActiveSkill);
+            Assert.Equal((ushort)7, hud.Stacks);
+
+            // Exerted slam gains +100% increased and +50% more damage and decrements HUD stacks to 6.
+            uint exerted = await SlamDamage();
+            Assert.True(exerted > unexerted * 2.5, $"Expected exerted damage ({exerted}) to reflect +100% increased and +50% more over {unexerted}.");
+            Assert.Equal((ushort)6, player.Area.Buffs.Get(player.Id, Game.EmpoweredAttacksBuffRow, player.Id, tag: 2)!.Stacks);
+
+            // Spend the remaining 6 exerts and confirm the HUD buff clears at 0.
+            for (int i = 0; i < 6; i++) Assert.True(await SlamDamage() > unexerted * 2.5);
+            Assert.Null(player.Area.Buffs.Get(player.Id, Game.EmpoweredAttacksBuffRow, player.Id, tag: 2));
+            Assert.Equal(unexerted, await SlamDamage());
+
+            // Verify additive accuracy increase bucket and base-crit scaling (before % increased crit).
+            int baseRating = Game.SupportedAccuracy(player, slam.Id, AttackHand.Main, extraIncreased: 0).Rating;
+            int plus100 = Game.SupportedAccuracy(player, slam.Id, AttackHand.Main, extraIncreased: 100).Rating;
+            int plus200 = Game.SupportedAccuracy(player, slam.Id, AttackHand.Main, extraIncreased: 200).Rating;
+            Assert.True(plus100 > baseRating && plus200 - plus100 <= plus100 - baseRating + 1,
+                $"Expected additive accuracy increase: base={baseRating}, +100%={plus100}, +200%={plus200}.");
+
+            int baseCrit = Game.SupportedCriticalChanceFor(player, slam.Id, release: true, extraIncrease: 100, weaponCritical: 500, extraBaseCrit: 0);
+            int boostedCrit = Game.SupportedCriticalChanceFor(player, slam.Id, release: true, extraIncrease: 100, weaponCritical: 500, extraBaseCrit: 200);
+            Assert.Equal(baseCrit + 400, boostedCrit); // +2% base crit scaled by +100% increased = +4% final crit
+
+            // Verify Infernal Cry + Overexertion on Lightning Strike projectiles counts Infernal Cry once (not twice).
+            fixture.Equip(("Infernal Cry", 1), ("Lightning Strike", 1), ("Overexertion Support", 1));
+            var infernal = Game.GemSkillEffects(player).Single(g => Program.Skills.EffectId(g.Effect) == "InfernalCry");
+            var ls = Game.GemSkillEffects(player).Single(g => g.Name == "Lightning Strike");
+            Game.GrantInfernalCryExertsLocked(player, infernal.Id, Game.SupportedSkill(player, infernal.Id).Stats, new Dictionary<uint, int>());
+            var lsRoll = Game.CaptureSkillCriticalRoll(player, ls.Id);
+            var lsExert = Game.ConsumeMeleeWarcryExertsLocked(player, ls.Id, ls.Effect, lsRoll, eligible: true);
+            var lsProj = Game.CaptureGemProjectile(player, fixture.Session, ls.Id, ls, (120, 100), lsRoll, weaponHand: null,
+                cryExerted: lsExert.Intimidating, otherWarcryExertions: lsExert.AncestralTargets > 0 ? 1 : 0,
+                rallyingDamage: lsExert.RallyingDamage, ancestralExerted: lsExert.AncestralTargets > 0);
+            Assert.Equal(1, ((ProjectileOffense)lsProj.Payload!).OtherWarcryExertions);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
     static Dictionary<uint, int> IntimidatingCryStats()
     {
         int effect = Program.Items.FindGem("Intimidating Cry")!.Value.Variant.Effect;
