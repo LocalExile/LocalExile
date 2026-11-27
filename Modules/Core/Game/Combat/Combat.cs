@@ -2623,7 +2623,7 @@ public static partial class Game
                 {
                     if (snipe)
                     {
-                        try { await Task.Delay(TimeSpan.FromSeconds(wait), SnipeWaitToken(player, generation, action)); }
+                        try { await AreaDelay(player, wait, SnipeWaitToken(player, generation, action)); }
                         catch (OperationCanceledException) { }
                     }
                     else if (!player.Frames.Running && AreaUpdateContext.Value is { Schedule: { } schedule })
@@ -2751,7 +2751,7 @@ public static partial class Game
             // duration they leave runs out, and death or an area change retires it with the connection. It has no object
             // of its own to remove: the client draws the orb from the stage buff.
             if (orbEffect != 0) WinterOrbRelease(player, generation, action);
-            if (snipe) await SnipeRelease(player, generation, action);
+            if (snipe) await FinishSnipe(player, generation, action);
             if (scourge) RetireScourgeChannel(player, generation, action);
             EndCycloneStages(player, generation, AreaTime(player));
             RetireBladeFlurry(player, generation);
@@ -2877,6 +2877,7 @@ public static partial class Game
         lock (LevelUpdatesFor(player).Gate)
         {
             var landing = ReleaseChargedDashLocked(player, at);
+            SnipeReleasedByInput(player, at);
             ReleaseScourgeChannel(player, at);
             _ = ReleaseBladeFlurry(player, at);
             if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill)

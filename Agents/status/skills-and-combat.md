@@ -525,8 +525,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Prismatic Burst triggers on a supported player attack hit and rolls one element using squared attributes and Combat Focus.
 - Enemy hits trigger Avenging Flame on supported totems, scaling fire damage with the totem's maximum life.
 - Sacred Wisps take their lifetime from the linked summon skill and preserve their shared limit when switching attacks.
-- Snipe (`channelled_snipe` gem and Assailum) stage channelling (`snipe_stacks` 1494) and staged bow attack release,
-  and General's Cry (`generals_cry` + variants) corpse selection and non-blocking Mirage Warrior melee execution
+- Snipe (`channelled_snipe` gem and Assailum) charges stages and fires on release. Interrupting the channel clears the stages.
+  General's Cry (`generals_cry` + variants) selects corpses for non-blocking Mirage Warrior melee execution
   (not checked live). Docs: [11](../docs/protocol/11-skills.md).
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) Â§9a.
