@@ -559,6 +559,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Fire Exposure at its stage limit.
 - Player-cast Incinerate builds paid stages, widens and lengthens while held, and releases an igniting wave.
   Expanse releases a wider-ranging, slower wave. Venting sustains a longer cone without a release wave.
+- Player-cast Storm Burst emits independently timed orbs that jump with the aim while held. Repulsion jumps away.
+  Releasing the channel detonates the active orbs with their remaining-jump multiplier.
 - Wither pulses follow the channel aim. Players and spell totems apply Hinder and separately expiring Withered stacks.
 - Channel-dependent item modifiers follow the player's active channel through release, interruption and skill removal.
   The normal gem moves to a legal landing; the Projection variant stays in place.

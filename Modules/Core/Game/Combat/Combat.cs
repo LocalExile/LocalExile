@@ -1632,6 +1632,8 @@ public static partial class Game
                             AimedPulseChannels.AddOrUpdate(player, new(skillId, channelGeneration.Value, to)
                             {
                                 Incinerate = IsIncinerate(aimedEffect) ? BeginIncinerate(player, paymentGem, action) : null,
+                                StormBurst = IsStormBurst(aimedEffect)
+                                    ? BeginStormBurst(player, skillId, sequence, paymentGem, action) : null,
                             });
                         if (IsFlameblast(SkillsFor(player).EffectId(gem.Effect)))
                             BeginFlameblast(player, paymentGem, skillId, action, channelGeneration.Value, sequence, to);
@@ -2618,6 +2620,7 @@ public static partial class Game
         bool scorchingRay = aimedPulse is not null && IsScorchingRay(SkillsFor(player).EffectId(gem.Effect));
         int rayInterruption = player.ActionInterruptionGeneration;
         var incinerate = aimedPulse?.Incinerate;
+        bool stormBurst = aimedPulse is not null && IsStormBurst(SkillsFor(player).EffectId(gem.Effect));
         bool firstStagePaid = snipe || initialCostPaid && (flameblast is not null || scorchingRay || incinerate is not null);
         ChargedDashChannel? dash;
         lock (LevelUpdatesFor(player).Gate) dash = CurrentChargedDash(player);
@@ -2643,6 +2646,11 @@ public static partial class Game
         Task AimedPulse(AimedPulseChannel pulse, double elapsed)
         {
             double pact = lycia?.Pact.DamageMore ?? 1;
+            if (stormBurst)
+            {
+                if (pulse.StormBurst is { } burst) PulseStormBurst(player, pulse, burst, gem, elapsed, pact);
+                return Task.CompletedTask;
+            }
             if (!blight) return PulseLightningTendrils(player, pulse, gem, action, elapsed, pact);
             PulseBlight(player, pulse, gem.Effect, action, elapsed, pact);
             return Task.CompletedTask;
@@ -2700,7 +2708,8 @@ public static partial class Game
                 }
                 if (flameblast is not null && (blocked || flameblast.Interruption != player.ActionInterruptionGeneration)
                     || scorchingRay && (blocked || rayInterruption != player.ActionInterruptionGeneration)
-                    || incinerate is not null && (blocked || incinerate.Interruption != player.ActionInterruptionGeneration))
+                    || incinerate is not null && (blocked || incinerate.Interruption != player.ActionInterruptionGeneration)
+                    || aimedPulse?.StormBurst is { } burst && (blocked || burst.Interruption != player.ActionInterruptionGeneration))
                 {
                     AbortStartedChannel(player, generation);
                     return;
@@ -2730,7 +2739,7 @@ public static partial class Game
                 }
                 else if (!PayMana(player, skillId, out cost, out lifeCost, 100, useSpell: false))
                 {
-                    if (dash is not null || incinerate is not null) await EndPaidChannel(now);
+                    if (dash is not null || incinerate is not null || stormBurst) await EndPaidChannel(now);
                     else
                     {
                         lock (LevelUpdatesFor(player).Gate)
@@ -2986,6 +2995,7 @@ public static partial class Game
             var landing = ReleaseChargedDashLocked(player, at);
             ReleaseFlameblastLocked(player, at, lycia);
             ReleaseIncinerateLocked(player, at, lycia);
+            ReleaseStormBurstLocked(player, at);
             SnipeReleasedByInput(player, at);
             ReleaseScourgeChannel(player, at);
             _ = ReleaseBladeFlurry(player, at);

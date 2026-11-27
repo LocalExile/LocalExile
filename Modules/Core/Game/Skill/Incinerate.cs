@@ -9,7 +9,7 @@ public static partial class Game
     const double IncinerateFirstStageFraction = .5825;
     static readonly uint GrantedIncinerateReleaseHit = Stat.Of("grant_expanding_fire_cone_release_hit_damage_+%_final");
 
-    sealed class IncinerateChannel(SupportedGem source, int action, int epoch, int interruption, int maximum,
+    internal sealed class IncinerateChannel(SupportedGem source, int action, int epoch, int interruption, int maximum,
         int initialStages, double started)
     {
         public readonly SupportedGem Source = source;

@@ -1,6 +1,6 @@
 public static partial class Game
 {
-    sealed class AimedPulseChannel(ushort skill, int generation, (int X, int Y) aim)
+    internal sealed class AimedPulseChannel(ushort skill, int generation, (int X, int Y) aim)
     {
         public readonly ushort Skill = skill;
         public readonly int Generation = generation;
@@ -8,6 +8,7 @@ public static partial class Game
         public (long X, long Y) Direction = (1, 0);
         public int Pulses;
         public IncinerateChannel? Incinerate;
+        public StormBurstChannel? StormBurst;
 
         public (long X, long Y) DirectionFrom((int X, int Y) origin)
         {
@@ -26,7 +27,7 @@ public static partial class Game
         "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale";
 
     static bool IsAimedPulseEffect(string? effect) => IsLightningTendrils(effect) || IsBlightChannel(effect)
-        || IsScorchingRay(effect) || IsIncinerate(effect);
+        || IsScorchingRay(effect) || IsIncinerate(effect) || IsStormBurst(effect);
 
     static AimedPulseChannel? ActiveAimedPulseChannel(Player player) =>
         AimedPulseChannels.TryGetValue(player, out var channel) && channel.Skill == player.ChannelSkill
