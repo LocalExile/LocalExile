@@ -150,7 +150,7 @@ public sealed partial class Player
         internal readonly BodyList Read;
 
         public MonsterBlockerFrame(Player owner, double now, MonsterBlockerFrame? outer, bool placement = false)
-            : this(owner, outer, ReadBodies(owner, now, placement, out long startedAt), startedAt) { }
+            : this(owner, outer, ReadBodies(owner, now, placement, out long startedAt), startedAt, !placement) { }
 
         static BodyList ReadBodies(Player owner, double now, bool placement, out long startedAt)
         {
@@ -160,21 +160,23 @@ public sealed partial class Player
             return read;
         }
 
-        internal MonsterBlockerFrame(Player owner, MonsterBlockerFrame? outer, BodyList read, long startedAt)
+        // Only a pass frame (BeginMonsterBlockerFrame) is asked for ForPlayer; the others skip the player sets.
+        internal MonsterBlockerFrame(Player owner, MonsterBlockerFrame? outer, BodyList read, long startedAt,
+            bool playerView = false)
         {
             this.owner = owner;
             Read = read;
-            Populate(outer, startedAt);
+            Populate(outer, startedAt, playerView);
         }
 
         internal void Reset(double now, MonsterBlockerFrame? nextOuter, bool placement = false)
         {
             long startedAt = Stopwatch.GetTimestamp();
             Read.Read(owner, now, placement);
-            Populate(nextOuter, startedAt);
+            Populate(nextOuter, startedAt, playerView: !placement);
         }
 
-        void Populate(MonsterBlockerFrame? nextOuter, long startedAt)
+        void Populate(MonsterBlockerFrame? nextOuter, long startedAt, bool playerView)
         {
             outer = nextOuter;
             indices.Clear();
@@ -183,7 +185,7 @@ public sealed partial class Player
             playerBody = -1;
             fixedBlockers.Reset(Read.Fixed);
             current.Reset(Read.Fixed);
-            bool separatePlayer = Read.HasSeparatePlayerFixed || Read.HasAlliedMinion;
+            bool separatePlayer = playerView && (Read.HasSeparatePlayerFixed || Read.HasAlliedMinion);
             bool buildPlayerCurrent = separatePlayer && !Read.Phasing;
             if (separatePlayer)
             {
