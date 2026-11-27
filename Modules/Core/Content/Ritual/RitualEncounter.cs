@@ -138,6 +138,9 @@ public sealed class RitualEncounter
 
     public void Clear() => _states.Clear();
 
+    public bool IsActivePause(Player player) =>
+        player.Instance is { } instance && _states.TryGetValue(instance, out var state) && Volatile.Read(ref state.Run) is not null;
+
     public State? Of(Player player) => player.Instance is { } instance && _states.TryGetValue(instance, out var state) ? state : null;
 
     public bool IsOwner(Player player, State state) =>

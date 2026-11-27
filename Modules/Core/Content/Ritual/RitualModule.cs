@@ -27,6 +27,7 @@ public sealed class RitualModule : IModule
             RitualFavours.Clear();
             RitualOmens.Clear();
         }));
+        module.Lifetime.Own(RegisterDeliriumPauseSource(_encounter.IsActivePause));
 
         // Encounter lifecycle & area integration (campaign + maps).
         GameEvents.AreaPopulated.Add(id, async area =>
