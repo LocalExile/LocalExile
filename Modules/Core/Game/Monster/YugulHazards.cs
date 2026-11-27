@@ -27,6 +27,9 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owne
     bool stopped, initialized, sceneBroadcast;
     double nextMove, nextGround;
     IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, instance));
+    Player? NearestTarget((int X, int Y) from, double now) =>
+        Present.Where(p => p.PlayerLife > 0 && !p.Paused && !InGracePeriod(p))
+            .MinBy(p => Distance(from, p.Walk.Position(now)));
     bool Current => !stopped && CurrentGameWork && !boss.Dead && boss.Life > 0;
     internal Task Bind(Player c)
     {
@@ -113,6 +116,8 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owne
                 await All(id, InstanceProtocol.AnimationUpdate(id, 0, 1, 1), "[Yugul] turret channel ends");
             }
             if (now < nextTurret[id] || !c.Area.Monsters.TryGetValue(id, out var m)) continue;
+            var target = NearestTarget(m.Walk.Position(now), now);
+            if (target is null) continue;
             double interval = .35 / .6; // Native YugulStormBurst: 350 ms, 40% reduced cast speed.
             double end = now + interval * 6;
             channelEnds[id] = end;
@@ -121,8 +126,6 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owne
             var attack = BossKits.AttackFor(c, m.Variety!, boss.Level, 6582, TurretSkill) with { Spell = true, Scripted = true,
                 Ailments = IncomingAilmentSettings(name => Stat(c, 6582, boss.Level, name)) };
             var projectile = new SkillCatalog.MonsterProjectileInfo("Metadata/Projectiles/YugulChromeProjectile", 400, false, 2); // Native speed 1000, 60% reduced.
-            var target = Present.Where(p => p.PlayerLife > 0).MinBy(p => Distance(m.Walk.Position(now), p.Walk.Position(now)));
-            if (target is null) continue;
             var aim = target.Walk.Position(now);
             foreach (var p in Present.ToArray())
             {
@@ -156,7 +159,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owne
                     await All(id, InstanceProtocol.AnimationUpdate(id, 0, 7, 1), "[Yugul] fear orb chases");
                 }
                 var from = m.Walk.Position(now);
-                var target = Present.Where(p => p.PlayerLife > 0).MinBy(p => Distance(from, p.Walk.Position(now)));
+                var target = NearestTarget(from, now);
                 if (target is null) continue;
                 double speed = 12 * (phase == 2 ? 1.5 : 1);
                 var to = Toward(from, target.Walk.Position(now), speed * .5);
