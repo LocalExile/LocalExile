@@ -467,6 +467,12 @@ public static partial class Game
         Timed(ref m.CrushedUntil, ref m.CrushShownUntil, ref m.CrushBuff, CrushedBuffRow, null);
         Timed(ref m.MaimedUntil, ref m.MaimShownUntil, ref m.MaimBuff, MaimedBuffRow, null);
         double hinderUntil = Math.Max(m.HinderedUntil, m.TotemHinderedUntil);
+        if (m.WitherHinders is { } witherHinders)
+        {
+            witherHinders.RemoveAll(h => !living || h.Until <= now);
+            if (witherHinders.Count == 0) m.WitherHinders = null;
+            else hinderUntil = Math.Max(hinderUntil, witherHinders.Max(h => h.Until));
+        }
         if (!Timed(ref hinderUntil, ref m.HinderShownUntil, ref m.HinderBuff, HinderedBuffRow, null))
             m.HinderedUntil = m.TotemHinderedUntil = double.NegativeInfinity;
         Timed(ref m.CoveredInAshUntil, ref m.CoveredInAshShownUntil, ref m.CoveredInAshBuff, CoveredInAshBuffRow, null);
@@ -561,6 +567,8 @@ public static partial class Game
         void Next(double until) { if (until > now && until < wake) wake = until; }
         Next(m.TauntedUntil); Next(m.IntimidatedUntil); Next(m.UnnervedUntil); Next(m.CrushedUntil);
         Next(m.MaimedUntil); Next(m.HinderedUntil); Next(m.TotemHinderedUntil);
+        if (m.WitherHinders is { } hinders)
+            foreach (var hinder in hinders) Next(hinder.Until);
         Next(m.CoveredInAshUntil); Next(m.DebilitatedUntil);
         Next(m.CoveredInFrostUntil);
         foreach (double until in m.ExposureUntil) Next(until);

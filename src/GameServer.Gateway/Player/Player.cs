@@ -667,6 +667,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // hindered enemies have 30% reduced movement speed (Game.HinderSeconds and the walk factor).
     public double HinderedUntil = double.NegativeInfinity, HinderShownUntil;
     public double TotemHinderedUntil = double.NegativeInfinity;
+    public List<(double Until, int Pct)>? WitherHinders;
     public ushort HinderBuff;
     // Knocked back by a hit (Game.KnockbackOnHitLocked): the cell the AI tick presents with a Teleport, null when none.
     public (int X, int Y)? KnockbackPending;

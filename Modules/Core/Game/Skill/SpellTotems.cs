@@ -17,9 +17,9 @@ public static partial class Game
     public static bool SpellTotemEffect(Player player, int effect) => SkillsFor(player).IsSpell(effect)
         && !SkillsFor(player).IsAttack(effect) && (!SkillsFor(player).IsTravel(effect)
             || SkillsFor(player).EffectId(effect) == BodyswapSacrificeEffect)
-        && Supports.Of(effect)?.Types.Contains(47) != true
+        && (SkillsFor(player).EffectId(effect) == WitherEffect || Supports.Of(effect)?.Types.Contains(47) != true)
         && (TotemSummon(player, effect) is not null || GolemData.Find(SkillsFor(player).EffectId(effect)) is not null
-            || SkillsFor(player).EffectId(effect) is BloodOfferingEffect or BodyswapSacrificeEffect
+            || SkillsFor(player).EffectId(effect) is BloodOfferingEffect or BodyswapSacrificeEffect or WitherEffect
             || CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(effect) ?? "")
             || (ArcProxyEffect(SkillsFor(player).EffectId(effect)) || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
                 || ShockNovaEffect(SkillsFor(player).EffectId(effect)) || GlacialCascadeEffect(SkillsFor(player).EffectId(effect))
@@ -296,7 +296,7 @@ public static partial class Game
             var summon = TotemSummon(player, gem.Effect);
             var golem = GolemData.Find(effect);
             bool nova = SpellTotemNova(player, gem.Effect);
-            bool nativeChannel = NativeProjectileTotem(player, gem.Effect);
+            bool nativeChannel = effect == WitherEffect || NativeProjectileTotem(player, gem.Effect);
             if (effect == TrarthanBargain)
                 range = Math.Min(range, SkillRadius(player, SupportedSkill(player, totem.SkillId).Stats, spell: true, gem.Effect));
             else if (effect is "ShockNova" or "ShockNovaRoyale")
@@ -485,6 +485,13 @@ public static partial class Game
                 return Dist(livePos, totem.At) <= range ? NonZeroTotemAim(totem.At, livePos) : initialAim;
             }
 
+            if (effect == WitherEffect)
+            {
+                bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
+                session.ScheduleContact(ProjectileRuntime.Time(totem.NextCast), Current, () =>
+                    WitherPulseLocked(player, SupportedSkill(player, totem.SkillId), ReleaseAim(), ProjectileWorldTime(player), totem: true));
+                continue;
+            }
             if (effect == ManabondEffect)
             {
                 bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);

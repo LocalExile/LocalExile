@@ -1622,6 +1622,8 @@ public static partial class Game
                     lock (LevelUpdatesFor(player).Gate)
                     {
                         channelGeneration = BeginPaidChannel(player, skillId, gem.Effect, action, sequence);
+                        if (SkillsFor(player).EffectId(gem.Effect) == WitherEffect)
+                            WitherChannels.AddOrUpdate(player, new(skillId, channelGeneration.Value, to));
                         if (IsBladeFlurry(player, gem.Effect))
                             BeginBladeFlurry(player, paymentGem, skillId, action, channelGeneration.Value, sequence, to);
                         if (IsChargedDash(player, gem.Effect))
@@ -1712,6 +1714,15 @@ public static partial class Game
             { AbortStartedChannel(player, channelGeneration); return false; }
             player.NextChannelHitAt = AreaTime(player) + (IsSnipe(gem.Effect) ? interval / 2 : interval);
             _ = RunChannel(player, skillId, gem, action, to, initialCostPaid: true);
+            if (SkillsFor(player).EffectId(gem.Effect) == WitherEffect)
+            {
+                using (ProjectileMutation(player))
+                {
+                    if (!Current()) return false;
+                    WitherPulseLocked(player, SupportedSkill(player, skillId), to, AreaTime(player));
+                }
+                return CompleteSupportedUse(true);
+            }
             if (IsChargedDash(player, gem.Effect))
             {
                 if (SkillsFor(player).IsTravel(gem.Effect))
@@ -2739,6 +2750,12 @@ public static partial class Game
                         InstanceEntities.StatsUpdate(player.Id, [(Stat.DivineTempestCurrentNumberOfStages, divineIreStages)]),
                         $"0x01b3 Divine Ire stage {divineIreStages}");
                 }
+                if (ActiveWitherChannel(player) is { } wither)
+                {
+                    using (ProjectileMutation(player))
+                        if (Running()) WitherPulseLocked(player, SupportedSkill(player, skillId), wither.Aim, AreaTime(player));
+                    continue;
+                }
                 double focusedMore = FocusedChannelMore(now - channelStarted,
                     GolemStat(SupportedSkill(player, skillId).Stats, Stat.SupportFocusChannelDamagePlusPctFinalPerSecondChannellingUpTo60Pct));
                 if (dash is not null)
@@ -2765,6 +2782,10 @@ public static partial class Game
             if (orbEffect != 0) WinterOrbRelease(player, generation, action);
             if (snipe) await FinishSnipe(player, generation, action);
             if (scourge) RetireScourgeChannel(player, generation, action);
+            if (SkillsFor(player).EffectId(gem.Effect) == WitherEffect)
+                lock (LevelUpdatesFor(player).Gate)
+                    if (WitherChannels.TryGetValue(player, out var wither) && wither.Generation == generation)
+                        WitherChannels.Remove(player);
             EndCycloneStages(player, generation, AreaTime(player));
             RetireBladeFlurry(player, generation);
             (int X, int Y)? dashLanding = null;
@@ -2805,6 +2826,11 @@ public static partial class Game
         SnipeAimedAt(player, (x, y));
         ScourgeAimedAt(player, (x, y));
         if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill) player.Walk.Order(x, y, at);
+        if (ActiveWitherChannel(player) is { } wither && wither.Aim != (x, y))
+        {
+            wither.Aim = (x, y);
+            return true;
+        }
         return AimBladeFlurry(player, (x, y)) || dashAimed;
     }
 
