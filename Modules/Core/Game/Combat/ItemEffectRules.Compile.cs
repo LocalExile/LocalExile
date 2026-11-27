@@ -5,16 +5,26 @@ using GameServer.Storage;
 sealed partial class ItemEffectRules
 {
     // Compile once per world snapshot. Combat only sees resolved stat keys and typed values.
-    void Compile(GameDataStore.FxRuleRow row, List<ChargeGains.Rule> beforeAdditional, List<ChargeGains.Rule> afterAdditional)
+    void Compile(GameDataStore.FxRuleRow row, List<ChargeGains.Rule> beforeAdditional, List<ChargeGains.Rule> afterAdditional,
+        List<ChargeGains.Rule> minionKills)
     {
         try
         {
-            if (row.Status != "built" || row.Sources.Count == 0 || row.When.Count != 1 || row.Do.Count != 1)
-                throw new FormatException("expected a built rule with a source, one trigger and one action");
-            var (trigger, triggerArgs) = row.When[0];
+            if (row.Status != "built" || row.Sources.Count == 0 || row.When.Count == 0 || row.Do.Count != 1)
+                throw new FormatException("expected a built rule with a source, a trigger and one action");
+            string trigger = row.When[0].Trigger;
             var (action, args, target, targetArgs, value, timers) = row.Do[0];
-            if (!Matches(triggerArgs, "{}") || !Matches(targetArgs, "{}") || !Matches(value, "{}"))
-                throw new FormatException("unsupported trigger, target or value arguments");
+            if (!Matches(targetArgs, "{}") || !Matches(value, "{}"))
+                throw new FormatException("unsupported target or value arguments");
+            bool player = false, minion = false;
+            foreach (var (eventName, eventArgs) in row.When)
+            {
+                if (eventName != trigger) throw new FormatException("expected one event kind per rule");
+                if (!player && Matches(eventArgs, "{}")) player = true;
+                else if (!minion && (trigger, action, target) == ("kill", "charge", "self")
+                    && Matches(eventArgs, """{"who":"minion"}""")) minion = true;
+                else throw new FormatException($"unsupported or duplicate {trigger} trigger with args {eventArgs}");
+            }
             var conditions = row.If.ToDictionary(c => c.Condition, StringComparer.Ordinal);
             bool Take(string name, string expected, bool negate = false)
             {
@@ -47,7 +57,7 @@ sealed partial class ItemEffectRules
                     bool shield = false, dualWield = false;
                     if (conditions.Remove("equipment", out var equipment))
                     {
-                        if (equipment.Group != 0 || equipment.Negate) throw new FormatException("unsupported equipment condition");
+                        if (minion || equipment.Group != 0 || equipment.Negate) throw new FormatException("unsupported equipment condition");
                         shield = Matches(equipment.Args, """{"is":"holding_shield"}""");
                         dualWield = Matches(equipment.Args, """{"is":"dual_wielding"}""");
                         if (!shield && !dualWield) throw new FormatException("expected holding_shield or dual_wielding");
@@ -65,7 +75,12 @@ sealed partial class ItemEffectRules
                         && kill.Poisons >= minPoisons && kill.Poisons <= maxPoisons
                         && (!frozen || kill.Frozen) && (!shield || w.Shield) && (!dualWield || w.DualWield);
                     var destination = row.KillChargeOrder < 0 ? beforeAdditional : afterAdditional;
-                    foreach (uint stat in Sources("stat")) destination.Add(new(stat, type, Applies));
+                    foreach (uint stat in Sources("stat"))
+                    {
+                        var rule = new ChargeGains.Rule(stat, type, Applies);
+                        if (player) destination.Add(rule);
+                        if (minion) minionKills.Add(rule);
+                    }
                     break;
                 case ("hit", "skill", "enemy") when Matches(args, """{"skill":"granted"}""") && Matches(timers, "[]"):
                     bool rare = Take("enemy_rarity", """{"is":"rare_or_unique"}""");
