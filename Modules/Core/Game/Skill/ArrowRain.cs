@@ -18,7 +18,7 @@ public static partial class Game
     static bool IsToxicRain(string? id) => id is "ToxicRain" or "ToxicRainAltX" or "ToxicRainAltY" or "ToxicRainRoyale";
 
     static bool IsArtilleryBallista(string? id) =>
-        id is "ArtilleryBallista" or "ArtilleryBallistaAltX" or "ArtilleryBallistaAltY";
+        id is "ArtilleryBallista" or "ArtilleryBallistaAltX" or "ArtilleryBallistaAltY" or "ArtilleryBallistaRoyale";
 
     // These bow attacks have area hit stats but no travelling Projectiles row. Capture the normal
     // offensive snapshot at release; each arrow resolves its own area at the landing cell.
