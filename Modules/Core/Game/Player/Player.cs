@@ -1308,10 +1308,8 @@ public static partial class Game
                     if (convertLifeRegen) player.EnergyShield.Gain(fortificationLife, esCeiling);
                     double wardBreakLife = player.WardBreak.TakeRecovery(now) * (noRegeneration ? 0 : mapRecovery);
                     if (convertLifeRegen) player.EnergyShield.Gain(wardBreakLife, esCeiling);
-                    double enduringCryLife = player.EnduringCryRecovery.Take(now) * (noRegeneration ? 0 : mapRecovery);
                     double unhingedHitLife = player.Unhinged.HitRecovery.Take(now);
                     if (noRegeneration) unhingedHitLife = 0;
-                    if (convertLifeRegen) player.EnergyShield.Gain(enduringCryLife, esCeiling);
                     double preventedLife = PreventedDamageOf(player).Take(recoveryFrom, now, preventedPerSecond);
                     if (convertLifeRegen) player.EnergyShield.Gain(preventedLife, esCeiling);
                     if (convertLifeRegen) player.EnergyShield.Gain(unhingedHitLife, esCeiling);
@@ -1320,7 +1318,7 @@ public static partial class Game
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
                     // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
                     double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife
-                        + (fortificationLife + wardBreakLife + enduringCryLife + preventedLife + unhingedHitLife) * lifeRegenFactor)
+                        + (fortificationLife + wardBreakLife + preventedLife + unhingedHitLife) * lifeRegenFactor)
                         + leeched.Life + recoupLife + lifeRecharge;
                     // Vaal Pact: "Cannot Recover Life other than from Leech" — only leech recovers life here; the
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
@@ -1328,7 +1326,7 @@ public static partial class Game
                     if (vaalPact) { nonFlaskLife = leeched.Life; life = 0; }
                     // Only the base regeneration rate is known to the client; every other source reaches it by the update.
                     lifeUnpredicted = instantLifeChanged || life > 0 || leeched.Life > 0 || recoupLife > 0 || lifeRecharge > 0
-                        || periodicLife > 0 || fortificationLife > 0 || wardBreakLife > 0 || enduringCryLife > 0
+                        || periodicLife > 0 || fortificationLife > 0 || wardBreakLife > 0
                         || unhingedHitLife > 0 || preventedLife > 0;
                     AdvanceTincturesLocked(player, now, seconds, recoveryStats, out double tinctureManaDrain,
                         out double tinctureLifeDrain, ref deactivatedTinctures);
@@ -1456,7 +1454,6 @@ public static partial class Game
         LeechOf(player).TakeRecovery(now);
         FortificationOf(player).TakeRecovery(now);
         player.WardBreak.TakeRecovery(now);
-        player.EnduringCryRecovery.Take(now);
         player.Unhinged.HitRecovery.Take(now);
         player.LifeRecoup.Take(now);
         if (ShieldRecoup.TryGetValue(player, out var recoup)) recoup.Take(now);
@@ -2028,6 +2025,7 @@ public static partial class Game
                             player.SentVaalSouls.Add(budget.ActiveSkillsRow, budget);
                         // A new player object has no buffs: every system's are written again.
                         player.Area.Buffs.Removed(player.Id);
+                        PresentCarriedEnduringCry(player);
                         player.LeechDisplay.Clear();
                         player.PetrifiedBlood.PresentedLossBuff = 0;
                         player.PetrifiedBlood.SentLossPerMinute = 0;

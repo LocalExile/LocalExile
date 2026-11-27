@@ -17,13 +17,14 @@ public static partial class Game
 
     public static bool TriggerPayloadAvailable(Player player, SupportedGem gem)
     {
+        if (SkillsFor(player).IsRetaliation(gem.Effect)) return false;
         string? payload = SkillsFor(player).EffectId(gem.Effect);
         if (TriggerChaosDebuff(payload)) return true;
         if (SpatialSpellEffect(payload)) return SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality).CanHit;
         if (TriggerGuardSpell(player, gem) || TriggerSummonSpell(player, gem)
             || TriggerBrandSpell(player, gem.Effect) || MinionUtility(SkillsFor(player).EffectId(gem.Effect))) return true;
         string? effect = SkillsFor(player).EffectId(gem.Effect);
-        if (TimedAreaSpellEffect(effect) && effect != "VaalDetonateDead" || PlacedArcPayload(effect)) return true;
+        if (TimedAreaSpellEffect(effect) && effect is not ("VaalDetonateDead" or VaalBladeVortexEffect) || PlacedArcPayload(effect)) return true;
         if (CurseCatalog.All.ContainsKey(effect ?? "")) return true;
         return (UsesProjectileRuntime(gem.Effect) && ResolveProjectileDefinition(gem.Effect) is not null
                 || TriggerAreaSpell(player, gem) || IsFirestorm(player, gem.Effect)

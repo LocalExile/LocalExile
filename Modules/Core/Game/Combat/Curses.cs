@@ -453,7 +453,7 @@ public static partial class Game
                 m.Bleeds.SetExpiryRate(now, BleedingExpiryRate(m, now));
             }
             // SlowestActionFactor is <= 1, so when slow == 0 (no Temporal Chains), Max(floor, 1) is always 1.
-            m.ReceivedActionFactor = slow == 0 ? 1 : Math.Max(BossMods.SlowestActionFactor(m.Variety), 1 + slow / 100);
+            m.ReceivedActionFactor = slow == 0 ? 1 : Math.Max(BossMods.SlowestActionFactor(m.Variety), TemporalChainsActionFactor(slow));
             m.ReceivedActionUntil = slow != 0 ? double.PositiveInfinity : now;
         }
         if (m.HasCurses && m.Curses.PresentedVersion != m.Curses.Version)

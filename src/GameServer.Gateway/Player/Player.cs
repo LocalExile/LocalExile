@@ -1294,7 +1294,6 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly WardState Ward = new();
     public readonly WardBreakState WardBreak = new();
     public double WitchbaneImmunityUntil;
-    public readonly TimedLifeRecovery EnduringCryRecovery = new();
     /// <summary>Petrified Blood's buff, reservation, deferred hit loss and life-cost rules (Combat/PetrifiedBlood.cs).</summary>
     public readonly PetrifiedBloodState PetrifiedBlood = new();
     /// <summary>Lifetap Support's life-paid costs, spent-Life counter and buff (Combat/Lifetap.cs).</summary>
@@ -1305,8 +1304,6 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly LeechDisplayState LeechDisplay = new();
     // Life Recoup of the hits the player took (Game.RecoupHitLocked), paid by the resource recovery loop.
     public readonly RecoupRecovery LifeRecoup = new();
-    public double SentEnduringCryUntil = double.NaN;
-    public ushort EnduringCryBuff;
     public bool AppliedAdrenaline;
     public (uint Maximum, bool Broken)? SentWard;
     public double SentAdrenalineUntil = double.NaN;

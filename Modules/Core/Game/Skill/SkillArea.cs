@@ -17,7 +17,8 @@ public static class SkillArea
     /// Ground Slam ("GroundSlam") has none either: the +40% final radius belongs to the old "ExileGroundSlam" row, which
     /// no gem grants (see GroundSlamWave).</summary>
     public static int BaseRadius(string? effect, Func<uint, int> get) =>
-        get(Stat.ActiveSkillBaseAreaOfEffectRadius) is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
+        effect == Game.ManabondEffect ? Math.Max(0, ActorScale.Saturate(18L + get(Stat.ActiveSkillBaseAreaOfEffectRadius)))
+            : get(Stat.ActiveSkillBaseAreaOfEffectRadius) is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
 
     static int? KnownBaseRadius(string? effect) =>
         Game.IsLightningWarpEffect(effect) ? 16
@@ -26,7 +27,8 @@ public static class SkillArea
             : effect is "ConsecratedPath" or "ConsecratedPathAltX" ? 23
             : Game.LacerateEffect(effect) ? LacerateWaves.BaseRadius
             : Game.CleaveAttack(effect) ? Game.CleaveBaseRadius
-            : effect == "TectonicSlam" ? 15
+            : effect is "TectonicSlam" or "VaalBladeVortex" ? 15
+            : effect == "PrismaticBurst" ? 13
             : GatewayProjectileSkillProfiles.IsShatteringSteel(effect) ? 28
             : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactAltX" or "DarkPactRoyale" ? 26
             : effect is "StormCall" or "StormCallAltX" or "Frostblink" or "FrostblinkHardMode" or "FrostblinkAltX" || Game.IsPyroclastMine(effect) ? 20

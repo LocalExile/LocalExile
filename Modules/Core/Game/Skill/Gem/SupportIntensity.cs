@@ -3,7 +3,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    // This state owns the Intensity granted by the linked supports.
+    // Native skills and linked supports share one Intensity state per player.
     // BuffDefinitions 1279 is spell_boost_charge (Intensity).
     const ushort IntensityBuffRow = 1279;
     static readonly Store<Player, IntensityState> Intensities = new();
@@ -113,7 +113,8 @@ public static partial class Game
     static void AddIntensityBaseStats(Player player, Dictionary<uint, int> own)
     {
         if (own.GetValueOrDefault(Stat.SupportSpellBoostAreaOfEffectPlusPctFinalPerCharge) == 0
-            && own.GetValueOrDefault(Stat.AdditionalProjectilesPerIntensity) == 0) return;
+            && own.GetValueOrDefault(Stat.AdditionalProjectilesPerIntensity) == 0
+            && own.GetValueOrDefault(Stat.DisintegrateDamagePlusPctFinalPerIntensity) == 0) return;
         own[Stat.VirtualSkillGainsIntensity] = 1;
         own[Stat.VirtualMaximumIntensity] = (int)Math.Clamp(3L + RawGemStat(player, Stat.MaximumIntensifyStacks), 1, ushort.MaxValue);
         own[Stat.VirtualIntensityLossMsWhileMovingInterval] = Math.Max(1, (int)(500 /
