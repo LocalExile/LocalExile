@@ -1353,7 +1353,7 @@ public static partial class Game
             EquipmentWard = gear.Ward,
             EquipmentWardPct = EquipmentInput(Stat.WardFromArmourItemPlusPct),
             Life = (int)Math.Min(int.MaxValue, (long)bonus.Life + converted.Life),
-            ShieldArmour = shieldDefence.Armour, ShieldEvasion = shieldDefence.Evasion,
+            ShieldArmour = shieldDefence.Armour + extraShieldArmour, ShieldEvasion = shieldDefence.Evasion,
             EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + converted.EnergyShield),
             // ES-to-Life consumes the local item source before any shield/global increases can act on it.
             ShieldEnergyShield = converted.EnergyShield == 0 ? 0 : shieldDefence.EnergyShield,
