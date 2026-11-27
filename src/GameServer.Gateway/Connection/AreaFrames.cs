@@ -644,9 +644,18 @@ public sealed class AreaFrames
         {
             gone = [.. members.Where(m => m.Detached || m.Inbox is null && (m.Player.Closed || m.Player.Connection.WorldOutput.Closed))];
             foreach (var m in gone) members.Remove(m);
-            if (members.Count == 0) { running = false; if (Area is { } area) area.Driven = false; }
+            if (members.Count == 0)
+            {
+                // Nobody remains to receive pending frame deltas; discard them before releasing the driver so a returning
+                // player (e.g. hideout re-entry) starts from Join's authoritative snapshot instead of stale departure records.
+                Area?.Delta.DiscardPending();
+                running = false;
+                if (Area is { } area) area.Driven = false;
+            }
             count = members.Count;
         }
+        if (gone.Length > 0 && Area is { } owned)
+            foreach (var m in gone) owned.Delta.RemoveViewer(m.Player);
         return count;
     }
 

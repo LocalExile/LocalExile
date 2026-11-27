@@ -68,7 +68,7 @@ public static partial class Game
         {
             var (by, shared) = ground.Origin(id);
             var create = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath),
-                item.Blob(justDropped: false, tasks: GroundItemTasks(item)));
+                item.Blob(justDropped: false, tasks: GroundItemTasks(item)), headerU32: uint.MaxValue);
             if (!shared) { if (ReferenceEquals(by, player)) ShowPrivateItem(player, id, create, null); }
             else if (generated)
             {

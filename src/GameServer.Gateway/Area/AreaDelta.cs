@@ -52,6 +52,33 @@ public sealed class AreaDelta(GameArea area)
         Add(entity, bytes, log, Kind.Remove);
     }
 
+    /// <summary>Forgets a departed player from every private-entity viewer list so long-lived areas (such as hideouts)
+    /// do not retain closed sessions.</summary>
+    public void RemoveViewer(Player player)
+    {
+        lock (viewers)
+        {
+            List<uint>? empty = null;
+            foreach (var (entity, list) in viewers)
+            {
+                if (list.Remove(player) && list.Count == 0)
+                    (empty ??= []).Add(entity);
+            }
+            if (empty is not null)
+                foreach (uint entity in empty) viewers.Remove(entity);
+        }
+    }
+
+    /// <summary>Discards undelivered frame delta records once no client remains in the area (for example when a player
+    /// leaves their hideout). Durable state is already committed to Area.Objects / Buffs / Stats / Life and will be
+    /// replayed cleanly via Join on re-entry instead of delivering stale departure records to the next entrant.</summary>
+    public void DiscardPending()
+    {
+        records.Clear();
+        held.Clear();
+        created.Clear();
+    }
+
     public void Add(Record record)
     {
         area.AssertOwner();
@@ -111,11 +138,29 @@ public sealed class AreaDelta(GameArea area)
         records.Add(record);
     }
 
-    /// <summary>A world record (u16 id, u32 object, u32 order key, u16 checkpoint) as it is: its order from its header.</summary>
-    public void Add(uint entity, byte[] bytes, string? log = null, Kind kind = Kind.World, Player? except = null, Player? only = null) =>
+    /// <summary>A world record (u16 id, u32 object, u32 order key, u16 checkpoint) as it is: its order from its header.
+    /// Active lockstep creates and removals always carry key 0xffffffff (WorldOrder.Last) so they sort in the client's
+    /// create/remove phase regardless of caller defaults.</summary>
+    public void Add(uint entity, byte[] bytes, string? log = null, Kind kind = Kind.World, Player? except = null, Player? only = null)
+    {
+        if (kind == Kind.Create && bytes.Length >= 12
+            && (System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(6)) != uint.MaxValue
+                || System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(10)) != 0))
+        {
+            bytes = bytes.ToArray();
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), uint.MaxValue);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(bytes.AsSpan(10), 0);
+        }
+        else if (kind == Kind.Remove && bytes.Length >= 10
+            && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(6)) != uint.MaxValue)
+        {
+            bytes = bytes.ToArray();
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), uint.MaxValue);
+        }
         Add(new(entity, bytes, log, kind == Kind.Message || bytes.Length < 12 ? WorldOrder.First
             : new(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(6)),
                 System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(10))), kind, except, only));
+    }
 
     /// <summary>The frame's records, taken for its end; what waited for a create of this frame starts the next.</summary>
     public IReadOnlyList<Record> Take()
