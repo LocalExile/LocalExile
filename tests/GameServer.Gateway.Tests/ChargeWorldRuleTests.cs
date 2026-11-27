@@ -207,6 +207,109 @@ public sealed class ChargeWorldRuleTests
         });
     }
 
+    [Fact]
+    public async Task Player_and_monster_hits_preserve_charge_order_rng_and_recipient()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        int Actor(uint stat) => stat switch
+        {
+            Stat.AddFrenzyChargeOnSkillHitPct => 20,
+            Stat.AddPowerChargeOnHitPct => 36,
+            Stat.AddPowerChargeOnSkillHitPct => 50,
+            Stat.AddPowerChargeOnCriticalStrikePct => 27,
+            _ => 0
+        };
+        int Skill(uint stat) => stat switch
+        {
+            Stat.AddFrenzyChargeOnSkillHitPct => 10,
+            Stat.AddPowerChargeOnHitPct => 8,
+            Stat.AddPowerChargeOnSkillHitPct => 17,
+            _ => 0
+        };
+        for (int seed = 0; seed < 64; seed++)
+        {
+            var expected = new Random(seed);
+            var actual = new Random(seed);
+            foreach (bool critical in new[] { false, true })
+            {
+                var hit = new ChargeEvent.Hit(critical, false, true, MonsterRarity.Normal, Skill: Skill);
+                Assert.Equal(ChargeGains.Roll(hit, Actor, default, expected, ChargeGains.Rules),
+                    ChargeGains.Roll(hit, Actor, default, actual));
+                Assert.Equal(expected.Next(), actual.Next());
+            }
+
+            // The generic Power chance belongs to players, even when present on the monster.
+            var attacker = HitChargeMonster(31, 67);
+            bool frenzy = RandomRolls.Chance(31, 100, expected);
+            bool power = RandomRolls.Chance(67, 100, expected);
+            Game.MonsterChargesOnHitDealtLocked(fixture.Player, 0, attacker, false, false, 1, actual);
+            Assert.Equal((0, frenzy ? 1 : 0, power ? 1 : 0), Game.MonsterChargesOf(attacker));
+            Assert.Equal(expected.Next(), actual.Next());
+
+            Game.MonsterChargesOnHitDealtLocked(fixture.Player, 0, attacker, false, true, 2, actual);
+            Assert.Equal((0, frenzy ? 1 : 0, power ? 1 : 0), Game.MonsterChargesOf(attacker));
+            Assert.Equal(expected.Next(), actual.Next());
+        }
+
+        var owner = fixture.Player;
+        ushort skill = Assert.Single(fixture.Equip(("Summon Flame Golem", 20)));
+        uint id = await Game.SummonGolem(owner, skill, Game.GolemData.Find("SummonFlameGolem")!, (105, 100));
+        var golem = owner.Golems.All[id];
+        var golemAttacker = HitChargeMonster(100, 100);
+        var spell = new MonsterAttack(0x4000, 1, 100, DamagePacket.Of(DamageType.Chaos, 10, 10)) { Spell = true };
+        Assert.True(Game.GolemTakeHitLocked(owner, golem, 401, golemAttacker, spell, 2));
+        Assert.Equal((0, 1, 1), Game.MonsterChargesOf(golemAttacker));
+        Assert.Equal(0, golem.CombatCharges?.Held(ChargeType.Frenzy) ?? 0);
+        Assert.Equal(0, golem.CombatCharges?.Held(ChargeType.Power) ?? 0);
+        Assert.False(Game.ChargesOf(owner).Pending);
+    }
+
+    [Fact]
+    public void Disabling_one_hit_rule_on_reload_changes_both_actors()
+    {
+        InTestWorld(edit =>
+        {
+            using var fixture = new TriggeredSummonTests.Fixture();
+            void Check(bool frenzy)
+            {
+                // Half the chance comes from the character and half from the skill it actually used.
+                int Half(uint stat) => stat is Stat.AddFrenzyChargeOnSkillHitPct or Stat.AddPowerChargeOnHitPct
+                    or Stat.AddPowerChargeOnSkillHitPct ? 50 : 0;
+                var hit = new ChargeEvent.Hit(false, false, true, MonsterRarity.Normal, Skill: Half);
+                var gains = ChargeGains.Roll(hit, Half, default, new Random(2));
+                string[] expected = frenzy ? ["add_frenzy_charge_on_skill_hit_%", "add_power_charge_on_hit_%",
+                    "add_power_charge_on_skill_hit_%"] : ["add_power_charge_on_hit_%", "add_power_charge_on_skill_hit_%"];
+                Assert.Equal(expected, gains.Select(g => g.Source));
+                var attacker = HitChargeMonster(100, 100);
+                Game.MonsterChargesOnHitDealtLocked(fixture.Player, 0, attacker, false, false, 1, new Random(2));
+                Assert.Equal((0, frenzy ? 1 : 0, 1), Game.MonsterChargesOf(attacker));
+            }
+            Check(true);
+            edit("UPDATE fx_rules SET enabled = 0 WHERE id = 'frenzy_on_skill_hit';");
+            Check(!ItemEffectRules.Enabled);
+
+            edit("UPDATE fx_rule_when SET roll_order = 40 WHERE rule = 'power_on_hit';");
+            var hit = new ChargeEvent.Hit(false, false, true, MonsterRarity.Normal);
+            var power = ChargeGains.Roll(hit, stat => stat is Stat.AddPowerChargeOnHitPct
+                or Stat.AddPowerChargeOnSkillHitPct ? 100 : 0, default, new Random(2));
+            string[] order = ItemEffectRules.Enabled ? ["add_power_charge_on_skill_hit_%", "add_power_charge_on_hit_%"]
+                : ["add_power_charge_on_hit_%", "add_power_charge_on_skill_hit_%"];
+            Assert.Equal(order, power.Select(g => g.Source));
+        });
+    }
+
+    static SpawnedMonster HitChargeMonster(int frenzy, int power)
+    {
+        var monster = new SpawnedMonster("attacker", new(100, 100, 0), 0, 0, 1000) { Hostile = true };
+        monster.SetTemporaryStats("on hit", new Dictionary<uint, int>
+        {
+            [Stat.AddFrenzyChargeOnSkillHitPct] = frenzy,
+            [Stat.AddPowerChargeOnHitPct] = 100,
+            [Stat.AddPowerChargeOnSkillHitPct] = power
+        });
+        return monster;
+    }
+
     static void InTestWorld(Action<Action<string>> test)
     {
         string path = Path.ChangeExtension(TestEnvironment.ScratchWorld, Guid.NewGuid() + ".db");

@@ -108,6 +108,32 @@ public static partial class Game
         if (!result.Ok) Console.WriteLine($"[gateway] {player.Connection.Remote} current level not saved to the account: {result.Error}");
     }
 
+    /// <summary>Sets the character's level (<c>1..100</c>), persists its base experience, publishes 0x02bc/0x01b3/0x0033,
+    /// fires <see cref="GameEvents.LevelUp"/> when raising level, and synchronizes Auth's <c>set_level</c>.</summary>
+    public static async Task<bool> SetCharacterLevel(Player player, int level, string why = "level change",
+        Func<ControlRequest, Task<ControlResponse>>? control = null)
+    {
+        if (level is < 1 or > 100) return false;
+        var updates = LevelUpdatesFor(player);
+        ExperienceChange? change;
+        lock (updates.Gate)
+        {
+            if (HardcoreProgressBlocked(player)) return false;
+            uint before = CurrentExperience(player), after = CharacterStats.ExperienceFor(level);
+            CharacterSaves.SetExperience(CharacterName(player), after);
+            player.Character.Experience = after;
+            change = new(++updates.Revision, before, after, true, Reset: true);
+        }
+        await PublishExperienceChange(player, change, why);
+        if (HardcoreProgressBlocked(player)) return false;
+        if (player.Ticket != 0 || control is not null)
+        {
+            var result = await SynchronizeAccountLevel(player, control);
+            if (!result.Ok) Console.WriteLine($"[gateway] {player.Connection.Remote} current level not saved to the account: {result.Error}");
+        }
+        return true;
+    }
+
     // Auth has unconditional set_level writes. Serialize every Gateway producer for this character, including resets
     // and login repair, and correct an in-flight request if XP changed before its answer. Answers never apply a level.
     public static async Task<ControlResponse> SynchronizeAccountLevel(Player player,

@@ -5,6 +5,86 @@ namespace GameServer.Gateway.Tests;
 public class SkillBarOptionTests
 {
     [Fact]
+    public async Task Binding_the_second_copy_of_a_gem_echoes_its_own_skill_id()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        fixture.Equip(("Fireball", 1), ("Fireball", 5));
+        var copies = Game.GemSkillEffects(player).Where(g => Program.Skills.EffectId(g.Effect) == "Fireball").ToArray();
+        Assert.Equal(2, copies.Length);
+        Assert.NotEqual(copies[0].Level, copies[1].Level);
+        Assert.NotEqual(copies[0].Id, copies[1].Id);
+
+        const byte slot = 4;
+        ushort second = copies[1].Id;
+        string character = player.Character.Name!;
+        var items = Game.ItemsOf(player);
+        var host = items.Items(PlayerInventories.Weapon1).Single();
+        Item boundGem;
+        player.Connection.LockstepClient = false;
+        var messages = new List<byte[]>();
+        var outgoing = Program.Outgoing;
+        Program.Outgoing = (peer, bytes) =>
+        {
+            if (ReferenceEquals(peer, player)) messages.Add(bytes.ToArray());
+        };
+        try
+        {
+            byte[] request = [0, (byte)InstanceProtocol.BindSkillId, slot, (byte)(second >> 8), (byte)second];
+            await Game.OnClientMessages([(InstanceProtocol.BindSkillId, request)], [], player);
+            var bar = Assert.Single(messages, bytes => bytes.Length > 2 && bytes[0] == 0 && bytes[1] == InstanceProtocol.SkillBarId);
+            ushort echoed = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(bar.AsSpan(2 + slot * 2, 2));
+            Assert.Equal(second, echoed);
+            await Game.SendSkills(player);
+
+            host = items.Items(PlayerInventories.Weapon1).Single();
+            boundGem = Assert.IsType<Item>(host.Item.Sockets[1].Gem);
+            Assert.NotNull(boundGem.SkillBarGemId);
+            var mirror = Assert.IsType<Item>(Program.Rolls.Mirror(host.Item));
+            Assert.Null(mirror.Sockets[1].Gem?.SkillBarGemId);
+            Assert.NotNull(host.Item.Sockets[1].Gem?.SkillBarGemId);
+            Assert.NotNull(items.Unsocket(PlayerInventories.Weapon1, host.Id, 1, items.NewItemId, out _));
+            messages.Clear();
+            await Game.SendSkills(player);
+            Assert.Equal((ushort)0, BoundSkill(player));
+
+            Assert.NotNull(items.Socket(PlayerInventories.Weapon1, host.Id, 0, Game.ShapeOf, items.NewItemId, out _));
+            Assert.NotNull(items.Socket(PlayerInventories.Weapon1, host.Id, 1, Game.ShapeOf, items.NewItemId, out _));
+            messages.Clear();
+            await Game.SendSkills(player);
+            var restored = Assert.Single(messages, bytes => bytes.Length > 2 && bytes[0] == 0 && bytes[1] == InstanceProtocol.SkillBarId);
+            ushort restoredSlot = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(restored.AsSpan(2 + slot * 2, 2));
+            Assert.Equal(BoundSkill(player), restoredSlot);
+            AssertSelectedLevel(player);
+        }
+        finally { Program.Outgoing = outgoing; }
+
+        PlayerInventories.Forget(character);
+        var reentered = SpellTotemExecutionTests.PlayerOf(character);
+        Assert.NotSame(items, Game.ItemsOf(reentered));
+        AssertSelectedLevel(reentered);
+        var reenteredItems = Game.ItemsOf(reentered);
+        var sockets = reenteredItems.Items(PlayerInventories.Weapon1).Single().Item.Sockets;
+        int boundSocket = Assert.Single(Enumerable.Range(0, sockets.Count),
+            index => sockets[index].Gem?.SkillBarGemId == boundGem.SkillBarGemId);
+        Assert.NotNull(reenteredItems.Unsocket(PlayerInventories.Weapon1, host.Id, boundSocket, reenteredItems.NewItemId, out _));
+        Assert.NotNull(reenteredItems.Remove(PlayerInventories.Cursor, Assert.Single(reenteredItems.Items(PlayerInventories.Cursor)).Id));
+        Assert.True(Game.FillSkillBar(reentered));
+        var filled = CharacterSaves.Load(character)!.SkillBar!;
+        Assert.DoesNotContain(filled.Values, value => value.StartsWith("Gem/", StringComparison.Ordinal));
+        Assert.Contains("Fireball", filled.Values);
+
+        ushort BoundSkill(Player on) => Game.SkillBarIds(on, CharacterSaves.Load(character)!.SkillBar)[slot];
+
+        void AssertSelectedLevel(Player on)
+        {
+            ushort id = BoundSkill(on);
+            Assert.Equal(5, Game.GemSkillEffects(on).Single(g => g.Id == id).Level);
+            Assert.Equal(5, Game.SupportedSkill(on, id).Level);
+        }
+    }
+
+    [Fact]
     public async Task Manual_clear_survives_auto_placement_and_a_queued_refresh_keeps_the_latest_bind()
     {
         string character = "ManualBar" + Guid.NewGuid().ToString("N");

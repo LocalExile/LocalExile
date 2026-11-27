@@ -34,8 +34,10 @@ public sealed class UniqueWeightProvider
 
     IReadOnlyDictionary<string, (double Normal, double Ruthless)> _weights = Empty;
     int _hasTable;
+    long _revision;
 
     public bool HasTable => Volatile.Read(ref _hasTable) != 0;
+    public long Revision => Volatile.Read(ref _revision);
 
     public double Weight(string name, bool ruthless)
     {
@@ -51,6 +53,7 @@ public sealed class UniqueWeightProvider
         foreach (var (name, weight) in weights) keyed[UniqueCatalog.NameKey(name)] = weight;
         Volatile.Write(ref _weights, keyed);
         Volatile.Write(ref _hasTable, hasTable ? 1 : 0);
+        Interlocked.Increment(ref _revision);
     }
 
     public void Reset() => Replace(Empty, false);

@@ -6,7 +6,7 @@ namespace GameServer.Modules.Bestiary;
 /// The client tables a Bestiary mission reads, loaded once with the module (<see cref="LoadGameData"/>) and looked up by Id,
 /// never by a row number.
 /// </summary>
-public static class BestiaryTables
+public static partial class BestiaryTables
 {
     /// <summary>One EinharMissions row. The table names none of its columns, so the meaning of each is read from its values
     /// over all 12 rows: <c>__col1</c>/<c>__col2</c> are the area levels the row holds (the rows tile 10 to 100 with no gap or
@@ -18,7 +18,12 @@ public static class BestiaryTables
 
     /// <summary>A red beast kind: its variety and the minions of its pack (BestiaryEncounters.MonsterPacksKey →
     /// MonsterPackEntries rows whose Flag is 1; the Flag 0 row is the beast itself).</summary>
-    public sealed record RedKind(string Id, ushort Row, IReadOnlyList<(ushort Row, int Weight)> Minions);
+    public sealed record RedKind(string Id, ushort Row, IReadOnlyList<(ushort Row, int Weight)> Minions)
+    {
+        public string Family { get; init; } = "";
+        public int CapturableRow { get; init; } = -1;
+        public bool Unique { get; init; }
+    }
 
     /// <summary>What an area's mission holds: the EinharMissions row, the red beast kinds drawn, and the yellow beasts' count
     /// with the varieties they are drawn from.</summary>
@@ -53,19 +58,21 @@ public static class BestiaryTables
                 if (!entries.TryGetValue(pack, out var list)) entries[pack] = list = [];
                 list.Add((e.IntOrNull("Flag") ?? 0, (ushort)variety, e.IntOrNull("Weight") ?? 0));
             }
-        // The red beast is one of the Menagerie's own beasts: BestiaryEncounters also lists the four spirit bosses, the
-        // Harvest beasts and the Azmeri gull, none of which a mission spawns. The table has no weights, so each is as likely.
+        capturable = [.. ClientTables.TableOrEmpty("BestiaryCapturableMonsters")
+            .Where(r => (r.IntOrNull("IsDisabled") ?? 0) == 0 && Writable(r.IntOrNull("MonsterVarietiesKey")))
+            .Select(r => (ushort)r.Int("MonsterVarietiesKey"))];
+        // The red beast is one of the Menagerie's own capturable beasts: BestiaryEncounters also lists the four spirit
+        // bosses, Harvest beasts, Azmeri gull, and uncapturable leftovers (e.g. PurgeHound), none of which a mission
+        // spawns. The table has no weights, so each is as likely.
         redPool = [.. ClientTables.TableOrEmpty("BestiaryEncounters")
             .Where(r => (r.TextOrNull("MonsterSpawnerId") ?? "").StartsWith("Metadata/Monsters/LeagueBestiary/MenagerieSpawners/", StringComparison.Ordinal)
                 && !(r.TextOrNull("Id") ?? "").EndsWith("SpiritBoss", StringComparison.Ordinal)
-                && Writable(r.IntOrNull("MonsterVarietiesKey")))
+                && Writable(r.IntOrNull("MonsterVarietiesKey"))
+                && capturable.Contains((ushort)r.Int("MonsterVarietiesKey")))
             .Select(r => new RedKind(all[r.Int("MonsterVarietiesKey")].Id, (ushort)r.Int("MonsterVarietiesKey"),
                 r.IntOrNull("MonsterPacksKey") is int pack && entries.TryGetValue(pack, out var members)
                     ? [.. members.Where(m => m.Flag == 1 && m.Weight > 0).Select(m => (m.Row, m.Weight))] : []))
             .DistinctBy(k => k.Row)];
-        capturable = [.. ClientTables.TableOrEmpty("BestiaryCapturableMonsters")
-            .Where(r => (r.IntOrNull("IsDisabled") ?? 0) == 0 && Writable(r.IntOrNull("MonsterVarietiesKey")))
-            .Select(r => (ushort)r.Int("MonsterVarietiesKey"))];
         // EinharPackFallback: per Tags row the MonsterPacks Einhar uses when an area's own packs hold no beast. Which tag an
         // area takes is not in the tables; every map area takes the maps' own row [ESTIMATE].
         var tags = ClientTables.TableOrEmpty("Tags");
@@ -75,6 +82,7 @@ public static class BestiaryTables
             .SelectMany(pack => entries.GetValueOrDefault(pack) ?? [])
             .Where(m => m.Flag == 1 && m.Weight > 0 && capturable.Contains(m.Row))
             .GroupBy(m => m.Row).Select(g => (g.Key, g.Sum(m => m.Weight)))];
+        LoadScarabData();
     }
 
     /// <summary>The EinharMissions row whose level range holds the area level, or null.</summary>
