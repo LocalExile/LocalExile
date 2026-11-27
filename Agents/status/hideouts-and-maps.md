@@ -224,7 +224,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   release. Scarab inputs, repeated breakouts and reward drops have native verification; retail reward weights and
   difficulty need calibration. The Domain and remaining Atlas rules are separate work. Docs: [Legion](../docs/game/legion.md).
 
-- Blight: pump, lanes, enemies, foundations; only 17 of 30 towers act (HUD and chests pending).
+- Blight: pump, lanes, foundations, Fast-Forward (`0x0264`), all 30 towers (exact `_buff1..3` Empowering scaling, 91
+  ring anoints, native cast/buff packets, `-99%` type resistance + bypasses, Meteor burning ground, minions, controls),
+  themed waves with exact boss life scaling, Blighted & Blight-ravaged maps (`UsesAtlas=false`, ilvl 85, 25%/50% IIQ
+  chest scaling), all 9 Scarabs, Atlas passives (`Cassia's Pride`, `Blightspawn`, `Templar Ingenuity`, `Fungal Horizons`,
+  `Sturdy Construction`, `Epidemiology`, `Immune Response`), Sister Cassia (wild & hideout), Oil Anointing (576 recipes,
+  Tainted/Reflective/Prismatic, `GrantedPassive..5` allocation), Oil Extractor, and Breathstealer/Sporeguard spores
+  (checked offline; HUD packets `0x0266`–`0x0269`, `BlightCraftingWindow` `0x007b` kind, and live client verification
+  pending). Docs: [Blight](../docs/game/blight.md).
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client.
   Per-type reward bars drive the native HUD via `AfflictionEndGameRules` (S→C 0x1f row 103 + S→C 0x2c9 mode 1; live

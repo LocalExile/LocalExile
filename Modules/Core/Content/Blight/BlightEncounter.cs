@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 using GameServer.Modding;
 
 namespace GameServer.Modules.Blight;
@@ -13,10 +14,25 @@ public sealed class Spot(uint id, int x, int y)
     public int Raising;
     public bool Upgrade;
     public double NextFire;
+    /// <summary>Registered GrantedEffects skill ids (0x4100+, disjoint from monster kit 0x4000..0x401f) indexed by Empowering tier 0..3.</summary>
+    public ushort[] SkillIds = [];
+    /// <summary>Parent EmptyAction* skill id for combo-cast towers (Fireball 1..3, Freezebolt), played via 0x01cd before 0x01ce triggered child.</summary>
+    public ushort EmptyActionSkillId;
+    /// <summary>Triggered child projectile skill ids indexed by Empowering tier 0..3 for EmptyAction* towers (sent via S→C 0x01ce triggered: true).</summary>
+    public ushort[] TriggeredSkillIds = [];
+    public ushort ActionSeq = 1;
+    /// <summary>Active Empowering aura visual buff instance on this tower (BuffDefinitions 1406).</summary>
+    public ushort EmpowerBuffInstance;
+    public int EmpowerBuffTier;
+    /// <summary>Living friendly monster ids summoned by a Minion/Scout/Sentinel tower on this spot.</summary>
+    public readonly List<uint> Minions = [];
 }
 
 /// <summary>A spot as one send reads it: copied under the defence's lock, so a tick that raises the tower cannot change it mid-send.</summary>
 public readonly record struct SpotView(uint Id, int X, int Y, int Row, int Raising, bool Upgrade);
+
+/// <summary>One active Meteor Tower burning ground zone created by the Burning Ground ring anoint.</summary>
+public readonly record struct BurningGroundZone(int X, int Y, double Until, int Dps, double NextTick);
 
 public enum Phase { Ready, Building, Running, Won, Lost }
 
@@ -31,22 +47,49 @@ public sealed class Defence(uint pump, (int X, int Y) cell, float rotation, byte
     public int Durability, MaxDurability;
     public uint Resource;
     public double StartedAt, EndedAt = double.PositiveInfinity;
+    public double EncounterDuration;
     public readonly int[] PumpStates = new int[BlightEncounter.PumpStateNames.Length];
     public byte PumpTransition = 1;
     public int PumpStep;
-    public double NextPathOffAt = double.PositiveInfinity;
     public BlightLayout.Plan? Plan;
     public readonly Dictionary<uint, Spot> Spots = [];
     public readonly Dictionary<int, double> LaneNext = [];
     public readonly Dictionary<int, int> LaneSpawned = [];
+    public readonly Dictionary<int, int> LaneEncounterTypes = [];
+    public readonly Dictionary<int, string> LaneRewards = [];
+    public readonly HashSet<int> BossLanes = [];
+    public readonly HashSet<int> BossOnlyLanes = [];
     public int MonstersPerLane;
     public readonly Dictionary<uint, (int Lane, MonsterRarity Rarity)> Monsters = [];
     public readonly Dictionary<uint, int> PathIndex = [];
     public readonly HashSet<uint> Resolved = [];
+    /// <summary>End-of-lane Blight reward chests, GigaChest, or salvaged tower chests spawned when the defence succeeds.</summary>
+    public readonly Dictionary<uint, BlightChestState> Chests = [];
+    /// <summary>Timed tower control debuff expiries by (monsterId, statsKey).</summary>
+    public readonly Dictionary<(uint MonsterId, string Key), double> TimedControls = [];
+    /// <summary>Remaining hits before Stone Gaze petrification breaks for each petrified monster.</summary>
+    public readonly Dictionary<uint, int> PetrifyHitsLeft = [];
+    /// <summary>Active Meteor Tower Burning Ground zones.</summary>
+    public readonly List<BurningGroundZone> BurningGrounds = [];
+    /// <summary>Monsters enhanced by Empowering/Imbuing/Smothering towers under Scarab of Invigoration (Buff 2462).</summary>
+    public readonly HashSet<uint> EnhancedMonsters = [];
+    public readonly Dictionary<uint, ushort> InvigoratedBuffInstances = [];
+    public ushort NextTowerBuffInstance = 0x2000;
+    /// <summary>Monster loot banked during the defence to burst at the pump on victory (lootsplosion).</summary>
+    public readonly List<Item> BankedPumpLoot = [];
+    /// <summary>Total Blight monsters slain (scales Blightheart GigaChest rewards).</summary>
+    public int KilledCount;
+    /// <summary>Extra lane chests awarded by slain Blight bosses (Atlas Notable Blightspawn).</summary>
+    public int ExtraBossChests;
+    /// <summary>Spawned Sister Cassia NPC entity id and cell beside this pump (0 when not spawned).</summary>
+    public uint CassiaId;
+    public (int X, int Y) CassiaCell;
     /// <summary>The pump and its foundations were created for the area (its object records give them to whoever joins later).</summary>
     public bool Shown;
-    /// <summary>The map is a Blighted one (its own lane tree, and a longer-lived pump).</summary>
+    /// <summary>The map is a Blighted one (its own lane tree, 20-HP pump, 5-minute encounter).</summary>
     public bool Blighted;
+    /// <summary>The map is a Blight-ravaged (Uber Blighted) map (ilvl 85, 9 anoints, 50% IIQ chest scaling, Stranglegasp drops).</summary>
+    public bool UberBlighted;
     /// <summary>The seed the lanes were laid with: the same seed lays the same lanes again after a module reload.</summary>
     public int PlanSeed;
     /// <summary>The lane that opens first (the plan's smallest delay), set with the plan.</summary>
@@ -65,30 +108,39 @@ public sealed class Run
 /// <summary>A defence as it is kept in the instance's ContentState: what a reloaded module needs to carry on (the lanes are laid again from the seed).</summary>
 public sealed class SavedDefence
 {
-    public uint Pump;
-    public int CellX, CellY;
+    public uint Pump, CassiaId;
+    public int CellX, CellY, CassiaX, CassiaY;
     public float Rotation;
     public byte Level;
-    public bool Blighted, Shown;
+    public bool Blighted, UberBlighted, Shown;
     public Phase Phase;
-    public int Durability, MaxDurability, PumpTransition, PumpStep, MonstersPerLane, PlanSeed;
+    public int Durability, MaxDurability, PumpTransition, PumpStep, MonstersPerLane, PlanSeed, KilledCount, ExtraBossChests;
     public uint Resource;
-    public double StartedAt, EndedAt = double.PositiveInfinity, NextPathOffAt = double.PositiveInfinity;
+    public double StartedAt, EndedAt = double.PositiveInfinity, EncounterDuration;
     public int[] PumpStates = [];
     public List<SavedSpot> Spots = [];
     public Dictionary<int, double> LaneNext = [];
     public Dictionary<int, int> LaneSpawned = [];
+    public Dictionary<int, int> LaneEncounterTypes = [];
+    public Dictionary<int, string> LaneRewards = [];
+    public List<int> BossLanes = [];
+    public List<int> BossOnlyLanes = [];
     public List<SavedMonster> Monsters = [];
     public Dictionary<uint, int> PathIndex = [];
     public List<uint> Resolved = [];
+    public List<BlightChestState> Chests = [];
 }
 
 public sealed class SavedSpot
 {
     public uint Id;
     public int X, Y, Row, Raising;
+    public ushort[] SkillIds = [];
+    public ushort EmptyActionSkillId;
+    public ushort[] TriggeredSkillIds = [];
     public bool Upgrade;
     public double NextFire;
+    public List<uint> Minions = [];
 }
 
 public sealed class SavedMonster
@@ -104,14 +156,14 @@ public sealed class SavedRun
 }
 
 /// <summary>
-/// The Blight pump defence (CoreLeagues row 16). The client rolls it before it lays out the terrain (the generator's BlightEncounter
-/// feature row, whose room places the BlightPump object), and the server generates the same level, so a defence exists exactly where
-/// the instance's level holds a pump: the area's stats, its league chance and the map checks are the generator's own.
-/// A click on the pump starts the build phase; the lanes of a BlightTopologies tree then open one after another and send their
-/// enemies to the pump, while the towers the client lets the player build from the foundations fire at them.
+/// The Blight pump defence (CoreLeagues row 16) for campaign areas, maps, Blighted maps, and Uber-Blight (Blight-ravaged) maps:
+/// manages pump placement, build phase &amp; Fast-Forward (0x0264), lane waves &amp; bosses, all 30 towers, Scarabs, Atlas passives,
+/// Fungal Horizons Blightreach buff (2512), Cassia's Pride / Sturdy Construction damage rules, and victory chests/lootsplosion.
 /// </summary>
 public sealed class BlightEncounter
 {
+    public const string Content = "Blight";
+
     /// <summary>The terrain object the defence is built round, written as the capture's create has it.</summary>
     public const string PumpObject = "Metadata/Terrain/Leagues/Blight/Objects/BlightPump";
 
@@ -127,23 +179,26 @@ public sealed class BlightEncounter
     /// <summary>A foundation's and a tower's StateMachine and Transitionable, in their component order.</summary>
     const byte SpotStateMachine = 11, SpotTransitionable = 12;
 
-    /// <summary>The create blob of a Blight monster's wake when the pump's own states say the encounter runs.</summary>
     const uint VirtualOnFullLife = Stat.VirtualOnFullLife;
 
-    /// <summary>How many monsters one lane sends: the official defence sent 45 to 55 down each of its 4 lanes (one capture), so 50 [estimated].</summary>
+    /// <summary>How many monsters one lane sends in a normal map (scaled by pack size &amp; Blightheart sub-waves).</summary>
     public const int BaseMonstersPerLane = 50;
 
-    /// <summary>The build phase: the first monster came 758 frames after the pump was started (one official defence).</summary>
+    /// <summary>Boss-only lanes (Atlas Notable Blightspawn) send repeated Unique Blight Bosses (4 per lane by default).</summary>
+    public const int BossOnlyLaneCount = 4;
+
+    /// <summary>The build phase: 758 frames before the first wave starts unless skipped via Fast-Forward (0x0264).</summary>
     public const int BuildFrames = 758;
 
-    /// <summary>The spawn interval per lane, in frames: the lane that opened first ran at a median of 9, every other lane at 22.</summary>
+    /// <summary>The spawn interval per lane, in frames (scaled by Immune Response / Teal Oil spawn rate).</summary>
     public const int FirstLaneFrames = 9, OtherLaneFrames = 22;
 
-    /// <summary>The empty foundations went 44 frames after the end of the official defence.</summary>
+    /// <summary>Base Blighted / Blight-ravaged encounter duration in seconds (300s = 5 minutes, reduced by Teal Oil).</summary>
+    public const double BaseBlightedDurationSeconds = 300.0;
+
+    /// <summary>The empty foundations go 44 frames after the defence ends.</summary>
     public const int FoundationsGoFrames = 44;
 
-    /// <summary>The pump's timeline after its start, in frames: (frame, state, value, Transitionable or -1), as the official pump sent it
-    /// (build steps 1 to 9 every 3 frames from +4; a lane announced at +28 with Transitionable 2; activated 2 at +43; the lane's mark off at +58).</summary>
     static readonly (int Frame, int State, int Value, int Transition)[] PumpTimeline =
     [
         (4, PumpBuildStep, 1, -1), (7, PumpBuildStep, 2, -1), (10, PumpBuildStep, 3, -1), (13, PumpBuildStep, 4, -1), (16, PumpBuildStep, 5, -1),
@@ -151,48 +206,56 @@ public sealed class BlightEncounter
         (43, PumpActivated, 2, -1), (58, PumpNextPath, 0, -1), (736, -1, 0, 3),
     ];
 
-    /// <summary>The resource a defence starts with. The first purchase of the official defence (100) left 610 and no resource message
-    /// came before it [estimated: 710].</summary>
-    public const uint StartResource = 710;
+    /// <summary>Starting resource (710 standard; higher for 20-portal Blighted / Blight-ravaged maps).</summary>
+    public const uint StartResource = 710, BlightedStartResource = 1200, UberBlightedStartResource = 1500;
 
-    /// <summary>The pump's durability: 10, 20 in a Blighted map [estimated: the tables hold no value for it].</summary>
+    /// <summary>Fallback pump durability when BlightBalancePerLevel isn't loaded.</summary>
     public const int MapDurability = 10, BlightedMapDurability = 20;
 
-    /// <summary>Raising a new tower sends nine StateMachine updates, one per tick; an upgrade only the last.</summary>
     public const int RaiseSteps = 9;
-
-    /// <summary>Seconds between a tower's attacks: 30 to 31 frames of the official frame length (one tower, 1.0 s).</summary>
     const double TowerInterval = 1.0;
-
-    /// <summary>How near the pump (cells, either axis) an enemy has reached it [estimated: the pump's size is 3].</summary>
     const int PumpReach = 4;
-
-    /// <summary>The enemies of a defence: the varieties the official defence sent (the spawner objects its tables name are not
-    /// MonsterVarieties rows and no table maps them to creatures) [estimated: other encounter types are not in any capture].</summary>
-    static readonly string[] WaveVarieties =
-    [
-        "Metadata/Monsters/LeagueBlight/Cold/BlightColdWyvern", "Metadata/Monsters/LeagueBlight/Generic/Pitbull",
-        "Metadata/Monsters/LeagueBlight/Cold/BlightWaterElemental", "Metadata/Monsters/LeagueBlight/Generic/Cockerel",
-        "Metadata/Monsters/LeagueBlight/Generic/PitbullSlow", "Metadata/Monsters/LeagueBlight/Generic/GladiatorSword",
-        "Metadata/Monsters/LeagueBlight/Generic/CockerelSlow", "Metadata/Monsters/LeagueBlight/Generic/GladiatorSwordShield",
-        "Metadata/Monsters/LeagueBlight/Generic/CockerelBow",
-    ];
-
-    /// <summary>The towers that hurt an enemy, by BlightTowers Id prefix [estimated: the tower skills' own numbers are not read].</summary>
-    static readonly string[] DamageTowers = ["Chilling", "Shocking", "Stunning", "Freezing", "LightningStorm", "Arcing", "Flame", "Meteor"];
-
-    /// <summary>The key of the instance's saved defences in its ContentState; "[]" there means the level holds no pump.</summary>
+    const int MaxBankedLootsplosionItems = 24;
     const string StateKey = "Blight", NoPumps = "[]";
 
     static readonly JsonSerializerOptions Json = new() { IncludeFields = true, NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
-
-    /// <summary>How often (area seconds) a running defence is written to the instance's ContentState.</summary>
     const double SaveEvery = 5;
+
+    /// <summary>Instances currently affected by Fungal Horizons' Blightreach buff (BuffDefinitions 2512).</summary>
+    static readonly Store<InstanceState, object> BlightreachInstances = new();
+    static readonly object BlightreachMarker = new();
 
     public readonly Store<InstanceState, Run> Runs = new();
 
-    static double Frames(int frames) => frames * Program.FrameMs / 1000.0;
+    /// <summary>
+    /// Reads the instance's authoritative area stats WITHOUT double-counting Atlas passives
+    /// (<c>AreaLeagueStats</c> in Atlas.cs adds AtlasStats on top of MapModsOf which already returns KeptAreaStats).
+    /// </summary>
+    public static IReadOnlyDictionary<uint, int> AreaStats(Player player)
+    {
+        if (player.Instance?.KeptAreaStats is { Count: > 0 } kept) return kept;
+        if (MapModsOf(player) is { } mods && mods.Stats.Count > 0) return mods.Stats;
+        return AreaLeagueStats(player);
+    }
 
+    /// <summary>GameEvents.MapOpening: claims "Blight", disables Atlas passives on Blighted/Blight-ravaged maps,
+    /// and enforces <c>map_item_level_override</c> (level 85 on Blight-ravaged maps).</summary>
+    public static void OnMapOpening(MapOpening request)
+    {
+        request.HandledContent.Add(Content);
+        if (request.Opening is not { } opening || request.Campaign) return;
+        bool blighted = opening.Mods.Get(Stat.IsBlightedMap) > 0 || opening.Mods.Get(Stat.IsUberBlightedMap) > 0;
+        if (!blighted) return;
+        int levelOverride = opening.Mods.Get(Stat.MapItemLevelOverride);
+        var area = opening.Area with
+        {
+            UsesAtlas = false,
+            Level = levelOverride > 0 ? levelOverride : opening.Area.Level,
+        };
+        request.Opening = opening with { Area = area };
+    }
+
+    static double Frames(int frames) => frames * Program.FrameMs / 1000.0;
     static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;
 
     static List<Player> Members(Player player)
@@ -202,19 +265,15 @@ public sealed class BlightEncounter
         return members;
     }
 
-    public static byte LevelOf(Player player) =>
-        (byte)Math.Clamp(MapRunOf(player) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
+    public static byte LevelOf(Player player)
+    {
+        int overrideLvl = AreaStats(player).GetValueOrDefault(Stat.MapItemLevelOverride);
+        if (overrideLvl > 0) return (byte)Math.Clamp(overrideLvl, 1, 100);
+        return (byte)Math.Clamp(MapRunOf(player) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
+    }
 
-    /// <summary>Whether this call runs in the area's frame (Owned: this thread steps the area) with the client's frames begun: a record about an
-    /// object is then the area's, which the frame writes to every client once.</summary>
     static bool Framed(Player player) => player.Area.Owned && player.Connection.WorldOutput.Started;
 
-    /// <summary>
-    /// One change of the instance's shared objects. In the area's frame it is made once, whichever client makes it (the frame
-    /// carries it to the whole area, so a loop over the members would write it once per member for each of them); outside
-    /// the frame each current member is sent it, and <paramref name="send"/> builds its own bytes for each (the writer encrypts
-    /// the buffer it is given in place).
-    /// </summary>
     static async Task Shared(Player player, Func<Player, Task> send)
     {
         if (Framed(player)) { await send(player); return; }
@@ -222,17 +281,13 @@ public sealed class BlightEncounter
     }
 
     static Task Update(Player player, uint id, Func<byte[]> make, string log) => Shared(player, member => SendWorldRecord(member, id, make(), log));
-
     static Task Remove(Player player, uint id, string log) => Shared(player, member => SendWorldRemoval(member, id, log));
 
-    /// <summary>A message about no object (the resource) goes to each client by itself, built anew for each.</summary>
     static async Task Tell(Player player, Func<byte[]> make, string log)
     {
         foreach (var member in Members(player)) await Send(member, make(), log);
     }
 
-    /// <summary>A monster type the area has not registered yet (S→C 0x20 registers "Id@level"; a create of that type needs it first): every
-    /// current client is told once, each its own bytes, and one that joins later is given the area's types by the area's join.</summary>
     static async Task RegisterType(Player player, int row, byte level, string log)
     {
         if (!player.MonsterTypes.Add((row, level))) return;
@@ -241,8 +296,6 @@ public sealed class BlightEncounter
 
     // ---- The instance's defences, kept with the instance ----------------------------------------------------------------------
 
-    /// <summary>The instance's defences, or null when it has none: the live ones, else the ones its ContentState keeps (a module that was
-    /// reloaded carries on from them).</summary>
     Run? Of(Player player)
     {
         if (player.Instance is not { } instance) return null;
@@ -257,11 +310,15 @@ public sealed class BlightEncounter
         }
     }
 
-    /// <summary>The defences the level places: one per BlightPump object of its rooms (the client rolls the encounter before it lays
-    /// out the terrain, and the server generates the same level, so the pumps are the generator's own). Only maps place any.</summary>
+    /// <summary>Whether an area can hold a pump defence (either a map or any campaign area whose generated level places a BlightPump).</summary>
+    public bool MayHaveDefence(Player player) =>
+        MapDevices.IsMapArea(player.Layout.Hash)
+        || Of(player) is not null
+        || (player.Layout.Level?.RoomObjects.Any(o => o.Type == PumpObject) ?? false);
+
     Run? Place(Player player)
     {
-        if (player.Instance is null || !MapDevices.IsMapArea(player.Layout.Hash)) return null;
+        if (player.Instance is null) return null;
         var pumps = player.Layout.Level?.RoomObjects.Where(o => o.Type == PumpObject).Select(o => (o.X, o.Y, o.Rotation)).ToList() ?? [];
         if (pumps.Count == 0)
         {
@@ -271,11 +328,22 @@ public sealed class BlightEncounter
         return Place(player, pumps);
     }
 
-    /// <summary>The instance's defences, one at each of <paramref name="pumps"/> (cell and rotation).</summary>
+    /// <summary>The instance's defences, one at each of <paramref name="pumps"/> (honoring Blighted/Uber-Blighted,
+    /// BlightBalancePerLevel durability, Sturdy Construction 2x durability, and Valdo's 1 durability).</summary>
     public Run Place(Player player, IEnumerable<(int X, int Y, float Rotation)> pumps)
     {
         byte level = LevelOf(player);
-        bool blighted = AreaLeagueStats(player).GetValueOrDefault(Stat.IsBlightedMap) > 0;
+        var stats = AreaStats(player);
+        bool uberBlighted = stats.GetValueOrDefault(Stat.IsUberBlightedMap) > 0 || stats.GetValueOrDefault(Stat.IsBlightedMap) >= 9;
+        bool blighted = uberBlighted || stats.GetValueOrDefault(Stat.IsBlightedMap) > 0;
+        var balance = BlightTables.BalanceFor(level, blighted, uberBlighted);
+        int baseDurability = balance.PumpDurability > 0 ? balance.PumpDurability : (blighted ? BlightedMapDurability : MapDurability);
+        if (stats.GetValueOrDefault(Stat.MapInchorPumpHasDoubleDurability) > 0) baseDurability *= 2;
+        if (stats.GetValueOrDefault(Stat.MapIchorPumpOneDurability) > 0) baseDurability = 1;
+        double duration = blighted
+            ? Math.Max(60.0, BaseBlightedDurationSeconds - Math.Max(0, stats.GetValueOrDefault(Stat.MapBlightedMapEncounterDurationMinusSec)))
+            : 0.0;
+
         return Runs.GetValue(player.Instance, _ =>
         {
             var run = new Run();
@@ -283,9 +351,12 @@ public sealed class BlightEncounter
             {
                 var d = new Defence(player.Instance.World.TakeObjectId(), (x, y), rotation, level)
                 {
-                    Blighted = blighted, MaxDurability = blighted ? BlightedMapDurability : MapDurability,
+                    Blighted = blighted,
+                    UberBlighted = uberBlighted,
+                    MaxDurability = baseDurability,
+                    Durability = baseDurability,
+                    EncounterDuration = duration,
                 };
-                d.Durability = d.MaxDurability;
                 d.PumpStates[PumpHealth] = d.Durability;
                 d.PumpStates[PumpReadyToStart] = 1;
                 run.Defences.Add(d);
@@ -303,23 +374,38 @@ public sealed class BlightEncounter
             var d = new Defence(s.Pump, (s.CellX, s.CellY), s.Rotation, s.Level)
             {
                 Phase = s.Phase, Durability = s.Durability, MaxDurability = s.MaxDurability, Resource = s.Resource, StartedAt = s.StartedAt,
-                EndedAt = s.EndedAt, PumpTransition = (byte)s.PumpTransition, PumpStep = s.PumpStep, NextPathOffAt = s.NextPathOffAt,
-                MonstersPerLane = s.MonstersPerLane, Shown = s.Shown, Blighted = s.Blighted, PlanSeed = s.PlanSeed,
+                EndedAt = s.EndedAt, EncounterDuration = s.EncounterDuration, PumpTransition = (byte)s.PumpTransition, PumpStep = s.PumpStep,
+                MonstersPerLane = s.MonstersPerLane, Shown = s.Shown, Blighted = s.Blighted,
+                UberBlighted = s.UberBlighted, PlanSeed = s.PlanSeed, CassiaId = s.CassiaId, CassiaCell = (s.CassiaX, s.CassiaY),
+                KilledCount = s.KilledCount, ExtraBossChests = s.ExtraBossChests,
             };
             Array.Copy(s.PumpStates, d.PumpStates, Math.Min(s.PumpStates.Length, d.PumpStates.Length));
-            foreach (var p in s.Spots) d.Spots[p.Id] = new Spot(p.Id, p.X, p.Y) { Row = p.Row, Raising = p.Raising, Upgrade = p.Upgrade, NextFire = p.NextFire };
+            foreach (var p in s.Spots)
+            {
+                var spot = new Spot(p.Id, p.X, p.Y)
+                {
+                    Row = p.Row, Raising = p.Raising, Upgrade = p.Upgrade, NextFire = p.NextFire,
+                    SkillIds = p.SkillIds ?? [], EmptyActionSkillId = p.EmptyActionSkillId, TriggeredSkillIds = p.TriggeredSkillIds ?? [],
+                };
+                if (p.Minions is { Count: > 0 }) spot.Minions.AddRange(p.Minions);
+                d.Spots[p.Id] = spot;
+            }
             foreach (var (lane, at) in s.LaneNext) d.LaneNext[lane] = at;
             foreach (var (lane, n) in s.LaneSpawned) d.LaneSpawned[lane] = n;
+            foreach (var (lane, et) in s.LaneEncounterTypes) d.LaneEncounterTypes[lane] = et;
+            foreach (var (lane, rw) in s.LaneRewards) d.LaneRewards[lane] = rw;
+            d.BossLanes.UnionWith(s.BossLanes);
+            d.BossOnlyLanes.UnionWith(s.BossOnlyLanes);
             foreach (var m in s.Monsters) d.Monsters[m.Id] = (m.Lane, m.Rarity);
             foreach (var (id, i) in s.PathIndex) d.PathIndex[id] = i;
             d.Resolved.UnionWith(s.Resolved);
+            foreach (var c in s.Chests) d.Chests[c.Id] = c;
             if (d.Phase != Phase.Ready) d.Plan = MakePlan(player, d);
             run.Defences.Add(d);
         }
         return run;
     }
 
-    /// <summary>Writes the defences to the instance's ContentState.</summary>
     void Save(Player player, Run run)
     {
         if (player.Instance is not { } instance) return;
@@ -329,25 +415,30 @@ public sealed class BlightEncounter
                 lock (d)
                     saved.Defences.Add(new SavedDefence
                     {
-                        Pump = d.Pump, CellX = d.Cell.X, CellY = d.Cell.Y, Rotation = d.Rotation, Level = d.Level, Blighted = d.Blighted, Shown = d.Shown,
-                        Phase = d.Phase, Durability = d.Durability, MaxDurability = d.MaxDurability, PumpTransition = d.PumpTransition, PumpStep = d.PumpStep,
-                        MonstersPerLane = d.MonstersPerLane, PlanSeed = d.PlanSeed, Resource = d.Resource, StartedAt = d.StartedAt, EndedAt = d.EndedAt,
-                        NextPathOffAt = d.NextPathOffAt, PumpStates = [.. d.PumpStates],
-                        Spots = [.. d.Spots.Values.Select(s => new SavedSpot { Id = s.Id, X = s.X, Y = s.Y, Row = s.Row, Raising = s.Raising, Upgrade = s.Upgrade, NextFire = s.NextFire })],
-                        LaneNext = new(d.LaneNext), LaneSpawned = new(d.LaneSpawned), PathIndex = new(d.PathIndex), Resolved = [.. d.Resolved],
+                        Pump = d.Pump, CassiaId = d.CassiaId, CassiaX = d.CassiaCell.X, CassiaY = d.CassiaCell.Y,
+                        CellX = d.Cell.X, CellY = d.Cell.Y, Rotation = d.Rotation, Level = d.Level, Blighted = d.Blighted,
+                        UberBlighted = d.UberBlighted, Shown = d.Shown, Phase = d.Phase, Durability = d.Durability,
+                        MaxDurability = d.MaxDurability, PumpTransition = d.PumpTransition, PumpStep = d.PumpStep,
+                        MonstersPerLane = d.MonstersPerLane, PlanSeed = d.PlanSeed, Resource = d.Resource, StartedAt = d.StartedAt,
+                        EndedAt = d.EndedAt, EncounterDuration = d.EncounterDuration,
+                        KilledCount = d.KilledCount, ExtraBossChests = d.ExtraBossChests, PumpStates = [.. d.PumpStates],
+                        Spots = [.. d.Spots.Values.Select(s => new SavedSpot
+                        {
+                            Id = s.Id, X = s.X, Y = s.Y, Row = s.Row, Raising = s.Raising,
+                            SkillIds = [.. s.SkillIds], EmptyActionSkillId = s.EmptyActionSkillId, TriggeredSkillIds = [.. s.TriggeredSkillIds],
+                            Upgrade = s.Upgrade, NextFire = s.NextFire, Minions = [.. s.Minions],
+                        })],
+                        LaneNext = new(d.LaneNext), LaneSpawned = new(d.LaneSpawned), LaneEncounterTypes = new(d.LaneEncounterTypes),
+                        LaneRewards = new(d.LaneRewards), BossLanes = [.. d.BossLanes], BossOnlyLanes = [.. d.BossOnlyLanes],
+                        PathIndex = new(d.PathIndex), Resolved = [.. d.Resolved],
                         Monsters = [.. d.Monsters.Select(m => new SavedMonster { Id = m.Key, Lane = m.Value.Lane, Rarity = m.Value.Rarity })],
+                        Chests = [.. d.Chests.Values],
                     });
         instance.ContentState[StateKey] = JsonSerializer.Serialize(saved, Json);
     }
 
     // ---- Showing the defences ---------------------------------------------------------------------------------------------------
 
-    /// <summary>
-    /// A player enters (or comes back to) the instance. The first one to enter creates the pump for the area, where the area keeps
-    /// its object records: a party member, a portal re-entry and a return after a death are given the pump, the foundations and the
-    /// towers as they stand by the area's join, and its monster types by the area's types, so nothing is created twice. What the
-    /// join does not carry is the resource, which a running defence tells the entering client.
-    /// </summary>
     public async Task Enter(Player player)
     {
         var run = Of(player) ?? Place(player);
@@ -359,18 +450,28 @@ public sealed class BlightEncounter
         {
             bool first;
             List<SpotView> spots;
+            List<BlightChestState> chests;
             lock (d)
             {
                 first = !d.Shown;
                 d.Shown = true;
                 spots = [.. d.Spots.Values.Select(View)];
+                chests = [.. d.Chests.Values];
             }
             if (first)
             {
                 changed = true;
                 await ShowPump(player, d);
+                await BlightCassia.SpawnNearPump(player, d, Members);
                 foreach (var spot in spots) await ShowSpot(player, d, spot);
             }
+            else
+            {
+                // Register existing wild Cassia in late-joining or returning player's Npcs dictionary.
+                await BlightCassia.SpawnNearPump(player, d, Members);
+            }
+            foreach (var chest in chests)
+                await BlightChests.ShowChest(player, chest, Shared, Members);
             bool running;
             lock (d) running = d.Phase != Phase.Ready;
             if (running) await SendResource(player, d);
@@ -393,21 +494,76 @@ public sealed class BlightEncounter
     static MonsterCatalog.Variety? VarietyOf(int row) =>
         BlightTables.Towers.ElementAtOrDefault(row) is { Variety: >= 0 } t && Monsters.Find(t.Variety.ToString()) is { Supported: true, StateMachine: not null } v ? v : null;
 
+    static (List<GrantedSkill> Skills, ushort[] TierSkills, ushort EmptyActionId, ushort[] TriggeredTierSkills) BuildTowerSkills(
+        Player player, MonsterCatalog.Variety variety, byte level)
+    {
+        var skills = new List<GrantedSkill>();
+        var tierSkills = new ushort[4];
+        ushort emptyActionId = 0;
+        var triggeredTierSkills = new ushort[4];
+        if (variety.GrantedEffects is not { Count: > 0 } effects) return (skills, tierSkills, emptyActionId, triggeredTierSkills);
+        var catalog = SkillsFor(player);
+        ushort nextId = 0x4100; // Disjoint from player gem skill IDs (0x0103..0x0142) and PR #1618 lifted monster kit IDs (0x4000..0x401f).
+        foreach (int effectRow in effects)
+        {
+            if (catalog.FindByRow(nextId, effectRow, level) is not { } granted) continue;
+            skills.Add(granted);
+            string effectId = catalog.EffectId(effectRow) ?? "";
+            int tier = effectId.EndsWith("_buff3", StringComparison.Ordinal) ? 3
+                : effectId.EndsWith("_buff2", StringComparison.Ordinal) ? 2
+                : effectId.EndsWith("_buff1", StringComparison.Ordinal) ? 1 : 0;
+
+            if (effectId.StartsWith("EmptyAction", StringComparison.Ordinal))
+            {
+                if (emptyActionId == 0) emptyActionId = granted.Id;
+            }
+            else if (effectId.Contains("FreezeProjectile", StringComparison.Ordinal)
+                || effectId.Contains("TowerFireball", StringComparison.Ordinal))
+            {
+                // Child projectile skills for EmptyAction* towers (Freezebolt & Fireball Mk I..III), dispatched via S→C 0x01ce triggered: true.
+                if (triggeredTierSkills[tier] == 0) triggeredTierSkills[tier] = granted.Id;
+            }
+            else if (!effectId.StartsWith("GeometrySpellBlightTowerFireballExplode", StringComparison.Ordinal)
+                && !effectId.EndsWith("Triggered", StringComparison.Ordinal))
+            {
+                if (tierSkills[tier] == 0) tierSkills[tier] = granted.Id;
+            }
+            nextId++;
+        }
+        // Fill higher empowering tiers from lower tiers when a tower only has a single base skill (e.g. Empowering Mk I..III).
+        for (int t = 1; t < 4; t++)
+        {
+            if (tierSkills[t] == 0) tierSkills[t] = tierSkills[t - 1];
+            if (triggeredTierSkills[t] == 0) triggeredTierSkills[t] = triggeredTierSkills[t - 1];
+        }
+        return (skills, tierSkills, emptyActionId, triggeredTierSkills);
+    }
+
     async Task ShowSpot(Player player, Defence d, SpotView spot)
     {
         if (VarietyOf(spot.Row) is not { } variety) return;
         byte level = d.Level;
         await RegisterType(player, variety.Row, level, $"0x0020 monster type {variety.Id}@{level}");
         var states = SpotStates(variety, spot);
+        var (skills, tierSkills, emptyActionId, triggeredTierSkills) = spot.Row > 0
+            ? BuildTowerSkills(player, variety, level)
+            : ([], [], (ushort)0, []);
+        if (skills.Count > 0)
+            lock (d)
+                if (d.Spots.TryGetValue(spot.Id, out var liveSpot))
+                {
+                    liveSpot.SkillIds = tierSkills;
+                    liveSpot.EmptyActionSkillId = emptyActionId;
+                    liveSpot.TriggeredSkillIds = triggeredTierSkills;
+                }
         uint life = (uint)Math.Max(1, Monsters.BaseLife(variety, level) ?? 1);
         var blob = new MonsterObject(spot.X, spot.Y, life, variety.ComponentsOrBase, StateMachine: states, TransitionState: variety.TransitionStates,
-            Team: 0, Stats: [(Stat.MaximumLife, (int)life)]) { LifeData = variety.LifeData }.Blob();
+            Team: 0, Skills: skills.Count > 0 ? skills : null, Stats: [(Stat.MaximumLife, (int)life)]) { LifeData = variety.LifeData }.Blob();
         uint type = InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level));
         await Shared(player, member => SendWorldCreate(member, spot.Id, () => InstanceEntities.CreateObject(spot.Id, type, blob),
             $"Blight {variety.Name} 0x{spot.Id:x}", wake: true, awaitBirth: false));
     }
 
-    /// <summary>A spot's StateMachine: the type's defaults, and while a tower is being raised the states the official raising sent.</summary>
     static StateMachineData SpotStates(MonsterCatalog.Variety variety, SpotView spot)
     {
         var s = variety.StateMachine!;
@@ -417,13 +573,6 @@ public sealed class BlightEncounter
         return s.Set("show_segments", 8).Set("building", spot.Upgrade ? 0 : 1).Set("show_effects", 1).Set("tower_active", 1);
     }
 
-    /// <summary>
-    /// The pump's create blob, component by component (the .ot order: Positioned, Pathfinding, Stats, Buffs, Life, Animated,
-    /// StateMachine, Transitionable, MinimapIcon, BaseEvents, InteractionAction). Positioned has team 1 and flags 0x01, Stats carries
-    /// virtual_on_full_life 1, Life holds 1, Animated has flag 0x40 (the model is the type's) and the base data is empty: each as the
-    /// official pump's create has it (one capture searched; its StateMachine data and every later update of it carry flag 0 for each
-    /// state, as here). The official create has two base-data entries that are not written here.
-    /// </summary>
     public static byte[] PumpBlob(Defence d)
     {
         var w = new BlobWriter();
@@ -462,15 +611,14 @@ public sealed class BlightEncounter
         return Tell(player, () => InstanceBlight.Resource(total), $"0x026a Blight resource {total}");
     }
 
-    // ---- Starting --------------------------------------------------------------------------------------------------------------
+    // ---- Starting & Fast-Forward -------------------------------------------------------------------------------------------------
 
-    /// <summary>A click on the pump. False when the object is not a defence's pump.</summary>
     public async Task<bool> Use(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (Of(player) is not { } run) return false;
         Defence? d;
         lock (run.Gate) d = run.Defences.FirstOrDefault(x => x.Pump == use.TargetId);
-        if (d is null) return false;
+        if (d is null) return await BlightChests.UseChest(player, run, use, requestedAt, Shared, Members, Save);
         if (player.PlayerLife == 0 || player.Closed || player.LeavingArea || InGracePeriod(player)) return true;
         bool ready;
         lock (d) ready = d.Phase == Phase.Ready;
@@ -480,7 +628,6 @@ public sealed class BlightEncounter
             await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null, still: () => PlayerActionCurrent(player, current));
             return true;
         }
-        // The pump's footprint blocks its own cells (object_types positioned_object_size 6, blocking): the player stops at its edge.
         int reach = Math.Max(0, StationaryCollision.Resolve(PumpObject).Size);
         if (!TryBeginObjectWalk(player, requestedAt, d.Cell.X, d.Cell.Y, reach, out var walk)) return true;
         var (action, now, here, _, arrive) = walk;
@@ -502,8 +649,28 @@ public sealed class BlightEncounter
         return true;
     }
 
-    /// <summary>Lays the lanes of a defence from its seed: a topology of its level (the Blighted map's own tree in a Blighted map), laid out on
-    /// walkable ground. A layout with no lane is laid again from the same draws, up to a few times; null when none has a lane.</summary>
+    /// <summary>C→S 0x0264: Fast-Forward button — skips remaining build-phase timer on any Building defence in the instance.</summary>
+    public Task<bool> FastForward(Player player, byte[] bytes)
+    {
+        if (Of(player) is not { } run) return Task.FromResult(false);
+        double now = AreaTime(player);
+        bool skipped = false;
+        lock (run.Gate)
+            foreach (var d in run.Defences)
+                lock (d)
+                {
+                    if (d.Phase != Phase.Building || d.Plan is not { } plan) continue;
+                    double remaining = Math.Max(0, (d.StartedAt + Frames(BuildFrames)) - now);
+                    d.Phase = Phase.Running;
+                    d.StartedAt -= remaining;
+                    for (int lane = 0; lane < plan.Lanes.Count; lane++)
+                        d.LaneNext[lane] = Math.Max(now, d.LaneNext.GetValueOrDefault(lane) - remaining);
+                    skipped = true;
+                }
+        if (skipped) Save(player, run);
+        return Task.FromResult(skipped);
+    }
+
     BlightLayout.Plan? MakePlan(Player player, Defence d)
     {
         var rng = new Random(d.PlanSeed);
@@ -524,7 +691,7 @@ public sealed class BlightEncounter
     public async Task Start(Player player, Defence d)
     {
         double now = AreaTime(player);
-        var stats = AreaLeagueStats(player);
+        var stats = AreaStats(player);
         List<SpotView> spots;
         lock (d)
         {
@@ -532,7 +699,6 @@ public sealed class BlightEncounter
             d.PlanSeed = HashCode.Combine(player.Seed, d.Cell.X, d.Cell.Y);
             if (MakePlan(player, d) is not { } plan)
             {
-                // No walkable lane from this pump: the defence cannot run, and the pump stays as it was.
                 Console.WriteLine($"[blight] {player.Layout.Id}: pump 0x{d.Pump:x} at {d.Cell} has no walkable lane; the defence does not start");
                 return;
             }
@@ -542,9 +708,29 @@ public sealed class BlightEncounter
             d.PumpStates[PumpReadyToStart] = 0;
             d.PumpStates[PumpActivated] = 1;
             d.PumpStep = 0;
-            int pack = 100 + stats.GetValueOrDefault(Stat.MapBlightEncounterPackSizePlusPctFinal);
-            d.MonstersPerLane = Math.Max(1, BaseMonstersPerLane * pack / 100);
-            d.Resource = StartResource;
+            int pack = Math.Max(10, 100 + stats.GetValueOrDefault(Stat.MapBlightEncounterPackSizePlusPctFinal));
+            int subWaves = Math.Max(0, stats.GetValueOrDefault(Stat.MapBlightHasXSubWaves));
+            int baseCount = d.UberBlighted ? 75 : d.Blighted ? 60 : BaseMonstersPerLane;
+            d.MonstersPerLane = Math.Max(1, baseCount * pack / 100 + subWaves * 10);
+            d.Resource = d.UberBlighted ? UberBlightedStartResource : d.Blighted ? BlightedStartResource : StartResource;
+
+            var laneRng = new Random(d.PlanSeed ^ 0x517cc1b7);
+            int bossOnlyCount = Math.Max(0, stats.GetValueOrDefault(Stat.MapBlightHasXBossLanes));
+            int extraBosses = Math.Max(0, stats.GetValueOrDefault(Stat.MapBlightUpToXAdditionalBosses));
+            d.LaneEncounterTypes.Clear();
+            var laneTypes = BlightWaves.PickLaneTypes(plan.Lanes.Count, bossOnlyCount, laneRng, out var bossOnly);
+            foreach (var (lane, encType) in laneTypes)
+                d.LaneEncounterTypes[lane] = encType;
+            d.BossOnlyLanes.Clear();
+            d.BossOnlyLanes.UnionWith(bossOnly);
+
+            d.LaneRewards.Clear();
+            foreach (var (lane, reward) in BlightChests.PickLaneRewards(plan.Lanes.Count, Program.LeagueFor(player).HardMode, stats, laneRng))
+                d.LaneRewards[lane] = reward;
+
+            d.BossLanes.Clear();
+            d.BossLanes.UnionWith(BlightWaves.PickBossLanes(plan.Lanes.Count, d.Level, d.Blighted, d.UberBlighted, extraBosses, d.BossOnlyLanes, laneRng));
+
             for (int lane = 0; lane < plan.Lanes.Count; lane++)
                 d.LaneNext[lane] = now + Frames(BuildFrames) + plan.Lanes[lane].Delay;
             foreach (var (x, y) in plan.Foundations)
@@ -555,26 +741,25 @@ public sealed class BlightEncounter
             spots = [.. d.Spots.Values.Select(View)];
         }
         await SendPumpStates(player, d, "activated");
-        // The official pump's InteractionAction update at the start is the component index and one byte 0.
         await Update(player, d.Pump, () => InstanceEntities.ComponentUpdate(d.Pump, PumpInteraction, [0]), $"Blight pump 0x{d.Pump:x} InteractionAction 0");
         foreach (var spot in spots) await ShowSpot(player, d, spot);
         await SendResource(player, d);
+        await BlightCassia.Say(player, BlightCassia.StartVoice, Members);
+        foreach (var member in Members(player))
+            await BlightCassia.GrantFlags(member, [BlightTables.QuestFlagIds.Received, BlightTables.QuestFlagIds.Started]);
         if (Of(player) is { } run) Save(player, run);
     }
 
     // ---- The tick --------------------------------------------------------------------------------------------------------------
 
-    /// <summary>One frame of the area (GameEvents.AreaTick), on the connection that runs the instance's monsters.</summary>
     public async Task Step(Player player)
     {
         if (!Current(player) || player.Paused || Of(player) is null || !IsMonsterRunner(player)) return;
         await Tick(player, AreaTime(player));
     }
 
-    /// <summary>Advances every defence of the instance by one tick; <paramref name="player"/> is the one live client that runs it.</summary>
     public Task Tick(Player player) => Tick(player, AreaTime(player));
 
-    /// <summary>One tick at the area time <paramref name="now"/> (seconds).</summary>
     public async Task Tick(Player player, double now)
     {
         if (Of(player) is not { } run) return;
@@ -593,12 +778,14 @@ public sealed class BlightEncounter
             {
                 await Spawn(player, d, now);
                 await March(player, d, now);
-                await FireTowers(player, d, now);
+                await BlightTowers.StepTowers(player, d, now, Members, VarietyOf, Update);
                 await CheckEnd(player, d, now);
             }
-            else if (now >= d.StartedAt + Frames(BuildFrames))
+            else if (d.Phase == Phase.Building)
             {
-                lock (d) d.Phase = Phase.Running;
+                await BlightTowers.StepTowers(player, d, now, Members, VarietyOf, Update);
+                if (now >= d.StartedAt + Frames(BuildFrames))
+                    lock (d) d.Phase = Phase.Running;
             }
         }
         if (now >= run.NextSave)
@@ -630,21 +817,20 @@ public sealed class BlightEncounter
         }
     }
 
-    /// <summary>Settles the defence's monsters: a dead one is resolved, one at the pump leaks and costs durability.</summary>
     async Task Settle(Player player, Defence d, double now)
     {
-        List<(uint Id, SpawnedMonster M)> leaked = [];
+        List<(uint Id, SpawnedMonster M, MonsterRarity Rarity)> leaked = [];
         lock (d)
             foreach (var (id, info) in d.Monsters)
             {
                 if (d.Resolved.Contains(id)) continue;
                 if (!player.Area.Monsters.TryGetValue(id, out var m) || m.Dead || m.Life == 0) { d.Resolved.Add(id); continue; }
                 var (x, y) = m.Walk.Position(now);
-                if (Math.Max(Math.Abs(x - d.Cell.X), Math.Abs(y - d.Cell.Y)) <= PumpReach) leaked.Add((id, m));
+                if (Math.Max(Math.Abs(x - d.Cell.X), Math.Abs(y - d.Cell.Y)) <= PumpReach) leaked.Add((id, m, info.Rarity));
             }
-        foreach (var (id, m) in leaked)
+        foreach (var (id, m, rarity) in leaked)
         {
-            int loss = 1;
+            int loss = rarity == MonsterRarity.Unique ? BlightWaves.BossDurabilityLoss : 1;
             lock (d)
             {
                 if (d.Phase is Phase.Won or Phase.Lost || !d.Resolved.Add(id)) continue;
@@ -657,7 +843,6 @@ public sealed class BlightEncounter
         }
     }
 
-    /// <summary>Takes a wave monster out of the instance as one that left the fight: no death, no drops, no experience.</summary>
     static async Task RemoveMonster(Player player, uint id, SpawnedMonster m)
     {
         using (ProjectileMutation(player))
@@ -673,46 +858,60 @@ public sealed class BlightEncounter
         await SendRemainingMonsters(player);
     }
 
-    /// <summary>The variety a lane's <paramref name="index"/>th enemy is: the rotation's next one the game can create.</summary>
-    static MonsterCatalog.Variety? WaveVariety(int lane, int index)
-    {
-        for (int k = 0; k < WaveVarieties.Length; k++)
-            if (Monsters.Find(WaveVarieties[(lane * 5 + index + k) % WaveVarieties.Length]) is { Supported: true } variety) return variety;
-        return null;
-    }
+    int LaneTargetCount(Defence d, int lane) =>
+        d.BossOnlyLanes.Contains(lane) ? Math.Min(d.MonstersPerLane, BossOnlyLaneCount) : d.MonstersPerLane;
 
     async Task Spawn(Player player, Defence d, double now)
     {
         if (d.Plan is not { } plan) return;
+        var rng = AreaRng(player);
+        var stats = AreaStats(player);
+        double spawnRateFactor = Math.Max(0.25, 1.0 + stats.GetValueOrDefault(Stat.MapBlightEncounterSpawnRatePlusPct) / 100.0);
+        // If a Blighted/Blight-ravaged timer has elapsed (300s - Teal Oil), stop spawning new wave monsters.
+        bool timedOut = d.EncounterDuration > 0 && now >= d.StartedAt + Frames(BuildFrames) + d.EncounterDuration;
+
         for (int lane = 0; lane < plan.Lanes.Count; lane++)
         {
-            int index;
+            int index, encType, totalPerLane;
+            bool hasBoss, bossOnly;
             lock (d)
             {
-                if (now < d.LaneNext.GetValueOrDefault(lane) || d.LaneSpawned.GetValueOrDefault(lane) >= d.MonstersPerLane) continue;
-                d.LaneNext[lane] = Math.Max(d.LaneNext[lane] + Frames(lane == d.FirstLane ? FirstLaneFrames : OtherLaneFrames), now);
+                totalPerLane = LaneTargetCount(d, lane);
+                if (timedOut) { d.LaneSpawned[lane] = totalPerLane; continue; }
+                if (now < d.LaneNext.GetValueOrDefault(lane) || d.LaneSpawned.GetValueOrDefault(lane) >= totalPerLane) continue;
+                double baseStep = Frames(lane == d.FirstLane ? FirstLaneFrames : OtherLaneFrames);
+                if (d.BossOnlyLanes.Contains(lane)) baseStep *= 4.0;
+                d.LaneNext[lane] = Math.Max(d.LaneNext[lane] + baseStep / spawnRateFactor, now);
                 index = d.LaneSpawned.GetValueOrDefault(lane) + 1;
+                encType = d.LaneEncounterTypes.GetValueOrDefault(lane, 0);
+                hasBoss = d.BossLanes.Contains(lane);
+                bossOnly = d.BossOnlyLanes.Contains(lane);
             }
-            if (WaveVariety(lane, index) is not { } variety)
+            var rarity = BlightWaves.RarityFor(index, totalPerLane, hasBoss, bossOnly, rng);
+            if (BlightWaves.VarietyFor(encType, lane, index, rarity) is not { } variety)
             {
-                // None of the lane's varieties can be created: the lane has nothing to send.
-                lock (d) d.LaneSpawned[lane] = d.MonstersPerLane;
+                lock (d) d.LaneSpawned[lane] = totalPerLane;
                 continue;
             }
             var end = plan.Lanes[lane].End;
-            uint id = await SpawnMonster(player, variety, d.Level, MonsterRarity.Normal, end.X, end.Y, log: false, alone: false, instanceOwned: true);
-            // A spawn that did not happen is not counted: the lane tries again at its next interval, and the other lanes go on.
+            uint? ownedLife = rarity == MonsterRarity.Unique ? BlightWaves.ComputeBossLife(variety, d.Level, stats) : null;
+            // Set blight_boss=1 on Unique Blight Bosses; leave shape=null on normal/magic/rare lane monsters so
+            // PR #1618 S5 MonsterStates.DefaultVisibleStates and S6 MonsterKitHooks.ApplyStateTransitions apply unhindered.
+            Func<MonsterObject, MonsterObject>? bossShape = rarity == MonsterRarity.Unique && variety.StateMachine?.IndexOf("blight_boss") >= 0
+                ? m => m with { StateMachine = m.StateMachine?.Set("blight_boss", 1) }
+                : null;
+            uint id = await SpawnMonster(player, variety, d.Level, rarity, end.X, end.Y,
+                log: rarity == MonsterRarity.Unique, alone: false, instanceOwned: true, ownedMaximumLife: ownedLife, shape: bossShape);
             if (id == 0) continue;
             lock (d)
             {
                 d.LaneSpawned[lane] = index;
-                d.Monsters[id] = (lane, MonsterRarity.Normal);
+                d.Monsters[id] = (lane, rarity);
                 d.PathIndex[id] = plan.Lanes[lane].Path.Count - 1;
             }
         }
     }
 
-    /// <summary>Sends each of the defence's monsters that is not fighting on to the next stretch of its lane towards the pump.</summary>
     async Task March(Player player, Defence d, double now)
     {
         if (d.Plan is not { } plan) return;
@@ -721,7 +920,9 @@ public sealed class BlightEncounter
             foreach (var (id, info) in d.Monsters)
             {
                 if (d.Resolved.Contains(id) || !d.PathIndex.TryGetValue(id, out int index) || index <= 0) continue;
-                if (!player.Area.Monsters.TryGetValue(id, out var m) || m.Dead || m.Life == 0 || m.Aggro || now < m.Walk.ArrivesAt) continue;
+                // Never interrupt aggro'd monsters or an active skill/EmptyAction* combo (BusyUntil) by incrementing ActionGeneration.
+                if (!player.Area.Monsters.TryGetValue(id, out var m) || m.Dead || m.Life == 0 || m.Aggro || now < m.Walk.ArrivesAt || now < m.BusyUntil) continue;
+                if (m.Ailments.ActionFactor(now) <= 0 || m.Effects[Stat.ActionSpeedMinusPct] >= 100) continue;
                 var path = plan.Lanes[info.Lane].Path;
                 var from = m.Walk.Position(now);
                 int next = Math.Max(0, Math.Min(index, path.Count - 1) - 8);
@@ -740,7 +941,8 @@ public sealed class BlightEncounter
     {
         bool done;
         lock (d)
-            done = d.Plan is { } plan && plan.Lanes.Count > 0 && Enumerable.Range(0, plan.Lanes.Count).All(l => d.LaneSpawned.GetValueOrDefault(l) >= d.MonstersPerLane)
+            done = d.Plan is { } plan && plan.Lanes.Count > 0
+                && Enumerable.Range(0, plan.Lanes.Count).All(l => d.LaneSpawned.GetValueOrDefault(l) >= LaneTargetCount(d, l))
                 && d.Monsters.Keys.All(d.Resolved.Contains);
         if (done) await Finish(player, d, now, won: true);
     }
@@ -756,16 +958,66 @@ public sealed class BlightEncounter
             d.PumpStates[PumpNextPath] = 0;
             d.PumpStates[PumpActivated] = 3;
             d.PumpStates[won ? PumpSuccess : PumpFail] = 1;
-            d.NextPathOffAt = double.PositiveInfinity;
             foreach (var id in d.Monsters.Keys.Where(id => !d.Resolved.Contains(id)).ToArray())
             {
                 d.Resolved.Add(id);
                 if (player.Area.Monsters.TryGetValue(id, out var m)) left.Add((id, m));
             }
         }
-        foreach (var (id, m) in left) await RemoveMonster(player, id, m);
+        await BlightTowers.CleanupDefence(player, d, Members);
+        foreach (var (id, m) in left)
+        {
+            if (!won && m.States is { } cur && cur.IndexOf("encounter_failed") >= 0 && m.Variety is { } v)
+            {
+                var comps = v.ComponentsOrBase;
+                int smIdx = -1;
+                for (int cIdx = 0; cIdx < comps.Count; cIdx++)
+                    if (comps[cIdx] == "StateMachine") { smIdx = cIdx; break; }
+                if (smIdx >= 0)
+                {
+                    var failed = cur.Set("encounter_failed", 1);
+                    m.States = failed;
+                    await Update(player, id, () => InstanceEntities.StateMachineUpdate(id, (byte)smIdx, failed),
+                        $"Blight monster 0x{id:x} encounter_failed=1");
+                }
+            }
+            await RemoveMonster(player, id, m);
+        }
         await SendPumpStates(player, d, won ? "success" : "fail");
         await SendPumpTransition(player, d, 4);
+
+        var stats = AreaStats(player);
+        var members = Members(player);
+        if (won)
+        {
+            await BlightChests.SpawnVictoryChests(player, d, Shared, Members);
+            // Fungal Horizons: grant Blightreach buff (BuffDefinitions 2512) so remaining map drops convert to Blighted maps!
+            if (stats.GetValueOrDefault(Stat.MapBlightTouchedBuffOnBlightEncounterComplete) > 0 && player.Instance is { } inst)
+            {
+                BlightreachInstances.AddOrUpdate(inst, BlightreachMarker);
+                foreach (var member in members)
+                {
+                    ushort buffInst = member.NextBuff++;
+                    if (buffInst == 0) buffInst = member.NextBuff++;
+                    await SendWorldRecord(member, member.Id, InstanceEntities.AddBuff(member.Id, buffInst, BlightTowers.BlightreachBuffRow),
+                        "0x01c1 Fungal Horizons Blightreach buff 2512");
+                }
+            }
+            var winFlags = new List<string>
+            {
+                BlightTables.QuestFlagIds.Success,
+                BlightTables.QuestFlagIds.Complete,
+                BlightTables.QuestFlagIds.QuestComplete,
+                BlightTables.QuestFlagIds.AnointingUnlocked,
+            };
+            if (d.Level >= 68) winFlags.Add(BlightTables.QuestFlagIds.EndgameUnlocked);
+            foreach (var member in members) await BlightCassia.GrantFlags(member, winFlags);
+        }
+        else
+        {
+            foreach (var member in members) await BlightCassia.GrantFlags(member, [BlightTables.QuestFlagIds.Failed]);
+        }
+        await BlightCassia.Say(player, won ? BlightCassia.VictoryVoice : BlightCassia.FailureVoice, Members);
         if (Of(player) is { } run) Save(player, run);
     }
 
@@ -782,34 +1034,146 @@ public sealed class BlightEncounter
         if (go.Count > 0 && Of(player) is { } run) Save(player, run);
     }
 
-    // ---- Kills -----------------------------------------------------------------------------------------------------------------
+    // ---- Kills, Damage Scaling & Drops -------------------------------------------------------------------------------------------
 
-    /// <summary>A kill (the player's or a minion's): a defence's enemy gives the resource its rarity's BlightBalancePerLevel value names.</summary>
+    /// <summary>GameEvents.OutgoingDamage: applies Cassia's Pride (-75% player damage vs Blight monsters) and
+    /// Sturdy Construction (+12% + small nodes increased damage taken by Blight monsters). O(1) no-op outside Blight.</summary>
+    public DamagePacket OnOutgoingDamage(Player player, IReadOnlyDictionary<uint, int> playerStats, SpawnedMonster target, DamagePacket rolled)
+    {
+        if (Of(player) is not { } run) return rolled;
+        bool isBlightMonster = false;
+        lock (run.Gate)
+            foreach (var d in run.Defences)
+                lock (d)
+                    if (d.Monsters.ContainsKey(target.ObjectId)) { isBlightMonster = true; break; }
+        if (!isBlightMonster) return rolled;
+
+        var stats = AreaStats(player);
+        double factor = 1.0;
+        int cassiasPride = stats.GetValueOrDefault(Stat.MapBlightMonstersDamageTakenFromPlayerSourcesPlusPctFinal);
+        // Atlas Keystone Cassia's Pride (PassiveSkills 4794) grants atlas_keystone_cassias_pride = 1 -> -75% player damage.
+        if (cassiasPride == 0 && stats.GetValueOrDefault(Stat.AtlasKeystoneCassiasPride) > 0) cassiasPride = -75;
+        if (cassiasPride != 0) factor *= Math.Max(0.05, 1.0 + cassiasPride / 100.0);
+        int sturdyTakePct = stats.GetValueOrDefault(Stat.MapBlightMonstersTakePlusPctDamage);
+        if (sturdyTakePct != 0) factor *= Math.Max(0.1, 1.0 + sturdyTakePct / 100.0);
+        return Math.Abs(factor - 1.0) < 1e-6 ? rolled : rolled.Scale(factor);
+    }
+
+    /// <summary>GameEvents.Drops: scales Blight monster drops (Atlas IIQ + Scarab of Invigoration), banks drops for
+    /// the Pump Victory Lootsplosion, drops anointed items on bosses (if stat active), and converts maps under Blightreach.</summary>
+    public void OnDrops(DropRoll roll)
+    {
+        var player = roll.Player;
+        var inst = player.Instance;
+        if (inst is null) return;
+
+        // 1. Fungal Horizons Blightreach buff: convert dropped regular maps into Blighted Maps for the rest of the area.
+        if (BlightreachInstances.TryGetValue(inst, out _))
+        {
+            var stats = AreaStats(player);
+            int convPct = stats.GetValueOrDefault(Stat.MapDropChanceToConvertToBlightMapPct);
+            int chance = convPct > 0 ? convPct : 100;
+            bool blooming = stats.GetValueOrDefault(Stat.MapBlightMapsDropAsUberBlightMaps) > 0;
+            bool randomAnoints = stats.GetValueOrDefault(Stat.MapBlightedMapsDropWithRandomAnoints) > 0;
+            var modCatalog = ItemsFor(player).Mods;
+            roll.Changes.Add((drop, rng) =>
+            {
+                if (!CurrencyEffects.IsMap(drop.Item, drop.Type) || rng.Next(100) >= chance) return [drop];
+                bool uber = blooming && drop.Item.ItemLevel >= 81;
+                return [drop with { Item = BlightChests.MakeBlightedMap(drop.Item, uber, randomAnoints, rng, modCatalog) }];
+            });
+        }
+
+        // 2. Blight defence monster drop scaling & lootsplosion banking.
+        if (Of(player) is not { } run) return;
+        Defence? owner = null;
+        bool enhanced = false;
+        lock (run.Gate)
+            foreach (var d in run.Defences)
+                lock (d)
+                    if (d.Monsters.ContainsKey(roll.Monster.ObjectId))
+                    {
+                        owner = d;
+                        enhanced = d.EnhancedMonsters.Contains(roll.Monster.ObjectId);
+                        break;
+                    }
+        if (owner is null) return;
+
+        var areaStats = AreaStats(player);
+        int monsterIiq = areaStats.GetValueOrDefault(Stat.MapBlightMonsterItemQuantityPlusPct);
+        if (monsterIiq > 0) roll.Quantity *= 1.0 + monsterIiq / 100.0;
+        if (enhanced)
+        {
+            // Scarab of Invigoration: enhanced monsters grant substantially more item quantity & rarity.
+            roll.Quantity *= 1.5;
+            roll.Rarity *= 1.5;
+        }
+        // Blight bosses drop X anointed items (map_blight_bosses_drop_X_anointed_items).
+        if (roll.Monster.Rarity == MonsterRarity.Unique)
+        {
+            int anointedDrops = areaStats.GetValueOrDefault(Stat.MapBlightBossesDropXAnointedItems);
+            if (anointedDrops > 0)
+            {
+                var rng = AreaRng(player);
+                for (int i = 0; i < anointedDrops; i++)
+                    if (BlightAnointing.RollRandomAnointedJewellery(player, owner.Level, rng) is { } jew)
+                        roll.Made.Add(jew);
+            }
+        }
+        // Bank a sample of monster drops for the Pump Victory Lootsplosion when defence finishes.
+        roll.AddTransform(drops =>
+        {
+            if (drops.Count == 0) return;
+            lock (owner)
+            {
+                if (owner.Phase != Phase.Running || owner.BankedPumpLoot.Count >= MaxBankedLootsplosionItems) return;
+                // Keep up to 1 item per qualifying kill banked for the pump explosion (rest drop normally).
+                int take = Math.Min(1, MaxBankedLootsplosionItems - owner.BankedPumpLoot.Count);
+                for (int i = 0; i < take && drops.Count > 0; i++)
+                {
+                    owner.BankedPumpLoot.Add(drops[^1].Item);
+                    drops.RemoveAt(drops.Count - 1);
+                }
+            }
+        });
+    }
+
+    /// <summary>A kill (the player's or a minion's): grants Blight resource, increments kill counter, and rolls Blightspawn boss extra chests.</summary>
     public async Task Killed(KillContext kill)
     {
         var player = kill.Player;
         if (Of(player) is not { } run) return;
         Defence? d = null;
         int gained = 0;
+        bool wasBoss = false;
         lock (run.Gate)
             foreach (var x in run.Defences)
                 lock (x)
                     if (x.Monsters.TryGetValue(kill.Monster.ObjectId, out var info) && x.Resolved.Add(kill.Monster.ObjectId))
                     {
                         d = x;
-                        gained = (int)info.Rarity < BlightTables.KillResource.Count ? BlightTables.KillResource[(int)info.Rarity] : 0;
+                        wasBoss = info.Rarity == MonsterRarity.Unique;
+                        var balance = BlightTables.BalanceFor(x.Level, x.Blighted, x.UberBlighted);
+                        var res = balance.KillResource.Count > 0 ? balance.KillResource : BlightTables.KillResource;
+                        gained = (int)info.Rarity < res.Count ? res[(int)info.Rarity] : 0;
                         x.Resource += (uint)gained;
+                        x.KilledCount++;
                         break;
                     }
-        if (d is not null && gained > 0) await SendResource(player, d);
+        if (d is null) return;
+        if (wasBoss)
+        {
+            int bossChestChance = AreaStats(player).GetValueOrDefault(Stat.MapBlightBossesHavePctChanceToAddAdditionalReward);
+            if (bossChestChance > 0 && AreaRng(player).Next(100) < bossChestChance)
+                lock (d) d.ExtraBossChests++;
+        }
+        if (gained > 0) await SendResource(player, d);
     }
 
     // ---- Towers ----------------------------------------------------------------------------------------------------------------
 
-    /// <summary>The client's build or upgrade choice (C→S 0x265). True when the message was a defence's.</summary>
     public async Task<bool> Build(Player player, byte[] bytes)
     {
-        // The packet table frames the message at its length; a shorter one is not read.
         if (bytes.Length < InstanceBlight.TowerBuildLength) return true;
         var (target, row) = InstanceBlight.ReadTowerBuild(bytes);
         if (Of(player) is not { } run) return false;
@@ -822,11 +1186,18 @@ public sealed class BlightEncounter
         if (player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
         var tables = BlightTables.Towers;
         if (row >= tables.Count || VarietyOf((int)row) is null) return true;
-        var stats = AreaLeagueStats(player);
+        var stats = AreaStats(player);
+        var wanted = tables[(int)row];
+        // Enforce BlightTowersPerLevel MinLevel (Chilling/Flame lvl 1, Minion lvl 6, Shocking lvl 11, Empowering/Seismic lvl 15)
+        // unless map_can_have_underlevelled_blight overrides it.
+        if (wanted.MinLevel > d.Level && stats.GetValueOrDefault(Stat.MapCanHaveUnderlevelledBlight) <= 0)
+            return true;
+
         int percent = 100 + stats.GetValueOrDefault(Stat.MapBlightTowerCostPlusPct);
-        long cost = (long)tables[(int)row].Cost * Math.Max(0, percent) / 100 * (stats.GetValueOrDefault(Stat.MapBlightTowerCostDoubled) > 0 ? 2 : 1);
+        long cost = (long)wanted.Cost * Math.Max(0, percent) / 100 * (stats.GetValueOrDefault(Stat.MapBlightTowerCostDoubled) > 0 ? 2 : 1);
         uint oldId;
         SpotView built;
+        Spot upgradedSpot;
         lock (d)
         {
             if (!d.Spots.TryGetValue(target, out var spot)) return true;
@@ -838,13 +1209,21 @@ public sealed class BlightEncounter
             spot.Upgrade = spot.Row > 0;
             spot.Row = (int)row;
             spot.Raising = spot.Upgrade ? RaiseSteps : 1;
+            spot.SkillIds = [];
+            spot.EmptyActionSkillId = 0;
+            spot.TriggeredSkillIds = [];
+            spot.EmpowerBuffInstance = 0;
+            spot.EmpowerBuffTier = 0;
             spot.Id = player.Instance.World.TakeObjectId();
             d.Spots[spot.Id] = spot;
             built = View(spot);
+            upgradedSpot = spot;
         }
+        await BlightTowers.DismissSpotMinions(player, d, upgradedSpot);
         await SendResource(player, d);
         await ShowSpot(player, d, built);
         await Remove(player, oldId, $"Blight 0x{oldId:x} replaced by tower 0x{built.Id:x}");
+        await BlightCassia.GrantFlags(player, [BlightTables.QuestFlagIds.TowerBuilt]);
         Save(player, run);
         return true;
     }
@@ -863,7 +1242,6 @@ public sealed class BlightEncounter
                 if (!d.Spots.TryGetValue(view.Id, out var spot) || spot.Raising != view.Raising) continue;
                 states = SpotStates(variety, View(spot));
                 spot.Raising = view.Raising < RaiseSteps ? view.Raising + 1 : 0;
-                // The tower's first attack comes a full interval after it is up, on the tick's own clock.
                 if (spot.Raising == 0) spot.NextFire = now + TowerInterval;
             }
             await Update(player, view.Id, () => InstanceEntities.StateMachineUpdate(view.Id, SpotStateMachine, states),
@@ -871,40 +1249,9 @@ public sealed class BlightEncounter
         }
     }
 
-    /// <summary>Each finished damage tower hits the nearest enemy of the defence in its radius once a second. Only the towers in
-    /// <see cref="DamageTowers"/> do anything: the other 13 buildable ones (Glacial Cage, Empowering, Imbuing, Smothering, Temporal, Stone Gaze,
-    /// the Summoning, Scout and Sentinel towers) are raised and paid for but have no effect yet. The radius is read as cells and the damage is the
-    /// tower variety's own base damage [estimated: the tower skills' numbers are not read; no ailment is applied].</summary>
-    async Task FireTowers(Player player, Defence d, double now)
-    {
-        List<(Spot Spot, BlightTables.Tower Tower, MonsterCatalog.Variety Variety)> ready = [];
-        lock (d)
-            foreach (var spot in d.Spots.Values)
-                if (spot.Row > 0 && spot.Raising == 0 && now >= spot.NextFire
-                    && BlightTables.Towers[spot.Row] is var tower && DamageTowers.Any(p => tower.Id.StartsWith(p, StringComparison.Ordinal))
-                    && VarietyOf(spot.Row) is { } variety)
-                    ready.Add((spot, tower, variety));
-        foreach (var (spot, tower, variety) in ready)
-        {
-            uint targetId = 0;
-            SpawnedMonster? target = null;
-            double best = tower.Radius;
-            lock (d)
-            {
-                foreach (var id in d.Monsters.Keys)
-                {
-                    if (d.Resolved.Contains(id) || !player.Area.Monsters.TryGetValue(id, out var m) || m.Dead || m.Life == 0) continue;
-                    var p = m.Walk.Position(now);
-                    double distance = Math.Sqrt((double)(p.X - spot.X) * (p.X - spot.X) + (double)(p.Y - spot.Y) * (p.Y - spot.Y));
-                    if (distance > best) continue;
-                    best = distance;
-                    (targetId, target) = (id, m);
-                }
-                if (target is not null) spot.NextFire = now + TowerInterval;
-            }
-            if (target is null) continue;
-            int damage = Monsters.BaseDamage(variety, d.Level) is { } dmg ? (dmg.Min + dmg.Max) / 2 : 0;
-            if (damage > 0) await HitMonster(player, targetId, target, damage, tower.Name, log: false);
-        }
-    }
+    /// <summary>Clears static Blightreach instance state on module unload.</summary>
+    public static void ClearBlightreach() => BlightreachInstances.Clear();
+
+    /// <summary>Whether Fungal Horizons' Blightreach buff is currently active in <paramref name="instance"/>.</summary>
+    public static bool HasBlightreach(InstanceState? instance) => instance is not null && BlightreachInstances.TryGetValue(instance, out _);
 }

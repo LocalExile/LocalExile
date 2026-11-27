@@ -141,7 +141,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   the campaign have no campaign hook yet:
   - **Vaal Side Areas** (Acts 1–10 corruption side areas and Vaal Vessel bosses).
   - **Bestiary / Einhar** (Act 2+ campaign beast spawns, Einhar appearances and capture encounters).
-  - **Blight / Cassia** (campaign Blight encounters, lanes and tower defence).
+  - **Blight / Cassia** (wired offline for campaign/maps/Blighted/Blight-ravaged; live client verification and HUD packets `0x0266`–`0x0269` pending).
   - **Delirium Mirrors** (Act 5+ campaign Delirium Mirror spawns and fog scaling).
 - **Done when:** each league module is implemented and wired into campaign area generation at its retail act threshold.
 

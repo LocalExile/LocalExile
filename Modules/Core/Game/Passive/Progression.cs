@@ -303,6 +303,12 @@ public static partial class Game
             conditionFlags, recentAmounts, poisonStacks, ItemsFor(player));
         if (player.StatSourcesCache is { } cached && cached.Key.Matches(sourcesKey))
         {
+            // Restore per-player anointed notable cache if the Game module hot-reloaded while StatSourcesCache stayed warm.
+            if (!AnointedPassivesOf.TryGetValue(player, out _))
+            {
+                var activeForAnoint = worn.Where(w => !cached.Inactive.Contains(w.Id)).Select(w => w.Item).ToArray();
+                AnointedPassivesOf.AddOrUpdate(player, CollectAnointedPassives(activeForAnoint, ItemsFor(player).Mods, PassivesFor(player), allocated));
+            }
             PublishQualifiedItemLifeReservationPercent(player, cached.Key.QualifiedItemLifeReservationPercent);
             player.Connection.Performance.LookupHit(probe);
             return (new(cached.Sources), cached.Attributes, new(cached.Inactive), cached.Worn);
@@ -711,12 +717,14 @@ public static partial class Game
             var itemBonuses = ItemBonuses(items);
             var raw = ItemModStats.RawAttributes(itemBonuses, ItemsFor(player).Mods);
             foreach (var (name, value) in passiveAttributes) raw[name] = raw.GetValueOrDefault(name) + value;
+            AddAnointedPassiveAttributes(itemBonuses, catalog.Mods, tree, allocated, raw);
             // Independent equipment-count modifiers settle before comparisons that read those final attributes.
             // Keep wide attribute inputs and use the same conditional view for qualification and final pools.
             for (int pass = 0; pass < 4; pass++)
             {
                 var next = ItemModStats.RawAttributes(itemBonuses, ItemsFor(player).Mods, ConditionSubject(raw, items), Stats.Has);
                 foreach (var (name, value) in passiveAttributes) next[name] = next.GetValueOrDefault(name) + value;
+                AddAnointedPassiveAttributes(itemBonuses, catalog.Mods, tree, allocated, next);
                 bool same = raw.Count == next.Count && raw.All(p => next.TryGetValue(p.Key, out long value) && p.Value == value);
                 raw = next;
                 if (same) break;
@@ -783,6 +791,19 @@ public static partial class Game
         // whose stats become the character's, before the raw attributes and the item sum read it.
         active = WithQuiverModifierEffect(active, catalog, passives);
         var itemBonuses = ItemBonuses(active);
+        // Anointed passives from active qualified equipment (Amulets, Stranglegasp up to 4, Blight Uniques:
+        // Mods.dat GrantedPassive..GrantedPassive5 / mod_granted_passive_hash.._5). Nodes already allocated on the
+        // tree or duplicated across items are skipped so a notable is never double-counted.
+        var anointedNodes = CollectAnointedPassives(itemBonuses, catalog.Mods, tree, allocated);
+        if (anointedNodes.Length > 0)
+        {
+            foreach (ushort graphId in anointedNodes)
+                if (tree.Find(graphId) is { } granted)
+                    foreach (var (key, value) in granted.Stats)
+                        passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
+            PassiveBuffAuras.WithSelfBuffs(passives, anointedNodes, LeagueFor(player).HardMode);
+        }
+        AnointedPassivesOf.AddOrUpdate(player, anointedNodes);
         var rawAttributes = RawAttributes(active);
         // Qualification for this exact build is now known. Re-evaluate reservation-only conditions from that active set,
         // so an item's first action after a requirement change cannot use the previous inactive cache.
@@ -979,6 +1000,74 @@ public static partial class Game
     sealed record AttributeRequirementSource(PassiveTree Tree, ushort[] Ordinary, ushort[] Ascendancy,
         Dictionary<ushort, ushort> Masteries, int Value);
     static readonly Store<Player, AttributeRequirementSource> AttributeRequirementSources = new();
+
+    sealed record ItemAnointCache(ModCatalog Mods, ushort[] Nodes);
+    static readonly RuleTable<Item, ItemAnointCache> ItemAnoints = new();
+    static readonly Store<Player, ushort[]> AnointedPassivesOf = new();
+
+    /// <summary>Anointed passive skill graph IDs currently active on <paramref name="player"/> from qualified gear
+    /// (empty array when none; zero-allocation read on the hot path).</summary>
+    public static ushort[] AnointedNodesOf(Player player) =>
+        AnointedPassivesOf.TryGetValue(player, out var nodes) ? nodes : [];
+
+    /// <summary>Reads <c>mod_granted_passive_hash</c>..<c>mod_granted_passive_hash_5</c> from one immutable item,
+    /// memoized per item reference so unchanged gear incurs zero scanning.</summary>
+    public static ushort[] ItemGrantedPassiveIds(Item item, ModCatalog mods)
+    {
+        if (ItemAnoints.TryGetValue(item, out var cached) && ReferenceEquals(cached.Mods, mods))
+            return cached.Nodes;
+        List<ushort>? found = null;
+        foreach (var mod in item.Mods)
+        {
+            if (mods.ByHash(mod.Hash) is not { } row) continue;
+            for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
+            {
+                uint id = row.Stats[s].Id;
+                if (id is Stat.ModGrantedPassiveHash or Stat.ModGrantedPassiveHash2
+                    or Stat.ModGrantedPassiveHash3 or Stat.ModGrantedPassiveHash4 or Stat.ModGrantedPassiveHash5)
+                {
+                    int raw = mod.Values[s];
+                    if (raw == 0) continue;
+                    ushort graphId = unchecked((ushort)raw);
+                    if (graphId != 0 && !(found ??= []).Contains(graphId))
+                        found.Add(graphId);
+                }
+            }
+        }
+        ushort[] result = found is null ? [] : [.. found];
+        ItemAnoints.AddOrUpdate(item, new(mods, result));
+        return result;
+    }
+
+    static ushort[] CollectAnointedPassives(IReadOnlyList<Item> items, ModCatalog mods, PassiveTree tree, IReadOnlySet<ushort> allocated)
+    {
+        List<ushort>? result = null;
+        for (int i = 0; i < items.Count; i++)
+        {
+            var ids = ItemGrantedPassiveIds(items[i], mods);
+            if (ids.Length == 0) continue;
+            for (int k = 0; k < ids.Length; k++)
+            {
+                ushort gid = ids[k];
+                if (allocated.Contains(gid) || tree.Find(gid) is null) continue;
+                if (result is null) result = [gid];
+                else if (!result.Contains(gid)) result.Add(gid);
+            }
+        }
+        return result is null ? [] : [.. result];
+    }
+
+    static void AddAnointedPassiveAttributes(IReadOnlyList<Item> items, ModCatalog mods, PassiveTree tree,
+        IReadOnlySet<ushort> allocated, Dictionary<uint, long> raw)
+    {
+        var anointed = CollectAnointedPassives(items, mods, tree, allocated);
+        if (anointed.Length == 0) return;
+        for (int i = 0; i < anointed.Length; i++)
+            if (tree.Find(anointed[i]) is { } passive)
+                foreach (var (key, value) in passive.Stats)
+                    if (AttributeModifiers.IsInput(key))
+                        raw[key] = raw.GetValueOrDefault(key) + value;
+    }
 
     /// <summary>The inputs of CharacterStatSources' passive and equipment sum, compared by value (items by reference).</summary>
     /// PoisonStacks stays in the shape so existing callers keep compiling, but it is not compared: no part of

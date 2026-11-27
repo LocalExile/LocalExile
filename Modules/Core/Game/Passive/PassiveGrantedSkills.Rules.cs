@@ -27,7 +27,7 @@ public static partial class Game
     {
         var passives = PassivesFor(player);
         var passiveGrants = (LeagueFor(player).HardMode ? RuthlessGrantedSkills : GrantedSkills)
-            .For([.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated])
+            .For([.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated, .. AnointedNodesOf(player)])
             .Where(g => passives.Find(g.Node)?.Stats.Any(s => s.Key == key && s.Value != 0) == true);
         return passiveGrants.Concat(TattooTriggeredGrantsLocked(player, key));
     }
@@ -76,7 +76,7 @@ public static partial class Game
     static IReadOnlyList<PassiveGrantedSkills.Grant> GrantedSkillsOf(Player player)
     {
         ushort[] nodes;
-        nodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated];
+        nodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated, .. AnointedNodesOf(player)];
         return [.. (LeagueFor(player).HardMode ? RuthlessGrantedSkills : GrantedSkills).For(nodes)
             .Where(g => AuraCatalog.Supported(g.EffectId) || IsRelicSkill(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, g.EffectId)))];
