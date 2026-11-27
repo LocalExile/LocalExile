@@ -1291,7 +1291,12 @@ public sealed class ItemDrops
     /// scales the chance (a monster's or league's map-related drop chance), and <paramref name="tierUpgradePermillage"/>
     /// rolls a +1 tier upgrade (clamped to 16) only after the map drop roll succeeds.</summary>
     public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng, int voidstones = 0,
-        double chanceFactor = 1, int tierUpgradePermillage = 0, int increasedRarity = 0)
+        double chanceFactor = 1, int tierUpgradePermillage = 0, int increasedRarity = 0) =>
+        Map(monsterLevel, monster, mapTier, rng, voidstones, chanceFactor, tierUpgradePermillage, increasedRarity,
+            corruptEightMods: false);
+
+    public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng, int voidstones,
+        double chanceFactor, int tierUpgradePermillage, int increasedRarity, bool corruptEightMods)
     {
         if (maps is null || (mapTier <= 0 && monsterLevel < MinCampaignMapDropLevel())) return null;
         double chance = monster switch { MonsterRarity.Normal => 0.004, MonsterRarity.Magic => 0.012, MonsterRarity.Rare => 0.05, _ => 0.20 };
@@ -1308,7 +1313,17 @@ public sealed class ItemDrops
         if (maps.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type
             || (mapTier <= 0 && monsterLevel < type.DropLevel)) return null;
         var item = ItemCatalog.Create(type) with { ItemLevel = (byte)Math.Clamp(monsterLevel + ItemLevelBonus(monster), 1, 100) };
-        if (rolls is not null)
+        if (corruptEightMods)
+        {
+            item = rolls is not null && rolls.Pool(type, item).Count > 0
+                ? rolls.Roll(item, ItemRarity.Rare, rng, shape: (8, 4), respectMetamods: false) with
+                {
+                    Corrupted = true,
+                    Identified = true,
+                }
+                : item with { Corrupted = true };
+        }
+        else if (rolls is not null)
         {
             double iirFactor = Math.Max(0, 100 + increasedRarity) / 100.0;
             double rareChance = Math.Min(0.50, 0.04 * iirFactor);

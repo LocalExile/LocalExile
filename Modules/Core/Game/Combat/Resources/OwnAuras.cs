@@ -329,7 +329,7 @@ public static partial class Game
                 continue;
             }
             var support = AuraSupport(player, aura.SkillId);
-            var context = ReservationContext(player, aura.SkillId);
+            var context = ReservationContext(player, aura.SkillId, input.Raw);
             string? stance = StanceCatalog.IsStance(aura.EffectId)
                 ? StanceCatalog.SelectionOf(aura, player.Stance) : null;
             var repriced = aura with

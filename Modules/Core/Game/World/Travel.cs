@@ -498,6 +498,12 @@ public static partial class Game
         string[] endgame;
         endgame = [.. Quests.EndgameOnly.Where(player.Character.UnearnedQuestFlags.Contains)];
         if (endgame.Length > 0 && (inHideout || MapDevices.IsMapArea(player.Layout.Hash))) own.UnionWith(endgame);
+        // The client requires IsMapOwner (QuestFlags row 2020) for map-owner HUD controls such as the Delirium and
+        // Blight skip-delay (>>) buttons, regardless of which side encounters spawned in the map.
+        if (MapDevices.IsMapArea(player.Layout.Hash)
+            && (MapRunOf(player) is not { } run || string.IsNullOrEmpty(run.Owner)
+                || string.Equals(run.Owner, CharacterName(player), StringComparison.OrdinalIgnoreCase)))
+            own.Add("IsMapOwner");
         // What a module grants for this area alone (GameEvents.AreaQuestFlags): the client has it while it is here.
         if (GameEvents.RunAreaQuestFlags(player) is { } granted) own.UnionWith(granted);
         lock (player.Character.Waypoints)

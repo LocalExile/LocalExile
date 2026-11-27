@@ -118,6 +118,7 @@ public sealed partial class DeliriumModule : IModule
         GameEvents.MapOpening.Add(module.Manifest.Id, request => SimulacrumRules.Resolve(request, global::Game.AreaRng(request.Player)));
         GameEvents.MapOpening.Add(module.Manifest.Id, DeliriumScarabs.Opening);
         GameEvents.GroundItemPreparing.Add(module.Manifest.Id, DeliriumScarabs.Prepare);
+        GameEvents.AreaQuestFlags.Add(module.Manifest.Id, mirror.QuestFlags);
         InstanceEvents.TerrainPluginStates.Add(module.Manifest.Id, DeliriumMirrorEncounter.PlanTerrain);
         GameEvents.AreaRuleset.Add(module.Manifest.Id, player =>
             DeliriumMirrorEncounter.IsEligibleMap(player) && AfflictionRuleset.EncounterRow is { } row
