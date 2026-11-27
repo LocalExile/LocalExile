@@ -366,6 +366,7 @@ public static partial class Game
             lifetime?.Dispose();
             ClearPods();
             ClearDamageGrounds();
+            ClearCursedGround();
             ClearEarthshatterSpikes();
             ClearProjectileBladeSources();
             ClearBladeVortices();

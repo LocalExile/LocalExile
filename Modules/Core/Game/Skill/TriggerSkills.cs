@@ -74,6 +74,8 @@ public static partial class Game
             return "Foulgrasp triggers when a supported Brand is recalled";
         if (GolemStat(gem.Stats, Stat.TriggeredPrismaticBurst) != 0)
             return "Prismatic Burst triggers on a supported attack hit";
+        if (GolemStat(gem.Stats, Stat.TriggeredHextoad) != 0)
+            return "Bursting Toad triggers from a supported cursed ground";
         if (GolemStat(gem.Stats, Stat.TriggeredByInfernalCry) != 0)
             return "Combust triggers on an attack exerted by Infernal Cry";
         if (GolemStat(gem.Stats, Stat.TriggeredByShockwaveSupport) != 0)

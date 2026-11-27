@@ -93,7 +93,7 @@ public static partial class Game
     static bool ApplyCurseDataLocked(Player player, SpawnedMonster monster, ushort skill, string effect,
         IReadOnlyDictionary<uint, int> curseStats, double now, bool aura, IReadOnlyDictionary<uint, int>? sources,
         int addedEffect = 0, double effectMultiplier = 1, uint? casterId = null, int additionalCapacity = 0, uint? auraSource = null,
-        bool fromPlacement = false, MonsterCurses.EndTrigger? endTrigger = null)
+        bool fromPlacement = false, MonsterCurses.EndTrigger? endTrigger = null, uint? buffCaster = null)
     {
         if (!CurseCatalog.All.TryGetValue(effect, out var definition) || casterId is null && ExternalTemporalChains(player, effect)
             || monster.Dead || monster.Life == 0 || !monster.Hostile) return false;
@@ -149,6 +149,7 @@ public static partial class Game
             AmplifiedStats = amplify == 0 ? null : RecipientStats(amplify),
             AlchemistGround = effect == "AlchemistsMark" ? AlchemistGroundFor(player, curseStats, playerStats) : null,
             TriggerOnEnd = endTrigger,
+            BuffCaster = buffCaster ?? caster,
         };
         monster.Curses.Put(curse, limit);
         if (!ReferenceEquals(monster.Curses.All.GetValueOrDefault((curse.Caster, curse.Effect)), curse)) return false;
@@ -325,6 +326,7 @@ public static partial class Game
                 ApplyCurseLocked(player, marked, skill, now, false, gem, playerStats);
             return;
         }
+        if (TryPlaceCursedGroundLocked(player, skill, gem, aim, now, playerStats)) return;
         var doomBlast = DoomBlastForCastLocked(player, gem);
         int radius = CurseRadius(player, skill, false, gem, playerStats);
         var centres = cascadeFrom is { } from ? SpellCascadeAreas(player, gem.Effect, gem.Stats, from, aim, radius) : [];
@@ -370,7 +372,7 @@ public static partial class Game
         if (keep >= 100 || keep > 0 && GameServer.Core.World.RandomRolls.Chance(keep, 100, AreaRng(player))) return;
         monster.Curses.Remove(curse.Caster, curse.Effect);
         if (monster.Curses.Presented.Remove((curse.Caster, curse.Effect), out var presented))
-            player.Area.Buffs.Clear(id, presented.Row, presented.Caster, tag: presented.Buff);
+            player.Area.Buffs.Clear(id, presented.Row, presented.BuffCaster, tag: presented.Buff);
         if (curse.TriggerOnEnd is not null) monster.PresentationChanged?.Invoke();
     }
 
@@ -440,14 +442,14 @@ public static partial class Game
                     var changed = m.Curses.Presented.Values.Where(c => !m.Curses.All.TryGetValue((c.Caster, c.Effect), out var next)
                         || next.Buff != c.Buff || next.Until != c.Until || !Visible(next)).ToArray();
                     foreach (var old in changed)
-                    { player.Area.Buffs.Clear(id, old.Row, old.Caster, tag: old.Buff); m.Curses.Presented.Remove((old.Caster, old.Effect)); }
+                    { player.Area.Buffs.Clear(id, old.Row, old.BuffCaster, tag: old.Buff); m.Curses.Presented.Remove((old.Caster, old.Effect)); }
                 }
                 // A curse is its caster's; each application its own buff (its tag), so a renewed curse restarts its countdown.
                 if (m.Curses.All.Count > 0)
                     foreach (var curse in m.Curses.All.Values)
                     {
                         if (!Visible(curse) || m.Curses.Presented.ContainsKey((curse.Caster, curse.Effect))) continue;
-                        player.Area.Buffs.Set(id, new(curse.Row, curse.Caster, curse.Skill, Tag: curse.Buff,
+                        player.Area.Buffs.Set(id, new(curse.Row, curse.BuffCaster, curse.Skill, Tag: curse.Buff,
                             U68: double.IsFinite(curse.Until) ? Buff.Seconds(curse.Until - now) : null));
                         m.Curses.Presented[(curse.Caster, curse.Effect)] = curse;
                     }

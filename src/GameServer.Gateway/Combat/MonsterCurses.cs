@@ -17,6 +17,7 @@ public sealed class MonsterCurses(Action? changed = null)
         public int ExpandedCapacity { get; init; }
         public (int Radius, double Seconds, int FireArt, int CausticArt)? AlchemistGround { get; init; }
         public EndTrigger? TriggerOnEnd { get; init; }
+        public uint BuffCaster { get; init; } = Caster;
     }
     public readonly Dictionary<(uint Caster, string Effect), Curse> All = [];
     public readonly Dictionary<(uint Caster, string Effect), Curse> Presented = [];

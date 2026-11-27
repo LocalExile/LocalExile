@@ -146,6 +146,7 @@ public static partial class Game
             }
             else
             {
+                if (TryPlaceCursedGroundLocked(player, id, gem, aim, now, playerStats)) return;
                 int radius = CurseRadius(player, id, false, gem, playerStats);
                 var nearby = fromPlacement ? player.Area.MonstersNear(aim, radius).Select(p => p.Value) : player.Area.Monsters.Values;
                 foreach (var monster in nearby)
