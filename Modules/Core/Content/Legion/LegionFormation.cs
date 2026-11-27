@@ -113,7 +113,22 @@ sealed class LegionFormation
     {
         int walk = body;   // walkability takes the real size; the capped one is for spacing
         body = Body(body);
-        return _orderly ? PlaceOnGrid(fromPct, toPct, body, walk, centred) : PlaceLoose(fromPct, toPct, body, walk, centred);
+        return (_orderly ? PlaceOnGrid(fromPct, toPct, body, walk, centred) : PlaceLoose(fromPct, toPct, body, walk, centred))
+            ?? PlaceNearest(fromPct, toPct, body, walk);
+    }
+
+    /// <summary>The last resort when the band and the block hold no free slot (a block packed by its soldiers): the nearest free walkable
+    /// cell to the middle of the band, searched in square rings outwards (a step of 2 cells), so a planned member (a war chest) is not dropped.
+    /// Runs only for a member that found no slot, so the cost is rare.</summary>
+    (int X, int Y)? PlaceNearest(int from, int to, int body, int walk)
+    {
+        var (cx, cy) = At((from + to) / 200.0 * _depth, 0);
+        int max = (int)Math.Max(_width, _depth) + (int)_pitch;
+        for (int r = 0; r <= max; r += 2)
+            for (int i = -r; i <= r; i += 2)
+                foreach (var (x, y) in r == 0 ? new[] { (cx, cy) } : new[] { (cx + i, cy - r), (cx + i, cy + r), (cx - r, cy + i), (cx + r, cy + i) })
+                    if (Open(x, y, walk) && !Crowded(x, y, body)) { Remember(x, y, body); return (x, y); }
+        return null;
     }
 
     (int X, int Y) At(double along, double lateral) =>

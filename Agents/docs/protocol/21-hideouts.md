@@ -289,6 +289,7 @@ render identically. `/portal_rotation <degrees>` (dev) still rebuilds the standi
 ship as whole portal objects (`Metadata/Effects/Microtransactions/Town_Portals/…Portal/…`, e.g. AtziriMirrorPortal:
 Positioned, BaseEvents, StateMachine, Animated, Portal, Transitionable, MinimapIcon, InteractionAction, ControlZone);
 the variation route above covers the ones that are effect rigs only.
+A map device recipe with a `MapDeviceRecipes.MicrotransactionPortalVariation` (a `MicrotransactionPortalVariations` row; 0x8f takes that row's Index, e.g. the Domain recipes' 86 is wire 87, the Legion portal) draws its run's portals with it (live check: that the client draws it) in every entry, whoever the owner is; other runs keep the owner's cosmetic.
 
 **The device's instance.** A hideout's instance is gone six minutes after its last player leaves
 (`InstanceRegistry.Lifetime`), and the device and the portals standing at it go with it. Coming back into a new
