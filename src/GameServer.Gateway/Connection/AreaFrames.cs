@@ -652,6 +652,11 @@ public sealed class AreaFrames
                 running = false;
                 if (Area is { } area) area.Driven = false;
             }
+            else if (gone.Length > 0 && gone.Any(m => m.Framed) && members.All(m => !m.Framed))
+            {
+                // A newcomer attached during the inter-frame sleep before Prune drained the departed occupant's deltas.
+                Area?.Delta.DiscardPending();
+            }
             count = members.Count;
         }
         if (gone.Length > 0 && Area is { } owned)
