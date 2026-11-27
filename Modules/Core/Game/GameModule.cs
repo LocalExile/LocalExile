@@ -310,6 +310,14 @@ public sealed class GameModule : IModule, IDisposable
         foreach (string earlyArea in global::EarlyActBossPolish.Areas)
             GameEvents.AreaTick.Add(id, GameEvents.InArea(earlyArea, global::EarlyActBossPolish.Tick));
         GameEvents.MonsterKilled.Add(id, global::EarlyActBossPolish.OnMonsterKilled);
+        GameEvents.Kill.Add(id, kill =>
+        {
+            if (kill.PlayerKill || kill.Player.Layout.Id != global::EarlyActBossPolish.Strand
+                || kill.VarietyId is not (global::EarlyActBossPolish.HillockNormal or global::EarlyActBossPolish.HillockUber))
+                return;
+            var payload = new MonsterKill(kill.Player, Rules.ModMonster(kill.Monster, kill.At));
+            kill.Later(() => global::EarlyActBossPolish.OnMonsterKilled(payload));
+        });
         module.Lifetime.Own(global::EarlyActBossPolish.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::EarlyActBossPolish.Leaving(player));
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::KitavaActTen.Area, global::KitavaActTen.Tick));
