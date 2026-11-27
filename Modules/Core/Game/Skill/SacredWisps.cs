@@ -145,14 +145,17 @@ public static partial class Game
                 WorldRecords(id, () => CurrentSacredWisps(wisps)
                     ? [InstanceProtocol.ActionStarted(id, from.X, from.Y, (int)Math.Round(use.Aim.X), (int)Math.Round(use.Aim.Y),
                         wisps.Skill, 0xffff, Player.MonsterOrderFlags), InstanceProtocol.ActionEnded(id)] : null);
-                Runtime.Release(use with
+                var wispUse = use with
                 {
-                    Seed = ++seed, Emitter = actor, Origin = Vector(from), ReturnAnchor = actor,
+                    Emitter = actor, Origin = Vector(from), ReturnAnchor = actor,
                     Payload = copy ??= Copy(shot), CanEmit = () => CurrentSacredWisps(wisps) && Runtime.Now < wisps.Expires
                         && !body.Dead && ReferenceEquals(Player.Area.Monsters.GetValueOrDefault(id), body),
                     ProjectilePayloads = perProjectile ??= use.ProjectilePayloads?.Select(payload => payload is ProjectileOffense offense
                         ? Copy(offense) : payload).ToArray(),
-                });
+                };
+                if (wispUse.Payload is ProjectileOffense { Fusillade: { } cast } fusillade)
+                    QueueFusillade(wispUse, fusillade, cast);
+                else Runtime.Release(wispUse with { Seed = ++seed });
             }
         }
 

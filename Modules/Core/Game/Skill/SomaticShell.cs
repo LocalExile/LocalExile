@@ -21,7 +21,7 @@ public static partial class Game
                 Payload = ((ProjectileOffense)use.Payload!) with
                 {
                     SomaticApplications = new(1),
-                    PreventsSomaticShellBreak = context.Own(Stat.DamageCannotBreakKineticShells) != 0
+                    BypassesSomaticShell = context.Own(Stat.DamageCannotBreakKineticShells) != 0
                 }
             };
         }
@@ -55,16 +55,16 @@ public static partial class Game
         if (SomaticShells.TryGetValue(target, out var shell)) shell.Session.RemoveSomaticShell(shell);
     }
 
-    static int AbsorbSomaticShell(SpawnedMonster target, int damage, ref int chaos, double now, bool preventsBreak)
+    static int AbsorbSomaticShell(SpawnedMonster target, int damage, ref int chaos, double now, bool bypassesShell)
     {
-        if (damage <= 0 || target.Invulnerable || !SomaticShells.TryGetValue(target, out var shell)) return damage;
+        if (bypassesShell || damage <= 0 || target.Invulnerable || !SomaticShells.TryGetValue(target, out var shell))
+            return damage;
         if (now >= shell.Until || !shell.Session.Active)
         {
             shell.Session.RemoveSomaticShell(shell);
             return damage;
         }
-        int max = shell.Remaining - (preventsBreak ? 1 : 0);
-        int absorbed = (int)Math.Min(max, (long)damage * shell.Percent / 100);
+        int absorbed = (int)Math.Min(shell.Remaining, (long)damage * shell.Percent / 100);
         if (absorbed <= 0) return damage;
         shell.Remaining -= absorbed;
         chaos -= (int)((long)chaos * absorbed / damage);

@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Diagnostics;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -394,6 +395,11 @@ public static partial class Game
                 if (!player.Auras.TryGetValue(proc.Skill, out var aura) || player.PlayerLife == 0) continue;
                 if (aura.EffectId == "HeraldOfPurity") summons.Add(aura);
                 else if (aura.EffectId == "HeraldOfAsh") ReservationAshLocked(player, aura, proc.At, proc.Target, now);
+                else if (aura.EffectId == "HeraldOfIce")
+                {
+                    ShowHeraldOfIceExplosionLocked(player, aura, proc.At);
+                    ReservationDamageLocked(player, aura, proc.At, now, proc.Target);
+                }
                 else ReservationDamageLocked(player, aura, proc.At, now, proc.Target);
             }
             if (ReservationAura(player, "HeraldOfThunder") is { } thunder && now < state.ThunderUntil && now >= state.NextThunder)
@@ -468,6 +474,33 @@ public static partial class Game
         foreach (var m in player.Area.Monsters.Values)
             if (m is { Hostile: true, Dead: false, Life: > 0 } && state.Trail.Any(t => Dist(t.At, m.Walk.Position(now)) <= t.Radius))
                 InflictedLocked(player, m, m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, .3, now, _ => 0, n => m.Mods.Effects[n], stated: 10));
+    }
+
+    // Herald of Ice's shatter explosion: the worn skin's herald_of_ice_impact (MiscAnimatedArtVariations by
+    // skill_art_variation), drawn at the explosion's radius where the shattered monster stood.
+    static void ShowHeraldOfIceExplosionLocked(Player player, AuraCatalog.Aura aura, (int X, int Y) at)
+    {
+        var skill = SupportedSkill(player, aura.SkillId);
+        double radius = ReservationRadius(player, aura, 12, skill, CharacterPlayerStats(player));
+        int variation = SkillArtVariation(player, GemSkillEffects(player).FirstOrDefault(g => g.Id == aura.SkillId).Gem);
+        string? art = Art.Animated("herald_of_ice_impact", variation) ?? Art.Animated("herald_of_ice_impact", 0);
+        if (ServerTrace.Skills)
+            Console.WriteLine($"[gateway] {player.Connection.Remote} herald of ice explosion at ({at.X}, {at.Y}), radius {radius:0.#} (base {ReservationStat(player, aura, Stat.ActiveSkillBaseAreaOfEffectRadius)}, "
+                + $"+{skill.Stats.GetValueOrDefault(Stat.ActiveSkillBaseRadiusPlus)}, area {skill.Stats.GetValueOrDefault(Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal)}% radius), "
+                + $"skin variation {variation}: art {art ?? "none"}");
+        if (art is null) return;
+        uint obj = player.TakeObjectId();
+        float scale = AreaArtScale(radius, art);
+        player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+            new EffectObject(at.X, at.Y, art) { Flags0 = EffectObject.FixedRotation, Scale = scale }.Blob()),
+            $"0x02bb create effect 0x{obj:x} {art} at ({at.X}, {at.Y}), scale {scale:0.###}", WorldId: obj, CreatesObject: true));
+        player.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(obj), null, WorldId: obj));
+        int epoch = player.ProjectileEpoch;
+        SendAfter(player, 2.0, async () =>
+        {
+            if (player.Closed || player.LeavingArea || player.ProjectileEpoch != epoch) return;
+            await SendWorldRemoval(player, obj, null);
+        });
     }
 
     static void AddChilledGroundLocked(Player player, (int X, int Y) at, double until, int radius, string artPath)

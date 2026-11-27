@@ -10,13 +10,15 @@ public static partial class Game
 
     static bool IsRainOfArrowsVariant(string? id) => id is RainOfArrowsArtillery or RainOfArrowsSaturation;
 
-    static bool ArrowRain(string? id) => id is "RainOfArrows" or "BlastRain" or TrarthusBlastRain or ConflagrationEffect
-        || IsRainOfArrowsVariant(id) || IsToxicRain(id) || IsKineticRain(id) || IsStormRain(id);
+    static bool ArrowRain(string? id) => IsRainOfArrows(id) || IsBlastRain(id) || id is TrarthusBlastRain or ConflagrationEffect
+        || id == ThunderstormEffect || IsRainOfArrowsVariant(id) || IsToxicRain(id) || IsKineticRain(id) || IsStormRain(id);
 
-    static bool IsToxicRain(string? id) => id is "ToxicRain" or "ToxicRainAltX" or "ToxicRainAltY";
+    static bool IsRainOfArrows(string? id) => id is "RainOfArrows" or "RainOfArrowsRoyale";
+    static bool IsBlastRain(string? id) => id is "BlastRain" or "BlastRainRoyale";
+    static bool IsToxicRain(string? id) => id is "ToxicRain" or "ToxicRainAltX" or "ToxicRainAltY" or "ToxicRainRoyale";
 
     static bool IsArtilleryBallista(string? id) =>
-        id is "ArtilleryBallista" or "ArtilleryBallistaAltX" or "ArtilleryBallistaAltY";
+        id is "ArtilleryBallista" or "ArtilleryBallistaAltX" or "ArtilleryBallistaAltY" or "ArtilleryBallistaRoyale";
 
     // These bow attacks have area hit stats but no travelling Projectiles row. Capture the normal
     // offensive snapshot at release; each arrow resolves its own area at the landing cell.
@@ -26,16 +28,17 @@ public static partial class Game
     public static IReadOnlyList<ProjectileVector> RainLandings(string effect, ProjectileVector aim, int count,
         double spread, IReadOnlyList<ProjectileVector> enemies, Random random)
     {
+        bool rainOfArrows = IsRainOfArrows(effect);
         var points = new List<ProjectileVector>();
         var available = enemies.Where(p => (p - aim).Length <= spread).OrderBy(p => (p - aim).Length).ToArray();
         for (int i = 0; i < count; i++)
         {
-            if (effect == "RainOfArrows" && i % 2 == 1 && i / 2 < available.Length)
+            if (rainOfArrows && i % 2 == 1 && i / 2 < available.Length)
                 points.Add(available[i / 2]);
             else
             {
                 double radius = spread * Math.Sqrt(random.NextDouble());
-                if (effect == "RainOfArrows") radius *= Math.Sqrt(i / (double)count);
+                if (rainOfArrows) radius *= Math.Sqrt(i / (double)count);
                 points.Add(aim + new ProjectileVector(1, 0).Rotate(random.NextDouble() * Math.Tau) * radius);
             }
         }
@@ -149,7 +152,7 @@ public static partial class Game
     public static (int Radius, double Spread) RainArea(Player player, string id, int effect, IReadOnlyDictionary<uint, int> own,
         IReadOnlyDictionary<uint, int> playerStats)
     {
-        bool toxic = IsToxicRain(id), blast = id == "BlastRain";
+        bool toxic = IsToxicRain(id), blast = IsBlastRain(id);
         int radius = SkillRadius(player, toxic ? 18 : blast ? 20 : 10, own, false, effect, playerStats);
         return (radius, blast ? radius * .85 : SkillRadius(player, 24, own, false, effect, playerStats));
     }
@@ -170,7 +173,8 @@ public static partial class Game
         var player = session.Player;
         string id = SkillsFor(player).EffectId(gem.Effect)!;
         // from: where the volley leaves when it is not the player or a totem (a trap or mine).
-        var use = CaptureGemProjectile(player, session, skill, gem, aim, critical, sequence, from: from, totem: totem);
+        var use = CaptureGemProjectile(player, session, skill, gem, aim, critical, sequence, from: from, totem: totem,
+            fromMirage: mirage);
         var shot = (ProjectileOffense)use.Payload!;
         var supported = SupportedSkill(player, skill);
         var own = supported.Stats;
@@ -203,6 +207,12 @@ public static partial class Game
             ReleaseStormRain(session, use, id, skill, gem.Effect, own, playerStats, actionStart);
             return;
         }
+        if (id == ThunderstormEffect)
+        {
+            if (!mirage && totem is null && from is null)
+                ReleaseThunderstorm(session, use, gem, own, playerStats, critical, actionStart);
+            return;
+        }
         if (IsKineticRain(id))
         {
             ReleaseKineticRain(session, use, gem, id, aim, own, playerStats, critical, sequence);
@@ -219,7 +229,7 @@ public static partial class Game
         int Get(uint key) => Own(key) + Player(key);
         int variation = SkillArtVariation(player, gem.Gem);
         string? ArtOf(string key) => Art.Animated(key, variation) ?? Art.Animated(key, 0);
-        bool toxic = IsToxicRain(id), blast = id == "BlastRain", artillery = IsArtilleryBallista(id);
+        bool toxic = IsToxicRain(id), blast = IsBlastRain(id), artillery = IsArtilleryBallista(id);
         int extraRain = Get(Stat.ModifiersToProjectileCountDoNotApply) != 0 ? 0
             : (toxic ? Get(Stat.ToxicRainNumOfAdditionalProjectiles) : 0)
             + (artillery ? Get(Stat.ArtilleryBallistaNumAdditionalArrows) : 0)
@@ -348,13 +358,17 @@ public static partial class Game
         }
     }
 
+    static int RainOfArrowsFallSpeed(Player player, ushort skill, IReadOnlyDictionary<uint, int> playerStats,
+        IReadOnlyDictionary<uint, int> own, bool proxy = false) =>
+        ArrowRainTiming(player, skill, playerStats, own, proxy).FallSpeed;
+
     // The client's derived fall speed applies attack speed, half the combined arrow speed increase and
     // half the final projectile speed percent. Action speed only affects the release animation.
-    static int RainOfArrowsFallSpeed(Player player, ushort skill, IReadOnlyDictionary<uint, int> playerStats,
-        IReadOnlyDictionary<uint, int> own, bool proxy = false)
+    static (int FallSpeed, double AttackSeconds) ArrowRainTiming(Player player, ushort skill,
+        IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int> own, bool proxy = false)
     {
         int Get(uint stat) => playerStats.GetValueOrDefault(stat) + own.GetValueOrDefault(stat);
-        var (_, attackIncrease, attackMore) = SupportedAttackTiming(player, skill, null, clampToTick: true, proxy);
+        var (attackSeconds, attackIncrease, attackMore) = SupportedAttackTiming(player, skill, null, clampToTick: false, proxy);
         int arrowIncrease = playerStats.GetValueOrDefault(Stat.ProjectileSpeedPlusPct)
             + own.GetValueOrDefault(Stat.BaseProjectileSpeedPlusPct) + Get(Stat.BaseArrowSpeedPlusPct);
         float projectileMore =
@@ -365,8 +379,9 @@ public static partial class Game
             * Math.Max(0, 1 + Get(Stat.PassiveMasteryLessProjectileSpeedPlusPctFinal) / 100f);
         int projectileMorePct = (int)MathF.Round(100 * projectileMore - 100, MidpointRounding.AwayFromZero);
         double localAttackMore = Math.Max(0, 1 + WeaponProfileFor(player, activeSet: true).LocalAttackSpeedPct / 100d);
-        return SkillAttackTiming.FinalSpeedPercent(attackIncrease + arrowIncrease / 2,
+        int fallSpeed = SkillAttackTiming.FinalSpeedPercent(attackIncrease + arrowIncrease / 2,
             attackMore * localAttackMore * Math.Max(0, 1 + projectileMorePct / 2 / 100d));
+        return (fallSpeed, attackSeconds);
     }
 
     static readonly uint[] ChaosGroundMoreStats =

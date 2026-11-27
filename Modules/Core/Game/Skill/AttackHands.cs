@@ -127,6 +127,9 @@ public static partial class Game
         // A channel's stages (Cyclone) share one use; which stage swings which hand is not traced, so a channel keeps the
         // main hand when both fit, as its interval does (SupportedChannelSeconds).
         string? effect = SkillsFor(player).EffectId(gem.Effect);
+        // Spectral Helix's attack clip overrides the sequence selector at 0x141b720e0. The native player action kept
+        // the main hand with mixed weapons, dual swords and dual daggers. Trarthus chooses a hand at trap placement.
+        if (effect == SpectralHelixEffect && mainFits) return AttackHand.Main;
         return AttackHands.Choose(mainFits, offFits, IsSwordstorm(effect) || LacerateEffect(effect)
             || Own("skill_double_hits_when_dual_wielding") != 0,
             SkillsFor(player).IsChannelled(gem.Effect) ? (ushort)0 : sequence);
@@ -312,6 +315,7 @@ public static partial class Game
     {
         var gem = SupportedSkill(player, skillId);
         var (mainFits, offFits) = HandsFit(player, gem.Effect, gem.Stats);
+        if (mainFits && SkillsFor(player).EffectId(gem.Effect) == SpectralHelixEffect) return AttackHand.Main;
         int Own(string name) => Stats.Key(name) is uint key ? gem.Stats.GetValueOrDefault(key) : 0;
         return !offFits ? AttackHand.Main : !mainFits ? AttackHand.Off
             : Own("skill_double_hits_when_dual_wielding") != 0 ? AttackHand.Both : AttackHand.Off;

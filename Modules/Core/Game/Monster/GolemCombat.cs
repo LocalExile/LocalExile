@@ -304,14 +304,14 @@ public static partial class Game
         SpawnedMonster? victim, (int X, int Y) aim, double now)
     {
         var m = g.Monster;
-        if (ability.Effect == 306)
+        if (ability.Effect == ElementalHitCloneShot)
         {
             var last = g.LastPrismaticElement;
             int roll = AreaRng(player).Next(last is null ? 3 : 2) + (int)DamageType.Lightning;
             if (last is { } previous && roll >= (int)previous) roll++;
             var element = (DamageType)roll;
             ability = GolemAbilities(player, m.Variety!, m.Level, g, g.Player, prismatic: element)
-                .Single(a => a.Effect == 306);
+                .Single(a => a.Effect == ElementalHitCloneShot);
             g.LastPrismaticElement = element;
         }
         int generation = ++m.ActionGeneration;
@@ -850,7 +850,7 @@ public static partial class Game
             || !supported.RequirementsMet || supported.Level <= 0 || supported.Quality < 0
             || supported.Effect != g.Definition.Effect) return false;
         if (g.Abilities.FirstOrDefault(current => current.Effect == a.Effect) is not { } current) return false;
-        if (a.Effect == 306)
+        if (a.Effect == ElementalHitCloneShot)
         {
             var element = new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning }
                 .First(type => GolemStat(a.Stats, Stat.Of($"elemental_hit_cannot_roll_{type.ToString().ToLowerInvariant()}_damage")) == 0);
@@ -1171,6 +1171,7 @@ public static partial class Game
             SpreadRadians = nova ? Math.PI * 2 : p.SpreadRadians,
             DirectDamage = !p.Lobbed,
             Pierce = a.Effect == 2378 || GolemStat(a.Stats, Stat.AlwaysPierce) != 0 ? -1 : 0,
+            ContactArea = a.Effect == ElementalHitCloneShot ? ElementalHitBurst(a.Radius) : null,
             EndArea = p.Lobbed ? new("golem mortar", a.Radius) : null,
             EndAreaReasons = p.Lobbed ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
         };

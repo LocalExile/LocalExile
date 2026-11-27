@@ -12,6 +12,8 @@ public static partial class Game
     static readonly RuleTable<TotemState.Totem, TotemChannel> TotemChannels = new();
     sealed record TotemSkillSource(SupportedGem Skill, GemSourceLifetimes.SourceLifetime? Lifetime);
     static readonly RuleTable<TotemState.Totem, TotemSkillSource> TotemSources = new();
+    sealed record FormationTarget((int X, int Y) At);
+    static readonly RuleTable<TotemState.Totem, FormationTarget> FormationTargets = new();
     public static bool SpellTotemEffect(Player player, int effect) => SkillsFor(player).IsSpell(effect)
         && !SkillsFor(player).IsAttack(effect) && !SkillsFor(player).IsTravel(effect)
         && Supports.Of(effect)?.Types.Contains(47) != true
@@ -254,14 +256,17 @@ public static partial class Game
                 range = Math.Min(range, SkillRadius(player, SupportedSkill(player, totem.SkillId).Stats, spell: true, gem.Effect));
             else if (effect is "ShockNova" or "ShockNovaRoyale")
                 range = Math.Min(range, SkillRadius(player, 26, SupportedSkill(player, totem.SkillId).Stats, spell: true, gem.Effect));
-            var target = PickSpellTotemTarget(player, totem, range, now, preferSight: !nova && summon is null && golem is null);
-            if (target.Monster is null && summon is null && golem is null
+            FormationTargets.TryGetValue(totem, out var formation);
+            var target = formation is null
+                ? PickSpellTotemTarget(player, totem, range, now, preferSight: !nova && summon is null && golem is null)
+                : default;
+            if ((formation is null && target.Monster is null && summon is null && golem is null)
                 || TotemCastSeconds(player, totem.SkillId) is not double seconds)
             {
                 if (nativeChannel) StopTotemChannel(totem, bytes);
                 continue;
             }
-            var aim = nova || target.Monster is null ? totem.At : target.Pos;
+            var aim = formation?.At ?? (nova || target.Monster is null ? totem.At : target.Pos);
             if (daggerDetonation && target.Monster is not null)
                 aim = SpellCentre(player, gem.Effect, totem.At, target.Pos);
             if (!nova && summon is null && golem is null) aim = NonZeroTotemAim(totem.At, aim);
@@ -355,8 +360,9 @@ public static partial class Game
                 {
                     var spell = SupportedSkill(player, totem.SkillId);
                     session.ReleaseBladeVortex(totem.Id, totem.SkillId, SkillArtVariation(player, gem.Gem), spell, TotemCasterStats(CharacterPlayerStats(player)), Current,
-                        (radius, scale, critIncrease) => TotemNovaLocked(player, session, totem, totem.At, radius, sequence,
-                            damageMore: scale, extraCriticalIncrease: critIncrease));
+                        (radius, scale, critIncrease) => TotemNovaLocked(player, session, totem, totem.At, radius + BladeVortexSizeReach, sequence,
+                            damageMore: scale, extraCriticalIncrease: critIncrease,
+                            targetFilter: (id, p) => BladeVortexReaches(player, totem.At, radius, id, p)));
                 });
                 continue;
             }
@@ -518,14 +524,18 @@ public static partial class Game
                             CaptureSkillCriticalRoll(player, totem.SkillId), sequence, totem: totem), sequence, 0));
                 continue;
             }
-            session.Schedule(ProjectileRuntime.Time(totem.NextCast),
+            long releaseAt = ProjectileRuntime.Time(totem.NextCast);
+            if (formation is not null) totem.NextCast = double.PositiveInfinity;
+            session.Schedule(releaseAt,
                 () => ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem),
                 () =>
                 {
                     var use = CaptureGemProjectile(player, session, totem.SkillId, gem, ReleaseAim(),
                         CaptureSkillCriticalRoll(player, totem.SkillId), sequence, totem: totem);
+                    if (formation is not null)
+                        use = use with { Profile = use.Profile with { Range = 3 * Dist(totem.At, aim) } };
                     return ClientDrawnVolley(player, session, totem.SkillId, gem, use, sequence, 0);
-                });
+                }, released: formation is null ? null : () => totem.Until = Math.Min(totem.Until, AreaTime(player)));
         }
     }
 }

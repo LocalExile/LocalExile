@@ -76,6 +76,8 @@ public static partial class Game
             return "Combust triggers on an attack exerted by Infernal Cry";
         if (GolemStat(gem.Stats, Stat.TriggeredByShockwaveSupport) != 0)
             return "this Shockwave triggers on supported melee hits";
+        if (GolemStat(gem.Stats, Stat.TriggeredByPyreSupport) != 0)
+            return "Call the Pyre triggers on supported melee hits against ignited enemies";
         if (gem.WornGrant is { EffectId: GoreShockwaveEffect })
             return "Gore Shockwave triggers on melee hits with at least 150 Strength";
         if (GolemStat(gem.Stats, Stat.TriggeredByDivineCry) != 0)

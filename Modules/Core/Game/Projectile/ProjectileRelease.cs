@@ -129,7 +129,8 @@ public static partial class Game
         // From the swing's start when it began before now (a lockstep walk-up's goal frame, CastGemSkill's swingAt).
         double acceptedAt = swingAt ?? AreaTime(player);
         // A Spectral Throw's own weapon leaves on the client's swing (SpectralThrowRelease), without the server-object lead.
-        double? thrown = attack && GatewayProjectileSkillProfiles.IsSelfThrownSpectralWeapon(SkillsFor(player).EffectId(gem.Effect))
+        var effect = SkillsFor(player).EffectId(gem.Effect);
+        double? thrown = attack && (GatewayProjectileSkillProfiles.IsSelfThrownSpectralWeapon(effect) || IsSpectralHelix(effect))
             ? SpectralThrowRelease.Delay(player, Environment.GetEnvironmentVariable("Game_PLAYER_AO")
                 ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject, AnimationWeaponProfileFor(player),
                 SupportedAttackSeconds(player, skillId, sequence))
@@ -202,6 +203,19 @@ public static partial class Game
                         return captured with { Aim = captured.Origin + direction * captured.Profile.Range };
                     });
             }
+            return Task.CompletedTask;
+        }
+        if (effect == VaalVenomGyreEffect)
+        {
+            if (player.VaalUse is not { Executed: true } paid || paid.Skill != skillId || paid.Effect != gem.Effect)
+                return Task.CompletedTask;
+            session.ScheduleContact(ProjectileRuntime.Time(acceptedAt + delay),
+                () => Valid() && VaalAdmissionCurrent(player, paid), () =>
+                {
+                    var use = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence,
+                        sacrifice: sacrifice, reoccurrenceMore: paid.PactDamageMore);
+                    session.StartVaalVenomGyre(use);
+                });
             return Task.CompletedTask;
         }
         int repeats = attack ? 0 : SpellRepeats(player, skillId, gem.Effect);
@@ -377,17 +391,17 @@ public static partial class Game
         SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
         TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1,
         (int X, int Y)? from = null, SupportedGem? capturedSkill = null, int otherWarcryExertions = 0,
-        int? rallyingDamage = null) =>
+        int? rallyingDamage = null, bool fromMirage = false) =>
         CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, weaponHand: null, sequence, repeatsLeft,
             releaseDelay, totem, cryExerted, repeat, sacrifice, reoccurrenceMore, from, capturedSkill, otherWarcryExertions: otherWarcryExertions,
-            rallyingDamage: rallyingDamage);
+            rallyingDamage: rallyingDamage, fromMirage: fromMirage);
 
     static ProjectileUse CaptureGemProjectile(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, AttackHand? weaponHand, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
         TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1,
         (int X, int Y)? from = null, SupportedGem? capturedSkill = null, double hitAndAilmentMore = 1, int otherWarcryExertions = 0,
-        int? rallyingDamage = null)
+        int? rallyingDamage = null, bool fromMirage = false)
     {
         // from: where a placed trap or mine stands, when it and not the player releases the skill.
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
@@ -428,7 +442,8 @@ public static partial class Game
         var definition = ResolveProjectileDefinition(gem.Effect) ?? (ArrowRain(SkillsFor(player).EffectId(gem.Effect)) ? GroundArrow : null)
             ?? throw new InvalidOperationException("No projectile definition at release.");
         string metadata = definition.Metadata;
-        int baseSpeed = SkillsFor(player).Projectile(metadata)?.Speed ?? 1000;
+        string? effect = SkillsFor(player).EffectId(gem.Effect);
+        int baseSpeed = IsSpectralHelix(effect) ? 1500 : SkillsFor(player).Projectile(metadata)?.Speed ?? 1000;
         string? speedOverride = Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED");
         double speed = SkillsFor(player).EffectId(gem.Effect) == "BallLightningAltX"
             ? ProjectileSpeed.SpeedOverride(speedOverride)
@@ -439,6 +454,18 @@ public static partial class Game
         if (!double.IsFinite(speed) || speed <= 0)
             throw new InvalidOperationException("Projectile release requires a finite positive speed.");
         var profile = definition.Parameters.Resolve(Get, speed, ArrowsFor(player, gem.Effect));
+        var concoction = IsConcoction(effect) && totem is null && from is null && !fromMirage
+            ? SpendConcoctionFlasks(session, effect!, profile.Count, Get)
+            : default;
+        if (concoction.Modifiers is { } paidStats)
+        {
+            var withFlasks = new Dictionary<uint, int>(own);
+            foreach (var (key, value) in paidStats)
+                withFlasks[key] = ActorScale.Add(key, withFlasks.GetValueOrDefault(key), value);
+            own = withFlasks;
+            admittedGem = admittedGem with { Stats = own };
+            merged = MergeSkillStats(playerStats, own);
+        }
         var at = totem?.At ?? from ?? player.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
         var origin = ProjectileSession.Vector(at);
         if (definition.RequiresTerrain && ProjectileGrid.Blocks(player.Layout.Id, player.Seed, at.X, at.Y) is null)
@@ -506,11 +533,14 @@ public static partial class Game
         int damagePerChain = Get(Stat.ProjectileDamagePlusPctPerChain);
         int damagePerPierce = Get(Stat.ProjectileDamagePlusPctPerPiercedEnemy);
         bool trackTrajectoryDamage = damagePerChain != 0 || damagePerPierce != 0;
+        int criticalMultiplier = SupportedCriticalMultiplier(player, skillId, handWeapon);
+        if (concoction.CriticalMultiplier != 0)
+            criticalMultiplier = ActorScale.Add(Stat.BaseCriticalStrikeMultiplier, criticalMultiplier, concoction.CriticalMultiplier);
         var shot = new ProjectileOffense(
             hitInputs is null ? DamagePacket.Empty : SupportedHitFrom(hitInputs, suppress: false),
             spell, rating,
             SupportedCriticalChanceFor(player, skillId, release: true, weaponCritical: handCritical),
-            SupportedCriticalMultiplier(player, skillId, handWeapon), gem.Name)
+            criticalMultiplier, gem.Name)
         {
             WeaponAttack = weaponAttack,
             DirectAttackContact = hitInputs is { Attack: true, Secondary: false },
@@ -535,6 +565,9 @@ public static partial class Game
             CompletedChainDamagePercent = Own(Stat.SkillDamagePlusPctFinalPerChainFromSkillSpecificStat),
             DamageIncreasePerChain = damagePerChain,
             DamageIncreasePerPierce = damagePerPierce,
+            DamageMoreAfterPierce = Get(Stat.ProjectileDamagePlusPctFinalIfPiercedEnemy),
+            DamageMorePerElementalAilment = effect == SpectrumHitEffect
+                ? Get(Stat.ElementalHitDamagePlusPctFinalPerEnemyElementalAilment) : 0,
             Spider = hitInputs is null ? null : CaptureSpiderDamage(player, hitInputs,
                 AddedEffectiveness(player, gem.Effect, gem.Level), context: false, local: local,
                 bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off,
@@ -591,6 +624,7 @@ public static partial class Game
             // Molten Strike's action spawns its local chunks on melee hit (0x141a6a4b0 -> 0x141ba7c30); server objects would duplicate them.
             ClientPredicted = totem is not null || spell
                 || GatewayProjectileSkillProfiles.IsSelfThrownSpectralWeapon(SkillsFor(player).EffectId(gem.Effect))
+                || effect == SpectralHelixEffect && from is null
                 || SkillsFor(player).EffectId(gem.Effect) is "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY" || IsLightningStrike(gem.Effect)
                 || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)),
             // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).
@@ -659,6 +693,11 @@ public static partial class Game
             };
         }
         if (hitAndAilmentMore != 1) shot = shot.ScaleHitAndAilmentDamage(hitAndAilmentMore);
+        if (VenomGyreEffect(effect) && totem is null && from is null && !fromMirage
+            && sacrifice is { Triggered: false })
+        {
+            shot = shot with { VenomGyre = CaptureVenomGyre(player, gem.Effect, Get, Player, Own, variation, sacrifice) };
+        }
         uint emitter = totem?.Id ?? player.Id;
         int epoch = player.ProjectileEpoch;
         var use = new ProjectileUse(profile, new(emitter, epoch), new(emitter, epoch), 1, origin, target)
@@ -666,9 +705,18 @@ public static partial class Game
             Payload = shot, ReturnAnchor = new(emitter, epoch), Sequence = sequence, RepeatsLeft = repeatsLeft,
             RadialLaunchOffset = radialRelease && totem is null && from is null ? ahead : 0,
         };
+        bool ownerAttack = !spell && totem is null && from is null && !fromMirage
+            && !SkillsFor(player).HasType(gem.Effect, "InbuiltTrigger");
+        int steelCost = ownerAttack ? Own(Stat.SteelAmmoConsumedPerUse)
+            : totem is not null ? Own(Stat.SteelAmmoConsumedPerUseByTotem) : 0;
+        int extraSteelCost = ownerAttack && Get(Stat.ProjectilesAreNotFired) == 0
+            ? Player(Stat.SteelAmmoConsumedPerUseWithAttacksThatFireProjectiles) : 0;
+        int spent = SpendProjectileSteelShards(player, session, steelCost, extraSteelCost,
+            Player(Stat.SkillsFireXAdditionalProjectilesFor4SecondsAfterConsuming8SteelAmmo));
         var context = new ProjectileReleaseContext(player, session, skillId, gem, variation, Get, Player, Own)
         {
             NotHandCast = totem is not null || from is not null || sacrifice?.Triggered == true,
+            SteelShardsSpent = spent,
         };
         if (IsExplosiveArrow(SkillsFor(player).EffectId(gem.Effect)) && areaHitInputs is not null)
             use = use with { Payload = shot with { ExplosiveFuse = CaptureExplosiveFuse(context, areaHitInputs, playerStats, own, hand, local) } };

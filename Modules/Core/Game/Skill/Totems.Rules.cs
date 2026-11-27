@@ -5,6 +5,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core;
 using GameServer.Core.Projectiles;
+using GameServer.Core.World;
 using DamageModel = GameServer.Core.World.DamageModel;
 
 public static partial class Game
@@ -196,6 +197,15 @@ public static partial class Game
                 await AreaWait(PlayerUpdateRole.Minions, waitMs);
             }
         }
+        int ringCount = GolemStat(source.Stats, Stat.ActiveSkillSummonXTotemsInRingOverride);
+        if (ringCount > 0 && GolemStat(source.Stats, Stat.TotemFireInFormation) != 0)
+        {
+            int radiusPerTotem = GolemStat(source.Stats, Stat.TotemFormationRadiusOverride);
+            if (await WaitUntil(placedAt))
+                await CreateTotems(player, skillId, effect, level, variety, at, Valid, finishPlacement: null,
+                    count: ringCount, formationRadius: radiusPerTotem > 0 ? radiusPerTotem : 8);
+            return;
+        }
         if (count == 2)
         {
             if (await WaitUntil(placedAt))
@@ -259,7 +269,7 @@ public static partial class Game
 
     static async Task<uint?> CreateTotems(Player player,
         ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current,
-        Func<Task<bool>>? finishPlacement, int count)
+        Func<Task<bool>>? finishPlacement, int count, int? formationRadius = null)
     {
         if (!CurrentGameWork || player.Closed || player.LeavingArea) return null;
         var stats = SupportedStats(player, skillId);
@@ -338,7 +348,7 @@ public static partial class Game
         TotemState.Devour? devour = SkillsFor(player).EffectId(effect) == "DevouringTotem"
             ? new(Perk(Stat.CorpseConsumptionLifeToGain), Perk(Stat.CorpseConsumptionManaToGain)) : null;
         bool Valid() => CurrentGameWork && !player.Closed && !player.LeavingArea && player.PlayerLife > 0 && current?.Invoke() != false;
-        (int X, int Y) ClearPosition(uint objectId)
+        (int X, int Y)? ClearPosition(uint objectId)
         {
             if (bodySize < 0) return place;
             int width = player.Layout.GridW, height = player.Layout.GridH;
@@ -349,6 +359,28 @@ public static partial class Game
             bool singleTotem = SingleTotem();
             var blockers = TotemPlacementBlockers(player, objectId, ballista, placementGroup,
                 BonusSlots(ordinary, singleTotem), limit, singleTotem ? null : ordinary, now);
+            if (formationRadius is int radius)
+            {
+                int slots = Math.Min(count, limit);
+                // The native formation samples the circumference at (actual count + 1) times the radius stat.
+                // If a cell is blocked, search inward toward the requested centre before trying another angle.
+                double distance = (slots + 1d) * radius;
+                var rng = AreaRng(player);
+                bool InFormation((int X, int Y) cell) => Floor(cell.X, cell.Y)
+                    && (player.Layout.Sight is not { } sight || !ClientPathfinder.LineBelow(requested, cell, sight, 1))
+                    && (player.Barrier.Count == 0 || ClientPathfinder.Line(requested, cell).All(p => !player.Barrier.Contains(p)));
+                for (int attempt = 0; attempt < slots; attempt++)
+                {
+                    var (y, x) = Math.SinCos(rng.Next(1024) * (Math.Tau / 1024));
+                    var edge = (X: Math.Clamp(requested.X + (int)(distance * x), 0, width - 1),
+                        Y: Math.Clamp(requested.Y - (int)(distance * y), 0, height - 1));
+                    foreach (var cell in ClientPathfinder.Line(edge, requested))
+                        if (InFormation(cell) && CollisionEscape.Clear(cell, width, height, Floor, blockers, moverSize: bodySize))
+                            return cell;
+                }
+                return CollisionEscape.Find(requested, width, height, (x, y) => InFormation((x, y)), blockers,
+                    maxRadius: TotemPlacementSearchRadius, moverSize: bodySize);
+            }
             if (CollisionEscape.Clear(place, width, height, Floor, blockers, moverSize: bodySize)) return place;
             if (CollisionEscape.Find(place, width, height, Floor, blockers,
                 maxRadius: TotemPlacementSearchRadius, moverSize: bodySize) is { } nearAim) return nearAim;
@@ -377,6 +409,7 @@ public static partial class Game
             placed.Ballista = ballista;
             placed.BonusSlots = BonusSlots(ordinaryLimit, singleTotem);
             if (spellTotem) BindTotemSource(player, placed);
+            if (formationRadius is not null) FormationTargets.Add(placed, new(requested));
             BindFocusedBallista(player, placed);
             if (flamewood is not null) FlamewoodTotems.Add(placed, flamewood with { });
             var replaced = player.Totems.Place(placed, limit, now, singleTotem ? null : ordinaryLimit);
@@ -444,7 +477,8 @@ public static partial class Game
             {
                 uint objectId = player.TakeObjectId();
                 place = requested;
-                place = ClearPosition(objectId);
+                if (ClearPosition(objectId) is not { } point) continue;
+                place = point;
                 var blob = new MonsterObject(place.X, place.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
                     TransitionState: variety.TransitionStates, Team: 0, Skills: totemSkills.Length == 0 ? null : totemSkills,
                     Stats: objectStats) { LifeData = variety.LifeData, Chain = variety.Chain };
@@ -482,7 +516,7 @@ public static partial class Game
                     if (limit < 1) return null;
                     playerStats = CharacterPlayerStats(player);
                     var bytes = new WorldRecordBuilder(player, admission);
-                    var clear = ClearPosition(pendingId);
+                    var clear = ClearPosition(pendingId) ?? place;
                     if (clear != place)
                     {
                         place = clear;

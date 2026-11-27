@@ -476,7 +476,7 @@ public static partial class Game
         foreach (var (effect, index) in (variety.GrantedEffects ?? []).Select((e, i) => (e, i)))
         {
             var (skillLevel, raw, multiplier, crit) = GolemData.Skill(catalog, effect, level);
-            if (effect == 306)
+            if (effect == ElementalHitCloneShot)
             {
                 foreach (var element in new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning })
                     if (Stats.Key($"elemental_hit_cannot_roll_{element.ToString().ToLowerInvariant()}_damage") is uint key)
@@ -487,7 +487,8 @@ public static partial class Game
             }
             int Raw(uint name) => GolemStat(raw, name);
             bool spell = catalog.IsSpell(effect) && !catalog.IsAttack(effect);
-            var projectile = catalog.MonsterProjectile(effect, includeWeaponAttacks: true) ?? GolemProjectile(effect, catalog);
+            var projectile = effect == ElementalHitCloneShot ? ElementalHitCloneArrow(catalog, prismatic) : null;
+            projectile ??= catalog.MonsterProjectile(effect, includeWeaponAttacks: true) ?? GolemProjectile(effect, catalog);
             // Hostile monster profiles use Count as a simultaneous volley. Only the minion launcher
             // expands a spiral into separately timed shots.
             if (projectile is { SpiralAngle: not 0 } && Raw(Stat.NumberOfProjectilesOverride) <= 0
@@ -573,7 +574,7 @@ public static partial class Game
                 foreach (var type in AvatarOfFireConversionSources)
                     conversion.AddGlobal(type, DamageType.Fire, 50);
             int DamageStat(uint name) => avatarOfFire && name == Stat.DealNoNonFireDamage ? 1 : mods[name] + Raw(name);
-            if (effect == 306) conversion.AddSkill(DamageType.Physical, prismatic, 100);
+            if (effect == ElementalHitCloneShot) conversion.AddSkill(DamageType.Physical, prismatic, 100);
             if (golem.Definition.Kind == LivingLightningFamily && effect == LivingLightningZapEffect)
                 conversion.AddSkill(DamageType.Physical, DamageType.Lightning, Own(Stat.MinionBasePhysicalDamagePctToConvertToLightning));
             conversion.AddSkill(DamageType.Cold, DamageType.Fire,
@@ -607,7 +608,7 @@ public static partial class Game
             var versusIgnited = DamagePacket.Empty;
             foreach (var path in conversion.Trace(damage))
             {
-                if (effect == 306 && path.Type != prismatic) continue;
+                if (effect == ElementalHitCloneShot && path.Type != prismatic) continue;
                 if (DamageStats.Prohibited(path.Type, DamageStat, attack: !spell)
                     || GemSupportDamage.Prohibited(path.Type, supportStats)) continue;
                 double increase = (double)mods[Stat.DamagePlusPct] + animatedWeaponDamage

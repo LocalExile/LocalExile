@@ -90,7 +90,8 @@ public static partial class Game
                     return;
                 }
                 var aim = m?.Walk.Position(AreaTime(player)) ?? here;
-                player.LockstepSkill.Press(aim, target, skill, flags, target != player.Id && LockstepRepeats(player, skill));
+                player.LockstepSkill.Press(aim, target, skill, flags,
+                    (target != player.Id || SelfCastRepeats(player, skill)) && LockstepRepeats(player, skill));
             }
             else
             {
@@ -108,6 +109,12 @@ public static partial class Game
 
     // A channelled skill starts once and runs until the release; anything else repeats while the button stays down.
     // A native channelled totem skill (Holy Flame Totem) is placed with a single cast by its owner, not channelled.
+    // A skill cast on the player itself does not repeat while held (a buff or an aura would toggle again), except
+    // Blade Vortex: a held key keeps adding blades at the cast rate, as in the original.
+    static bool SelfCastRepeats(Player player, ushort skill) =>
+        GemSkillEffects(player).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem
+        && IsBladeVortex(SkillsFor(player).EffectId(gem.Effect));
+
     static bool LockstepRepeats(Player player, ushort skill) =>
         !(GemSkillEffects(player).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem
             && SkillsFor(player).IsChannelled(gem.Effect) && !IsTotemSkill(player, skill));
