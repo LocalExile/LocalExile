@@ -64,9 +64,17 @@ public static partial class Game
     public static bool IsBossOptionEligible(byte bossOption, int tier, ItemRarity rarity) =>
         bossOption is >= 1 and <= 3 && rarity != ItemRarity.Unique && tier >= BossOptionMinTier(bossOption) && tier <= 16;
 
+    /// <summary>Optional hook registered by the Atlas module for special off-Atlas areas (Maven Void1..6 witness bosses)
+    /// that Maven can witness when bossOption == 1 even when the area is not a regular Atlas map.</summary>
+    public static Func<ushort, bool>? IsMavenWitnessableSpecialArea;
+
     /// <summary>Validates a map device boss option against Atlas eligibility, map rarity/tier, special layouts, and the player's unlock flag.</summary>
     public static byte EligibleBossOption(Player player, MapDevice.Opening opening, byte bossOption)
     {
+        if (bossOption == 1 && BossOptionUnlockFlags.TryGetValue(1, out int mavenFlag)
+            && player.Character.LeagueQuestFlags.Contains(mavenFlag)
+            && IsMavenWitnessableSpecialArea?.Invoke(opening.Area.Hash16) == true)
+            return 1;
         if (!opening.Area.UsesAtlas || !IsBossOptionEligible(bossOption, opening.Area.Tier, opening.Mods.MapRarity))
             return 0;
         if (MapDevices.Atlas?.ByHash16(opening.Area.Hash16) is { RequiresSpecificItem: true })
@@ -74,6 +82,45 @@ public static partial class Game
         if (BossOptionUnlockFlags.TryGetValue(bossOption, out int flag) && !player.Character.LeagueQuestFlags.Contains(flag))
             return 0;
         return bossOption;
+    }
+
+    /// <summary>Determines <c>Stat.MapSpawnEnvoy</c> (wire key 15661) for Eldritch Envoy terrain generation:
+    /// <c>2</c> = <c>TangleQuest</c> (T5+ before LQF 351 / Flesh Compass), <c>3</c> = <c>CleansingFireQuest</c>
+    /// (T6+ before LQF 352 / Luminous Astrolabe), or <c>0</c> when none applies.</summary>
+    public static int ResolveEnvoySpawnStat(int tier, ItemRarity rarity, IReadOnlySet<int> leagueFlags,
+        bool hasTangleAlteration = false, bool hasCleansingAlteration = false)
+    {
+        const int mavenBeaconUnlocked = 225, exploreAtlas = 1038, tangleIntro = 204,
+            tangleBeaconUnlocked = 351, cleansingBeaconUnlocked = 352;
+        if (rarity == ItemRarity.Unique || tier < 5) return 0;
+        if (!leagueFlags.Contains(mavenBeaconUnlocked) && !leagueFlags.Contains(exploreAtlas)) return 0;
+        bool needTangle = !leagueFlags.Contains(tangleBeaconUnlocked) && !hasTangleAlteration;
+        bool needCleansing = tier >= 6 && !leagueFlags.Contains(cleansingBeaconUnlocked) && !hasCleansingAlteration;
+        if (needTangle && needCleansing)
+            return leagueFlags.Contains(tangleIntro) ? 3 : 2;
+        if (needTangle) return 2;
+        if (needCleansing) return 3;
+        return 0;
+    }
+
+    static int ResolveMapEnvoyStat(string? league, MapDevice.Run map)
+    {
+        if (map.Mods.MapRarity == ItemRarity.Unique || map.Area.Tier < 5) return 0;
+        var online = Program.InGame.Keys.FirstOrDefault(p =>
+            !p.Closed && string.Equals(Program.CharacterName(p), map.Owner, StringComparison.OrdinalIgnoreCase));
+        if (online is not null)
+        {
+            return ResolveEnvoySpawnStat(map.Area.Tier, map.Mods.MapRarity, online.Character.LeagueQuestFlags,
+                ClientHasQuestFlag(online, "HaveTangleMapDeviceAlteration"),
+                ClientHasQuestFlag(online, "HaveCleansingFireMapDeviceAlteration"));
+        }
+        var save = CharacterSaves.Load(map.Owner);
+        var stash = AccountStash.For(AccountStash.Key(map.Owner, league), Program.Items);
+        var lqfs = new HashSet<int>(stash.LeagueQuestFlags);
+        var qfs = save?.QuestFlags ?? [];
+        return ResolveEnvoySpawnStat(map.Area.Tier, map.Mods.MapRarity, lqfs,
+            qfs.Contains("HaveTangleMapDeviceAlteration"),
+            qfs.Contains("HaveCleansingFireMapDeviceAlteration"));
     }
 
     /// <summary>InstanceEvents.AreaStats: the stats of the instance <paramref name="request"/> opens.</summary>
@@ -84,7 +131,8 @@ public static partial class Game
         // Not an Atlas map: the mods' own stats, without the atlas, the tier block, its hidden life or the preset.
         if (!map.Atlas) return ComposeMapAreaStats(map.Mods, 0, new Dictionary<uint, int>(), new HashSet<string>(), -1, deepwater);
         var (atlas, families, preset) = LoadMapAtlas(request.League, map.Owner);
-        return ComposeMapAreaStats(map.Mods, map.Area.Tier, atlas, families, preset, deepwater, map.BossOption);
+        int spawnEnvoy = ResolveMapEnvoyStat(request.League, map);
+        return ComposeMapAreaStats(map.Mods, map.Area.Tier, atlas, families, preset, deepwater, map.BossOption, spawnEnvoy);
     }
 
     /// <summary>InstanceEvents.AreaDisplayStats: only the map's own modifiers (explicit mods scaled by Atlas modifier
@@ -124,7 +172,7 @@ public static partial class Game
     }
 
     public static Dictionary<uint, int> ComposeMapAreaStats(MapMods? mods, int tier, IReadOnlyDictionary<uint, int> atlas,
-        IReadOnlySet<string> families, int preset, bool deepwater = false, byte bossOption = 0)
+        IReadOnlySet<string> families, int preset, bool deepwater = false, byte bossOption = 0, int spawnEnvoy = 0)
     {
         var stats = new Dictionary<uint, int>();
         void Add(uint name, int value)
@@ -192,6 +240,8 @@ public static partial class Game
         Set(Stat.MapDeviceType, 1);
         // AtlasPrimordialBossOptions: 1 Maven, 2 Eater of Worlds, 3 Searing Exarch (C→S 0xd8 / 0x297).
         if (IsBossOptionEligible(bossOption, tier, mods.MapRarity)) Set(Stat.MapAtlasPrimordialBossInfluence, bossOption);
+        // map_spawn_envoy (wire 15661): 2 = TangleQuest, 3 = CleansingFireQuest terrain feature room.
+        if (spawnEnvoy is 2 or 3) Set(Stat.MapSpawnEnvoy, spawnEnvoy);
         // The league blocks of the tree's families and of the families the map names itself (MapMods.AtlasFamilies);
         // a family both hold is carried once.
         foreach (string family in mods.AtlasFamilies.Count == 0 ? families : families.Union(mods.AtlasFamilies, StringComparer.Ordinal))

@@ -90,13 +90,17 @@ public sealed class AtlasModule : IModule
                 bool completed = AtlasProgress.Complete(data, [node]);
                 bool bonus = global::Game.MapRunOf(peer) is { Atlas: true } run && AtlasProgress.MeetsBonusObjective(run, node)
                     && AtlasProgress.CompleteBonus(data, [node]);
+                bool alreadyBonus = bonus || AtlasProgress.BonusCompleted(data).Contains(node.Id);
+                bool witnessed = await MavenWitnessing.OnMapBossKilled(player, peer, monster, node);
                 int earned = bonus ? ApplyBonusPoints(peer, data) : 0;
-                if (completed)
+                var (tangle, cleansing) = AtlasFeature.PrimordialTrackerCounts(data);
+                if (completed || witnessed)
                 {
-                    await Send(peer, AtlasProgress.NodeMessage(node, bonus),
-                        $"0x01a4 Atlas map completed: {node.Name} ({node.Id}) by {monster.Name}");
+                    await Send(peer, AtlasProgress.NodeMessage(node, bonus: completed ? bonus : alreadyBonus,
+                        witnessed: witnessed, tangleCount: tangle, cleansingCount: cleansing),
+                        $"0x01a4 Atlas map {(completed ? "completed" : "witnessed")}: {node.Name} ({node.Id}) by {monster.Name}{(witnessed ? " [Maven witnessed]" : "")}");
                     await AtlasFeature.Refresh(peer);
-                    await modPeer.Tell($"Atlas: {node.Name} completed.");
+                    if (completed) await modPeer.Tell($"Atlas: {node.Name} completed.");
                 }
                 else if (bonus)
                     await AtlasFeature.Refresh(peer);
@@ -113,38 +117,71 @@ public sealed class AtlasModule : IModule
     {
         AtlasProgress.LoadAtlasProgressData();
         AtlasFeature.LoadAtlasFeatureData();
+        MavenWitnessing.LoadData();
+    }
+
+    sealed class DeferCrucibleScope : IDisposable
+    {
+        public void Dispose()
+        {
+            if (MapBossFights.Current is { } fights) fights.DeferMavenHubSpawn = false;
+        }
     }
 
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
         LoadData();
+        if (MapBossFights.Current is { } bossFights)
+        {
+            bossFights.DeferMavenHubSpawn = true;
+            module.Lifetime.Own(new DeferCrucibleScope());
+        }
         ExtraPlayerMessages = player => AtlasFeature.Restore(player);
         GameEvents.MapOpening.Add(module.Manifest.Id, AtlasProgress.ApplyScry);
         GameEvents.EnterMessages.Add(module.Manifest.Id, player => AtlasFeature.PrimordialEnterMessages(player));
+        GameEvents.AreaRuleset.Add(module.Manifest.Id, MavenWitnessing.AreaRulesetFor);
+        GameEvents.AreaQuestFlags.Add(module.Manifest.Id, MavenWitnessing.TransientAreaFlags);
+        GameEvents.PlayerEntered.Add(module.Manifest.Id, async player =>
+        {
+            await EnvoyEncounters.OnPlayerEntered(player);
+            await MavenWitnessing.OnPlayerEntered(player);
+        });
+        GameEvents.AreaTick.Add(module.Manifest.Id, EnvoyEncounters.TickBinding);
+        GameEvents.AreaTick.Add(module.Manifest.Id, MavenWitnessing.TickBinding);
+        GameEvents.NpcTalk.Add(module.Manifest.Id, EnvoyEncounters.OnNpcTalk);
+        GameEvents.ObjectUse.Add(module.Manifest.Id, MavenWitnessing.OnObjectUse);
+        GameEvents.MessagesHandled.Add(module.Manifest.Id, MavenWitnessing.OnMessagesHandled);
         GameEvents.ItemUse.Add(module.Manifest.Id, AtlasFeature.UseAtlasSkillBook);
         GameEvents.MapDeviceOpened.Add(module.Manifest.Id, AtlasFeature.AttachCarriedMapDeviceAlterations);
-        GameEvents.RulesetEvent.Add(module.Manifest.Id, async (player, _, _, _, ev) =>
-        {
-            if (!ev.StartsWith("open_maven_invitation", StringComparison.OrdinalIgnoreCase)) return false;
-            await AtlasFeature.GiveMavenInvitation(player, ev);
-            return true;
-        });
+        GameEvents.RulesetEvent.Add(module.Manifest.Id, MavenWitnessing.OnRulesetEvent);
         GameEvents.Command(module.Manifest.Id, "atlas_unlock", "/atlas_unlock (dev: grant Atlas beacons, invitations and primordial keys)", async (player, args) =>
         {
             int n = await AtlasFeature.EnsureUnlocked(player);
             await PlayerOf(player).Tell(n == 0 ? "Atlas: beacons and invitations already unlocked." : $"Atlas: granted {n} beacon/invitation flag(s).");
         });
-        GameEvents.MonsterKilled.Add(module.Manifest.Id, kill => CompleteMapOnBossKill(kill.Player, kill.Monster));
+        GameEvents.MonsterKilled.Add(module.Manifest.Id, async kill =>
+        {
+            await CompleteMapOnBossKill(kill.Player, kill.Monster);
+            await EnvoyEncounters.OnBossKilled(kill.Player, kill.Monster);
+            await MavenWitnessing.OnMonsterKilled(kill.Player, kill.Monster);
+        });
         // Minion, party, and non-playerKill deaths emit GameEvents.Kill without MonsterKilled.
         GameEvents.Kill.Add(module.Manifest.Id, kill =>
         {
             if (kill.PlayerKill) return;
-            if (AtlasProgress.OfArea(kill.Player.Layout.Id) is not { } node
-                || !node.FinalBosses.Contains(kill.VarietyId)) return;
             var monster = global::Game.ModMonster(kill.Monster, kill.At);
-            if (!AtlasProgress.CompletesMap(node, monster, kill.Player.Area)) return;
-            kill.Later(() => CompleteMapOnBossKill(kill.Player, monster));
+            if (AtlasProgress.OfArea(kill.Player.Layout.Id) is { } node
+                && node.FinalBosses.Contains(kill.VarietyId)
+                && AtlasProgress.CompletesMap(node, monster, kill.Player.Area))
+            {
+                kill.Later(() => CompleteMapOnBossKill(kill.Player, monster));
+            }
+            if (EnvoyEncounters.PostBossEnvoyForKill(kill.Player.Layout.Id, kill.VarietyId) is not null)
+                kill.Later(() => EnvoyEncounters.OnBossKilled(kill.Player, monster));
+            if (kill.Player.Layout.Id is MavenWitnessing.MavenHubAreaId or MavenWitnessing.MavenBossAreaId
+                || MavenWitnessing.IsVoidWitnessArea(kill.Player.Layout.Hash))
+                kill.Later(() => MavenWitnessing.OnMonsterKilled(kill.Player, monster));
         });
         GameEvents.Command(module.Manifest.Id, "atlas_complete", "/atlas_complete <map name or AtlasNode id | all> (dev: mark Atlas maps completed, saved)",
             async (player, args) =>
@@ -171,10 +208,11 @@ public sealed class AtlasModule : IModule
         {
             var data = WorldOf(player).CharacterData;
             AtlasProgress.Reset(data);
+            MavenWitnessing.ClearWitnessedAreas(data);
             await AtlasFeature.SyncTreeFlags(player);
             var slots = AtlasFeature.SlotsOf(PlayerOf(player));
             var (tangle, cleansing) = AtlasFeature.PrimordialTrackerCounts(data);
-            await PlayerOf(player).Send(AtlasProgress.EmptyMessage(AtlasProgress.VoidstoneMask(slots), tangle, cleansing),
+            await PlayerOf(player).Send(AtlasProgress.EmptyMessage(AtlasProgress.VoidstoneMask(slots), tangle, cleansing, clearWitnessed: true),
                 "0x01a3 /atlas_reset");
             await PlayerOf(player).Tell("Atlas: progress cleared.");
         });
@@ -268,6 +306,7 @@ public sealed class AtlasModule : IModule
         {
             if (AtlasFeature.KiracHeardFlags(player, talk) is { Count: > 0 } heard)
                 await SetLeagueQuestFlags(player, heard);
+            await EnvoyEncounters.OnNpcOptionPicked(player, talk);
             if ((talk.Script is not null && talk.Script.Contains("scry", StringComparison.OrdinalIgnoreCase))
                 || string.Equals(talk.Option, "Scry a Map", StringComparison.OrdinalIgnoreCase))
                 await AtlasFeature.OpenScrying(player, player.TalkingTo);
@@ -315,14 +354,6 @@ public static class AtlasFeature
 
     /// <summary>Previously granted in error: they skip Maven/Kirac phases or toast on every area.</summary>
     internal static readonly int[] StripLeagueFlags = [885, 374, 212, 328, 317, 318, 347, 319];
-
-    static readonly Dictionary<string, int> MavenInvitationItems = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Void1"] = 4125, ["Void2"] = 4126, ["Void3"] = 4127, ["Void4"] = 4128, ["Void5"] = 4129, ["Void6"] = 4130,
-        ["Atlas1"] = 4131, ["Atlas2"] = 4132, ["Atlas3"] = 4133, ["Atlas4"] = 4134, ["Atlas5"] = 4136,
-    };
-
-    static readonly Regex OpenMavenInvitation = new(@"open_maven_invitation\s+(\w+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     internal static async Task<bool?> KiracStarterConversation(Player player, uint id, SpawnedNpc npc)
     {
@@ -387,9 +418,10 @@ public static class AtlasFeature
         var slots = SlotsOf(modPlayer);
         byte stones = AtlasProgress.VoidstoneMask(slots);
         var (tangle, cleansing) = PrimordialTrackerCounts(data);
+        var witnessed = MavenWitnessing.WitnessedAreaHashes(data);
         yield return ("0x003c Atlas tree names", global::Game.AtlasTreeNamesMessage(player));
-        yield return ($"0x01a3 Atlas progress, {completed.Count} map(s) completed, {bonusCompleted.Count} bonus, voidstones 0x{stones:X2} ({slots.Count}), tangle {tangle}, cleansing {cleansing}",
-            AtlasProgress.FullMessage(completed, bonusCompleted, stones, tangle, cleansing, AtlasProgress.ScryPairs(data)));
+        yield return ($"0x01a3 Atlas progress, {completed.Count} map(s) completed, {bonusCompleted.Count} bonus, {witnessed.Count} Maven witnessed, voidstones 0x{stones:X2} ({slots.Count}), tangle {tangle}, cleansing {cleansing}",
+            AtlasProgress.FullMessage(completed, bonusCompleted, stones, tangle, cleansing, AtlasProgress.ScryPairs(data), witnessed));
         // The presets in the player batch were built before the budget above changed: send them again so the tree's
         // counter follows on this login.
         if (pointsChanged)
@@ -542,27 +574,6 @@ public static class AtlasFeature
                 $"0x0018 Atlas Book of Skill: +{earned} Atlas passive point(s), +{book.RespecPoints} respec (total {nextPoints} / {nextRespec} respec)");
         }
         return true;
-    }
-
-    /// <summary>Kirac <c>DispatchRulesetEvent("open_maven_invitation …")</c>: put that MavenFights invitation in the bag.</summary>
-    internal static async Task GiveMavenInvitation(Player player, string script)
-    {
-        var match = OpenMavenInvitation.Match(script ?? "");
-        if (!match.Success || !MavenInvitationItems.TryGetValue(match.Groups[1].Value, out int row)
-            || ItemsFor(player).Row(row) is not { } type)
-            return;
-        var items = ItemsOf(player);
-        if (items.FreeCell(PlayerInventories.MainInventory, type.Width, type.Height, ShapeOf) is not { } cell)
-        {
-            await PlayerOf(player).Tell($"Atlas: no room for {type.Name}.");
-            return;
-        }
-        var added = items.Put(PlayerInventories.MainInventory,
-            new InventoryItem(items.NewItemId(), cell.X, cell.Y, ItemCatalog.Create(type)));
-        await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
-            items.NextRevision(PlayerInventories.MainInventory), [], [added]),
-            $"0x00bf inventory 1: Kirac invitation {type.Name}");
-        await PlayerOf(player).Tell($"Atlas: {type.Name}.");
     }
 
     // C→S 0x2a8: a tab of the Atlas tree picked. The client switches only on a 0x3d with that preset alone.
@@ -752,11 +763,11 @@ public static class AtlasFeature
     }
 
     /// <summary>Map Device Alteration quest items (QuestItems 0..2): auto-attached when interacting with the Map Device.</summary>
-    static readonly (string ItemId, string QuestFlag, int LeagueFlag)[] MapDeviceAlterations =
+    static readonly (string ItemId, string QuestFlag, string PickUpFlag, int LeagueFlag)[] MapDeviceAlterations =
     [
-        ("Metadata/Items/QuestItems/Act11/MavenMapDeviceAlteration", "HaveMavenMapDeviceAlteration", 225),
-        ("Metadata/Items/QuestItems/Act11/TangleMapDeviceAlteration", "HaveTangleMapDeviceAlteration", 351),
-        ("Metadata/Items/QuestItems/Act11/CleansingFireMapDeviceAlteration", "HaveCleansingFireMapDeviceAlteration", 352),
+        ("Metadata/Items/QuestItems/Act11/MavenMapDeviceAlteration", "HaveMavenMapDeviceAlteration", "PickUpMavenAlteration", 225),
+        ("Metadata/Items/QuestItems/Act11/TangleMapDeviceAlteration", "HaveTangleMapDeviceAlteration", "PickUpTangleMapDeviceAlteration", 351),
+        ("Metadata/Items/QuestItems/Act11/CleansingFireMapDeviceAlteration", "HaveCleansingFireMapDeviceAlteration", "PickUpCleansingFireMapDeviceAlteration", 352),
     ];
 
     /// <summary>Consumes any carried Map Device alteration quest item (Maven's Beacon, Flesh Compass, Luminous Astrolabe)
@@ -766,7 +777,7 @@ public static class AtlasFeature
         if (HardcoreProgressBlocked(player)) return;
         var items = ItemsOf(player);
         var catalog = ItemsFor(player);
-        var toAttach = new List<(byte Row, InventoryItem Item, string ItemId, string QuestFlag, int LeagueFlag)>();
+        var toAttach = new List<(byte Row, InventoryItem Item, string ItemId, string QuestFlag, string PickUpFlag, int LeagueFlag)>();
         foreach (var (row, entry) in QuestItems.Carried(items))
         {
             if (catalog.ByHash(entry.Item.TypeHash) is not { } type) continue;
@@ -776,7 +787,7 @@ public static class AtlasFeature
                     && !player.Character.LeagueQuestFlags.Contains(alt.LeagueFlag)
                     && !toAttach.Any(a => a.LeagueFlag == alt.LeagueFlag))
                 {
-                    toAttach.Add((row, entry, alt.ItemId, alt.QuestFlag, alt.LeagueFlag));
+                    toAttach.Add((row, entry, alt.ItemId, alt.QuestFlag, alt.PickUpFlag, alt.LeagueFlag));
                 }
             }
         }
@@ -787,13 +798,14 @@ public static class AtlasFeature
         var clearQfs = new List<string>();
         Saves.Atomically(() =>
         {
-            foreach (var (row, entry, _, qf, lqf) in toAttach)
+            foreach (var (row, entry, _, qf, pickUpQf, lqf) in toAttach)
             {
                 if (items.Remove(row, entry.Id) is null) continue;
                 if (!removedByRow.TryGetValue(row, out var list)) removedByRow[row] = list = [];
                 list.Add(entry.Id);
                 setLqfs.Add(lqf);
                 clearQfs.Add(qf);
+                clearQfs.Add(pickUpQf);
             }
             if (setLqfs.Count > 0) PersonalStashOf(player).ChangeLeagueQuestFlags(setLqfs, true);
             if (character is not null && clearQfs.Count > 0) CharacterSaves.ChangeQuestFlags(character, clearQfs, false);
@@ -1226,8 +1238,9 @@ public static class AtlasFeature
         var slots = SlotsOf(modPlayer);
         byte stones = AtlasProgress.VoidstoneMask(slots);
         var (tangle, cleansing) = PrimordialTrackerCounts(data);
-        await Send(player, AtlasProgress.FullMessage(completed, bonusCompleted, stones, tangle, cleansing, AtlasProgress.ScryPairs(data)),
-            $"0x01a3 Atlas voidstones 0x{stones:X2} ({slots.Count} socketed), tangle {tangle}, cleansing {cleansing}, {completed.Count} completed, {bonusCompleted.Count} bonus");
+        var witnessed = MavenWitnessing.WitnessedAreaHashes(data);
+        await Send(player, AtlasProgress.FullMessage(completed, bonusCompleted, stones, tangle, cleansing, AtlasProgress.ScryPairs(data), witnessed),
+            $"0x01a3 Atlas voidstones 0x{stones:X2} ({slots.Count} socketed), tangle {tangle}, cleansing {cleansing}, {completed.Count} completed, {bonusCompleted.Count} bonus, {witnessed.Count} witnessed");
     }
 
     /// <summary>Stones actually in AtlasUpgrades1, not the save (a missing item still left the old 4-slot mask and

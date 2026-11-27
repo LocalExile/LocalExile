@@ -251,6 +251,10 @@ static class PortalsFeature
             await SetQuestFlags(player, ["a7q2-DeliveredItem"]);
         else if (!ClientHasQuestFlag(player, "MapDeviceActive"))
             await SetQuestFlags(player, ["MapDeviceActive"]);
+        if (area.Id == "MavenHub" && player.Connection.PlayerSent)
+            await global::Game.SendWorldRecord(player, player.Id,
+                InstanceEntities.PlayerQuestFlagsUpdate(player.Id, global::Game.PlayerQuestFlags(player)),
+                "0x02bc Maven Crucible portal quest flags");
         string extra = opening.Mods.ExtraMagicPacks > 0 || opening.Mods.PacksDropCards > 0
             ? $", +{opening.Mods.ExtraMagicPacks} magic packs, {opening.Mods.PacksDropCards} pack(s) drop cards"
             : "";
