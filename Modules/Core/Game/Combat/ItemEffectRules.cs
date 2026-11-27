@@ -12,7 +12,15 @@ sealed partial class ItemEffectRules
     readonly ConcurrentDictionary<(SkillCatalog Skills, int Effect, int Level), MarkRule[]> grantedMarks = new();
     internal readonly IReadOnlyList<ChargeGains.Rule> ChargeRules;
     internal readonly IReadOnlyList<ChargeGains.Rule> MinionKillCharges;
+    internal readonly IReadOnlyList<ChargeGains.Rule> HitChargeRules;
+    internal readonly (uint Stat, ChargeType Type)[] MonsterHitCharges;
     internal readonly bool NeedsRareHit;
+
+    sealed class ChargeRuleLists
+    {
+        internal readonly List<ChargeGains.Rule> BeforeAdditional = [], AfterAdditional = [], MinionKills = [];
+        internal readonly SortedDictionary<long, (uint Stat, ChargeType Type)[]> PlayerHits = [], MonsterHits = [];
+    }
 
     static readonly RuleTable<GameData.Snapshot, ItemEffectRules> Tables = new();
     internal static ItemEffectRules Current => Tables.GetValue(GameData.Current, static snapshot => new(snapshot));
@@ -21,13 +29,15 @@ sealed partial class ItemEffectRules
 
     ItemEffectRules(GameData.Snapshot snapshot)
     {
-        List<ChargeGains.Rule> beforeAdditional = [];
-        List<ChargeGains.Rule> afterAdditional = [];
-        List<ChargeGains.Rule> minionKills = [];
-        foreach (var row in snapshot.FxRules) Compile(row, beforeAdditional, afterAdditional, minionKills);
-        MinionKillCharges = minionKills;
+        var charges = new ChargeRuleLists();
+        foreach (var row in snapshot.FxRules) Compile(row, charges);
+        MinionKillCharges = charges.MinionKills;
+        var playerHits = charges.PlayerHits.Values.SelectMany(rules => rules)
+            .Select(hit => new ChargeGains.Rule(hit.Stat, hit.Type, static (e, _) => e is ChargeEvent.Hit));
+        HitChargeRules = [.. playerHits, .. ChargeGains.OtherRules];
+        MonsterHitCharges = [.. charges.MonsterHits.Values.SelectMany(rules => rules)];
         // Keep the original roll order, including the random charge type drawn between the two sets.
-        ChargeRules = [.. beforeAdditional, .. ChargeGains.AdditionalKillRules, .. afterAdditional, .. ChargeGains.OtherRules];
+        ChargeRules = [.. charges.BeforeAdditional, .. ChargeGains.AdditionalKillRules, .. charges.AfterAdditional, .. ChargeGains.OtherRules];
         NeedsRareHit = onHit.All(rule => rule.RareOrUnique);
     }
 

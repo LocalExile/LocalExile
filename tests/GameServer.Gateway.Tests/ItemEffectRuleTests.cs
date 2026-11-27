@@ -11,7 +11,7 @@ public sealed class ItemEffectRuleTests
         // Invalid data must fail before a candidate world snapshot is used by combat.
         var world = GameData.Current;
         var mark = Assert.Single(world.FxRules, rule => rule.Id == "granted_mark");
-        var impossible = mark with { When = [("block", "{}")] };
+        var impossible = mark with { When = [("block", "{}", null)] };
         var error = Assert.Throws<InvalidDataException>(() =>
             ItemEffectRules.Validate(world with { FxRules = [impossible] }));
         Assert.Contains(mark.Id, error.Message);
