@@ -426,18 +426,16 @@ static class LegionStasis
         });
     }
 
-    /// <summary>Sets StateMachine states (each to 1) on a monster, server-side (a player who enters later is created with them) and once for every client in the area.</summary>
+    /// <summary>Sets StateMachine states (each to 1) on a monster via <see cref="MonsterStateMachine"/> (server-side for late joiners and once for every client in the area).</summary>
     public static async Task SetState(Player player, uint id, SpawnedMonster monster, params string[] names)
     {
-        var states = monster.States ?? monster.Variety?.StateMachine;
-        if (states is null) return;
-        foreach (var name in names) states = states.Set(name, 1);
-        monster.States = states;
-        if (player.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
-            player.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = states } };
-        int component = monster.Variety?.ComponentsOrBase.ToList().IndexOf("StateMachine") ?? -1;
-        if (component < 0) return;
-        await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(p, id, InstanceEntities.StateMachineUpdate(id, (byte)component, states), null));
+        if (names.Length == 0) return;
+        if (monster.States is null && monster.Variety?.StateMachine is { } defaults)
+            monster.States = defaults;
+        var changes = new (string Name, int Value)[names.Length];
+        for (int i = 0; i < names.Length; i++) changes[i] = (names[i], 1);
+        if (!MonsterStateMachine.TrySet(player, id, monster, changes, out var packet) || packet is null) return;
+        await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(p, id, [.. packet], null));
     }
 
     public static double InitialLifeMultiplier(int rewardCount, int lifePerRewardPct, int sextantLifePct)

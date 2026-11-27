@@ -190,10 +190,16 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   `reference` object, and does the client play `dismount_01` from the mount's ordinary death.
 - Hyrri is two objects (R17): the plan's 7704 `LegionKaruiGeneralFish` (targetable, the loot, the travel kit; `MovementSpeed` 0) and the
   rider 7702 `LegionKaruiGeneral` (.ot: untargetable, `base_cannot_be_damaged`, no drops, non-blocking, immobile), spawned on the Fish
-  when it wakes or is revived; the server keeps hits, minions and rewards off the rider, removes it with the Fish, and holds the
-  rider's own teleports (10063/10064) so the Fish is the one that moves. The Domain slot, ghost and revival are the Fish's.
+  when it wakes or is revived; the server keeps hits, minions and rewards off the rider, removes it with the Fish, and filters the
+  rider's own teleports (10063/10064) and the Fish's rocket-jump parent (8048) via `MonsterKitHooks.AddEffectFilter` (`LegionSkillHooks.cs`)
+  so the Fish drives movement while the rider fires. The Domain slot, ghost and revival are the Fish's.
   GUESS: no client link between the two (the server teleports the rider onto the Fish's cell, at most every 0.2 s); a water clone
-  7703 (NoAi, `dying` state) where the mortar 9988 lands is placed near the rider's target 1 s after it fires (the server does not
-  follow the mortar), lives 8 s, at most 3 per Hyrri. Live check: does the rider ride the Fish or float beside it, and does the
-  frozen Fish (no rider in stasis) look right.
+  7703 (NoAi, `dying` state) is queued via `MonsterKitHooks.AddActionLifecycleObserver` when mortar 9988 starts, placed near the rider's
+  target 1 s later (the server does not follow the mortar), lives 8 s, at most 3 per Hyrri. Live check: does the rider ride the Fish or
+  float beside it, and does the frozen Fish (no rider in stasis) look right.
+- Generals, Sergeants and soldiers (`LegionSkillHooks.cs`): registers explicit Tier-1 `EmptyAction*` clip-event -> child-GE bindings
+  via `MonsterKitHooks.AddComboBindings` (all 5 Generals including Lioneye CircleOfDeath/dive-roll shots, Aukuna mounted + dismounted
+  cleave/dash combos, Vox ComboDash + HolyRuckus, Viper all 5 combos with alternating phys/poison sweep, Hyrri RocketJump, plus all
+  Legion Sergeants, Karui Backburner, and Forgotten Afarud Commander) and routes monster StateMachine transitions (`nobird`, `explodeepk`,
+  `dying`, `fleeing`) through `MonsterStateMachine.TrySet`.
 - Not yet built: the `LegionCocoonCrystal` item-insertion UI window for Enshrouding Crystals (requires client protocol RE).

@@ -13,6 +13,7 @@ public sealed class LegionModule : IModule
         LegionData.Reload();
         LegionMonolith.LoadData();
         LegionDomain.LoadData();
+        LegionSkillHooks.LoadData();
     }
 
     /// <inheritdoc/>
@@ -20,7 +21,8 @@ public sealed class LegionModule : IModule
     {
         LoadData();
         var data = LegionData.Current;
-        module.Lifetime.Own(new Cleanup(() => { LegionDomain.UnloadData(); LegionMonolith.UnloadData(); LegionData.Unload(); }));
+        module.Lifetime.Own(new Cleanup(() => { LegionSkillHooks.UnloadData(); LegionDomain.UnloadData(); LegionMonolith.UnloadData(); LegionData.Unload(); }));
+        module.Lifetime.Own(LegionSkillHooks.Register());
         LegionMonolith.Register(module);
         LegionDomain.Register(module);
         LegionGenerals.Register(module);

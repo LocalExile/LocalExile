@@ -205,6 +205,56 @@ public sealed class LegionTests
         // E46: Hyrri is planned as her Fish (7704, the body); her rider 7702 and water clone 7703 are found by name.
         Assert.Equal(new LegionData.RiderRows(7704, 7702, 7703), Assert.Single(data.Riders).Value);
         Assert.True(Game.Monsters.Find("7703")!.StateMachine!.IndexOf("dying") >= 0);
+        // S6 MonsterKitHooks integration: Hyrri teleport/Fish filter and explicit Tier-1 EmptyAction* combo bindings across all 5 Generals & Sergeants.
+        var skills = Game.SkillsFor(opener);
+        using (LegionSkillHooks.Register())
+        {
+            var hyrriRider = Game.Monsters.Find("7702")!;
+            var hyrriFish = Game.Monsters.Find("7704")!;
+            Assert.False(MonsterKitHooks.AllowEffect(hyrriRider, skills.EffectRow("LegionHyrriTeleport"), "LegionHyrriTeleport"));
+            Assert.False(MonsterKitHooks.AllowEffect(hyrriRider, skills.EffectRow("LegionHyrriTeleportSpinningDeath"), "LegionHyrriTeleportSpinningDeath"));
+            Assert.False(MonsterKitHooks.AllowEffect(hyrriFish, skills.EffectRow("EmptyActionLegionHyrrisFishRocketJump"), "EmptyActionLegionHyrrisFishRocketJump"));
+            Assert.True(MonsterKitHooks.AllowEffect(hyrriFish, skills.EffectRow("LegionHyrriTeleportActual"), "LegionHyrriTeleportActual"));
+
+            var hyrriCombos = MonsterCombos.For(skills, hyrriRider);
+            int rocketJump = skills.EffectRow("EmptyActionLegionHyrrisFishRocketJump");
+            Assert.True(hyrriCombos.Parents.TryGetValue(rocketJump, out var rj));
+            Assert.Equal(10, rj!.Events.Count);
+            Assert.All(rj.Events, ev => Assert.Equal("LegionHyrriRocketJumpProjectile", skills.EffectId(ev.ChildEffect)));
+            Assert.False(MonsterCombos.For(skills, hyrriFish).HasAny);
+
+            var lioneye = Game.Monsters.Find("7723")!;
+            var lioneyeCombos = MonsterCombos.For(skills, lioneye);
+            Assert.Equal(4, lioneyeCombos.Parents.Count);
+            Assert.Equal(
+                ["LegionLioneyeDeathCircleLeft", "LegionLioneyeDeathCircleRight", "LegionLioneyeFireCircleFire", "LegionLioneyeFireCircleBombard"],
+                lioneyeCombos.Parents[skills.EffectRow("EmptyActionLegionLioneyeCircleOfDeath")].Events.Select(ev => skills.EffectId(ev.ChildEffect)));
+
+            var aukunaFoot = Game.Monsters.Find("7754")!;
+            var aukunaFootCombos = MonsterCombos.For(skills, aukunaFoot);
+            Assert.Equal(2, aukunaFootCombos.Parents.Count);
+            Assert.Equal(
+                ["LegionMarakethGeneralLacerateLeft", "LegionMarakethGeneralTriggerReave", "LegionMarakethGeneralDash", "LegionMarakethGeneralFlurrySlice"],
+                aukunaFootCombos.Parents[skills.EffectRow("LegionMarakethGeneralEmptyActionDash")].Events.Select(ev => skills.EffectId(ev.ChildEffect)));
+
+            var vox = Game.Monsters.Find("7783")!;
+            var voxCombos = MonsterCombos.For(skills, vox);
+            Assert.Equal(2, voxCombos.Parents.Count);
+            Assert.Equal(
+                ["LegionTemplarBossMassBolt", "LegionTemplarBossHolyBlastBeam"],
+                voxCombos.Parents[skills.EffectRow("EmptyActionLegionTemplarHolyRuckus")].Events.Select(ev => skills.EffectId(ev.ChildEffect)));
+
+            var viper = Game.Monsters.Find("7816")!;
+            var viperCombos = MonsterCombos.For(skills, viper);
+            Assert.Equal(5, viperCombos.Parents.Count);
+            var spamEvents = viperCombos.Parents[skills.EffectRow("EmptyActionLegionVaalViperProjectileSpam")].Events;
+            Assert.Equal(10, spamEvents.Count);
+            Assert.Equal("LegionVaalViperProjectilePhys", skills.EffectId(spamEvents[0].ChildEffect));
+            Assert.Equal("LegionVaalViperProjectilePoison", skills.EffectId(spamEvents[1].ChildEffect));
+        }
+        Assert.False(MonsterKitHooks.HasEffectFilters);
+        Assert.False(MonsterKitHooks.HasComboProviders);
+        Assert.False(MonsterKitHooks.HasActionLifecycleObservers);
         }
     }
 
