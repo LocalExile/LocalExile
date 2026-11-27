@@ -72,6 +72,54 @@ public sealed class AttackAddedInputTests : IDisposable
         Mods = [new(ModSection.Explicit, Program.Items.Mods.ById(mod)!.Hash, [minimum, maximum])],
     };
 
+    [Fact]
+    public void Righteous_Providence_increases_attack_and_spell_critical_chance_from_the_lower_attribute()
+    {
+        player.Character.ClassRow = Program.Skills.RowOfClass(1); // Marauder starts with more Strength than Intelligence.
+        var items = Game.ItemsOf(player);
+        items.Add(PlayerInventories.Weapon1, 0, 0, Make("Driftwood Wand"));
+
+        Item Ring(string modifier) => Make("Coral Ring") with
+        {
+            ItemLevel = 86,
+            Rarity = ItemRarity.Magic,
+            Mods = [new(ModSection.Explicit, Program.Items.Mods.ById(modifier)!.Hash, [50])],
+        };
+
+        CharacterStats.Pools CheckCriticalChance()
+        {
+            Set(Stat.IncreaseCritChanceByLowestOfStrOrInt, 0);
+            var ordinary = Game.PoolsFor(player, 100);
+            player.Pools = ordinary;
+            int ordinaryRaw = Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.CriticalStrikeChancePlusPct);
+            Set(Stat.IncreaseCritChanceByLowestOfStrOrInt, 1);
+            player.Pools = Game.PoolsFor(player, 100);
+            int increase = Math.Min(ordinary.Strength, ordinary.Intelligence);
+            Assert.True(increase > 0);
+            Assert.Equal(ordinary.CriticalStrikeChancePct + increase, player.Pools.CriticalStrikeChancePct);
+            Assert.Equal(ordinary.SpellCriticalStrikeChancePct + increase, player.Pools.SpellCriticalStrikeChancePct);
+            Assert.True(player.Pools.AttackCriticalStrikeChance > ordinary.AttackCriticalStrikeChance);
+            Assert.True(player.Pools.SpellCriticalStrikeChance > ordinary.SpellCriticalStrikeChance);
+            Assert.Equal(ordinaryRaw + increase,
+                Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.CriticalStrikeChancePlusPct));
+            return ordinary;
+        }
+
+        var baseline = CheckCriticalChance();
+        var strengthRing = items.Add(PlayerInventories.Ring2, 0, 0, Ring("Strength8"))!;
+        var higherStrength = CheckCriticalChance();
+        Assert.Equal(baseline.Intelligence, higherStrength.Intelligence);
+        Assert.True(higherStrength.Strength > baseline.Strength);
+        items.Remove(PlayerInventories.Ring2, strengthRing.Id);
+        items.Add(PlayerInventories.Ring1, 0, 0, Ring("Intelligence8"));
+        var withIntelligence = CheckCriticalChance();
+        items.Add(PlayerInventories.Ring2, 0, 0, Ring("Strength8"));
+        var withStrength = CheckCriticalChance();
+        Assert.True(baseline.Intelligence < baseline.Strength);
+        Assert.True(withIntelligence.Strength < withIntelligence.Intelligence);
+        Assert.True(withStrength.Intelligence < withStrength.Strength);
+    }
+
     static Item Solaris()
     {
         var catalogue = new UniqueCatalog(Program.Items);

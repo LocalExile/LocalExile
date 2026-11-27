@@ -640,6 +640,7 @@ client key 3907, permyriad; the Behemoth position's Final Blow, graph id 10135, 
 melee attack that has no weapon base. Each is a base, not a fixed final chance: the generic
 `critical_strike_chance_+%` increases still apply on top. A weapon hand keeps the unarmed base out, an unarmed
 context keeps the weapon override out, and `SpellCriticalStrike`'s spell route reads neither.
+Righteous Providence adds the lower of the player's final Strength and Intelligence to increased critical strike chance.
 The active weapon set determines the attack base and weapon-specific increases; an inactive weapon grants neither.
 `global_cannot_crit`, `virtual_global_cannot_crit` and `cannot_critical_strike_with_attacks` suppress attack crits.
 The pool builds the base once in `AttackBaseCriticalStrike`.

@@ -228,9 +228,10 @@ public static partial class Game
                 stats[Stat.UnaffectedByIgnite] = 1;
                 stats[Stat.UnaffectedByShock] = 1;
             }
-            if (GetIn(stats, Stat.IncreaseCritChanceByLowestOfStrOrInt) != 0)
-                AddTo(stats, Stat.CriticalStrikeChancePlusPct,
-                    Math.Min(GetIn(stats, Stat.Strength), GetIn(stats, Stat.Intelligence)));
+            int attributeCritical = LowestStrengthOrIntelligenceCriticalIncrease(player.Pools,
+                GetIn(stats, Stat.IncreaseCritChanceByLowestOfStrOrInt));
+            if (attributeCritical != 0)
+                AddTo(stats, Stat.CriticalStrikeChancePlusPct, attributeCritical);
         });
         // The overcapped lightning resistance's increased crit (PoolsFor derived it once into Pools): the spell consumers read
         // the raw increased stats here (SpellCriticalStrike), while the attack and panel chances already fold the same value

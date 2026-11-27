@@ -133,6 +133,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   - Criticals: other conditional more chance, guaranteed-critical effects, off-hand chance/multiplier publication and
     execution, Focus/curse lifecycles. The off-hand range/timing publication has no critical fields: do not infer
     completion from its other weapon fields.
+  - Confirm Righteous Providence's attack and spell critical chance with the supported client.
   - Whisperer, Arcane Might, Steel Willed, Rampager and Behemoth's remaining scope is in their docs
     ([Whisperer](../docs/game/whisperer.md), [Arcane Might](../docs/game/arcane-might.md),
     [Steel Willed armour](../docs/game/steel-willed-armour.md), [Behemoth](../docs/game/behemoth.md)).

@@ -1,6 +1,9 @@
 
 public static partial class Game
 {
+    static int LowestStrengthOrIntelligenceCriticalIncrease(CharacterStats.Pools pools, int enabled) =>
+        enabled != 0 ? Math.Min(pools.Strength, pools.Intelligence) : 0;
+
     static void LoseLifeOnCriticalStrikeLocked(Player player, int percent, double now)
     {
         if (percent <= 0 || player.PlayerLife == 0) return;

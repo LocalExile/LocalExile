@@ -1517,6 +1517,14 @@ public static partial class Game
             ArmourPctPer50ReservedMana = armourPer50ManaReserved,
             ArmourPctFromReservedMana = armourIncrease
         };
+        int attributeCritical = LowestStrengthOrIntelligenceCriticalIncrease(pools,
+            EquipmentInput(Stat.IncreaseCritChanceByLowestOfStrOrInt));
+        if (attributeCritical != 0)
+            pools = pools with
+            {
+                CriticalStrikeChancePct = pools.CriticalStrikeChancePct + attributeCritical,
+                SpellCriticalStrikeChancePct = pools.SpellCriticalStrikeChancePct + attributeCritical,
+            };
         if (true)
             pools = pools with { SpellCriticalStrikeChancePct = pools.SpellCriticalStrikeChancePct
                 + MaximumPoolItemSources.Amount(EquipmentInput(MaximumPoolItemSources.SpellCriticalPerLife), pools.Life) };
