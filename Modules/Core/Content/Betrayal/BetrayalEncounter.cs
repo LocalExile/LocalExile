@@ -1,4 +1,6 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 using static GameServer.Modules.Betrayal.BetrayalTables;
@@ -34,14 +36,88 @@ public sealed class BetrayalEncounter
         public readonly BetrayalRun Run = run;
         public readonly SemaphoreSlim Gate = new(1, 1);
         public StateMachineData? Kneel;
+        public bool Reinforcement;
+        public Saved? Snapshot;
     }
 
-    readonly ConditionalWeakTable<InstanceState, Live> lives = new();
+    internal sealed record Saved(BetrayalRun.Snapshot Run, bool Reinforcement,
+        [property: JsonConverter(typeof(SavedMonster.StateMachineSnapshotConverter))] StateMachineData? Kneel);
+    const string SaveKey = "Betrayal.encounter.v1";
+    static readonly JsonSerializerOptions Json = new() { IncludeFields = true };
+
+    void Persist(Player player, Live live)
+    {
+        live.Snapshot = new(live.Run.Save(), live.Reinforcement, live.Kneel);
+        if (!lives.TryGetValue(player.Instance, out var all)) return;
+        lock (all) player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(all.Select(l => l.Snapshot).OfType<Saved>().ToArray(), Json);
+    }
+
+    readonly ConditionalWeakTable<InstanceState, List<Live>> lives = new();
 
     /// <summary>Drops the module's state (module unload); the instance's monsters stay as the area's own.</summary>
     public void Clear() => lives.Clear();
 
-    Live? LiveOf(Player player) => player.Instance is { } instance && lives.TryGetValue(instance, out var live) ? live : null;
+    Live[] AllOf(Player player)
+    {
+        if (player.Instance is not { } instance) return [];
+        if (!lives.TryGetValue(instance, out var all))
+        {
+            if (!instance.ContentState.TryGetValue(SaveKey, out var text)) return [];
+            all = lives.GetValue(instance, _ => [.. (JsonSerializer.Deserialize<Saved[]>(text, Json) ?? []).Select(s =>
+                new Live(BetrayalRun.Restore(s.Run)) { Reinforcement = s.Reinforcement, Kneel = s.Kneel, Snapshot = s })]);
+        }
+        Live[] snapshot;
+        lock (all)
+        {
+            snapshot = all.ToArray();
+            var used = new HashSet<uint>();
+            foreach (var live in snapshot)
+                if (live.Run.Member != 0 && live.Run.MemberBody is SpawnedMonster bound
+                    && player.Area.Monsters.TryGetValue(live.Run.Member, out var current) && ReferenceEquals(bound, current))
+                    used.Add(live.Run.Member);
+            foreach (var live in snapshot)
+                if (live.Run.Current != BetrayalRun.Stage.Done && live.Run.Member != 0 && (live.Run.MemberBody is not SpawnedMonster bound
+                    || !player.Area.Monsters.TryGetValue(live.Run.Member, out var current) || !ReferenceEquals(bound, current)))
+                {
+                    var run = live.Run;
+                    var anchor = run.ChoiceCell ?? run.Plan.MemberCell;
+                    var match = player.Area.Monsters
+                        .Where(p => !used.Contains(p.Key) && !p.Value.Dead && p.Value.Variety?.Row == run.Plan.Member.Variety)
+                        .OrderByDescending(p => p.Key == run.Member)
+                        .ThenBy(p => Distance(p.Value.Walk.Position(AreaTime(player)), anchor))
+                        .FirstOrDefault();
+                    if (match.Value is not { } body) continue;
+                    used.Add(match.Key);
+                    run.Member = match.Key; run.MemberBody = body;
+                    body.LifePhases = new LifePhaseGate([KneelLifePercent]);
+                    if (run.Current >= BetrayalRun.Stage.Defeated)
+                    {
+                        body.ScriptHeld = true; body.Aggro = false; body.BusyUntil = double.PositiveInfinity;
+                        body.TemporaryAllyUntil = double.PositiveInfinity;
+                        body.LifePhases.Begin(body.Life, body.MaxLife);
+                    }
+                }
+        }
+        return snapshot;
+    }
+    Live? LiveOf(Player player) => AllOf(player).FirstOrDefault();
+    static byte? RulesetPayload(Live[] all)
+    {
+        byte? idle = null;
+        foreach (var live in all)
+            if (live.Run.RulesetPayload is { } payload)
+            {
+                if (payload == 1) return 1;
+                idle = payload;
+            }
+        return idle;
+    }
+    static Player? Owner(Player player) => Clients(player).FirstOrDefault(p => string.Equals(CharacterName(p),
+        MapRunOf(player)?.Owner ?? CharacterName(player), StringComparison.OrdinalIgnoreCase));
+
+    // Relationship-dependent baseline odds are not in the client tables; 40% is server calibration.
+    public static bool Reinforcements(int increasedChance, Random rng) =>
+        rng.NextDouble() < Math.Clamp(0.4 * Math.Max(0L, 100L + increasedChance) / 100, 0, 1);
 
     static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;
 
@@ -73,7 +149,10 @@ public sealed class BetrayalEncounter
         if (!BetrayalPlan.Rolled(layout.Id, AreaLeagueStats(player), MapDevices.IsMapArea(layout.Hash), rng,
             LeagueFor(player).HardMode, BetrayalPlan.ForcedChance(Environment.GetEnvironmentVariable("Game_LEAGUE_CHANCES")))) return;
         if (Members.Count == 0) return;
-        var member = Members[rng.Next(Members.Count)];
+        var owner = Owner(player) ?? player;
+        var board = BetrayalRanks.Read(WorldOf(owner).CharacterData.Get(BetrayalRanks.SaveKey));
+        instance.ContentState["Betrayal.interrogation.pending"] = JsonSerializer.Serialize(board.Where(p => p.Value.Turns > 0).Select(p => p.Key).ToArray());
+        if (BetrayalPlan.Pick(board, rng) is not { } member) return;
         bool Floor(int x, int y) => x >= 0 && y >= 0 && x < layout.GridW && y < layout.GridH && layout.WalkableFor(x, y, 0);
         var taken = area.Taken.ToList();
         var arrival = AreaPopulation.Reachable(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY));
@@ -89,7 +168,7 @@ public sealed class BetrayalEncounter
         if (plan is null) return;
         var run = new BetrayalRun(plan, area.Level);
         var live = new Live(run);
-        lives.AddOrUpdate(instance, live);
+        lives.AddOrUpdate(instance, [live]);
         foreach (var (variety, cell) in plan.Guards)
             if (Monsters.Find(variety) is { Supported: true } guard)
                 await SpawnMonster(player, guard, area.Level, MonsterRarity.Normal, cell.X, cell.Y, bulk: true);
@@ -106,6 +185,7 @@ public sealed class BetrayalEncounter
             byte[] cart = BetrayalWire.Create(id, BetrayalWire.CartType, BetrayalWire.CartBody(cell, BetrayalPlan.CartRotation(plan.Angle)));
             await SendWorldCreate(player, id, () => cart, $"0x02bb Betrayal cart 0x{id:x}", wake: false, awaitBirth: false);
         }
+        Persist(player, live);
         // No ruleset broadcast here: at population time only the entering player is in the instance, and that player
         // already gets the ruleset row from EnterMessages (0x001f) and its data from Entered (0x02c9) on this same
         // entry, so broadcasting either would send it twice (review #1379 point 4).
@@ -116,30 +196,37 @@ public sealed class BetrayalEncounter
 
     /// <summary>The ruleset row for an entering client before the area's objects (GameEvents.EnterMessages).</summary>
     public IEnumerable<(string Log, byte[] Message)> EnterMessages(Player player) =>
-        LiveOf(player)?.Run.RulesetPayload is not null && AssassinationRules is { } row
+        RulesetPayload(AllOf(player)) is not null && AssassinationRules is { } row
             ? [($"0x001f ruleset JobAssassinationRules (row {row})", InstanceProtocol.AddRuleset(row))] : [];
 
     /// <summary>A player entered (a party member, a re-entry through a portal or after a death): the ruleset's current data.
     /// Jun, the carts, the member and its MakeChoice come with the area's objects and monsters.</summary>
     public async Task Entered(Player player)
     {
-        if (LiveOf(player)?.Run.RulesetPayload is { } payload && AssassinationRules is { } row)
+        if (RulesetPayload(AllOf(player)) is { } payload && AssassinationRules is { } row)
             await Send(player, InstanceRulesets.Data(row, [payload]), $"0x02c9 JobAssassinationRules {payload}");
     }
 
     // ---- the tick ------------------------------------------------------------------------------------------------
 
     /// <summary>Whether the instance has a mission still to advance.</summary>
-    public bool Has(Player player) => LiveOf(player) is { } live && live.Run.Current != BetrayalRun.Stage.Done;
+    public bool Has(Player player) => AllOf(player).Any(l => l.Run.Current != BetrayalRun.Stage.Done);
 
-    public bool IsActivePause(Player player) => LiveOf(player)?.Run.Current == BetrayalRun.Stage.Fight;
+    public bool IsActivePause(Player player) => AllOf(player).Any(l => l.Run.Current == BetrayalRun.Stage.Fight);
 
     /// <summary>One tick of the mission, by the connection that steps the area's monsters: what is due, the start when a
     /// character comes close, and the kneel when the member is brought down.</summary>
     public async Task Advance(Player player, double seconds)
     {
-        if (LiveOf(player) is not { } live || !IsMonsterRunner(player) || !Current(player)) return;
+        if (!IsMonsterRunner(player) || !Current(player)) return;
+        foreach (var live in AllOf(player)) await AdvanceOne(player, live, seconds);
+    }
+
+    async Task AdvanceOne(Player player, Live live, double seconds)
+    {
         if (!await live.Gate.WaitAsync(0)) return;
+        var before = live.Run.Current;
+        var hadTimers = live.Run.HasTimers;
         try
         {
             var run = live.Run;
@@ -160,7 +247,11 @@ public sealed class BetrayalEncounter
                     break;
             }
         }
-        finally { live.Gate.Release(); }
+        finally
+        {
+            if (hadTimers || before != live.Run.Current) Persist(player, live);
+            live.Gate.Release();
+        }
     }
 
     /// <summary>The member comes out at the first cart (or the spot): Jun leaves, the Intervention's ruleset goes active, the
@@ -170,14 +261,14 @@ public sealed class BetrayalEncounter
         var run = live.Run;
         var plan = run.Plan;
         var instance = player.Instance;
-        await SendWorldRemoval(player, run.Jun, $"0x02bd Jun 0x{run.Jun:x} leaves");
+        if (run.Jun != 0) await SendWorldRemoval(player, run.Jun, $"0x02bd Jun 0x{run.Jun:x} leaves");
         run.Jun = 0;
         // The carts were created asleep at Place; a character is within StartDistance now, inside the wake zone, so
         // wake them before anything updates them (Defeat's cart_finished 0x02bc would otherwise reach a client whose
         // copy never woke). Jun is gone, so he gets no wake.
         foreach (uint cart in run.Carts)
             await SendWorldRecord(player, cart, InstanceProtocol.EnterWakeZone(cart), $"0x01a9 cart 0x{cart:x} enters wake zone");
-        if (run.RulesetPayload is { } payload && AssassinationRules is { } row)
+        if (RulesetPayload(AllOf(player)) is { } payload && AssassinationRules is { } row)
             await Broadcast(player, InstanceRulesets.Data(row, [payload]), $"0x02c9 JobAssassinationRules {payload}");
         var cell = plan.MemberCell;
         if (Monsters.All.ElementAtOrDefault(plan.Member.Variety) is { Supported: true } variety)
@@ -188,6 +279,40 @@ public sealed class BetrayalEncounter
             {
                 run.Member = id;
                 run.MemberBody = body;
+            }
+        }
+        if (!live.Reinforcement && run.Member != 0 && lives.TryGetValue(instance, out var mission))
+        {
+            var rng = new Random(AreaPopulation.PopulationSeed(player.Layout.Hash, player.Seed) ^ 0x5245494e);
+            if (Reinforcements(MapModsOf(player)?.Get(Stat.MapBetrayalSecondaryTargetAmountPlusPct) ?? 0, rng))
+            {
+                var owner = Owner(player) ?? player;
+                var board = BetrayalRanks.Read(WorldOf(owner).CharacterData.Get(BetrayalRanks.SaveKey));
+                var pool = Targets.Where(m => m.Row != plan.Member.Row && BetrayalRanks.Of(board, m).Turns == 0
+                    && Monsters.Find(m.Variety.ToString()) is { Supported: true })
+                    .Select(m => m with { Rank = BetrayalRanks.Of(board, m).Rank }).OrderBy(_ => rng.Next()).Take(rng.Next(1, 3));
+                foreach (var member in pool)
+                {
+                    var layout = player.Layout;
+                    var want = (Math.Clamp(cell.X + 8 + rng.Next(12), 0, Math.Max(0, layout.GridW - 1)),
+                        Math.Clamp(cell.Y + rng.Next(-12, 13), 0, Math.Max(0, layout.GridH - 1)));
+                    var at = layout.Near(want);
+                    if (at.X < 0 || at.Y < 0 || at.X >= layout.GridW || at.Y >= layout.GridH || !layout.WalkableFor(at.X, at.Y, 0))
+                        at = cell;
+                    var companion = new Live(new BetrayalRun(plan with
+                    {
+                        Member = member with { Job = plan.Job }, Spot = at, Carts = [], Guards = [], Spawners = [],
+                    }, run.Level)) { Reinforcement = true };
+                    companion.Run.Advance(BetrayalRun.Stage.Waiting);
+                    lock (mission) mission.Add(companion);
+                    await companion.Gate.WaitAsync();
+                    try
+                    {
+                        await Start(player, companion);
+                        Persist(player, companion);
+                    }
+                    finally { companion.Gate.Release(); }
+                }
             }
         }
         if (run.Member == 0)
@@ -263,6 +388,13 @@ public sealed class BetrayalEncounter
             // ever queued for a non-minion). Invulnerable already holds through the kneel gate (LifePhases.Active).
             body.TemporaryAllyUntil = double.PositiveInfinity;
         }
+        if (AllOf(player).All(l => l.Run.Current >= BetrayalRun.Stage.Defeated) && Owner(player) is { } owner
+            && instance.ContentState.TryAdd("Betrayal.interrogation.turn", "1"))
+        {
+            var pending = instance.ContentState.TryGetValue("Betrayal.interrogation.pending", out var text)
+                ? JsonSerializer.Deserialize<int[]>(text) ?? [] : [];
+            if (!BetrayalRanks.Begin(owner, pending.ToHashSet())) instance.ContentState.TryRemove("Betrayal.interrogation.turn", out _);
+        }
         run.Choice = instance.World.TakeObjectId();
         // The cell the MakeChoice actually stands on: Use walks to this, not to where the member's walk has drifted
         // to by the time the choice is used (review #1379 point 5).
@@ -276,7 +408,7 @@ public sealed class BetrayalEncounter
             await SendWorldRecord(player, spawner, InstanceEntities.TransitionableUpdate(spawner, BetrayalWire.SpawnerTransitionable, BetrayalWire.SpawnerClosed),
                 "0x02bc assassination portal closes");
         if (run.Spawners.Count > 0) run.After(BetrayalRun.SpawnersFrames, BetrayalRun.Due.RemoveSpawners);
-        if (run.RulesetPayload is { } payload && AssassinationRules is { } row)
+        if (RulesetPayload(AllOf(player)) is { } payload && AssassinationRules is { } row)
             await Broadcast(player, InstanceRulesets.Data(row, [payload]), $"0x02c9 JobAssassinationRules {payload}");
     }
 
@@ -324,7 +456,8 @@ public sealed class BetrayalEncounter
     /// the MakeChoice goes, Jun comes back, and the member leaves after its interrogation.</summary>
     public async Task<bool> Use(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        if (LiveOf(player) is not { } live || live.Run.Choice == 0 || use.TargetId != live.Run.Choice) return false;
+        if (AllOf(player).FirstOrDefault(l => l.Run.Choice != 0 && l.Run.Choice == use.TargetId) is not { } live) return false;
+        if (Owner(player) is null) return true;
         if (player.PlayerLife == 0 || player.Closed || player.LeavingArea || InGracePeriod(player)) return true;
         var run = live.Run;
         // The MakeChoice's own cell, stored when it was created: the member's walk was stopped at the kneel, but
@@ -345,11 +478,16 @@ public sealed class BetrayalEncounter
             if (run.Choice == 0 || use.TargetId != run.Choice) return true;
             if (!PlayerActionCurrent(player, action) || player.PlayerLife == 0
                 || !PlayerWalk.InWalkUpRange(player.Walk.Position(AreaTime(player)), at, ChoiceReach)
-                || !run.Advance(BetrayalRun.Stage.Defeated)) return true;
+                || run.Current != BetrayalRun.Stage.Defeated) return true;
+            if (Owner(player) is not { } owner || !BetrayalRanks.Interrogate(owner, run.Plan.Member,
+                MapModsOf(player)?.Get(Stat.MapBetrayalInterrogatedTargetsPctChanceToNotLoseRankOnRelease) ?? 0,
+                new Random(unchecked((int)player.Seed ^ run.Plan.Member.Row * 7919)))) return true;
+            if (!run.Advance(BetrayalRun.Stage.Defeated)) return true;
             await Choose(player, live);
         }
         finally
         {
+            Persist(player, live);
             live.Gate.Release();
             await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null,
                 still: () => PlayerActionCurrent(player, action));
@@ -374,9 +512,12 @@ public sealed class BetrayalEncounter
         }
         await SendWorldRemoval(player, run.Choice, $"0x02bd MakeChoice 0x{run.Choice:x}");
         run.Choice = 0;
-        run.Jun = player.Instance.World.TakeObjectId();
-        byte[] jun = BetrayalWire.Create(run.Jun, BetrayalWire.JunType, BetrayalWire.JunBody(plan.Jun, plan.JunRotation, flag: 2));
-        await SendWorldCreate(player, run.Jun, () => jun, $"0x02bb Jun 0x{run.Jun:x} comes back", awaitBirth: false);
+        if (!live.Reinforcement)
+        {
+            run.Jun = player.Instance.World.TakeObjectId();
+            byte[] jun = BetrayalWire.Create(run.Jun, BetrayalWire.JunType, BetrayalWire.JunBody(plan.Jun, plan.JunRotation, flag: 2));
+            await SendWorldCreate(player, run.Jun, () => jun, $"0x02bb Jun 0x{run.Jun:x} comes back", awaitBirth: false);
+        }
         run.After(BetrayalRun.InterrogateFrames, BetrayalRun.Due.Interrogate);
         run.After(BetrayalRun.LeaveFrames, BetrayalRun.Due.Leave);
     }
@@ -413,13 +554,13 @@ public sealed class BetrayalEncounter
     /// died. The messages go after the kill's commit.</summary>
     public void Killed(KillContext kill)
     {
-        if (LiveOf(kill.Player) is not { } live || !ReferenceEquals(live.Run.MemberBody, kill.Monster)
+        if (AllOf(kill.Player).FirstOrDefault(l => ReferenceEquals(l.Run.MemberBody, kill.Monster)) is not { } live
             || live.Run.MemberBody is not SpawnedMonster body) return;
         kill.Later(async () =>
         {
             await live.Gate.WaitAsync();
             try { if (live.Run.Advance(BetrayalRun.Stage.Fight)) await Defeat(kill.Player, live, body); }
-            finally { live.Gate.Release(); }
+            finally { Persist(kill.Player, live); live.Gate.Release(); }
         });
     }
 }

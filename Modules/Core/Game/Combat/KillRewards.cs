@@ -71,7 +71,7 @@ public static partial class Game
             bool carried = QuestItems.Carried(ItemsOf(player)).Any(c => c.Item.Item.TypeHash == type.Hash);
             bool onGround = player.Instance.Ground.All().Any(e => e.Item.Item.TypeHash == type.Hash
                 && QuestDropVisibleTo(player, e.Id));
-            if (QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(player, f), carried, onGround))
+            if (QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(player, f), carried, onGround, lqf => player.Character.LeagueQuestFlags.Contains(lqf)))
                 return true;
         }
 
@@ -142,9 +142,17 @@ public static partial class Game
 
         if (modded is not { Cancel: true })
         {
+            var sirusRewards = Sirus.Rewards(player, m).ToList();
             if (m.Rarity == MonsterRarity.Unique && m.Variety is { } boss)
             {
                 drops.AddRange(DropsFor(player).EncounterJewels(boss.Id, m.Level, rng, DropDataProvider.Default.Current));
+                // Roll world.db drop_boss_items (fragments, crests, memory echoes, Uber fragments, boss-only currency,
+                // and boss unique pools), skipping bosses owned by dedicated module drop handlers.
+                bool hasDedicatedDrops = KingInMists.IsBoss3(boss)
+                    || sirusRewards.Count > 0
+                    || boss.Id.StartsWith("Metadata/Monsters/LeagueHarvest/", StringComparison.Ordinal);
+                if (!hasDedicatedDrops)
+                    drops.AddRange(DropsFor(player).BossDrops(boss.Id, m.Level, rng, DropDataProvider.Default.Current));
                 if (IsTwilightStrandHillock(player.Layout.Id, boss.Id))
                 {
                     drops.AddRange(DropsFor(player).RollHillockStarterDrop(player.Character.ClassRow, rng));
@@ -189,7 +197,7 @@ public static partial class Game
             var mapCurrencyContext = DropContext.MapCurrency(m.Rarity, isBoss, m.Variety?.Id,
                 areaId: player.Layout.Id, leagueId: league.Id, hardMode: league.HardMode);
             drops.AddRange(ExtraDropsFromMap(player, m.Level, m.Rarity, rng, modded?.Weights, mapCurrencyContext));
-            drops.AddRange(Sirus.Rewards(player, m));
+            drops.AddRange(sirusRewards);
         }
 
         if (modded is { Stacks.Count: > 0 }) drops.AddRange(ModStacks(player, modded));

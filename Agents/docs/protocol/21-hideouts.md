@@ -136,24 +136,27 @@ with `AtlasMapCompletedFrame` by `0x14079a890`) when it is in +0xd070, and that 
 (live 2026-11-01: Chateau completed lit Springs and Arachnid Nest). Two messages fill them; the dispatcher's r13 is the
 instance + 8, so its +0xd068 is +0xd070:
 
-- **S→C 0x1a3** (case 0x7f `0x142157401`, read `0x1421b02e0`), the whole state: u8 → +0xc400, u8 → +0xc401, u8 → +0xd0f0
-  (unknown, 0), u8 sections, u8 count and pairs of big-endian WorldAreas HASH16 values (scrying connections), then by section bit: 0x1 22 bytes → +0xd030,
-  0x2 22 bytes → +0xd070 (`0x14215ca00`: bit r of byte r / 8 is AtlasNode row r; rows from 170 are ignored, the
-  RandomContent nodes), 0x4 a WorldAreas list → +0xcff0, 0x8 and 0x10 further lists (see the schema). A section that is
-  sent replaces its set.
+- **S→C 0x1a3** (case 0x7f `0x142157401`, read `0x1421b02e0`), the whole state: u8 → +0xc408 (Tangle / Eater of Worlds
+  28-map tracker count, read by `0x1407b9ee0`), u8 → +0xc409 (Cleansing Fire / Searing Exarch 28-map tracker count),
+  u8 → +0xd0f8 (Voidstone T16 quadrant mask), u8 sections, u8 count and pairs of big-endian WorldAreas HASH16 values
+  (scrying connections), then by section bit: 0x1 22 bytes → +0xd030 (revealed/completed), 0x2 22 bytes → +0xd070
+  (`0x14215ca00`: bit r of byte r / 8 is AtlasNode row r; rows from 170 are ignored, where Anomalies 166–181 use LQFs),
+  0x4 Maven witnessed (`0x141fab1b0` → `0x14215c880`: u8 count, count × **u16 LE** `WorldAreas.HASH16` → +0xcff0),
+  0x8 Memory Lines (`0x1421b03af` → +0xd0c8: u8 count, count × {u32 BE lineId, u16 BE startAtlasNodeHash16, u16 BE
+  memoryLineTypeHash16, u8 stepIndex, u8 totalSteps}), 0x10 Astrolabe Shaped Regions (`0x1421c1b60` → `0x1424e58e0` →
+  +0xd0e0: u8 regionCount, region × {u8 quadrant, u8 missionTypeRow, u8 nodeCount, node × {u16 BE atlasNodeHash16, u8
+  modCount, mod × {u16 BE modHash16, CompactInt[]}}}). A section that is sent replaces its set.
 - **S→C 0x1a4** (case 0x80 `0x1421576ac`, read `0x141f9cf90`), one node: u16 BE AtlasNode HASH16 (looked up in the
-  AtlasNode table's HASH16 index), u8 → +0xc400, u8 → +0xc401, u8 flags. The node is added to +0xd030, with bit 0x2 also
-  to +0xd070, with bit 0x4 its area to +0xcff0.
+  AtlasNode table's HASH16 index), u8 → +0xc408 (Tangle count), u8 → +0xc409 (Cleansing Fire count), u8 flags.
+  The node is added to +0xd030, with bit 0x2 also to +0xd070 (bonus completed), with bit 0x4 its area to +0xcff0 (Maven
+  witnessed).
 
-The Atlas module (`AtlasProgress.cs`) saves the completed AtlasNode Ids per character (module data `completed`). Area
-entry sends one filled 0x1a3 with the 0x3d presets, before 0x21, so the HUD is not up and does not announce them
-(live 2026-11-01: a filled 0x1a3 or a 0x1a4 after 0x21 listed every saved map as completed). A kill, in an AtlasNode's
-Area1/Area2, of its WorldAreas `Bosses_MonsterVarietiesKeys` or of any unique monster sends 0x1a4 with flags 0x02 and
-one chat line, only the first time.
-`/atlas_complete <one map>` sends 0x1a4 like a first completion; `/atlas_complete all` only saves (a filled 0x1a3 after
-0x21 announced every map); `/atlas_reset` sends an empty 0x1a3. Method: [re/013](../re/013-atlas-progress.md). Not yet:
-the meaning of +0xc400/+0xc401 and the 0x4/0x8/0x10 sections (bonus objectives, Voidstones and the like), and Atlas
-passive points from progress.
+The Atlas module (`AtlasProgress.cs`) saves completed, bonus-completed, Maven-witnessed, Memory Line, and Shaped Region
+state per character. Area entry sends one filled 0x1a3 with the 0x3d presets, before 0x21, so the HUD is not up and does
+not announce them (live 2026-11-01: a filled 0x1a3 or a 0x1a4 after 0x21 listed every saved map as completed). A kill,
+in an AtlasNode's Area1/Area2, of its WorldAreas `Bosses_MonsterVarietiesKeys` or of any unique monster sends 0x1a4
+(flags 0x02 bonus, 0x04 witnessed) and refreshes 0x1a3. `/atlas_complete <one map>` sends 0x1a4 like a first completion;
+`/atlas_complete all` only saves; `/atlas_reset` sends an empty 0x1a3. Method: [re/013](../re/013-atlas-progress.md).
 
 ## 5. The map device: slots, Activate, portals
 
@@ -1052,6 +1055,9 @@ the exported SulphiteEnrage rows do not disclose the official daemon's radius or
     The 3.29.3d client sends `0x0075` for a carried Scrying Orb and for consecutive applications from a carried Orb of Scouring stack while Shift is held. The type-based form has no individual Scrying Orb origin.
     The ScryingOrb item component carries its source WorldAreas HASH16 as a little-endian u16 (reader `0x14250a320`). The destination comes from the Atlas click. An Orb of Scouring removes the connection from either endpoint.
   - `Rulesets.dat` row `99` (`AtlasPrimordialBossInfluenceRules`, `0x141750170` / `0x141e4c7e0`): `S→C 0x001f` + `S→C 0x02c9` sub-id `0` carries 6 lists of `(u8 count, count × (u16 LE Mods.HASH16, compact-int stat values))` for the Primordial Altar HUD tracker.
+  - Eldritch Altars (`TangleAltar` / `CleansingFireAltar`): area stat `0x2a03` (`map_atlas_primordial_boss_influence`: `1` Tangle, `2` Cleansing Fire, `0x140c78279`) chooses frame art; altar choices sit in `0x02bb` `BaseData` (`0x140c78140`: 12 `int32[]` keys, `values[0] = Mods.HASH32`, `values[1..] = statValues`); clicking an option sends `C→S 0x028e` (7 bytes, `0x141f96e50`: `u32 BE altarEntityId`, `u8 choice` `1|2`).
+  - `S→C 0x007b` Atlas/device screens (`0x142169dd0`): kind `0x42` (`MemoryLinesMapDeviceScreen`, `0x140dcba80`, `C→S 0x0297`), kind `0x52` (`MavenInvitationMapDeviceScreen`, `0x140dcbb20`, `u8 invSlot 0..10`, `C→S 0x0298`), and kind `0x1e` (`KiracMissionUI`, no-op in 3.29 — Kirac missions are replaced by Astrolabe Shaped Regions via `0x01a3` `0x10`, while `KiracLevels` drives Kirac's shop level/reroll at `0x140755a00`).
+  - `Rulesets.dat` row `112` (`MavenBossFightRules`, `0x141731a60`): `S→C 0x001e` carries `"maven_boss_start_rings"` / `"maven_boss_stop_rings"`, and `S→C 0x02c9` sub-id `0` (`u8 state, 4×f32 LE`), `1` (stop rings), and `2` (start rings) drive the Maven arena ring/memory-game visuals.
   - `S→C 0x012a` (read `0x1421ad220`): `u16 BE mapCompletionCount`, `WStr passId`, `u8 purchased`, `u8 active`, `u8 trackFlags`, `u64 LE unlockedMask`, `u64 LE claimedMask`, `u8 hasUnclaimedRewards` (Atlas Vault Pass).
   - Delve live updates: `S→C 0x0227` (6 bytes: `u32 BE azurite`), `S→C 0x022c` (`u16 BE count`, `count × 4×i32 BE` chart delta), `S→C 0x0242` (`u8 count`, `count × 4×i32 BE` confirmed Crawler route echo after `C→S 0x0241`).
   - Labyrinth Divine Font (`LabyrinthBlessingBench`): `S→C 0x0246` (read `0x1421b43b0`: `u8 count`, `count × u16 BE LabyrinthCraftOptions.HASH16`, `u8 remainingUses`), `S→C 0x02a2` (read `0x141fa8860`: `u64 LE count`, `count × item.Wire()`), `C→S 0x0247` (`u16 BE optionHash16`), `C→S 0x0245` (`u8`), `C→S 0x02a3` (`u8 index`); gem slot is `StrMasterCrafting` (inventory row 16, `0x140bcbd36`).

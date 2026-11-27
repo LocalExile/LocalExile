@@ -5,38 +5,69 @@ using GameServer.Core.World;
 using static Game;
 
 /// <summary>
-/// The Atlas pinnacle bosses: the Shaper and the Elder (WorldAreas MapWorldsShapersRealm at level 84 and
-/// MapWorldsElderArena / MapWorldsElderArenaUber at 83/84), and Sirus (AtlasExilesBoss5, the Eye of the Storm, level
-/// 84). Their MonsterVarieties rows list the whole kit in GrantedEffectsKeys, but the ordinary monster AI played one of
-/// those ids as a plain swing, so the bosses only auto-attacked. <see cref="ShaperFight"/>, <see cref="ElderFight"/> and
-/// <see cref="SirusFight"/> play the kit instead; this class holds what all three need: which varieties they own, the
-/// skill ids, the per-effect <see cref="MonsterAttack"/> (damage straight from the effect's own stat set) and the actor
-/// skill list the client needs before it can play a single clip.
-/// <para>Skill ids: 0x4000+ per boss, never the player's gem range (0x0103..0x0142). The client's skill manager resolves
-/// an id globally, so reusing a gem id for a monster action makes it start that gem's action instead (KingInMists.cs:
-/// the client crashed at the action, 0xc0000005). The three bosses get disjoint ranges (0x4000 the Shaper, 0x4010 the
-/// Elder, 0x4020 Sirus) because the Shaper and the Elder stand in MapWorldsElderArenaUber together.</para>
-/// <para>Art: every .ao path below was checked against the client's metadata (data/game-files.zip, the whole
-/// metadata/effects/spells/monsters_effects/atlasofworldsbosses tree).</para>
+/// The Atlas pinnacle and memory bosses: Shaper, Elder, Sirus, Eldritch minibosses &amp; pinnacles (Infinite Hunger,
+/// Black Star, Eater of Worlds, Searing Exarch), Maven &amp; Nucleus, and Secrets of the Atlas Originator/Memory
+/// pinnacles &amp; minibosses (Incarnations of Neglect/Fear/Dread and their three Fragment minibosses).
+/// <para>Skill ids: disjoint 0x4000+ ranges per boss family (never the player's gem range 0x0103..0x0142) so
+/// multi-boss arenas (Uber Elder, Maven + Nucleus) never collide on skill ids.</para>
+/// <para>Art: every .ao path below was verified against the client's metadata (data/game-files.zip).</para>
 /// </summary>
 static class AtlasBosses
 {
     internal const string Shaper = "Metadata/Monsters/AtlasBosses/TheShaperBoss";
-    // The Shaper as the Uber Elder encounter brings him (MapWorldsElderArenaUber): no GrantedEffectsKeys of his own and
-    // no boss bar, standing beside TheElderUber.
+    // The Shaper as the Uber Elder encounter brings him (MapWorldsElderArenaUber): standing beside TheElderUber.
     internal const string ShaperUberElder = "Metadata/Monsters/AtlasBosses/TheShaperBossUberElder";
     internal const string Elder = "Metadata/Monsters/AtlasBosses/TheElder/TheElder";
     internal const string ElderUber = "Metadata/Monsters/AtlasBosses/TheElder/TheElderUber";
-    // Sirus, Awakener of Worlds (AtlasExilesBoss5). The Gauntlet and the standalone arenas are the same fight; the
-    // throne is the row he sits on when the arena is opened (see the phase note below), and the apparition/wild rows are
-    // other encounters with kits of their own.
     internal const string Sirus = "Metadata/Monsters/AtlasExiles/AtlasExile5";
     internal const string SirusThrone = "Metadata/Monsters/AtlasExiles/AtlasExile5Throne";
     internal const string SirusGauntlet = "Metadata/Monsters/AtlasExiles/AtlasExile5Gauntlet";
     internal const string SirusStandalone = "Metadata/Monsters/AtlasExiles/AtlasExile5Standalone";
     internal const string SirusStandaloneMirage = "Metadata/Monsters/AtlasExiles/AtlasExile5StandaloneMirage";
 
-    // GrantedEffects rows (MonsterVarieties GrantedEffectsKeys; poedb names the same skills).
+    // Eldritch minibosses & pinnacles (MapWorldsPrimordialBoss1..4).
+    internal const string InfiniteHunger = "Metadata/Monsters/AtlasInvaders/DoomMonsters/DoomBoss_";
+    internal const string BlackStar = "Metadata/Monsters/AtlasInvaders/BlackStarMonsters/BlackStarBoss";
+    internal const string BlackStarCasterClone = "Metadata/Monsters/AtlasInvaders/BlackStarMonsters/BlackStarBossCasterClone";
+    internal const string BlackStarMeleeClone = "Metadata/Monsters/AtlasInvaders/BlackStarMonsters/BlackStarBossMeleeClone";
+    internal const string EaterOfWorlds = "Metadata/Monsters/AtlasInvaders/ConsumeMonsters/ConsumeBoss";
+    internal const string EaterOfWorldsGauntlet = "Metadata/Monsters/AtlasInvaders/ConsumeMonsters/ConsumeBossGauntlet";
+    internal const string SearingExarch = "Metadata/Monsters/AtlasInvaders/CleansingMonsters/CleansingBoss";
+    internal const string SearingExarchGauntlet = "Metadata/Monsters/AtlasInvaders/CleansingMonsters/CleansingBossGauntlet";
+
+    // The Maven & Nucleus (MavenBoss).
+    internal const string Maven = "Metadata/Monsters/MavenBoss/TheMaven";
+    internal const string MavenEnraged = "Metadata/Monsters/MavenBoss/TheMavenEnraged_";
+    internal const string MavenEnragedGauntlet = "Metadata/Monsters/MavenBoss/TheMavenEnragedGauntlet";
+    internal const string MavenBrain = "Metadata/Monsters/MavenBoss/MavenBrainBoss";
+    internal const string MavenBrainGauntlet = "Metadata/Monsters/MavenBoss/MavenBrainBossGauntlet_";
+
+    // Originator / Memory Pinnacles & Memory Thread Minibosses (Secrets of the Atlas 3.26-3.29).
+    internal const string NeglectBoss = "Metadata/Monsters/AtlasMemory/IgnoranceBoss/IgnoranceBoss";
+    internal const string NeglectBossUber = "Metadata/Monsters/AtlasMemory/IgnoranceBoss/IgnoranceBossUBER";
+    internal const string NeglectBossGauntlet = "Metadata/Monsters/AtlasMemory/IgnoranceBoss/IgnoranceBossGAUNTLET_";
+    internal const string NeglectBossUberGauntlet = "Metadata/Monsters/AtlasMemory/IgnoranceBoss/IgnoranceBossUBERGAUNTLET";
+    internal const string FearBoss = "Metadata/Monsters/AtlasMemory/AngerBoss";
+    internal const string FearBossUber = "Metadata/Monsters/AtlasMemory/AngerBossUBER";
+    internal const string FearBossGauntlet = "Metadata/Monsters/AtlasMemory/AngerBossGAUNTLET";
+    internal const string FearBossUberGauntlet = "Metadata/Monsters/AtlasMemory/AngerBossUBERGAUNTLET_";
+    internal const string DreadBoss = "Metadata/Monsters/AtlasMemory/BenevolenceBoss";
+    internal const string DreadBossUber = "Metadata/Monsters/AtlasMemory/BenevolenceBossUBER";
+    internal const string DreadBossGauntlet = "Metadata/Monsters/AtlasMemory/BenevolenceBossGAUNTLET";
+    internal const string DreadBossUberGauntlet = "Metadata/Monsters/AtlasMemory/BenevolenceBossGAUNTLETUBER";
+    internal const string FragmentOfNeglect = "Metadata/Monsters/AtlasMemory/FragmentOfIgnorance/FragmentOfIgnorance__";
+    internal const string FragmentOfNeglectStandalone = "Metadata/Monsters/AtlasMemory/FragmentOfIgnorance/FragmentOfIgnoranceSTANDALONE";
+    internal const string FragmentOfFear = "Metadata/Monsters/AtlasMemory/FragmentOfAnger";
+    internal const string FragmentOfFearStandalone = "Metadata/Monsters/AtlasMemory/FragmentOfAngerSTANDALONE";
+    internal const string FragmentOfDread = "Metadata/Monsters/AtlasMemory/FragmentOfBenevolence";
+    internal const string FragmentOfDreadStandalone = "Metadata/Monsters/AtlasMemory/FragmentOfBenevolenceSTANDALONE_";
+
+    // Zana arena ally varieties (Shaper / Elder / Uber Elder).
+    internal const string ZanaShaperVariety = "Metadata/Monsters/AtlasBosses/Zana";
+    internal const string ZanaElderVariety = "Metadata/Monsters/AtlasBosses/ZanaElder";
+    internal const string ZanaUberElderVariety = "Metadata/Monsters/AtlasBosses/ZanaUberElder";
+
+    // GrantedEffects rows (verified against MonsterVarieties.GrantedEffectsKeys in data/client.db).
     internal const int ShaperMeleeEffect = 481;
     internal const int CelestialBeamEffect = 6093;
     internal const int AcceleratingProjectilesEffect = 6106;
@@ -49,11 +80,6 @@ static class AtlasBosses
     internal const int ExpandingNovaEffect = 9066;
     internal const int DoomProjectileEffect = 9351;
     internal const int ProjectileSpellcastEffect = 9330;
-    // Sirus' kit (the Orion effects): the beam blast he spams, the corridor "Die" beam, the five circle-maze blasts of
-    // one sweep, the multi-beam barrage, the clone beam and the meteor arena with the ground it leaves burning. His two
-    // teleports (TeleportOrion 6809, AtlasOrionTeleportToCentre 10991) are not in it: a teleport played as an action also
-    // lands that action's contact, so the fight moves him and plays the clip as art instead. The standalone varieties do
-    // not grant those two anyway.
     internal const int SirusBeamBlastEffect = 7008;
     internal const int SirusCorridorBlastEffect = 10948;
     internal const int SirusCircleMazeEffect = 10949;
@@ -68,14 +94,161 @@ static class AtlasBosses
     internal const int SirusMeteorGroundEffect = 10945;
     internal const int SirusBeamBombEffect = 10973;
 
-    // ActionTypes HASH16 & 0x3fff: the basic Move. A boss that has to close the distance walks it, like the King.
+    // Eldritch GrantedEffects.
+    internal const int UniqueMeleeEffect = 420;
+    internal const int FireUniqueMeleeEffect = 422;
+    internal const int BossMeleeEffect = 419;
+
+    internal const int HungerSlamCastEffect = 8252;
+    internal const int HungerSlamEffect = 7373;
+    internal const int HungerVomitChannelEffect = 7374;
+    internal const int HungerVomitMortarEffect = 4564;
+    internal const int HungerDrillChargeEffect = 4353;
+    internal const int HungerStompEffect = 7386;
+    internal const int HungerSumoSlamEffect = 7388;
+    internal const int HungerGooEruptionEffect = 7393;
+
+    internal const int BlackStarSpawnCasterEffect = 8248;
+    internal const int BlackStarSpawnMeleeEffect = 8249;
+    internal const int BlackStarFireLeapEffect = 10549;
+    internal const int BlackStarFireLeapImpactEffect = 7364;
+    internal const int BlackStarColdCascadeEffect = 7365;
+    internal const int BlackStarCometBarrageEffect = 12185;
+    internal const int BlackStarCometImpactEffect = 7379;
+    internal const int BlackStarLaserSpearsEffect = 12186;
+
+    internal const int EaterDashEffect = 10554;
+    internal const int EaterDashSlamCastEffect = 10555;
+    internal const int EaterDisintegrateBeamEffect = 7381;
+    internal const int EaterOmegaTentaclesEffect = 8269;
+    internal const int EaterBonkedEffect = 8257;
+    internal const int EaterDashSlamEffect = 7383;
+    internal const int EaterSlamEffect = 7392;
+    internal const int EaterDoomLaserEffect = 12193;
+    internal const int EaterTentacleSlamEffect = 7400;
+    internal const int EaterUltimateNukeEffect = 7402;
+
+    internal const int ExarchBugBarrageCastEffect = 8250;
+    internal const int ExarchMurderLanternCastEffect = 8251;
+    internal const int ExarchDashSlashCastEffect = 10553;
+    internal const int ExarchFireWallEffect = 12177;
+    internal const int ExarchSummonFlameWallEffect = 12182;
+    internal const int ExarchPushFlameWallEffect = 12183;
+    internal const int ExarchBugMortarEffect = 4563;
+    internal const int ExarchLanternExplosionEffect = 7396;
+    internal const int ExarchDashSlashEffect = 7372;
+
+    // Maven & Nucleus GrantedEffects.
+    internal const int MavenProjectileEffect = 11748;
+    internal const int MavenLaserBarrageEffect = 11739;
+    internal const int MavenMemoryGameEffect = 11736;
+    internal const int MavenCannonCastEffect = 11740;
+    internal const int MavenCircleSlamCastEffect = 11741;
+    internal const int MavenCircleSlamEffect = 11725;
+    internal const int MavenColdCannonEffect = 11749;
+    internal const int MavenSuperFireEffect = 11750;
+    internal const int MavenSuperFireImpactEffect = 11751;
+    internal const int MavenCollapseVolatilesEffect = 11761;
+
+    internal const int BrainChargeBeamEffect = 11723;
+    internal const int BrainIonCannonEffect = 11724;
+    internal const int BrainBeamBlastEffect = 11726;
+    internal const int BrainProjBlastCastEffect = 11727;
+    internal const int BrainLargeBarrageCastEffect = 11728;
+    internal const int BrainProjBlastEffect = 11730;
+    internal const int BrainLargeBarrageEffect = 11731;
+    internal const int BrainSmallBarrageEffect = 11732;
+    internal const int BrainDecelProjEffect = 11752;
+
+    // Originator / Memory Pinnacles & Minibosses GrantedEffects.
+    internal const int NeglectSpawnLasersEffect = 8349;
+    internal const int NeglectAccelProjEffect = 12572;
+    internal const int NeglectIceNovaSlamEffect = 7635;
+    internal const int NeglectBigBlastEffect = 10469;
+    internal const int NeglectBeamDamageEffect = 7634;
+    internal const int NeglectLaserBeamEffect = 7636;
+    internal const int NeglectLaserBeam2Effect = 7637;
+
+    internal const int FearGroundSlamEffect = 7628;
+    internal const int FearBurningSlamEffect = 7629;
+    internal const int FearStompEffect = 7630;
+    internal const int FearSolarNovaEffect = 7631;
+    internal const int FearFissureProjEffect = 12647;
+    internal const int FearFissureSlamEffect = 12648;
+    internal const int FearLeapEffect = 10577;
+    internal const int FearLeapAttackEffect = 7644;
+    internal const int FearGigaBeamEffect = 12663;
+    internal const int FearBeamBarrageEffect = 4587;
+    internal const int FearOrbShatterEffect = 7662;
+    internal const int FearBigStompEffect = 7663;
+
+    internal const int DreadCascadeSlamEffect = 7627;
+    internal const int DreadBulletHellStartEffect = 8348;
+    internal const int DreadFusionBlastEffect = 7632;
+    internal const int DreadCentipedeEffect = 3909;
+    internal const int DreadDoubleFrontSlamEffect = 7638;
+    internal const int DreadEyebeamEffect = 7640;
+    internal const int DreadLightningProjEffect = 3904;
+    internal const int DreadCelestialBeamEffect = 12649;
+    internal const int DreadTentacleWaveEffect = 7643;
+    internal const int DreadFireProjEffect = 3916;
+    internal const int DreadColdProjEffect = 3918;
+    internal const int DreadChaosProjEffect = 3920;
+    internal const int DreadShrinkingNovaEffect = 7649;
+    internal const int DreadEyebeamIceEffect = 7650;
+    internal const int DreadTeleSlamEffect = 7661;
+
+    internal const int FragNeglectBeamBlastEffect = 12591;
+    internal const int FragNeglectCorridorEffect = 12593;
+    internal const int FragNeglectCircleMazeEffect = 12594;
+    internal const int FragNeglectCloneBeamEffect = 12610;
+    internal const int FragNeglectBeamBombEffect = 12618;
+    internal const int FragNeglectMeteorEffect = 12620;
+    internal const int FragNeglectRainOfStarsEffect = 12625;
+    internal const int FragNeglectDeathProjEffect = 3911;
+
+    internal const int FragFearShieldShardsEffect = 12627;
+    internal const int FragFearHolyBeamEffect = 12629;
+    internal const int FragFearShatterBeamEffect = 12630;
+    internal const int FragFearDecelProjEffect = 12633;
+    internal const int FragFearMassBeamEffect = 12634;
+    internal const int FragFearDashEffect = 12636;
+    internal const int FragFearSlamEffect = 12637;
+    internal const int FragFearNetMortarEffect = 12642;
+    internal const int FragFearUltimateEffect = 7659;
+    internal const int FragFearExplosiveArrowEffect = 12694;
+
+    internal const int FragDreadSuperProjEffect = 6296;
+    internal const int FragDreadGreaterBlastEffect = 12590;
+    internal const int FragDreadDelayedBlastEffect = 12579;
+    internal const int FragDreadDivineChargeEffect = 12584;
+    internal const int FragDreadBallLightningEffect = 12585;
+    internal const int FragDreadOffsetProjEffect = 12586;
+    internal const int FragDreadDivineCallEffect = 12589;
+    internal const int FragDreadDivineBeamEffect = 12626;
+    internal const int FragDreadKillZoneEffect = 7639;
+
+    // ActionTypes HASH16 & 0x3fff: the basic Move.
     internal const ushort MoveSkill = 0x2909;
 
-    // BuffDefinitions: the bosses' own intermission shields (uber_shaper_immune_buff / uber_elder_immune_buff), i.e. the
-    // immunity icon the client shows for that phase, not the generic cannot_be_damaged row.
+    // Verified BuffDefinitions rows (data/client.db).
     internal const ushort ShaperImmunityRow = 1028, ElderImmunityRow = 1027;
-    // atlas_orion_immunity: the "Protective Shield" Sirus hides behind while his storms take the arena.
     internal const ushort SirusImmunityRow = 1464;
+    internal const ushort ZanaBubbleBuffRow = 1219; // zana_player_bubble ("Zana's Protection")
+    internal const ushort MavenStasisBuffRow = 1696; // maven_boss_stasis
+    internal const ushort MavenMemoryGameDegenRow = 1784; // maven_memory_game_degen
+    internal const ushort MavenPunishmentRow = 1785; // maven_rotating_beam_debuff ("Maven's Punishment")
+    internal const ushort BlackStarSunlightRow = 1989; // blackstar_sunlight ("Annihilating Light")
+    internal const ushort BlackStarMoonlightRow = 1990; // blackstar_moonlight ("Crushing Darkness")
+    internal const ushort HungerDrowningRow = 2028; // infinite_hunger_drowning_debuff ("Drowning")
+    internal const ushort EaterLivewireRow = 2037; // tangle_tentacle_orb_zapped ("Livewire")
+    internal const ushort EaterDrowningRow = 2043; // tangle_drowning ("Drowning")
+    internal const ushort ExarchSearingRuneRow = 2056; // cleansing_fire_snake_debuff ("Searing Rune")
+    internal const ushort ExarchCauterisedRow = 2063; // cleansing_fire_snake_secondary_debuff ("Cauterised Flesh")
+    internal const ushort EaterLaserRow = 2067; // eater_of_worlds_laser ("Inescapable Doom")
+    internal const ushort DreadTraumaRow = 2555; // benevolenceboss_collectable1_debuff
+    internal const ushort NeglectBeamDebuffRow = 2615; // ignorance_beam_debuff
+    internal const ushort FearBeamDebuffRow = 2620; // anger_boss_beam ("Anger's Intensity")
 
     const string ShaperArt = "Metadata/Effects/Spells/monsters_effects/atlasofworldsbosses/theshaper/";
     const string ElderArt = "Metadata/Effects/Spells/monsters_effects/atlasofworldsbosses/elder/";
@@ -96,6 +269,8 @@ static class AtlasBosses
     internal const string ElderTentaclePortalArt = ElderArt + "tentacle_portal/tentacle_portal.ao";
     internal const string ElderTentacleSlamArt = ElderArt + "tentacle_portal/slam_impact.ao";
     internal const string ElderTeleportPlayerArt = ElderArt + "teleport/player/warpslam.ao";
+    internal const string ZanaBubbleArt = "Metadata/Effects/Spells/masters/strdexint/zanasupershield.ao";
+    internal const string ZanaElderChannelArt = "Metadata/Effects/Environment/AOW/Elder/ZanaChannel/rig.ao";
 
     const string SirusArt = "Metadata/Effects/Spells/monsters_effects/atlasexiles/orion/";
     internal const string SirusBeamBlastArt = SirusArt + "spam_beam.ao";
@@ -108,42 +283,102 @@ static class AtlasBosses
     internal const string SirusMeteorImpactArt = SirusArt + "destruction_assets/meteors/impact_medium.ao";
     internal const string SirusMeteorGroundArt = SirusArt + "destruction_assets/meteors/meteor_ground.ao";
     internal const string SirusShieldArt = SirusArt + "immunity_shield.ao";
-    // No separate "shield off" .ao for Orion: the short warp-down flash plays when it drops.
     internal const string SirusShieldOffArt = SirusArt + "warp_down.ao";
     internal const string SirusTeleportArt = SirusArt + "teleporting/orion_teleport.ao";
     internal const string SirusDoomGeyserArt = SirusArt + "doom_geyser.ao";
 
-    // Projectiles.dat rows for the shots no granted effect names (its monster_projectile_variation stat): the Shaper's
-    // bullet-hell ring (375 units/s, collision radius 3) and the Elder's doom shot (600, radius 2), as Projectiles.dat
-    // lists them. Speed is the row's own figure, the one ProjectileSpeed.CellsPerSecond reads.
+    // Projectiles.dat rows (verified against data/client.db Projectiles table).
     internal static SkillCatalog.MonsterProjectileInfo BulletHellShot { get; } =
         new("Metadata/Projectiles/ShaperBulletHellProjectile", 375, false, 3) { Count = 12, SpreadRadians = Math.Tau };
     internal static SkillCatalog.MonsterProjectileInfo DoomShot { get; } =
         new("Metadata/Projectiles/ElderProjectileDoom", 600, false, 2);
+    internal static SkillCatalog.MonsterProjectileInfo BlackStarCometShot { get; } =
+        new("Metadata/Projectiles/BlackStarBossComet", 650, false, 4) { Count = 3, SpreadRadians = 0.55 };
+    internal static SkillCatalog.MonsterProjectileInfo ExarchFireWallShot { get; } =
+        new("Metadata/Projectiles/CleansingFireWall", 400, false, 4) { Count = 5, SpreadRadians = 0.7 };
+    internal static SkillCatalog.MonsterProjectileInfo MavenBasicShot { get; } =
+        new("Metadata/Projectiles/MavenProjectile", 2250, false, 3) { Count = 3, SpreadRadians = 0.35 };
+    internal static SkillCatalog.MonsterProjectileInfo MavenColdShot { get; } =
+        new("Metadata/Projectiles/MavenCannonColdProjectile", 1500, false, 4);
+    internal static SkillCatalog.MonsterProjectileInfo MavenSuperFireShot { get; } =
+        new("Metadata/Projectiles/MavenSuperFireProjectile", 750, false, 4);
+    internal static SkillCatalog.MonsterProjectileInfo BrainBlastShot { get; } =
+        new("Metadata/Projectiles/MavenBrainProjectileBlast", 750, false, 2) { Count = 5, SpreadRadians = 0.7 };
+    internal static SkillCatalog.MonsterProjectileInfo BrainLargeShot { get; } =
+        new("Metadata/Projectiles/MavenBrainLargeProjectileBarrage", 300, false, 3) { Count = 8, SpreadRadians = Math.Tau };
+    internal static SkillCatalog.MonsterProjectileInfo BrainSmallShot { get; } =
+        new("Metadata/Projectiles/MavenBrainSmallProjectileBarrage", 750, false, 3) { Count = 6, SpreadRadians = 1.1 };
+    internal static SkillCatalog.MonsterProjectileInfo BrainDecelShot { get; } =
+        new("Metadata/Projectiles/MavenBrainDeceleratingProjectile", 750, false, 3) { Count = 4, SpreadRadians = 0.8 };
+    internal static SkillCatalog.MonsterProjectileInfo NeglectReflectedShot { get; } =
+        new("Metadata/Projectiles/IgnoranceUberReflectedLaserProjectileCold", 2000, false, 2) { Count = 5, SpreadRadians = 0.65 };
+    internal static SkillCatalog.MonsterProjectileInfo FearSpearShot { get; } =
+        new("Metadata/Projectiles/ZAngerOrbSpear", 1800, false, 4) { Count = 3, SpreadRadians = 0.45 };
+    internal static SkillCatalog.MonsterProjectileInfo DreadCentipedeShot { get; } =
+        new("Metadata/Projectiles/BenevolenceBossCentipedeProjectile", 750, false, 2) { Count = 6, SpreadRadians = 1.0 };
+    internal static SkillCatalog.MonsterProjectileInfo DreadLightningShot { get; } =
+        new("Metadata/Projectiles/BenevolenceBossLightningProjectile", 600, false, 2) { Count = 5, SpreadRadians = 0.8 };
+    internal static SkillCatalog.MonsterProjectileInfo DreadFireShot { get; } =
+        new("Metadata/Projectiles/BenevolenceBossFireBullet", 210, false, 2) { Count = 8, SpreadRadians = Math.Tau };
+    internal static SkillCatalog.MonsterProjectileInfo DreadColdShot { get; } =
+        new("Metadata/Projectiles/BenevolenceBossColdProjectile", 600, false, 3) { Count = 5, SpreadRadians = 0.8 };
+    internal static SkillCatalog.MonsterProjectileInfo DreadChaosShot { get; } =
+        new("Metadata/Projectiles/BenevolenceBossChaosProjectile", 200, false, 4) { Count = 6, SpreadRadians = Math.Tau };
+    internal static SkillCatalog.MonsterProjectileInfo FragNeglectDeathShot { get; } =
+        new("Metadata/Projectiles/FragmentOfIgnoranceDeathProjectile", 800, false, 2) { Count = 5, SpreadRadians = 0.75 };
+    internal static SkillCatalog.MonsterProjectileInfo FragFearShardsShot { get; } =
+        new("Metadata/Projectiles/FragmentOfAngerShards", 800, false, 2) { Count = 5, SpreadRadians = 0.7 };
+    internal static SkillCatalog.MonsterProjectileInfo FragFearArrowShot { get; } =
+        new("Metadata/Projectiles/FragmentOfAngerExplosiveArrow", 1000, false, 2) { Count = 3, SpreadRadians = 0.4 };
+    internal static SkillCatalog.MonsterProjectileInfo FragDreadProjShot { get; } =
+        new("Metadata/Projectiles/FragmentOfBenevolenceProj", 800, false, 2) { Count = 6, SpreadRadians = 0.9 };
+    internal static SkillCatalog.MonsterProjectileInfo FragDreadSuperShot { get; } =
+        new("Metadata/Projectiles/BenevolenceSuperProjectile", 180, false, 2) { Count = 10, SpreadRadians = Math.Tau };
 
     internal static bool IsShaper(MonsterCatalog.Variety? variety) => variety?.Id is Shaper or ShaperUberElder;
     internal static bool IsElder(MonsterCatalog.Variety? variety) => variety?.Id is Elder or ElderUber;
-    // AtlasExilesBoss5 is a phased arena for MapBossFights: WorldAreas lists [throne, walking], the walking row is the
-    // held-back last boss, so a freshly opened arena contains only the throne. Both are Sirus and both fight: the throne
-    // is the stage the player walks in on, and killing him is what forms the walking row and his four storms.
     internal static bool IsSirus(MonsterCatalog.Variety? variety) => variety?.Id is Sirus or SirusThrone or SirusGauntlet
         or SirusStandalone or SirusStandaloneMirage;
-
-    /// <summary>Sirus seated on the throne: the arena's first stage, which casts without walking off the platform.</summary>
     internal static bool IsSirusSeated(MonsterCatalog.Variety? variety) => variety?.Id is SirusThrone;
-    internal static bool IsBoss(MonsterCatalog.Variety? variety) => IsShaper(variety) || IsElder(variety) || IsSirus(variety);
+    internal static bool IsInfiniteHunger(MonsterCatalog.Variety? variety) => variety?.Id is InfiniteHunger;
+    internal static bool IsBlackStar(MonsterCatalog.Variety? variety) => variety?.Id is BlackStar;
+    internal static bool IsEaterOfWorlds(MonsterCatalog.Variety? variety) => variety?.Id is EaterOfWorlds or EaterOfWorldsGauntlet;
+    internal static bool IsSearingExarch(MonsterCatalog.Variety? variety) => variety?.Id is SearingExarch or SearingExarchGauntlet;
+    internal static bool IsMaven(MonsterCatalog.Variety? variety) => variety?.Id is Maven or MavenEnraged or MavenEnragedGauntlet;
+    internal static bool IsMavenBrain(MonsterCatalog.Variety? variety) => variety?.Id is MavenBrain or MavenBrainGauntlet;
+    internal static bool IsNeglect(MonsterCatalog.Variety? variety) => variety?.Id is NeglectBoss or NeglectBossUber or NeglectBossGauntlet or NeglectBossUberGauntlet;
+    internal static bool IsFear(MonsterCatalog.Variety? variety) => variety?.Id is FearBoss or FearBossUber or FearBossGauntlet or FearBossUberGauntlet;
+    internal static bool IsDread(MonsterCatalog.Variety? variety) => variety?.Id is DreadBoss or DreadBossUber or DreadBossGauntlet or DreadBossUberGauntlet;
+    internal static bool IsFragmentOfNeglect(MonsterCatalog.Variety? variety) => variety?.Id is FragmentOfNeglect or FragmentOfNeglectStandalone;
+    internal static bool IsFragmentOfFear(MonsterCatalog.Variety? variety) => variety?.Id is FragmentOfFear or FragmentOfFearStandalone;
+    internal static bool IsFragmentOfDread(MonsterCatalog.Variety? variety) => variety?.Id is FragmentOfDread or FragmentOfDreadStandalone;
 
-    // The effect whose row the monster's own record uses as its swing: the melee, or Sirus' beam blast (he never swings a
-    // weapon). Everything else is played by the controller through ids of its own, so the ordinary swing can only ever be
-    // that one skill.
+    internal static bool IsBoss(MonsterCatalog.Variety? variety) =>
+        IsShaper(variety) || IsElder(variety) || IsSirus(variety)
+        || IsInfiniteHunger(variety) || IsBlackStar(variety) || IsEaterOfWorlds(variety) || IsSearingExarch(variety)
+        || IsMaven(variety) || IsMavenBrain(variety)
+        || IsNeglect(variety) || IsFear(variety) || IsDread(variety)
+        || IsFragmentOfNeglect(variety) || IsFragmentOfFear(variety) || IsFragmentOfDread(variety);
+
+    internal static LifePhaseGate? Phases(MonsterCatalog.Variety variety) =>
+        IsInfiniteHunger(variety) || IsBlackStar(variety) ? new([66, 33])
+        : IsMavenBrain(variety) || IsFragmentOfNeglect(variety) || IsFragmentOfFear(variety) || IsFragmentOfDread(variety) ? new([50])
+        : new([75, 50, 25]);
+
     internal static int BasicEffect(MonsterCatalog.Variety variety) =>
-        IsSirus(variety) ? SirusBeamBlastEffect : IsElder(variety) ? ElderMeleeEffect : ShaperMeleeEffect;
+        IsSirus(variety) ? SirusBeamBlastEffect
+        : IsElder(variety) ? ElderMeleeEffect
+        : IsShaper(variety) ? ShaperMeleeEffect
+        : IsSearingExarch(variety) || IsFragmentOfFear(variety) ? FireUniqueMeleeEffect
+        : IsMaven(variety) ? MavenProjectileEffect
+        : IsMavenBrain(variety) ? BrainProjBlastEffect
+        : IsNeglect(variety) || IsFragmentOfNeglect(variety) ? BossMeleeEffect
+        : UniqueMeleeEffect;
 
-    // A melee keeps the variety's own attack time and reach; Sirus' basic skill is a spell and uses its clip's.
-    internal static bool MeleeLike(MonsterCatalog.Variety variety) => !IsSirus(variety);
+    internal static bool MeleeLike(MonsterCatalog.Variety variety) =>
+        !(IsSirus(variety) || IsMaven(variety) || IsMavenBrain(variety));
 
-    // 0x4000-0x4005 the Shaper, 0x4010-0x4015 the Elder, 0x4020-0x402c Sirus: one id per effect, fixed, so an id always
-    // means one clip.
+    // Disjoint 0x4000+ skill ID ranges per boss family.
     internal static readonly int[] ShaperEffects = [ShaperMeleeEffect, CelestialBeamEffect, AcceleratingProjectilesEffect,
         FlickerSlamEffect, RetreatEffect, BulletHellEffect];
     internal static readonly int[] ElderEffects = [ElderMeleeEffect, SiphonEffect, SlammingTentaclesEffect,
@@ -151,23 +386,88 @@ static class AtlasBosses
     internal static readonly int[] SirusEffects = [SirusBeamBlastEffect, SirusCorridorBlastEffect, SirusCircleMazeEffect,
         SirusCircleMaze2Effect, SirusCircleMaze3Effect, SirusCircleMaze4Effect, SirusCircleMaze5Effect, SirusMultiBeamEffect,
         SirusMultiBeam2Effect, SirusCloneBeamEffect, SirusMeteorEffect, SirusMeteorGroundEffect, SirusBeamBombEffect];
+    internal static readonly int[] HungerEffects = [UniqueMeleeEffect, HungerSlamCastEffect, HungerSlamEffect,
+        HungerVomitChannelEffect, HungerVomitMortarEffect, HungerDrillChargeEffect, HungerStompEffect, HungerSumoSlamEffect, HungerGooEruptionEffect];
+    internal static readonly int[] BlackStarEffects = [UniqueMeleeEffect, BlackStarSpawnCasterEffect, BlackStarSpawnMeleeEffect,
+        BlackStarFireLeapEffect, BlackStarFireLeapImpactEffect, BlackStarColdCascadeEffect, BlackStarCometBarrageEffect,
+        BlackStarCometImpactEffect, BlackStarLaserSpearsEffect];
+    internal static readonly int[] EaterEffects = [UniqueMeleeEffect, EaterDashEffect, EaterDashSlamCastEffect,
+        EaterDisintegrateBeamEffect, EaterOmegaTentaclesEffect, EaterBonkedEffect, EaterDashSlamEffect, EaterSlamEffect,
+        EaterDoomLaserEffect, EaterTentacleSlamEffect, EaterUltimateNukeEffect];
+    internal static readonly int[] ExarchEffects = [FireUniqueMeleeEffect, ExarchBugBarrageCastEffect, ExarchMurderLanternCastEffect,
+        ExarchDashSlashCastEffect, ExarchFireWallEffect, ExarchSummonFlameWallEffect, ExarchPushFlameWallEffect,
+        ExarchBugMortarEffect, ExarchLanternExplosionEffect, ExarchDashSlashEffect];
+    internal static readonly int[] MavenEffects = [MavenProjectileEffect, MavenLaserBarrageEffect, MavenMemoryGameEffect,
+        MavenCannonCastEffect, MavenCircleSlamCastEffect, MavenCircleSlamEffect, MavenColdCannonEffect,
+        MavenSuperFireEffect, MavenSuperFireImpactEffect, MavenCollapseVolatilesEffect];
+    internal static readonly int[] MavenBrainEffects = [BrainChargeBeamEffect, BrainIonCannonEffect, BrainBeamBlastEffect,
+        BrainProjBlastCastEffect, BrainLargeBarrageCastEffect, BrainProjBlastEffect, BrainLargeBarrageEffect,
+        BrainSmallBarrageEffect, BrainDecelProjEffect];
+    internal static readonly int[] NeglectEffects = [BossMeleeEffect, NeglectSpawnLasersEffect, NeglectAccelProjEffect,
+        NeglectIceNovaSlamEffect, NeglectBigBlastEffect, NeglectBeamDamageEffect, NeglectLaserBeamEffect, NeglectLaserBeam2Effect];
+    internal static readonly int[] FearEffects = [UniqueMeleeEffect, FearGroundSlamEffect, FearBurningSlamEffect,
+        FearStompEffect, FearSolarNovaEffect, FearFissureProjEffect, FearFissureSlamEffect, FearLeapEffect,
+        FearLeapAttackEffect, FearGigaBeamEffect, FearBeamBarrageEffect, FearOrbShatterEffect, FearBigStompEffect];
+    internal static readonly int[] DreadEffects = [UniqueMeleeEffect, DreadCascadeSlamEffect, DreadBulletHellStartEffect,
+        DreadFusionBlastEffect, DreadCentipedeEffect, DreadDoubleFrontSlamEffect, DreadEyebeamEffect, DreadLightningProjEffect,
+        DreadCelestialBeamEffect, DreadTentacleWaveEffect, DreadFireProjEffect, DreadColdProjEffect, DreadChaosProjEffect,
+        DreadShrinkingNovaEffect, DreadEyebeamIceEffect, DreadTeleSlamEffect];
+    internal static readonly int[] FragNeglectEffects = [BossMeleeEffect, FragNeglectBeamBlastEffect, FragNeglectCorridorEffect,
+        FragNeglectCircleMazeEffect, FragNeglectCloneBeamEffect, FragNeglectBeamBombEffect, FragNeglectMeteorEffect,
+        FragNeglectRainOfStarsEffect, FragNeglectDeathProjEffect];
+    internal static readonly int[] FragFearEffects = [FireUniqueMeleeEffect, FragFearShieldShardsEffect, FragFearHolyBeamEffect,
+        FragFearShatterBeamEffect, FragFearDecelProjEffect, FragFearMassBeamEffect, FragFearDashEffect,
+        FragFearSlamEffect, FragFearNetMortarEffect, FragFearUltimateEffect, FragFearExplosiveArrowEffect];
+    internal static readonly int[] FragDreadEffects = [UniqueMeleeEffect, FragDreadSuperProjEffect, FragDreadGreaterBlastEffect,
+        FragDreadDelayedBlastEffect, FragDreadDivineChargeEffect, FragDreadBallLightningEffect, FragDreadOffsetProjEffect,
+        FragDreadDivineCallEffect, FragDreadDivineBeamEffect, FragDreadKillZoneEffect];
 
     internal static int[] EffectsFor(MonsterCatalog.Variety variety) =>
-        IsSirus(variety) ? SirusEffects : IsElder(variety) ? ElderEffects : ShaperEffects;
+        IsSirus(variety) ? SirusEffects
+        : IsElder(variety) ? ElderEffects
+        : IsShaper(variety) ? ShaperEffects
+        : IsInfiniteHunger(variety) ? HungerEffects
+        : IsBlackStar(variety) ? BlackStarEffects
+        : IsEaterOfWorlds(variety) ? EaterEffects
+        : IsSearingExarch(variety) ? ExarchEffects
+        : IsMaven(variety) ? MavenEffects
+        : IsMavenBrain(variety) ? MavenBrainEffects
+        : IsNeglect(variety) ? NeglectEffects
+        : IsFear(variety) ? FearEffects
+        : IsDread(variety) ? DreadEffects
+        : IsFragmentOfNeglect(variety) ? FragNeglectEffects
+        : IsFragmentOfFear(variety) ? FragFearEffects
+        : IsFragmentOfDread(variety) ? FragDreadEffects
+        : ShaperEffects;
+
+    internal static ushort SkillBaseFor(MonsterCatalog.Variety variety) =>
+        IsShaper(variety) ? (ushort)0x4000
+        : IsElder(variety) ? (ushort)0x4010
+        : IsSirus(variety) ? (ushort)0x4020
+        : IsInfiniteHunger(variety) ? (ushort)0x4040
+        : IsBlackStar(variety) ? (ushort)0x4050
+        : IsEaterOfWorlds(variety) ? (ushort)0x4060
+        : IsSearingExarch(variety) ? (ushort)0x4070
+        : IsMaven(variety) ? (ushort)0x4080
+        : IsMavenBrain(variety) ? (ushort)0x4090
+        : IsNeglect(variety) ? (ushort)0x40A0
+        : IsFear(variety) ? (ushort)0x40B0
+        : IsDread(variety) ? (ushort)0x40C0
+        : IsFragmentOfNeglect(variety) ? (ushort)0x40D0
+        : IsFragmentOfFear(variety) ? (ushort)0x40E0
+        : IsFragmentOfDread(variety) ? (ushort)0x40F0
+        : (ushort)0x4000;
 
     /// <summary>The skill id the client's actor uses for one of the boss's effects.</summary>
     internal static ushort Skill(MonsterCatalog.Variety variety, int effect)
     {
         var effects = EffectsFor(variety);
         int index = Array.IndexOf(effects, effect);
-        // An effect outside the kit keeps an id of its own rather than colliding with the basic skill's.
-        return (ushort)((IsSirus(variety) ? 0x4020 : IsElder(variety) ? 0x4010 : 0x4000)
-            + (index >= 0 ? index : effects.Length + 1));
+        return (ushort)(SkillBaseFor(variety) + (index >= 0 ? index : effects.Length + 1));
     }
 
     /// <summary>The actor's skill list: every effect the controller can play, so that the client owns the clip a 0x1ab
-    /// action names. Each record carries its own numbers (main-hand damage, the spell's virtual cast time), which the
-    /// client reads to pick and play the clip; <see cref="Attack"/> supplies the same numbers to the server's hits.</summary>
+    /// action names.</summary>
     internal static IReadOnlyList<GrantedSkill>? SkillsFor(Player player, MonsterCatalog.Variety variety, int level,
         MonsterAttack attack)
     {
@@ -182,11 +482,6 @@ static class AtlasBosses
         }).OfType<GrantedSkill>()];
     }
 
-    // Sirus' effects carry their spell_minimum/maximum_base_physical_damage as a fraction of the monster's own damage,
-    // not as a flat hit (0.8-1.2 the beam blast, 1.6-2.4 the corridor "Die" beam, 1.2-1.8 the circle-maze blasts,
-    // 1.6-2.4 the clone and multi beams, 0.8-1.2 the beam bomb; the meteor arena's row names no damage at all and its
-    // meteors land like the corridor's). EffectStats rounds those fractions to whole numbers, so the row cannot be read
-    // as the hit and the fraction is applied here to BaseDamage instead.
     static readonly Dictionary<int, (double Min, double Max)> SirusFractions = new()
     {
         [SirusBeamBlastEffect] = (0.8, 1.2),
@@ -204,7 +499,6 @@ static class AtlasBosses
         [SirusBeamBombEffect] = (0.8, 1.2),
     };
 
-    /// <summary>One of Sirus' hits, as the fraction of the variety's physical damage its effect row carries.</summary>
     internal static DamagePacket SirusDamage(int effect, int min, int max)
     {
         var (low, high) = SirusFractions.GetValueOrDefault(effect, (1.0, 1.0));
@@ -212,23 +506,15 @@ static class AtlasBosses
             new DamageRange((int)Math.Floor(min * low), (int)Math.Ceiling(max * high)));
     }
 
-    /// <summary>One of the boss's skills as the server plays it: its own damage at the area's level, its clip's cast time
-    /// and reach, and — for the skills that name one — its projectile. <paramref name="swing"/> is the variety's plain
-    /// attack, the source of a melee's physical damage.</summary>
     internal static MonsterAttack Attack(Player player, MonsterCatalog.Variety variety, int level, int effect,
         MonsterAttack? swing = null)
     {
         var catalog = Game.SkillsFor(player);
         var (min, max) = Monsters.BaseDamage(variety, (byte)Math.Clamp(level, 1, 100)) ?? (1, 1);
         bool melee = effect == BasicEffect(variety) && MeleeLike(variety);
-        // The skill's own base hit: its spell_minimum_base_*_damage (HitDamage also reads the unprefixed names, so an
-        // attack such as a slam keeps its numbers too). A slam or a melee whose stat set carries no base damage of its own
-        // hits for the variety's physical damage, the way every monster's swing does. The two degen skills are the
-        // exception: their whole damage is the per-minute degen DamageOverTime reads, and a physical fallback there would
-        // put an invisible hit on top of the beam or the siphon.
         var damage = catalog.HitDamage(effect, level);
         if (IsSirus(variety)) damage = SirusDamage(effect, min, max);
-        else if (damage.MaxTotal <= 0 && effect is not (CelestialBeamEffect or SiphonEffect))
+        else if (damage.MaxTotal <= 0 && effect is not (CelestialBeamEffect or SiphonEffect or FearGigaBeamEffect))
             damage = DamagePacket.Of(DamageType.Physical, min, max);
         double seconds = melee ? Math.Max(0.3, variety.AttackMs / 1000.0) : Math.Max(0.3, catalog.CastTimeMs(effect) / 1000.0);
         double reach = melee ? variety.AttackRange : 45;
@@ -243,28 +529,40 @@ static class AtlasBosses
         };
     }
 
-    /// <summary>The shot a skill launches: its own MonsterProjectileVariation row when the skill has one, and the
-    /// Projectiles.dat row for the two that name none (the bullet-hell ring is twelve in a circle, which no skill record
-    /// makes, and the doom shot is a single slow one).</summary>
     internal static SkillCatalog.MonsterProjectileInfo? ProjectileFor(Player player, int effect) => effect switch
     {
         BulletHellEffect => BulletHellShot,
         DoomProjectileEffect => DoomShot,
+        BlackStarCometBarrageEffect => BlackStarCometShot,
+        ExarchFireWallEffect => ExarchFireWallShot,
+        MavenProjectileEffect => MavenBasicShot,
+        MavenColdCannonEffect => MavenColdShot,
+        MavenSuperFireEffect => MavenSuperFireShot,
+        BrainProjBlastEffect => BrainBlastShot,
+        BrainLargeBarrageEffect => BrainLargeShot,
+        BrainSmallBarrageEffect => BrainSmallShot,
+        BrainDecelProjEffect => BrainDecelShot,
+        NeglectAccelProjEffect => NeglectReflectedShot,
+        FearFissureProjEffect => FearSpearShot,
+        DreadCentipedeEffect => DreadCentipedeShot,
+        DreadLightningProjEffect => DreadLightningShot,
+        DreadFireProjEffect => DreadFireShot,
+        DreadColdProjEffect => DreadColdShot,
+        DreadChaosProjEffect => DreadChaosShot,
+        FragNeglectDeathProjEffect => FragNeglectDeathShot,
+        FragFearShieldShardsEffect => FragFearShardsShot,
+        FragFearExplosiveArrowEffect => FragFearArrowShot,
+        FragDreadOffsetProjEffect => FragDreadProjShot,
+        FragDreadSuperProjEffect => FragDreadSuperShot,
         _ => Game.SkillsFor(player).MonsterProjectile(effect),
     };
 
-    /// <summary>A degen skill's damage from its own stat set: the base fire/cold/lightning/physical/chaos
-    /// <c>..._damage_to_deal_per_minute</c> over one second. The Shaper's celestial beam carries fire 5384, cold 4415 and
-    /// lightning 6084 a second (323067, 264915 and 365066 a minute), the Elder's siphon 614 physical (36825 a minute);
-    /// the rows are constant at every level, not per-level.
-    /// </summary>
     internal static DamagePacket DamageOverTime(Player player, int effect, int level)
     {
         var stats = Game.SkillsFor(player).EffectStats(effect, level);
         int Get(uint name)
         {
-            if (!(name is var key)) return 0;
-            foreach (var (id, value) in stats) if (id == key) return value;
+            foreach (var (id, value) in stats) if (id == name) return value;
             return 0;
         }
         var packet = DamagePacket.Empty;
@@ -284,8 +582,78 @@ static class AtlasBosses
         return packet;
     }
 
-    /// <summary>Runs the fight of every Shaper, Elder and Sirus in this connection's instance. Called once per tick per
-    /// connection, like <see cref="BrineKing.Tick"/>: the instance's runner plays the steps, a join only binds.</summary>
+    // Per-player active pinnacle boss debuffs and Zana protection bubble (O(1) on PlayerStats hot path).
+    internal sealed class PlayerEffectState
+    {
+        public bool ZanaBubble;
+        public int HungerDrowningStacks;
+        public int SolarFlareStacks;
+        public int AstralAvalancheStacks;
+        public bool MavenNoRegenActive;
+        public double MavenNoRegenUntil;
+        public int SearingRuneStacks;
+        public double SearingRuneUntil;
+        public bool EaterDrowning;
+    }
+
+    static readonly Store<Player, PlayerEffectState> PlayerEffects = new();
+
+    internal static PlayerEffectState EffectsOf(Player player) => PlayerEffects.GetValue(player, _ => new());
+
+    internal static Dictionary<uint, int> PlayerStats(Player player, Dictionary<uint, int> sources)
+    {
+        if (!PlayerEffects.TryGetValue(player, out var state)) return sources;
+        double now = AreaTime(player);
+        if (state.ZanaBubble)
+            sources[Stat.BaseCannotBeDamaged] = sources.GetValueOrDefault(Stat.BaseCannotBeDamaged) + 1;
+        if (state.HungerDrowningStacks > 0)
+        {
+            int stacks = Math.Min(state.HungerDrowningStacks, 20);
+            sources[Stat.ActionSpeedMinusPct] = sources.GetValueOrDefault(Stat.ActionSpeedMinusPct) + stacks * 2;
+            sources[Stat.MovementVelocityPlusPct] = sources.GetValueOrDefault(Stat.MovementVelocityPlusPct) - stacks * 2;
+        }
+        if (state.SolarFlareStacks > 0)
+            sources[Stat.BaseFireDamageResistancePct] = sources.GetValueOrDefault(Stat.BaseFireDamageResistancePct) - Math.Min(state.SolarFlareStacks, 15) * 3;
+        if (state.AstralAvalancheStacks > 0)
+            sources[Stat.BaseColdDamageResistancePct] = sources.GetValueOrDefault(Stat.BaseColdDamageResistancePct) - Math.Min(state.AstralAvalancheStacks, 15) * 3;
+        if (state.MavenNoRegenUntil > now)
+        {
+            sources[Stat.LifeRegenerationRatePlusPct] = sources.GetValueOrDefault(Stat.LifeRegenerationRatePlusPct) - 100;
+            sources[Stat.EnergyShieldRegenerationRatePlusPct] = sources.GetValueOrDefault(Stat.EnergyShieldRegenerationRatePlusPct) - 100;
+        }
+        if (state.SearingRuneStacks > 0 && state.SearingRuneUntil > now)
+            sources[Stat.BaseFireDamageResistancePct] = sources.GetValueOrDefault(Stat.BaseFireDamageResistancePct) - Math.Min(state.SearingRuneStacks, 10) * 2;
+        if (state.EaterDrowning)
+            sources[Stat.MovementVelocityPlusPct] = sources.GetValueOrDefault(Stat.MovementVelocityPlusPct) - 35;
+        return sources;
+    }
+
+    internal static Task Leaving(Player player)
+    {
+        ClearPlayerEffects(player);
+        return Task.CompletedTask;
+    }
+
+    internal static void ClearPlayerEffects(Player player)
+    {
+        if (!PlayerEffects.TryGetValue(player, out var state)) return;
+        state.ZanaBubble = false;
+        state.HungerDrowningStacks = 0;
+        state.SolarFlareStacks = 0;
+        state.AstralAvalancheStacks = 0;
+        state.MavenNoRegenActive = false;
+        state.MavenNoRegenUntil = 0;
+        state.SearingRuneStacks = 0;
+        state.SearingRuneUntil = 0;
+        state.EaterDrowning = false;
+        if (player.Closed) return;
+        foreach (ushort row in new[] { ZanaBubbleBuffRow, HungerDrowningRow, BlackStarSunlightRow, BlackStarMoonlightRow,
+            MavenPunishmentRow, MavenMemoryGameDegenRow, ExarchSearingRuneRow, ExarchCauterisedRow, EaterDrowningRow,
+            EaterLivewireRow, EaterLaserRow, DreadTraumaRow, NeglectBeamDebuffRow, FearBeamDebuffRow })
+            player.Area.Buffs.Clear(player.Id, row);
+    }
+
+    /// <summary>Runs the fight of every pinnacle and memory boss in this connection's instance.</summary>
     internal static async Task Tick(Player player)
     {
         if (!player.Connection.PlayerSent || player.Closed || player.LeavingArea) return;
@@ -300,9 +668,7 @@ static class AtlasBosses
             if (!byMonster.TryGetValue(id, out var fight))
             {
                 var variety = monster.Variety!;
-                fight = IsSirus(variety) ? new SirusFight(id, monster, player)
-                    : IsShaper(variety) ? new ShaperFight(id, monster, player)
-                    : new ElderFight(id, monster, player);
+                fight = CreateFight(id, monster, player, variety);
                 byMonster[id] = fight;
                 Console.WriteLine($"[gateway] {player.Connection.Remote} 0x{id:x} {variety.Name ?? variety.Id} "
                     + $"({variety.Id}, level {monster.Level}, life {monster.MaxLife}): fight started, "
@@ -316,23 +682,37 @@ static class AtlasBosses
             }
             catch (Exception ex)
             {
-                // Guard logs an exception that escapes a tick and drops the hook; a fight that cannot step must say so.
                 Console.WriteLine($"[gateway] {player.Connection.Remote} {monster.Variety!.Id} 0x{id:x} step failed: {ServerLog.Describe(ex)}");
             }
             finally { fight.Gate.Release(); }
         }
     }
 
+    static AtlasBossFight CreateFight(uint id, SpawnedMonster monster, Player player, MonsterCatalog.Variety variety) =>
+        IsSirus(variety) ? new SirusFight(id, monster, player)
+        : IsShaper(variety) ? new ShaperFight(id, monster, player)
+        : IsElder(variety) ? new ElderFight(id, monster, player)
+        : IsInfiniteHunger(variety) ? new InfiniteHungerFight(id, monster, player)
+        : IsBlackStar(variety) ? new BlackStarFight(id, monster, player)
+        : IsEaterOfWorlds(variety) ? new EaterOfWorldsFight(id, monster, player)
+        : IsSearingExarch(variety) ? new SearingExarchFight(id, monster, player)
+        : IsMaven(variety) ? new MavenFight(id, monster, player)
+        : IsMavenBrain(variety) ? new MavenBrainFight(id, monster, player)
+        : IsNeglect(variety) ? new NeglectFight(id, monster, player)
+        : IsFear(variety) ? new FearFight(id, monster, player)
+        : IsDread(variety) ? new DreadFight(id, monster, player)
+        : IsFragmentOfNeglect(variety) ? new FragmentOfNeglectFight(id, monster, player)
+        : IsFragmentOfFear(variety) ? new FragmentOfFearFight(id, monster, player)
+        : new FragmentOfDreadFight(id, monster, player);
+
     static readonly Store<InstanceState, Dictionary<uint, AtlasBossFight>> Fights = new();
 
-    /// <summary>The GrantedEffects Id of an effect row, e.g. 10459 -> "EDSSanctumLycia2DelayedBlast": the name the
-    /// actor's own skill list carries. Null when the table is missing or the row has no Id.</summary>
     internal static string? EffectName(int effect)
     {
         lock (EffectNames)
             if (EffectNames.TryGetValue(effect, out string? known)) return known;
         var table = GameServer.Core.ClientTables.TableOrNull("GrantedEffects");
-        if (table is null) return null;   // not loaded yet: no cache, so the next call can still find it
+        if (table is null) return null;
         string? name = table.Row(effect)?.TextOrNull("Id");
         lock (EffectNames) EffectNames[effect] = name;
         return name;
@@ -340,15 +720,11 @@ static class AtlasBosses
 
     static readonly Dictionary<int, string?> EffectNames = [];
 
-    /// <summary>The spawned monster's own actor skills, named as the client names them (its <see cref="SpawnedMonster.SkillIds"/>).
-    /// Empty for a monster the spawn gave none.</summary>
     internal static IReadOnlyList<string> ActorSkillNames(Player player, uint id) =>
         player.Area.Monsters.TryGetValue(id, out var monster)
             ? [.. monster.SkillIds.Select(s => EffectName(s.Effect)).OfType<string>()]
             : [];
 
-    /// <summary>The effect a skill name selects out of the monster's own actor: its GrantedEffects Id
-    /// ("EDSSanctumLycia2DelayedBlast") or its row (10459). -1 for anything this actor does not carry.</summary>
     internal static int EffectByName(SpawnedMonster monster, string action)
     {
         foreach (var (effect, _) in monster.SkillIds)
@@ -357,9 +733,6 @@ static class AtlasBosses
         return -1;
     }
 
-    /// <summary>Plays one of a monster's own actor skills by the GrantedEffects Id the client shows: the clip only,
-    /// because no controller owns the skill, so the server owes no hit. False when the monster has no such skill on its
-    /// actor, or the action could not be sent.</summary>
     internal static async Task<bool> ActorAction(Player player, uint id, string action)
     {
         if (!player.Area.Monsters.TryGetValue(id, out var monster)) return false;
@@ -379,8 +752,6 @@ static class AtlasBosses
         return played;
     }
 
-    /// <summary>Stops every fight of an instance (it is unloaded): the phase gates unlock and the boss's own walk speed
-    /// returns.</summary>
     internal static IDisposable CleanupOnUnload() => new Cleanup();
 
     sealed class Cleanup : IDisposable
@@ -389,6 +760,8 @@ static class AtlasBosses
         {
             foreach (var pair in Fights)
                 foreach (var fight in pair.Value.Values) fight.Stop();
+            foreach (var pair in PlayerEffects)
+                ClearPlayerEffects(pair.Key);
         }
     }
 }

@@ -229,6 +229,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `MonsterCombos.cs`, `MonsterKits.cs`, `MonsterKitHooks.cs`, `MonsterStates.cs`, `MonsterStateMachine.cs`,
   `scripts/re/monster_contacts.py`, `scripts/re/ot_components.py`. Docs: [11](../docs/protocol/11-skills.md) §6.
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
+- Act 11 pinnacle bosses (arenas and spawns verified live in 3.29.3d; full AI/combat tuning pending): The Maven (with
+  Nucleus and Ruleset 112 memory game), The Infinite Hunger (drown swamp), The Black Star (astral polarity), The Eater
+  of Worlds (energising orbs), The Searing Exarch (ball phase), and the Zana Memory Incarnations of Neglect, Fear, and
+  Dread run dedicated multi-phase controllers with `world.db` `drop_boss_items` tables.
+  Code: `Modules/Core/Game/Monster/PinnacleBosses/`, `ItemDrops.cs`, `sql/updates/pending_world/`.
+  Docs: [21](../docs/protocol/21-hideouts.md).
 
 - Monsters using the ordinary AI can acquire an in-range fighting golem even while its owner is outside aggro range.
 - Campaign bosses play their whole skill kit rather than one attack: a monster an act's area names as its boss
