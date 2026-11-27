@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
@@ -173,17 +174,240 @@ public sealed class NpcCatalog
         [StashCatalog.SanctumHub] = [new("Metadata/NPC/League/Sanctum/SanctumNPCTown", 136, 158, 4.0f)],
     };
 
-    public IReadOnlyList<Npc> Rows { get; }
+    sealed record RegisteredNpcOverlay(long Id, string Owner, Npc Npc, int SyntheticRow);
+    sealed record RegisteredTalkOverlay(long Id, string Owner, Talk Talk);
+
+    sealed record CatalogSnapshot(
+        List<Npc> Rows,
+        Dictionary<int, Npc> ByRow,
+        Dictionary<string, Npc> ById,
+        Dictionary<(int Npc, int Index), Talk> Talk,
+        long LocalRevision,
+        long SharedRevision);
+
+    static ImmutableArray<RegisteredNpcOverlay> _sharedNpcOverlays = [];
+    static ImmutableArray<RegisteredTalkOverlay> _sharedTalkOverlays = [];
+    static long _sharedNextId;
+    static long _sharedRevision;
+    static int _nextSyntheticNpcRow = 50_000;
+
+    ImmutableArray<RegisteredNpcOverlay> _localNpcOverlays = [];
+    ImmutableArray<RegisteredTalkOverlay> _localTalkOverlays = [];
+    long _localNextId;
+    long _localRevision;
+    readonly Lock _snapshotLock = new();
+    readonly List<Npc> _stockRows;
+    readonly Dictionary<(int Npc, int Index), Talk> _stockTalk = [];
+    readonly CatalogSnapshot _stockSnapshot;
+    CatalogSnapshot _snapshot;
+
+    /// <summary>Advances whenever shared runtime <see cref="NpcCatalog"/> overlays change.</summary>
+    public static long OverlayRevision => Volatile.Read(ref _sharedRevision);
+
+    /// <summary>Advances whenever this catalog's instance or shared runtime overlays change.</summary>
+    public long Revision => Volatile.Read(ref _localRevision) + Volatile.Read(ref _sharedRevision);
+
+    /// <summary>Registers a runtime <see cref="Npc"/> overlay visible to every <see cref="NpcCatalog"/> instance until
+    /// disposed or <paramref name="owner"/> unloads via <see cref="GameEventOwners"/>.</summary>
+    public static IDisposable RegisterOverlay(string owner, Npc npc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ValidateNpc(npc);
+        long id = Interlocked.Increment(ref _sharedNextId);
+        int syntheticRow = npc.Row < 0 ? Interlocked.Increment(ref _nextSyntheticNpcRow) : npc.Row;
+        ImmutableInterlocked.Update(ref _sharedNpcOverlays, list => list.Add(new(id, owner, npc, syntheticRow)));
+        Interlocked.Increment(ref _sharedRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _sharedNpcOverlays, list => list.RemoveAll(e => e.Id == id)))
+                Interlocked.Increment(ref _sharedRevision);
+        }));
+    }
+
+    /// <summary>Registers a runtime <see cref="Npc"/> overlay on this <see cref="NpcCatalog"/> instance.</summary>
+    public IDisposable Register(string owner, Npc npc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ValidateNpc(npc);
+        long id = Interlocked.Increment(ref _localNextId);
+        int syntheticRow = npc.Row < 0 ? Interlocked.Increment(ref _nextSyntheticNpcRow) : npc.Row;
+        ImmutableInterlocked.Update(ref _localNpcOverlays, list => list.Add(new(id, owner, npc, syntheticRow)));
+        Interlocked.Increment(ref _localRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _localNpcOverlays, list => list.RemoveAll(e => e.Id == id)))
+                Interlocked.Increment(ref _localRevision);
+        }));
+    }
+
+    /// <summary>Registers a runtime <see cref="Talk"/> dialogue row overlay visible to every <see cref="NpcCatalog"/>
+    /// instance until disposed or <paramref name="owner"/> unloads via <see cref="GameEventOwners"/>.</summary>
+    public static IDisposable RegisterTalkOverlay(string owner, Talk talk)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ArgumentNullException.ThrowIfNull(talk);
+        long id = Interlocked.Increment(ref _sharedNextId);
+        ImmutableInterlocked.Update(ref _sharedTalkOverlays, list => list.Add(new(id, owner, talk)));
+        Interlocked.Increment(ref _sharedRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _sharedTalkOverlays, list => list.RemoveAll(e => e.Id == id)))
+                Interlocked.Increment(ref _sharedRevision);
+        }));
+    }
+
+    /// <summary>Registers a runtime <see cref="Talk"/> dialogue row overlay on this <see cref="NpcCatalog"/> instance.</summary>
+    public IDisposable RegisterTalk(string owner, Talk talk)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ArgumentNullException.ThrowIfNull(talk);
+        long id = Interlocked.Increment(ref _localNextId);
+        ImmutableInterlocked.Update(ref _localTalkOverlays, list => list.Add(new(id, owner, talk)));
+        Interlocked.Increment(ref _localRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _localTalkOverlays, list => list.RemoveAll(e => e.Id == id)))
+                Interlocked.Increment(ref _localRevision);
+        }));
+    }
+
+    static void ValidateNpc(Npc npc)
+    {
+        ArgumentNullException.ThrowIfNull(npc);
+        if (string.IsNullOrWhiteSpace(npc.Id))
+            throw new ArgumentException("NpcCatalog.Npc.Id must be non-empty.", nameof(npc));
+    }
+
+    public IReadOnlyList<Npc> Rows => CurrentSnapshot().Rows;
     public string? Error { get; }
-    readonly Dictionary<string, Npc> _byId;
-    readonly Dictionary<(int Npc, int Index), Talk> _talk = [];
 
     NpcCatalog(List<Npc> rows, string? error, IEnumerable<Talk>? talk = null)
     {
-        Rows = rows;
+        _stockRows = rows;
         Error = error;
-        foreach (var t in talk ?? []) _talk.TryAdd((t.Npc, t.Index), t);
-        _byId = rows.GroupBy(r => r.Id, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        foreach (var t in talk ?? []) _stockTalk.TryAdd((t.Npc, t.Index), t);
+        _stockSnapshot = BuildSnapshot(_stockRows, _stockTalk, [], [], [], [], 0, 0);
+        _snapshot = _stockSnapshot;
+    }
+
+    CatalogSnapshot CurrentSnapshot()
+    {
+        long localRev = Volatile.Read(ref _localRevision);
+        long sharedRev = Volatile.Read(ref _sharedRevision);
+        var current = Volatile.Read(ref _snapshot);
+        if (current.LocalRevision == localRev && current.SharedRevision == sharedRev)
+            return current;
+        lock (_snapshotLock)
+        {
+            localRev = Volatile.Read(ref _localRevision);
+            sharedRev = Volatile.Read(ref _sharedRevision);
+            current = _snapshot;
+            if (current.LocalRevision == localRev && current.SharedRevision == sharedRev)
+                return current;
+            var sharedNpcs = _sharedNpcOverlays;
+            var localNpcs = _localNpcOverlays;
+            var sharedTalk = _sharedTalkOverlays;
+            var localTalk = _localTalkOverlays;
+            if (sharedNpcs.IsEmpty && localNpcs.IsEmpty && sharedTalk.IsEmpty && localTalk.IsEmpty)
+            {
+                var stock = _stockSnapshot with { LocalRevision = localRev, SharedRevision = sharedRev };
+                Volatile.Write(ref _snapshot, stock);
+                return stock;
+            }
+            var rebuilt = BuildSnapshot(_stockRows, _stockTalk, sharedNpcs, localNpcs, sharedTalk, localTalk, localRev, sharedRev);
+            Volatile.Write(ref _snapshot, rebuilt);
+            return rebuilt;
+        }
+    }
+
+    static CatalogSnapshot BuildSnapshot(
+        List<Npc> stockRows,
+        Dictionary<(int Npc, int Index), Talk> stockTalk,
+        ImmutableArray<RegisteredNpcOverlay> sharedNpcs,
+        ImmutableArray<RegisteredNpcOverlay> localNpcs,
+        ImmutableArray<RegisteredTalkOverlay> sharedTalk,
+        ImmutableArray<RegisteredTalkOverlay> localTalk,
+        long localRev,
+        long sharedRev)
+    {
+        var rows = new List<Npc>(stockRows.Count + sharedNpcs.Length + localNpcs.Length);
+        rows.AddRange(stockRows);
+        var byRow = new Dictionary<int, Npc>(rows.Count + sharedNpcs.Length + localNpcs.Length);
+        var byId = new Dictionary<string, Npc>(rows.Count + sharedNpcs.Length + localNpcs.Length, StringComparer.OrdinalIgnoreCase);
+        var rowPos = new Dictionary<int, int>(rows.Count);
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var r = rows[i];
+            byRow[r.Row] = r;
+            byId.TryAdd(r.Id, r);
+            rowPos[r.Row] = i;
+        }
+        void ApplyNpcs(ImmutableArray<RegisteredNpcOverlay> entries)
+        {
+            for (int i = 0; i < entries.Length; i++)
+            {
+                var entry = entries[i];
+                var n = entry.Npc;
+                if (n.Row < 0)
+                {
+                    if (byId.TryGetValue(n.Id, out var existingById))
+                        n = n with { Row = existingById.Row };
+                    else
+                    {
+                        int assigned = entry.SyntheticRow;
+                        while (byRow.ContainsKey(assigned)) assigned++;
+                        n = n with { Row = assigned };
+                    }
+                }
+                if (byRow.TryGetValue(n.Row, out var replacedRow)
+                    && byId.TryGetValue(replacedRow.Id, out var curId) && ReferenceEquals(curId, replacedRow))
+                    byId.Remove(replacedRow.Id);
+                if (byId.TryGetValue(n.Id, out var replacedId) && replacedId.Row != n.Row)
+                {
+                    byRow.Remove(replacedId.Row);
+                    if (rowPos.Remove(replacedId.Row, out int oldPos))
+                    {
+                        int lastIdx = rows.Count - 1;
+                        if (oldPos < lastIdx)
+                        {
+                            var moved = rows[lastIdx];
+                            rows[oldPos] = moved;
+                            rowPos[moved.Row] = oldPos;
+                        }
+                        rows.RemoveAt(lastIdx);
+                    }
+                }
+                if (rowPos.TryGetValue(n.Row, out int pos))
+                    rows[pos] = n;
+                else
+                {
+                    rowPos[n.Row] = rows.Count;
+                    rows.Add(n);
+                }
+                byRow[n.Row] = n;
+                byId[n.Id] = n;
+            }
+        }
+        ApplyNpcs(sharedNpcs);
+        ApplyNpcs(localNpcs);
+        var talk = new Dictionary<(int Npc, int Index), Talk>(stockTalk);
+        void ApplyTalk(ImmutableArray<RegisteredTalkOverlay> entries)
+        {
+            for (int i = 0; i < entries.Length; i++)
+            {
+                var t = entries[i].Talk;
+                talk[(t.Npc, t.Index)] = t;
+            }
+        }
+        ApplyTalk(sharedTalk);
+        ApplyTalk(localTalk);
+        return new(rows, byRow, byId, talk, localRev, sharedRev);
+    }
+
+    sealed class Undo(Action undo) : IDisposable
+    {
+        Action? _undo = undo;
+        public void Dispose() => Interlocked.Exchange(ref _undo, null)?.Invoke();
     }
 
     public static NpcCatalog Load(string folder = "data")
@@ -196,13 +420,14 @@ public sealed class NpcCatalog
     }
 
     /// <summary>The NPCTalk row an NPC's option index (C→S 0x82) stands for.</summary>
-    public Talk? TalkOf(Npc npc, int index) => _talk.GetValueOrDefault((TalkSource(npc).Row, index));
+    public Talk? TalkOf(Npc npc, int index) => CurrentSnapshot().Talk.GetValueOrDefault((TalkSource(npc).Row, index));
 
     /// <summary>Every NPCTalk row of the NPC (its talk source's), by option index.</summary>
     public IEnumerable<Talk> TalksOf(Npc npc)
     {
-        int source = TalkSource(npc).Row;
-        return _talk.Values.Where(t => t.Npc == source).OrderBy(t => t.Index);
+        var snap = CurrentSnapshot();
+        int source = TalkSource(npc, snap).Row;
+        return snap.Talk.Values.Where(t => t.Npc == source).OrderBy(t => t.Index);
     }
 
     public Talk? NextConversationOf(Npc npc, IReadOnlySet<string> flags, IReadOnlySet<int> visited) => TalksOf(npc)
@@ -227,27 +452,31 @@ public sealed class NpcCatalog
 
     public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags)
     {
-        int source = TalkSource(npc).Row;
-        return _talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer
+        var snap = CurrentSnapshot();
+        int source = TalkSource(npc, snap).Row;
+        return snap.Talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer
             && t.Category != "BanditRespec" && t.Available(flags));
     }
 
     public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags, IReadOnlySet<int> leagueFlags)
     {
-        int source = TalkSource(npc).Row;
-        return _talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer
+        var snap = CurrentSnapshot();
+        int source = TalkSource(npc, snap).Row;
+        return snap.Talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer
             && t.Category != "BanditRespec" && t.Available(flags, leagueFlags));
     }
 
     /// <summary>The quest reward offers any NPC currently shows (the quests complete), for the vendors' gem stock.</summary>
     public IReadOnlySet<int> AvailableRewards(IReadOnlySet<string> flags) =>
-        _talk.Values.Where(t => t.RewardOffer is { } offer && t.Category != "BanditRespec" && t.Available(flags))
+        CurrentSnapshot().Talk.Values.Where(t => t.RewardOffer is { } offer && t.Category != "BanditRespec" && t.Available(flags))
             .Select(t => t.RewardOffer!.Value).ToHashSet();
 
     /// <summary>The NPC whose NPCTalk rows (and shop) this one uses: itself, or for a copy without rows of its own (the
     /// hideout Kirac, NPCs.dat row 412) the first row of the same name that has them (Kirac, 410).</summary>
-    public Npc TalkSource(Npc npc) => _talk.Keys.Any(k => k.Npc == npc.Row) ? npc
-        : Rows.FirstOrDefault(r => r.Name == npc.Name && _talk.Keys.Any(k => k.Npc == r.Row)) ?? npc;
+    public Npc TalkSource(Npc npc) => TalkSource(npc, CurrentSnapshot());
+
+    static Npc TalkSource(Npc npc, CatalogSnapshot snap) => snap.Talk.Keys.Any(k => k.Npc == npc.Row) ? npc
+        : snap.Rows.FirstOrDefault(r => r.Name == npc.Name && snap.Talk.Keys.Any(k => k.Npc == r.Row)) ?? npc;
 
     /// <summary>The town's NPCs, or none.</summary>
     // Hideouts: Nessa, at the cell the user picked in the Lush Hideout (2026-10-20); the real game has no town NPCs in
@@ -281,10 +510,11 @@ public sealed class NpcCatalog
     /// <summary>An NPC by row, Id or name (exact name first, then the first Id or name containing the text).</summary>
     public Npc? Find(string query)
     {
-        if (int.TryParse(query, out int row)) return row >= 0 && row < Rows.Count ? Rows[row] : null;
-        if (_byId.TryGetValue(query, out var byId)) return byId;
-        return Rows.FirstOrDefault(r => r.Name.Equals(query, StringComparison.OrdinalIgnoreCase))
-            ?? Rows.FirstOrDefault(r => r.Id.Contains(query, StringComparison.OrdinalIgnoreCase) || r.Name.Contains(query, StringComparison.OrdinalIgnoreCase));
+        var snap = CurrentSnapshot();
+        if (int.TryParse(query, out int row)) return snap.ByRow.GetValueOrDefault(row);
+        if (snap.ById.TryGetValue(query, out var byId)) return byId;
+        return snap.Rows.FirstOrDefault(r => r.Name.Equals(query, StringComparison.OrdinalIgnoreCase))
+            ?? snap.Rows.FirstOrDefault(r => r.Id.Contains(query, StringComparison.OrdinalIgnoreCase) || r.Name.Contains(query, StringComparison.OrdinalIgnoreCase));
     }
 
     static NpcCatalog Read(string folder)

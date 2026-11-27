@@ -135,7 +135,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Rogue Harbour: NPCs and stashes at the room's cells; Heist screens open (0x34, 0x35, 0x36), no contract start yet.
 - Tier 17 Marked for Death follows rare/unique kills; monster impales detonate on the fifth stack (checked offline).
 - Rogue Harbour: PlanningNPCs, 0x27c/0x164, 0x279/0x27d–0x27f planning ([21](../docs/protocol/21-hideouts.md)).
-- Map Delirium Mirror: native fog and rewards, with Atlas and area rules governing fog progression.
+- Map Delirium Mirror: native fog and reward bars, with extra reward types for map completion under Atlas rules.
+- Map Delirium Mirror: all five scarabs, Mania depth/counter growth, Paranoia types, Neuroses bosses/kill types,
+  Delusions found-map enchants, shared reload/reentry and single payout ([boundaries](../docs/game/league-encounters.md#delirium-scarabs)).
 - Nightmare maps apply their levelled hexes while the player is in the map.
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
   The Tier 17 block, suppression, monster Energy Shield and recipient curse modifiers are checked offline.
@@ -147,8 +149,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   The client still refuses them: on their own Atlas node it shows "The device requires a map" and sends no 0x00d8, and an
   ordinary node does not take them (live 2026-11-22; a WorldAreas HASH16 in MapKey flag bit 1 did not change it).
   Their fixed unique modifiers are not applied.
-- Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
+- Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability, Terrors bosses,
+  Bestiary's additional red beasts/family lures/Shadowed Crow/capture copies and Sulphite's owner yield/Fumes.
+  Delirium, Shaper/Elder influence, Legion, Abyss and Mercenary inputs use their existing encounter paths
+  ([encounters](../docs/game/league-encounters.md)); remaining families still report provider diagnostics.
   Terrors' boss kit skills inherit map damage, speed, projectile and area modifiers alongside their default attacks.
+  Bestiary captures persist per account and league; mission identities and claims survive module reload.
+  The Bestiary book, itemisation and Blood Altar remain unimplemented; capture storage alone does not expose those UIs.
+  Selection weights, party capture chance, full-store replacement and Fumes placement retain local approximations
+  ([encounter boundaries](../docs/game/league-encounters.md#bestiary-and-sulphite-scarab-boundaries)).
   Essence supports Vaal corruption, Adaptation transfers, low-life enrage, Decay, Toughness (damage-taken, not life),
   the imprisoned pack (mini monoliths release magic guards with the rare), encased preview monsters (+0x104 panel),
   the 3.29 Atlas cluster (CoreLeagues count, additional/higher-tier/max-tier/Remnant/Essence-Rare-Chance rolls, Crystal
@@ -215,12 +224,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Legion (partial): one or more Timeless Monoliths per area (`LegionInitiator` 7-state progression, General link
   `0xec72e38c`, `LegionFlashLight`, `LegionRules` `0x2c9` modes 0/1/5, `0xdf` world/battle/post-battle environments),
-  timer, two armies in stasis (`LegionBreakout` action with `present`/`owning_initiator`, not yet live-checked), full
+  timer, two armies in stasis (`LegionBreakout` action with `present`/`owning_initiator`), full
   combat damage break-out via a non-lethal life floor (hits, DoTs/Contagion, minions, totems, brands, traps, mines,
   culling), release wave, seamless wake, post-battle fade-out and war chests with floating 3D reward symbols opening at
   release. Rewards (level-gated symbols, icons, rolled drops, splinters, Ruthless scaling) are built, not checked in the
   client yet.
 - Legion Atlas rules can change the battle's general count. See [Legion](../docs/game/legion.md).
+  release. Scarab inputs, repeated breakouts and reward drops have native verification; retail reward weights and
+  difficulty need calibration. The Domain and remaining Atlas rules are separate work. Docs: [Legion](../docs/game/legion.md).
 
 - Blight: pump, lanes, enemies, foundations; only 17 of 30 towers act (HUD and chests pending).
 

@@ -299,6 +299,7 @@ public static partial class Game
         int deaths = player.PlayerDeaths;
         await SendPlayerDeathPresentation(player, label, deathEpoch, deaths, deathKind);
         await GameEvents.RunPlayerDied(player, xpBefore - xpAfter);
+        await GameEvents.RunPlayerDeath(new PlayerDiedContext(player, deathKind, deaths, player.Character.Hardcore, xpBefore - xpAfter));
     }
 
     public static Task SendPlayerDeathPresentation(Player player, string label, int deathEpoch, int deaths, byte deathKind = InstanceProtocol.DeathKindNormal) => SendWorldBatch(player, [], admission =>

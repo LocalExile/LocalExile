@@ -351,7 +351,7 @@ public static class ItemMoves
     /// no room. The item's current inventory wins if the packet's direction flag disagrees.
     /// </summary>
     public static BenchMove? MoveToMapDevice(PlayerInventories items, uint itemId,
-        Func<Item, PlayerInventories.Shape?> shapeOf) => Saves.Atomically<BenchMove?>(() =>
+        Func<Item, PlayerInventories.Shape?> shapeOf, Player? player = null) => Saves.Atomically<BenchMove?>(() =>
     {
         byte main = Main, device = PlayerInventories.MapDevice;
         byte from;
@@ -361,7 +361,7 @@ public static class ItemMoves
         else return null;
         byte to = from == main ? device : main;
         if (shapeOf(item.Item) is not { } shape) return null;
-        if (to == device && !MapDevice.AcceptsItem(item.Item.TypeHash, shape.Class)) return null;
+        if (to == device && !MapDevice.AcceptsItem(item.Item.TypeHash, shape.Class, player)) return null;
         if (items.FreeCell(to, shape.Width, shape.Height, shapeOf) is not { } cell
             || items.Remove(from, itemId) is not { } taken) return null;
         return new(from, to, items.Put(to, taken with { X = cell.X, Y = cell.Y }));
@@ -416,11 +416,20 @@ public static class ItemMoves
     {
         var targets = items.Items(row);
         if (targets.Count != 1 || craftIt(targets[0].Item) is not { } craft) return null;
+        var totals = new Dictionary<uint, long>();
         foreach (var (currency, amount) in craft.Costs)
-            if (amount < 0 || (long)items.Count(Main, currency) + stash.CountOf(currency) < amount) return null;
+        {
+            if (amount < 0) return null;
+            if (amount == 0) continue;
+            long sum = totals.GetValueOrDefault(currency) + amount;
+            if (sum > int.MaxValue) return null;
+            totals[currency] = sum;
+        }
+        foreach (var (currency, amount) in totals)
+            if ((long)items.Count(Main, currency) + stash.CountOf(currency) < amount) return null;
         var payments = new List<Price>();
-        foreach (var (currency, amount) in craft.Costs)
-            if (amount > 0) payments.Add(Pay(items, stash, currency, amount)
+        foreach (var (currency, amount) in totals)
+            payments.Add(Pay(items, stash, currency, (int)amount)
                 ?? throw new InvalidOperationException("Craft payment changed after validation"));
         var changed = items.Change(row, targets[0].Id, _ => craft.Item)
             ?? throw new InvalidOperationException("Crafted item disappeared after payment");

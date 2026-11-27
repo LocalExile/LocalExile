@@ -2065,6 +2065,7 @@ public static partial class Game
     public static async Task<int> AwardAscendancyPoints(Player player,
         IEnumerable<string> awards)
     {
+        if (HardcoreProgressBlocked(player)) return player.Character.MainAscendancy.EarnedPoints;
         byte baseClass = (byte)Skills.ClassFor(player.Character.ClassRow).IntegerId;
         AscendancyProgress next;
         {
@@ -2079,9 +2080,21 @@ public static partial class Game
             AscendancyPolicies.SelectionChanged(player);
             player.Character.SavedPassiveProgress = new(next, player.Character.Passives, player.Character.MasteryEffects, player.Character.RefundPoints);
         }
-        await SendPassives(player);
+        if (!player.Closed && player.Connection.PlayerSent) await SendPassives(player);
         await CheckAscendancyAwardAchievements(player, awards);
         return next.EarnedPoints;
+    }
+
+    /// <summary>Sets the character's passive refund points, persists them, refreshes <c>SavedPassiveProgress</c>,
+    /// and sends 0x0033 when connected.</summary>
+    public static async Task<ushort> SetRefundPoints(Player player, ushort points)
+    {
+        if (HardcoreProgressBlocked(player)) return player.Character.RefundPoints;
+        CharacterSaves.SetRefundPoints(CharacterName(player), points);
+        player.Character.RefundPoints = points;
+        player.Character.SavedPassiveProgress = new(player.Character.MainAscendancy, player.Character.Passives, player.Character.MasteryEffects, points);
+        if (!player.Closed && player.Connection.PlayerSent) await SendPassives(player);
+        return points;
     }
 
     // The second ascendancy layer (Descendancy.dat): Affliction's Wildwood specialisations and the 3.29 Bloodline

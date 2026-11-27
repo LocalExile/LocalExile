@@ -80,6 +80,27 @@ start an arm; kills of monsters created 62 to 85 cells from a piece did, one cre
 **Testing:** `Game_LEAGUE_CHANCES=Anarchy=100` (CoreLeagues ids, comma-separated) gives that chance in every area the
 Gateway populates. `Game_ENCOUNTERS_AT_ARRIVAL=1` places each encounter about 12 cells from where the player arrives.
 
+## Bestiary and Sulphite scarab boundaries
+
+The pinned client tables supply all twelve Bestiary scarab/lure inputs and seven Sulphite inputs, including legacy
+rows. Family lures use BestiaryCapturableMonsters, BestiaryGroups and BestiaryFamilies; Shadowed Crow selects
+AtlasMorriganBeast rather than a similarly named ordinary bird. Herd, Duplicating, Crow, Greed and Fumes modify an
+existing master encounter; they do not independently guarantee one. The base scarabs and legacy lures carry that stat.
+
+The account/league capture store retains the capturable row, variety, level, rarity, modifiers and separate copy IDs.
+Its source identity prevents repeated kills or reload from crediting the same capture twice. The mission snapshot
+keeps each red beast's separate wave and random progression. Native book, itemisation and Blood Altar protocols are
+not implemented by this store. The base mission's level/count mapping, equal red selection weights and map fallback
+pool remain estimates. The full store retains 1,000 entries and replaces the oldest; the replacement order and the
+50% nearby-party capture roll are local approximations. The official
+[3.20 party change](https://www.pathofexile.com/forum/view-thread/3323944#bestiaryparty-play) establishes per-player
+chance and guaranteed instance-owner credit, but does not publish its exact constant. Nearby non-owners use 250 cells.
+
+Sulphite retains the shipped resource curve and existing party yield formula, with owner-only scarab bonuses,
+map quantity, mined-sulphite modifiers and equipment capacity. The three deposits have a shared single-use claim.
+Fumes adds its 50% quantity once, preserving other encounter quantity and other stats, and uses a separate retained
+mark for the native enrage presentation. Its radius, guard placement and combat tuning remain local approximations.
+
 ## Ritual
 
 CoreLeagues 20 is rolled by the module at `AreaPopulated` in maps (`ExtraTerrainFeatures.LeagueCount`; `map_area_contains_rituals`
@@ -125,3 +146,46 @@ the panel's duel choice (a 0x2ca action of ruleset 161) starts a countdown of 54
 hostile one of its variety, and its death leaves the `*Allied` mercenary. The rulesets 161 and 162 are added by 0x1f when the
 mercenary is placed or a player enters. Not built: the hire following and fighting for the player,
 the duel opponent's drops, and the header listing of the two rulesets.
+
+## Delirium scarabs
+
+The five current scarabs use the existing map Mirror encounter and composed instance stats. Only the base scarab
+guarantees a mirror. Mania scales reward-counter points and monster depth (capped at 100%); Paranoia adds two initial
+types. Neuroses places Omniphobia and Kosis through the ordinary monster path and adds a distinct reward type per
+boss killed. Their ids, spawn and reward flags survive module reload and reentry; repeated boss callbacks pay once.
+
+Delusions prepares newly generated map drops before ground publication, including containers and encounter rewards.
+The ground hook has no game rules. Player drops and restored ground objects bypass it; duplicate references to the same
+generated item share its result. Unique maps and maps already carrying Delirium layers keep their original modifiers.
+The enchant uses `AfflictionMapDeliriumStacks` and `AfflictionRewardMapMods`, with the reward formatter's one-based values.
+It applies independently of whether the map contains a mirror.
+
+Fidelity limits: the existing Mirror's fog, population, depth scaling and reward rates remain calibrated estimates.
+Neuroses uses the existing boss kits and places both bosses in the first spawned group. Found maps draw 1–5 layers and
+reward types uniformly; the client tables supply their identities and 20% layer size, not the retail distribution.
+Permanent Delirium-map gameplay is a separate engine from this scarab's found-item enchant.
+
+## Influence, Legion, Abyss and Mercenary scarabs
+
+The twelve Shaper/Elder/current Influence inputs use the client fragment flags, pack lists and monster drop mods.
+Interference places one supported standalone guardian beside a map boss. Influenced equipment retains its influence
+and rarity; additional rare drops receive independent item rolls. Base influence density is calibrated at ten packs;
+the retail pack total and spatial distribution are not published by the client.
+
+The nine Legion inputs compose monolith counts, generals, war hoards, sergeants, Maraketh, repeated breakouts and
+spreading Emblematic rewards. Frozen and released actors retain their encounter identity through restoration.
+Life/damage increase by 50% per repeated breakout and 100% for spreading; these difficulty values are calibration.
+The existing army population and chest/drop weights remain estimates.
+
+The nine Abyss inputs retain independent pit plans and reward claims through reload and reentry. They compose
+extra pits, pack size, guaranteed Spires, Depths entrances, Consorts and non-final pits' Abyssal Crystals. Depths has
+a return to the parent instance and uses the existing generated Lich areas, matched to its monster family. The removed
+non-Lich Depths areas cannot generate in this client. The new inputs reuse the captured crack/pit lifecycle.
+Extra-pit placement, rare-monster distribution and crystal reward count are local models; the base encounter's
+recorded capture evidence does not establish retail parity for them.
+
+The four Trarthan inputs select Infamous builds, unique equipment, wild companions and their quantity/difficulty
+modifiers. Wild mercenaries pay actual carried items through ordinary ground publication once. The ordinary hire
+panel and duel remain the base module's route. Carried item selection is uniform without replacement; build/equipment
+weights and the difficulty curve remain calibration. Following, party AI and all league gameplay beyond these scarab
+effects remain separate work.

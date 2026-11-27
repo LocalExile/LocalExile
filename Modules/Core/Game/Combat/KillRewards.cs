@@ -124,12 +124,16 @@ public static partial class Game
         if (!GameEvents.AllowsLoot(player)) return [];
 
         var lootStats = PlayerStatValues(player);
-        var balance = LeagueFor(player).Rules;
+        var league = LeagueFor(player);
+        var balance = league.Rules;
         var modded = GameEvents.RunDrops(player, ModMonster(m, at));
         int iir = IncreasedItemRarity(player, m);
         double iiq = ItemQuantityFactor(player, m);
         int areaLevel = ServerLevels.AreaLevel(player.Layout.Id) is > 0 and var al ? al : m.Level;
         var mapMods = MapModsOf(player);
+        bool isBoss = m.Rarity == MonsterRarity.Unique && m.Variety is { } variety
+            && (variety.BossHealthBar || BossMods.IsActBoss(variety) || BossMods.IsQuestBoss(variety)
+                || BossKits.IsCampaignBoss(variety) || FinalActBossVarieties.Contains(variety.Id));
         List<ItemDrops.Drop> drops = [];
 
         // The King in the Mists always drops one of four uniques, plus its support gems and card.
@@ -147,20 +151,26 @@ public static partial class Game
                 }
                 else if (firstBossKill && ClassifyFirstKillCampaignBoss(player, boss) is bool actBoss)
                 {
+                    var bossContext = DropContext.BossBonus(boss.Id, player.Layout.Id,
+                        leagueId: league.Id, hardMode: league.HardMode);
                     drops.AddRange(DropsFor(player).RollBossFirstKillBonus(m.Level, rng, actBoss: actBoss,
-                        increasedRarity: iir, rarityMultiplier: balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
+                        increasedRarity: iir, rarityMultiplier: balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1),
+                        context: bossContext));
                 }
             }
 
             var map = MapRunOf(player);
             int mapTier = map?.Area.Tier ?? 0;
+            string dropAreaId = map?.Area.DivinationCardArea ?? player.Layout.Id;
+            var killContext = DropContext.MonsterKill(m.Rarity, isBoss, m.Variety?.Id,
+                areaId: player.Layout.Id, leagueId: league.Id, hardMode: league.HardMode);
             drops.AddRange(DropsFor(player).Roll(
                 m.Level, m.Rarity, rng, iir,
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * iiq,
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1),
-                mapTier, mapMods, map?.Area.DivinationCardArea ?? player.Layout.Id, MapScarabQuantity(mapMods),
+                mapTier, mapMods, dropAreaId, MapScarabQuantity(mapMods),
                 characterLevel: player.Pools.Level,
-                areaLevel: areaLevel, weights: modded?.Weights));
+                areaLevel: areaLevel, weights: modded?.Weights, context: killContext));
             drops.AddRange(PartyCurrency(player, drops, rng));
             if (RollMapDropForKill(player, m.Level, m.Rarity, mapTier, rng, modded?.MapRelated ?? 1) is { } mapDrop)
                 drops.Add(mapDrop);
@@ -176,7 +186,9 @@ public static partial class Game
             if (RandomRolls.Chance(lootStats.GetValueOrDefault(Stat.AdditionalScrollOfWisdomDropChancePct), 100, rng)
                 && ItemsFor(player).Find("Metadata/Items/Currency/CurrencyIdentification") is { Supported: true } wisdom)
                 drops.Add(new(ItemCatalog.Create(wisdom) with { StackSize = 1 }, wisdom));
-            drops.AddRange(ExtraDropsFromMap(player, m.Level, m.Rarity, rng));
+            var mapCurrencyContext = DropContext.MapCurrency(m.Rarity, isBoss, m.Variety?.Id,
+                areaId: player.Layout.Id, leagueId: league.Id, hardMode: league.HardMode);
+            drops.AddRange(ExtraDropsFromMap(player, m.Level, m.Rarity, rng, modded?.Weights, mapCurrencyContext));
             drops.AddRange(Sirus.Rewards(player, m));
         }
 

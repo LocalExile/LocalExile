@@ -11,7 +11,7 @@ namespace GameServer.Modules.Bestiary;
 /// <see cref="Live"/> part): it is placed once when the area is populated, every player in the instance sees and drives the
 /// same one, and it ends with the instance, not with a player leaving. The monsters and Einhar are the instance's own.
 /// </summary>
-public sealed class BestiaryEncounter
+public sealed partial class BestiaryEncounter
 {
     /// <summary>Einhar's monster type.</summary>
     public const string EinharType = "Metadata/Monsters/Masters/Einhar";
@@ -48,24 +48,52 @@ public sealed class BestiaryEncounter
         public readonly BestiaryRun Run = run;
         public readonly Random Rng = rng;
         public readonly object Gate = new();
-        public BestiaryTables.RedKind? Red;
-        public (int X, int Y) RedCell;
-        public bool[]? RedReach;
+        public readonly List<RedWave> Waves = [];
         public uint Einhar;
         public int EinharNpc = -1;
-        public bool WaveStarted, EinharArriving, EinharDialogueSent, Left, Done;
-        public int WaveTotal, WaveDone;
-        public double Clock, WaveClock;
+        public bool EinharArriving, EinharDialogueSent, Left, Done, Stopped;
+        public double Clock;
+        public double KeptAt;
         public double? CompletedAt;
         public readonly List<(uint Id, double RemoveAt)> Effects = [];
     }
 
+    internal sealed class RedWave(BestiaryTables.RedKind kind, uint beastId, (int X, int Y) cell, int seed)
+    {
+        public readonly BestiaryTables.RedKind Kind = kind;
+        public readonly uint BeastId = beastId;
+        public readonly (int X, int Y) Cell = cell;
+        public readonly int Seed = seed;
+        public int Attempts;
+        public bool[]? Reach;
+        public bool Started;
+        public int Total, Done;
+        public double Clock;
+    }
+
     readonly ConditionalWeakTable<InstanceState, Live> lives = new();
+    volatile bool stopped;
 
     /// <summary>Drops the module's tables (module unload); the instance's monsters stay as the area's own.</summary>
-    public void Clear() => lives.Clear();
+    public void Clear()
+    {
+        stopped = true;
+        foreach (var entry in lives)
+            lock (entry.Value.Gate)
+            {
+                entry.Value.Stopped = true;
+                Keep(entry.Key, entry.Value, stopping: true);
+            }
+        lives.Clear();
+    }
 
-    Live? LiveOf(Player player) => player.Instance is { } instance && lives.TryGetValue(instance, out var live) ? live : null;
+    Live? LiveOf(Player player)
+    {
+        if (stopped || player.Instance is not { } instance) return null;
+        if (lives.TryGetValue(instance, out var live)) return live;
+        if (Restore(player) is not { } restored) return null;
+        return lives.GetValue(instance, _ => restored);
+    }
 
     /// <summary>Whether the instance has a mission still to advance.</summary>
     public bool Has(Player player) => LiveOf(player) is { Done: false };
@@ -104,7 +132,7 @@ public sealed class BestiaryEncounter
         else
         {
             if (!isMap) return false;
-            if (S(Stat.MapBestiaryLeague) > 0) return true;
+            if (BestiaryTables.ForcesEncounter(stats)) return true;
             int baseChance = S(Stat.MapExtraContentHasNoBaseChanceToSpawn) > 0
                 ? 0
                 : (hardMode ? LeagueChances.Current.ChanceOf(areaId, BestiaryTables.LeagueRow, alternate: true).Chance : normalChance);
@@ -134,13 +162,15 @@ public sealed class BestiaryEncounter
     public async Task Place(AreaPopulated area)
     {
         var player = area.Player;
+        if (stopped) return;
         var layout = player.Layout;
         if (player.Instance is not { } instance || layout.Walkable is not { } walkable) return;
+        if (LiveOf(player) is not null) return;
         var rng = new Random(area.Seed ^ 0x42657374);
         var stats = AreaLeagueStats(player);
         if (!Rolled(layout.Id, stats, MapDevices.IsMapArea(layout.Hash), rng,
             LeagueFor(player).HardMode, ForcedChance(Environment.GetEnvironmentVariable("Game_LEAGUE_CHANCES")))) return;
-        if (BestiaryTables.PlanFor(layout.Id, area.Level, rng) is not { } plan) return;
+        if (BestiaryTables.PlanFor(layout.Id, area.Level, rng, stats) is not { } plan) return;
         var taken = area.Taken.ToList();
         var arrival = AreaPopulation.Reachable(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY));
         (int X, int Y)? Spot()
@@ -177,19 +207,17 @@ public sealed class BestiaryEncounter
             if (Spot() is { } at)
             {
                 int before = run.Total;
-                await Spawn(red.Row, MonsterRarity.Rare, at, red: true);
-                if (run.Total > before && live.Red is null)
-                {
-                    live.Red = red;
-                    live.RedCell = at;
-                    live.RedReach = AreaPopulation.Reachable(layout.GridW, layout.GridH, walkable, at);
-                }
+                await Spawn(red.Row, red.Unique ? MonsterRarity.Unique : MonsterRarity.Rare, at, red: true);
+                if (run.Total > before && run.Beasts[^1].Body is SpawnedMonster body && red.Minions.Count > 0)
+                    live.Waves.Add(new(red, run.Beasts[^1].Id, at, rng.Next()));
             }
         for (int i = 0; i < plan.Yellow; i++)
             if (Spot() is { } at)
                 await Spawn(BestiaryTables.Draw(plan.YellowPool, rng), MonsterRarity.Rare, at, red: false);
         if (run.Total == 0) return;
+        if (stopped) return;
         lives.AddOrUpdate(instance, live);
+        Keep(instance, live);
         int placedRed = run.Beasts.Count(b => b.Red), placedYellow = run.Beasts.Count(b => !b.Red);
         Console.WriteLine($"[bestiary] {layout.Id}: mission {plan.Mission.Id}, {run.Total} beast(s) ({placedRed} red, {placedYellow} yellow), level {area.Level}");
     }
@@ -201,7 +229,11 @@ public sealed class BestiaryEncounter
     public Task Entered(Player player) => SyncFlags(player, LiveOf(player)?.Run);
 
     /// <summary>A player leaves: the session flags go with them, the mission stays with the instance.</summary>
-    public Task Leaving(Player player) => SyncFlags(player, null);
+    public Task Leaving(Player player)
+    {
+        if (player.Instance is { } instance && LiveOf(player) is { } live) Keep(instance, live);
+        return SyncFlags(player, null);
+    }
 
     static async Task SyncFlags(Player player, BestiaryRun? run)
     {
@@ -223,7 +255,12 @@ public sealed class BestiaryEncounter
     public async Task Advance(Player player, double seconds)
     {
         if (LiveOf(player) is not { Done: false } live || !IsMonsterRunner(player) || !Current(player)) return;
-        live.Clock += seconds;
+        lock (live.Gate)
+        {
+            if (live.Stopped) return;
+            live.Clock += seconds;
+        }
+        if (live.Clock - live.KeptAt >= 1) Keep(player.Instance, live);
         var run = live.Run;
         await ExpireEffects(player, live);
         if (live.Left)
@@ -232,12 +269,29 @@ public sealed class BestiaryEncounter
             return;
         }
         double now = AreaTime(player);
-        // A beast that died without a kill reaching the mission (it is gone either way) counts as taken, and one brought low
-        // brings Einhar.
-        foreach (var beast in run.Beasts.Where(b => !b.Captured))
-            if (beast.Body is SpawnedMonster body)
+        if (run.Received && live.Einhar == 0 && !live.EinharArriving)
+            await ArriveEinhar(player, live, player.Walk.Position(now));
+        // A real death whose kill output has not run yet can still be captured; despawns never award beasts.
+        foreach (var beast in run.Beasts)
+            if (!beast.Captured && player.Area.Monsters.GetValueOrDefault(beast.Id) is { } body)
             {
-                if (body.Dead || body.Life == 0) await Taken(player, live, run.Kill(body), body.Walk.Position(now));
+                if (!ReferenceEquals(beast.Body, body)) run.Bind(beast.Id, body);
+                if ((body.Dead || body.Life == 0) && !body.NoRewards)
+                {
+                    BestiaryRun.Capture? capture;
+                    lock (live.Gate)
+                    {
+                        if (live.Stopped) return;
+                        capture = run.Kill(body);
+                        if (capture is { } accepted)
+                        {
+                            CreditCapture(player, live, accepted, body.Walk.Position(now));
+                            if (accepted.Last) live.CompletedAt ??= live.Clock;
+                            Keep(player.Instance, live);
+                        }
+                    }
+                    await Taken(player, live, capture, body.Walk.Position(now));
+                }
                 else if (body.MaxLife > 0 && (ulong)body.Life * 100 <= (ulong)body.MaxLife * ArrivalLifePercent && run.TryArrive())
                     await ArriveEinhar(player, live, body.Walk.Position(now));
             }
@@ -249,26 +303,41 @@ public sealed class BestiaryEncounter
             return;
         }
         await FollowEinhar(player, live, now);
-        bool redAlive = run.Beasts.Any(b => b.Red && !b.Captured && b.Body is SpawnedMonster m && !m.Dead && m.Life > 0);
-        if (completedAt is not null || live.Red is not { } red || !redAlive) return;
-        if (!live.WaveStarted)
+        if (completedAt is not null) return;
+        foreach (var wave in live.Waves)
         {
-            if (!Clients(player).Any(c => Distance(c.Walk.Position(now), live.RedCell) <= WaveNear)) return;
-            live.WaveTotal = live.Rng.Next(WaveMin, WaveMax + 1);
-            live.WaveStarted = true;
-            live.WaveClock = live.Clock;
-            return;
+            MonsterRarity rarity;
+            (int X, int Y) cell;
+            ushort row;
+            lock (live.Gate)
+            {
+                if (live.Stopped) return;
+                if (player.Area.Monsters.GetValueOrDefault(wave.BeastId) is not { Dead: false, Life: > 0 }) continue;
+                if (!wave.Started)
+                {
+                    if (!Clients(player).Any(c => Distance(c.Walk.Position(now), wave.Cell) <= WaveNear)) continue;
+                    wave.Total = new Random(wave.Seed).Next(WaveMin, WaveMax + 1);
+                    wave.Started = true;
+                    wave.Clock = live.Clock;
+                    continue;
+                }
+                if (wave.Done >= wave.Total || live.Clock - wave.Clock < WaveGapFrames * FrameSeconds) continue;
+                wave.Reach ??= AreaPopulation.Reachable(player.Layout.GridW, player.Layout.GridH, player.Layout.Walkable!, wave.Cell);
+                wave.Clock = live.Clock;
+                var random = new Random(unchecked(wave.Seed + wave.Attempts++ * 1566083941));
+                double angle = random.NextDouble() * 2 * Math.PI, dist = random.NextDouble() * WaveRadius;
+                rarity = random.NextDouble() < WaveMagicChance ? MonsterRarity.Magic : MonsterRarity.Normal;
+                var layout = player.Layout;
+                cell = layout.Near(((int)Math.Round(wave.Cell.X + dist * Math.Cos(angle)), (int)Math.Round(wave.Cell.Y + dist * Math.Sin(angle))));
+                if (!layout.WalkableFor(cell.X, cell.Y, 0) || wave.Reach is { } reach && !reach[cell.Y * layout.GridW + cell.X]) continue;
+                row = BestiaryTables.Draw(wave.Kind.Minions, random);
+                // Reserve before asynchronous presentation, so unloading cannot replay a dispatched wave member.
+                wave.Done++;
+                Keep(player.Instance, live);
+            }
+            if (Monsters.All[row] is { Supported: true } minion)
+                await SpawnMonster(player, minion, run.Level, rarity, cell.X, cell.Y, alone: false, bulk: true);
         }
-        if (live.WaveDone >= live.WaveTotal || red.Minions.Count == 0 || live.Clock - live.WaveClock < WaveGapFrames * FrameSeconds) return;
-        live.WaveClock = live.Clock;
-        double angle = live.Rng.NextDouble() * 2 * Math.PI, dist = live.Rng.NextDouble() * WaveRadius;
-        var rarity = live.Rng.NextDouble() < WaveMagicChance ? MonsterRarity.Magic : MonsterRarity.Normal;
-        var layout = player.Layout;
-        var cell = layout.Near(((int)Math.Round(live.RedCell.X + dist * Math.Cos(angle)), (int)Math.Round(live.RedCell.Y + dist * Math.Sin(angle))));
-        // Only a cell the red beast's own ground reaches: a minion behind a wall would never arrive.
-        if (!layout.WalkableFor(cell.X, cell.Y, 0) || live.RedReach is { } reach && !reach[cell.Y * layout.GridW + cell.X]) return;
-        if (Monsters.All[BestiaryTables.Draw(red.Minions, live.Rng)] is { Supported: true } minion
-            && await SpawnMonster(player, minion, run.Level, rarity, cell.X, cell.Y, alone: false, bulk: true) != 0) live.WaveDone++;
     }
 
     static double Distance((int X, int Y) a, (int X, int Y) b) => double.Hypot(a.X - b.X, a.Y - b.Y);
@@ -306,7 +375,18 @@ public sealed class BestiaryEncounter
     /// the loot, experience and flask charges the kill already gave. The messages go after the kill's commit.</summary>
     public void Killed(KillContext kill)
     {
-        if (LiveOf(kill.Player) is not { Done: false } live || live.Run.Kill(kill.Monster) is not { } capture) return;
+        if (kill.Monster.NoRewards || LiveOf(kill.Player) is not { Done: false } live) return;
+        BestiaryRun.Capture capture;
+        lock (live.Gate)
+        {
+            if (live.Stopped) return;
+            live.Run.Bind(kill.Monster.ObjectId, kill.Monster);
+            if (live.Run.Kill(kill.Monster) is not { } accepted) return;
+            capture = accepted;
+            CreditCapture(kill.Player, live, capture, kill.At);
+            if (capture.Last) live.CompletedAt ??= live.Clock;
+            Keep(kill.Player.Instance, live);
+        }
         kill.Later(() => Taken(kill.Player, live, capture, kill.At));
     }
 
@@ -314,7 +394,7 @@ public sealed class BestiaryEncounter
     /// Complete flag for everyone in the instance and Einhar's mission-complete dialogue.</summary>
     async Task Taken(Player player, Live live, BestiaryRun.Capture? taken, (int X, int Y) cell)
     {
-        if (taken is not { } capture) return;
+        if (taken is not { } capture || live.Stopped) return;
         if (capture.First) await ArriveEinhar(player, live, cell);
         await SendEffect(player, live, BestiaryEffects.HarpoonBody(cell, live.Rng.NextDouble() * 2 * Math.PI), BestiaryEffects.HarpoonLifeFrames, "harpoon");
         if (!capture.Last) return;
@@ -323,13 +403,39 @@ public sealed class BestiaryEncounter
         lock (live.Gate) live.CompletedAt ??= live.Clock;
     }
 
+    static void CreditCapture(Player player, Live live, BestiaryRun.Capture capture, (int X, int Y) cell)
+    {
+        if (capture.Beast.Body is not SpawnedMonster { Variety: { } variety, NoRewards: false } monster
+            || BestiaryTables.CaptureOf((ushort)variety.Row) is not { } definition) return;
+        string owner = MapRunOf(player)?.Owner ?? CharacterName(player);
+        string key = live.Run.Key + "/" + capture.Beast.Id;
+        int duplication = MapModsOf(player)?.Get(Stat.MapDuplicateCapturedBeastsChancePct) ?? 0;
+        var random = AreaRng(player);
+        var recipients = Clients(player).Where(peer => CharacterName(peer).Equals(owner, StringComparison.OrdinalIgnoreCase)
+            || Distance(peer.Walk.Position(AreaTime(peer)), cell) <= 250).ToArray();
+        Saves.Atomically(() =>
+        {
+            foreach (var peer in recipients)
+            {
+                bool own = CharacterName(peer).Equals(owner, StringComparison.OrdinalIgnoreCase);
+                if (!own && random.Next(100) >= 50) continue;
+                int copies = random.Next(100) < duplication ? 2 : 1;
+                var account = WorldOf(PlayerOf(peer)).AccountData;
+                var credited = BestiaryCaptures.Credit(account, key, definition, monster, capture.Beast.Red, copies);
+                if (credited.Count > 0)
+                    Console.WriteLine($"[bestiary] captured {variety.Id} for {CharacterName(peer)}: {credited.Count} copy/copies, source={key}");
+            }
+            return true;
+        });
+    }
+
     static async Task SendCompleteDialogue(Player player, Live live)
     {
         uint id;
         int npc;
         lock (live.Gate)
         {
-            if (live.Left || live.Einhar == 0 || live.EinharNpc < 0 || live.EinharDialogueSent) return;
+            if (live.Stopped || live.Left || live.Einhar == 0 || live.EinharNpc < 0 || live.EinharDialogueSent) return;
             live.EinharDialogueSent = true;
             id = live.Einhar;
             npc = live.EinharNpc;
@@ -351,6 +457,7 @@ public sealed class BestiaryEncounter
         double removeAt;
         lock (live.Gate)
         {
+            if (live.Stopped) return;
             removeAt = live.Clock + lifeFrames * FrameSeconds;
             live.Effects.Add((id, removeAt));
         }
@@ -377,7 +484,7 @@ public sealed class BestiaryEncounter
     {
         lock (live.Gate)
         {
-            if (live.Left) return;
+            if (live.Left || live.Stopped || live.EinharArriving || live.Einhar != 0) return;
             live.EinharArriving = true;
         }
         try
@@ -403,7 +510,7 @@ public sealed class BestiaryEncounter
             bool left;
             lock (live.Gate)
             {
-                left = live.Left;
+                left = live.Left || live.Stopped;
                 if (!left)
                 {
                     live.Einhar = id;
@@ -425,7 +532,7 @@ public sealed class BestiaryEncounter
                 if (player.Area.Monsters.TryGetValue(id, out var body)) body.States = on;
                 await SendWorldRecord(player, id, InstanceEntities.StateMachineUpdate(id, (byte)machine, on), "0x02bc Einhar mission state 1 (no exclamation mark)");
             }
-            if (live.Left) return;
+            if (live.Left || live.Stopped) return;
             await SendEffect(player, live, BestiaryEffects.ArriveBody(cell, live.Rng.NextDouble() * 2 * Math.PI), BestiaryEffects.EffectLifeFrames, "einhar arrives");
             if (live.Run.Complete)
             {

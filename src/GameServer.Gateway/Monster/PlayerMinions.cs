@@ -74,6 +74,7 @@ public sealed class PlayerMinions
     public readonly List<FlaskReward> FlaskRewards = [];
     public readonly HashSet<SpawnedMonster> Rewarded = [];
     public long StatRevision, PresentedStatRevision, AccountRevision, PresentedAccountRevision;
+    public int? PendingLevelBefore;
     readonly Dictionary<uint, Minion> minions = [];
 
     public IReadOnlyCollection<Minion> All => minions.Values;

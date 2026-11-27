@@ -1578,6 +1578,10 @@ public static partial class Game
             }
             if (stashType.Id == StackedDeck)
                 return await UseStackedDeckFromStash(player, items, stash, stashTab, stashItem, stashType);
+            if (stashType.Id == Regret)
+                return await UseOrbOfRegretFromStash(player, stash, stashTab, stashItem, stashType);
+            if (stashType.Id == CurrencyEffects.OrbOfUnmaking)
+                return await UseOrbOfUnmakingFromStash(player, stash, stashTab, stashItem, stashType);
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= use item {use}: {stashType.Name} from stash tab {stashTab} is not handled: {hex}");
             return false;
         }
@@ -1669,6 +1673,72 @@ public static partial class Game
             $"0x00bf inventory {inventoryId}: {type.Name} used");
         await SendAtlasSlots(player, "Orb of Unmaking");
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use {type.Name} ({item.Id}): {respec} Atlas respec point(s)");
+        return true;
+    }
+
+    static async Task<bool> UseOrbOfRegretFromStash(Player player, AccountStash stash, int tab, InventoryItem item, ItemCatalog.BaseType type)
+    {
+        if (HardcoreProgressBlocked(player)) return false;
+        var consumed = Saves.Atomically<(ushort Points, InventoryItem? Left, bool Consumed)>(() =>
+        {
+            if (stash.IsPublic(tab)) return (0, null, false);
+            if (stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == item.Id) is not { } current) return (0, null, false);
+            ushort held = CharacterSaves.Load(CharacterName(player))?.RefundPoints ?? 0;
+            if (held == ushort.MaxValue) return (held, null, false);
+            InventoryItem? left = null;
+            if (current.Item.StackSize <= 1)
+            {
+                if (stash.Take(tab, item.Id) is null) return (held, null, false);
+            }
+            else
+            {
+                if (stash.Shrink(tab, item.Id, 1) is not { } shrunk) return (held, null, false);
+                left = shrunk;
+            }
+            ushort next = (ushort)Math.Min(ushort.MaxValue, held + 1);
+            CharacterSaves.SetRefundPoints(CharacterName(player), next);
+            return (next, left, true);
+        });
+        if (!consumed.Consumed) return false;
+        player.Character.RefundPoints = consumed.Points;
+        player.Character.SavedPassiveProgress = new(player.Character.MainAscendancy, player.Character.Passives, player.Character.MasteryEffects, consumed.Points);
+        await SendTabChange(player, stash, tab, [consumed.Left?.Id ?? item.Id],
+            consumed.Left is { } remaining ? [remaining] : [],
+            consumed.Left is null ? $"0x00bf stash tab {tab}: {type.Name} emptied" : $"0x00bf stash tab {tab}: {type.Name} now {consumed.Left.Item.StackSize}");
+        await SendPassives(player);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= use {type.Name} ({item.Id}) from stash tab {tab}: {consumed.Points} refund point(s)");
+        return true;
+    }
+
+    static async Task<bool> UseOrbOfUnmakingFromStash(Player player, AccountStash stash, int tab, InventoryItem item, ItemCatalog.BaseType type)
+    {
+        if (HardcoreProgressBlocked(player)) return false;
+        var consumed = Saves.Atomically<(ushort Respec, InventoryItem? Left, bool Consumed)>(() =>
+        {
+            if (stash.IsPublic(tab)) return (0, null, false);
+            if (stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == item.Id) is not { } current) return (0, null, false);
+            ushort respec = AtlasRespecPoints(player);
+            if (respec == ushort.MaxValue) return (respec, null, false);
+            InventoryItem? left = null;
+            if (current.Item.StackSize <= 1)
+            {
+                if (stash.Take(tab, item.Id) is null) return (respec, null, false);
+            }
+            else
+            {
+                if (stash.Shrink(tab, item.Id, 1) is not { } shrunk) return (respec, null, false);
+                left = shrunk;
+            }
+            ushort next = (ushort)(respec + 1);
+            SetAtlasRespecPoints(player, next);
+            return (next, left, true);
+        });
+        if (!consumed.Consumed) return false;
+        await SendTabChange(player, stash, tab, [consumed.Left?.Id ?? item.Id],
+            consumed.Left is { } remaining ? [remaining] : [],
+            consumed.Left is null ? $"0x00bf stash tab {tab}: {type.Name} emptied" : $"0x00bf stash tab {tab}: {type.Name} now {consumed.Left.Item.StackSize}");
+        await SendAtlasSlots(player, "Orb of Unmaking");
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= use {type.Name} ({item.Id}) from stash tab {tab}: {consumed.Respec} Atlas respec point(s)");
         return true;
     }
 
@@ -2122,7 +2192,7 @@ public static partial class Game
         else if (LevelTooLow(player, row, held) is { } low) why = low;
         else if (held is not null && GameEvents.FirstInventoryRefusal(player, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a))) is { } objection) why = objection;
         else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a),
-            expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player));
+            expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player), player: player);
         if (done is null && PlayerInventories.Row(a.InventoryId) is byte lr && LevelTooLow(player, lr, held) is { } tooLow) why = tooLow;
         if (done is null)
         {
@@ -2243,7 +2313,7 @@ public static partial class Game
             else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0)) is { } objection) why = objection;
             else
             done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0,
-                expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player));
+                expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player), player: player);
         }
         if (done is null)
         {

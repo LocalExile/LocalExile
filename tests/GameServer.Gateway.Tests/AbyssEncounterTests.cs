@@ -93,6 +93,11 @@ public sealed class AbyssEncounterTests
             var encounter = new AbyssEncounter();
             var rng = new Random(11);
             var state = encounter.Begin(player, AbyssEncounter.MakePlan(player.Layout, (300, 300), rng)!, 45, rng);
+            Assert.Equal(state.Plan.Family == "Lightless" ? "AbyssLeagueBoss2" : "AbyssLeagueBoss", state.DepthArea);
+            Assert.True(ServerLevels.IsSupported(state.DepthArea));
+            Assert.Equal(0, AbyssEncounter.PitCount(new Dictionary<uint, int> { [Stat.MapAbyssesCanSpawnCrystals] = 1 }, false));
+            Assert.True(AbyssEncounter.PitCount(new Dictionary<uint, int> { [Stat.MapNumExtraAbysses] = 1, [Stat.MapAbyssesCanSpawnCrystals] = 1 }, false) >= 2);
+            Assert.True(AbyssEncounter.PitCount(new Dictionary<uint, int> { [Stat.MapContainsAbyssDepths] = 1, [Stat.MapAbyssesCanSpawnCrystals] = 1 }, false) >= 2);
             // The encounter is the instance's: another player of it reads the same one.
             var second = new Player(Flat(1200), 2, 3316637604u) { Instance = player.Instance };
             Assert.Same(state, encounter.Of(second));
@@ -136,6 +141,51 @@ public sealed class AbyssEncounterTests
             Assert.All(state.Arms, arm => Assert.All(arm.Pieces.Skip(1), p => Assert.Equal(AbyssTables.CrackClosing3, p.State)));
             Assert.All(state.Slots, slot => Assert.True(slot.Spawned));
             Assert.Equal(AbyssTables.ArmMonsters, state.ArmMonsters.Count);
+            uint pitBeforeReload = state.Pit;
+            var bodiesBeforeReload = state.ArmMonsters.ToArray();
+            encounter.Clear();
+            encounter = new AbyssEncounter();
+            state = encounter.Of(player)!;
+            Assert.Equal(pitBeforeReload, state.Pit);
+            Assert.Equal(bodiesBeforeReload, state.ArmMonsters);
+            Assert.All(state.Slots, slot => Assert.True(slot.Spawned));
+            // Re-entry after an Abyss monster walked away from its spawn cell must still rebind it,
+            // and a second player entering a live area with a Depths entrance or Crystal must not duplicate creates.
+            uint walkerId = state.ArmMonsters[0];
+            var walker = player.Area.Monsters[walkerId];
+            var movedTo = (walker.Walk.Position(Now()).X + 20, walker.Walk.Position(Now()).Y);
+            walker.Walk.Teleport(movedTo.Item1, movedTo.Item2, Now());
+            await encounter.KeepBodies(player);
+            var savedWalker = Assert.Single(SavedMonster.Save([walker], Now(),
+                origin: m => player.Instance.World.MonsterOrigins.TryGetValue(m.ObjectId, out var o) ? o.Object : null));
+            player.Area.Monsters.Remove(walkerId);
+            player.Instance.World.MonsterOrigins.TryRemove(walkerId, out _);
+            uint restoredWalkerId = await Game.RestoreMonster(player, walker.Variety!, savedWalker);
+            Assert.NotEqual(walkerId, restoredWalkerId);
+            encounter.Clear();
+            encounter = new AbyssEncounter();
+            state = encounter.Of(player)!;
+            Assert.Contains(restoredWalkerId, state.ArmMonsters);
+            state.DepthEntrance = player.TakeObjectId();
+            state.Crystal = player.TakeObjectId();
+            await encounter.Entered(player);
+            Assert.True(player.Area.Objects.Has(state.DepthEntrance));
+            Assert.True(player.Area.Objects.Has(state.Crystal));
+            using var peerWire = new PartyFollowerTests.Wire();
+            second.Connection.Session = new("abyss-peer", peerWire.Stream, peerWire.Ciphers);
+            second.Connection.PlayerSent = true;
+            var peerHistory = Program.HistoryFor(peerWire.Ciphers);
+            long peerMark = peerHistory.Count;
+            await encounter.Entered(second);
+            var peerCreates = peerHistory.Lines((int)Math.Min(PacketHistory.Capacity, peerHistory.Count - peerMark))
+                .Select(line => line.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                .Select(p => (Id: Convert.ToUInt16(p[2][2..], 16), Head: Convert.FromHexString(p[5].TrimEnd('\u2026'))))
+                .Where(m => m.Id == 0x2bb).ToList();
+            Assert.DoesNotContain(peerCreates, m => Entity(m.Head) == state.DepthEntrance || Entity(m.Head) == state.Crystal);
+            Assert.Contains(second.Layout.AreaTransitions, t => t.Id == state.DepthEntrance);
+            state.DepthEntrance = 0;
+            state.Crystal = 0;
+            second.Closed = true;
             var family = AbyssTables.Families.First(f => f.Name == state.Plan.Family);
             Assert.All(state.ArmMonsters, id => Assert.Contains(player.Area.Monsters[id].Variety!.Id, family.Regular));
             Assert.All(state.ArmMonsters, id => Assert.InRange(state.Arms.SelectMany(a => a.Cells)

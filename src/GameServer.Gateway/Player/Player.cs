@@ -349,6 +349,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>The rest of a boss's skills (BossKits): the effect each one comes from, its action and its cooldown.
     /// Empty for every monster that swings one attack.</summary>
     public IReadOnlyList<MonsterKitSkill> Kit { get; init; } = [];
+    public IReadOnlyList<int>? OwnedSkillEffects { get; init; }
     /// <summary>The effect behind each id on the actor's skill list, so a mod's command can play any of the monster's own
     /// skills by the GrantedEffects Id the client shows. Empty when the spawn named none.</summary>
     public IReadOnlyList<(int Effect, ushort Id)> SkillIds { get; init; } = [];
@@ -1229,6 +1230,13 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     /// <summary>Replaces an area transition of this connection's layout (dev changes; the walk estimate keeps going).</summary>
     public void ReplaceAreaTransition(uint id, AreaTransitionObject transition) =>
         Layout = Layout with { AreaTransitions = [.. Layout.AreaTransitions.Select(e => e.Id == id ? (e.Id, transition) : e)] };
+
+    /// <summary>Publishes a dynamically added exit in this view without resetting the current walk.</summary>
+    public void AddAreaTransition(uint id, AreaTransitionObject transition)
+    {
+        if (Layout.AreaTransitions.Any(e => e.Id == id)) return;
+        Layout = Layout with { AreaTransitions = [.. Layout.AreaTransitions, (id, transition)] };
+    }
 
     // The quest walls (Barrier) are read on every path, so a wall that opens or closes counts from the next order on.
     private PlayerWalk NewPlayerWalk()
