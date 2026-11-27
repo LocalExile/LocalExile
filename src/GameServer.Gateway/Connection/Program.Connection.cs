@@ -260,7 +260,7 @@ public partial class Program
                 var rules = GameEvents.AreaRulesets(player);
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(player)),
-                    TerrainData: terrainData,
+                    TerrainData: terrainData, B20: UnownedHideout(player, areaHash) ? AreaInstance.UnownedHideoutKind : (byte)0,
                     AchievementSets: moduleHeader?.AchievementSets, B28: (byte)leagueCategory,
                     ReturnAreaHash: player.ReturnAreaHash,
                     DisplayStats: preparedArea.AreaDisplayStats, Rulesets: rules.Rows, PreloadGroups: rules.PreloadGroups);
@@ -841,6 +841,13 @@ public partial class Program
     public static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
     /// <summary>A reply written at once, outside the send gate's order (the lockstep probe's AFK request).</summary>
     public static Task SendPong(Player player, byte[] bytes) => Write(player.Connection.Session.Stream, player.Connection.Session.Ciphers, bytes);
+
+    /// <summary>A hideout instance that belongs to someone else (a visit: <see cref="Player.InstanceOwner"/>): its 0x1d carries
+    /// <see cref="AreaInstance.UnownedHideoutKind"/>, so the client shows its own "Leave Hideout" button.</summary>
+    static bool UnownedHideout(Player player, ushort areaHash) =>
+        HideoutCatalog.ByArea(areaHash) is not null && player.InstanceOwner is { Length: > 0 } owner
+        && !string.Equals(owner, CharacterName(player), StringComparison.OrdinalIgnoreCase)
+        && !string.Equals(owner, player.Character.Account, StringComparison.OrdinalIgnoreCase);
 
     // Composes every AreaHeader subscriber so an AchievementSets-only contributor cannot shadow a later module's
     // Terrain or Level override (e.g. Delve mine terrain or Simulacrum wave level).

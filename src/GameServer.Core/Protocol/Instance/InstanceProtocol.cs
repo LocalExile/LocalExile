@@ -1150,6 +1150,12 @@ public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, b
     IReadOnlyDictionary<uint, int>? DisplayStats = null, IReadOnlyList<byte>? Rulesets = null,
     IReadOnlyList<byte>? PreloadGroups = null)
 {
+    /// <summary>B20 of a hideout that is not the player's own. The dispatcher (case 6, 0x1421510e4) copies B20 to session
+    /// +0xcf38; the HUD (0x140dba5d0) shows "Leave Hideout" (ClientStrings2 HUDLeaveUnownedHideoutButtonLabel,
+    /// return_from_unowned_hideout_button) when the area is a hideout (WorldAreas +0x14e) and that byte is 11. Its click
+    /// (0x140deb730) sends chat command 45, /hideout.</summary>
+    public const byte UnownedHideoutKind = 11;
+
     public byte[] Encode()
     {
         bool hasStats = LeagueStats is { Count: > 0 } || DisplayStats is { Count: > 0 };
