@@ -413,6 +413,7 @@ static class LegionGenerals
             self.Walk.Teleport(x, y, now);
             await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(p, r.Id, InstanceProtocol.Teleport(r.Id, x, y), null));
         }
+        if (work.Cloned) Module?.Log($"Hyrri: rider 0x{r.Id:x} fired its water clone mortar: a clone is queued ({r.Clones} so far)");
     }
 
     /// <summary>A water clone where the mortar landed (GUESS: near the target), hittable, no AI; it plays <c>dying</c> at its end.</summary>
