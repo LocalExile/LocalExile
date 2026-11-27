@@ -157,13 +157,14 @@ public static partial class Game
         if (!Ruled(Stat.ChillEnemyWhenHitDurationMs) && playerStats(Stat.ChillEnemyWhenHitDurationMs) is > 0 and int ms)
             InflictedLocked(player, m, m.Ailments.WithoutDamage(Kind.Chill, ms / 1000.0, now, playerStats, Target, area, stated: 30));
         bool enemy = m is { Hostile: true, Dead: false, Life: > 0, EntranceGrace: false, Invulnerable: false };
-        if (enemy && RandomRolls.Chance(playerStats(Stat.ApplyCoveredInAshToAttackerWhenHitPct), 100, random))
+        // Here and below: a line an effect rule is live for is that rule's (Ruled), not rolled twice.
+        if (enemy && !Ruled(Stat.ApplyCoveredInAshToAttackerWhenHitPct) && RandomRolls.Chance(playerStats(Stat.ApplyCoveredInAshToAttackerWhenHitPct), 100, random))
         {
             m.CoveredInAshUntil = Math.Max(m.CoveredInAshUntil, now + HitDebuffSeconds / m.RecipientDebuffRate);
             m.PresentationChanged?.Invoke();
         }
         if (!blocked) return;
-        if (enemy && playerStats(Stat.PermanentlyIntimidateEnemyOnBlock) != 0 && !double.IsPositiveInfinity(m.IntimidatedUntil))
+        if (enemy && !Ruled(Stat.PermanentlyIntimidateEnemyOnBlock) && playerStats(Stat.PermanentlyIntimidateEnemyOnBlock) != 0 && !double.IsPositiveInfinity(m.IntimidatedUntil))
         {
             m.IntimidatedUntil = double.PositiveInfinity;
             m.PresentationChanged?.Invoke();
@@ -394,7 +395,9 @@ public static partial class Game
         int weaponWitherChance = 0, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None, string? who = null)
     {
         bool owned = ownHit ?? playerHit;
+        // An effect rule live for the line (blind_chilled_on_hit) blinds by itself.
         int blindChilled = owned && m is { Hostile: true, EntranceGrace: false, Invulnerable: false }
+            && !EffectRules.LiveFor(player, Stat.BlindChilledEnemiesOnHitPct)
             ? Math.Max(0, playerStats.GetValueOrDefault(Stat.BlindChilledEnemiesOnHitPct)) : 0;
         long Effect(uint key) => (long)playerStats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0);
         long shockVsCursed = Effect(Stat.ShockEffectAgainstCursedEnemiesPlusPct);

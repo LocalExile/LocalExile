@@ -105,7 +105,8 @@ public static partial class Game
                     MarkLaterStep(player, PlayerStatStep.TailCritical);
             }
             // Their "recently" conditions change by themselves when an event ages out of its window.
-            if (GetIn(stats, Stat.DamagePlusPctIfUsedTravelSkillRecently) is int travelDamage and not 0
+            // With the fx tables on, their modifier row (fx_modifiers, event used_travel_skill) counts this line instead.
+            if (!StatConditions.UseTable && GetIn(stats, Stat.DamagePlusPctIfUsedTravelSkillRecently) is int travelDamage and not 0
                 && player.RecentEvents.Happened(UsedTravelSkillRecently, now))
                 AddTo(stats, Stat.DamagePlusPct, travelDamage);
             if (GetIn(stats, Stat.ChaosDamagePlusPctPer100MaxManaUpTo80) is int chaosPerMana and not 0)

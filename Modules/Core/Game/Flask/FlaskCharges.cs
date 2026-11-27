@@ -117,7 +117,8 @@ public static partial class Game
                 {
                     var stats = CharacterPlayerStats(player);
                     int Recover(uint key) => stats.GetValueOrDefault(key);
-                    int percent = Recover(Stat.RecoverPctMaximumLifeOnFlaskUse);
+                    // An effect rule live for the line (recover_life_on_flask_use) recovers by itself.
+                    int percent = EffectRules.LiveFor(player, Stat.RecoverPctMaximumLifeOnFlaskUse) ? 0 : Recover(Stat.RecoverPctMaximumLifeOnFlaskUse);
                     if (percent > 0 && !LifeRecovery.NonLeechBlocked(Recover))
                     {
                         double carry = 0;
