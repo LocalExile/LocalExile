@@ -702,7 +702,7 @@ public static partial class Game
                 if (m.Life == 0 && weapon.Melee)
                     FearsomeWarriorOnMeleeKillLocked(player, m, contactAt,
                         playerStats.GetValueOrDefault(Stat.ChanceToIntimidateNearbyEnemiesOnMeleeKillPct), AreaRng(player));
-                CaptureUnhingedHitKillLocked(player, m, playerHit: true);
+                CaptureHitCorpseDestructionLocked(player, m, directPlayerHit: true, playerStats);
                 CaptureEquippedHitExplosionLocked(m, playerStats);
                 CaptureAttackKillExplosionLocked(m, playerStats);
                 if (stageStarts)
@@ -4867,7 +4867,7 @@ public static partial class Game
         (m.Life, bool starts) = TakeOwnerHitLocked(player, m, lifeDamage, cull, rampageSource, playerStats, cullPlayer);
         if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)lifeDamage - before, 0, int.MaxValue);
         if (m.Kit.Count > 0) BossKits.TakeDamage(m, (long)before - m.Life);
-        CaptureUnhingedHitKillLocked(player, m, playerHit: allyAt is null);
+        CaptureHitCorpseDestructionLocked(player, m, directPlayerHit: allyAt is null, playerStats);
         if (m is { Hostile: true, Invulnerable: false, EntranceGrace: false } && (ownHit ?? (allyAt is null)))
             player.RecentEvents.Record(OwnedEnemyHitRecently, hitNow);
         if (allyAt is null)
@@ -5409,15 +5409,16 @@ public static partial class Game
             else if (player.PlayerLife > 0)
                 GainPhasingOnKill(player);
             // ChargesOnKill recorded this accepted kill before the explosion samples its conditions.
+            bool corpseDestroyed = destroyCorpse && DestroyHitKillCorpseLocked(player, id, m);
             bool corpseConsumed, devoured;
             now = AreaTime(player);
             // Devour's corpse is taken before the tattoo's roll: one killing blow consumes a corpse once.
-            devoured = ConsumeDevouredCorpseLocked(player, id, m, now);
-            corpseConsumed = devoured || ConsumeCorpseOnKillLocked(player, id, m, now);
-            bool explodedCorpse = await ExplodeOnKill(player, id, m, at, explosionEquipment);
-            if (corpseConsumed && !explodedCorpse)
+            devoured = !corpseDestroyed && ConsumeDevouredCorpseLocked(player, id, m, now);
+            corpseConsumed = corpseDestroyed || devoured || ConsumeCorpseOnKillLocked(player, id, m, now);
+            if (corpseConsumed)
                 await Game.SendWorldRemoval(player, id,
-                    $"0x02bd corpse 0x{id:x} ({m.Label}) {(devoured ? "devoured by the supported skill" : "consumed by the killing blow")}");
+                    $"0x02bd corpse 0x{id:x} ({m.Label}) {(corpseDestroyed ? "destroyed on hit kill" : devoured ? "devoured by the supported skill" : "consumed by the killing blow")}");
+            await ExplodeOnKill(player, id, m, at, explosionEquipment);
         }
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
         SoulEaterSoul(player, id, at);
@@ -5462,7 +5463,6 @@ public static partial class Game
         if (!MonsterGivesNoRewards(m))
             await GainKillCharges(player, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed", tinctureKill?.FlaskChargesPct ?? 0);
         await DropLoot(player, m, at, firstBossKill);
-        await PublishUnhingedCorpseDestruction(player, id, m, destroyCorpse);
     }
 
     // The monster's items (ItemDrops.Roll) as WorldItem objects scattered around where it died, on walkable cells when the

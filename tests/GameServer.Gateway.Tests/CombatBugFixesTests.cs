@@ -161,4 +161,95 @@ public sealed class CombatBugFixesTests
             TestEnvironment.ReleaseSaves(path);
         }
     }
+
+    [Fact]
+    public async Task Axe_mastery_destroys_corpses_on_hit_kills_and_respects_dot_and_cannot_be_destroyed()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"combat-axemastery-{Guid.NewGuid():N}.db");
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Saves.Open(path);
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        try
+        {
+            using var wire = new PartyFollowerTests.Wire();
+            var player = CreateTestPlayer("AxeMasteryTest");
+            player.Clock.Start();
+            player.Connection.Session = new("axe-mastery-test", wire.Stream, wire.Ciphers);
+
+            // Allocate real Axe Mastery node with Axe1 ("Enemies Killed by your Hits are destroyed").
+            ushort axeNode = Enumerable.Range(1, ushort.MaxValue - 1).Select(i => (ushort)i)
+                .First(i => Program.Passives.Find(i) is { IsMastery: true }
+                    && Program.Passives.EffectsFor(i).Any(e => e.Id == "Axe1"));
+            player.Character.Passives.Add(axeNode);
+            player.Character.MasteryEffects = new Dictionary<ushort, ushort>
+            {
+                [axeNode] = Program.Passives.EffectsFor(axeNode).Single(e => e.Id == "Axe1").Hash,
+            };
+
+            var stats = Game.CharacterPlayerStats(player);
+            Assert.NotEqual(0, stats.GetValueOrDefault(Stat.EnemiesExplodeOnKill));
+
+            var variety = Game.Monsters.All.First(v => v.Supported && v.Id.Contains("Zombie", StringComparison.OrdinalIgnoreCase));
+            SpawnedMonster Spawn(uint id, Dictionary<uint, int>? extraMods = null)
+            {
+                var m = new SpawnedMonster(variety.Name, new(0, 0, 0), 0, 0, 100)
+                {
+                    ObjectId = id,
+                    Variety = variety,
+                    Hostile = true,
+                    Level = 1,
+                    NoRewards = true,
+                };
+                if (extraMods is not null)
+                    m.Mods = MonsterModSet.None with { Effects = new(extraMods) };
+                player.Area.Monsters[id] = m;
+                return m;
+            }
+
+            try
+            {
+                // 1. Hit kill destroys the corpse and removes it from Area.Monsters.
+                var hitVictim = Spawn(501);
+                var hit = Game.ApplyMonsterHitLocked(player, hitVictim, damage: 200, rampageSource: null,
+                    playerStats: stats, allyAt: null, cull: default, cullPlayer: stats);
+                Assert.NotNull(hit);
+                Assert.Equal(0u, hit.Value.Life);
+                await Game.MonsterKilled(player, 501, hitVictim, byMinion: false, byHit: true);
+                Assert.True(hitVictim.CorpseConsumed);
+                Assert.False(player.Area.Monsters.ContainsKey(501));
+
+                // 2. Non-hit (DoT) kill must NOT destroy the corpse.
+                var dotVictim = Spawn(502);
+                dotVictim.Life = 0;
+                dotVictim.Dead = true;
+                await Game.MonsterKilled(player, 502, dotVictim, byMinion: false, byHit: false);
+                Assert.False(dotVictim.CorpseConsumed);
+                Assert.True(player.Area.Monsters.ContainsKey(502));
+
+                // 3. Monster with corpse_cannot_be_destroyed must NOT be destroyed on hit kill.
+                var protectedVictim = Spawn(503, new Dictionary<uint, int> { [Stat.CorpseCannotBeDestroyed] = 1 });
+                var protectedHit = Game.ApplyMonsterHitLocked(player, protectedVictim, damage: 200, rampageSource: null,
+                    playerStats: stats, allyAt: null, cull: default, cullPlayer: stats);
+                Assert.NotNull(protectedHit);
+                Assert.Equal(0u, protectedHit.Value.Life);
+                await Game.MonsterKilled(player, 503, protectedVictim, byMinion: false, byHit: true);
+                Assert.False(protectedVictim.CorpseConsumed);
+                Assert.True(player.Area.Monsters.ContainsKey(503));
+            }
+            finally
+            {
+                PlayerInventories.Forget(player.Character.Name!);
+            }
+        }
+        finally
+        {
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseSaves(path);
+        }
+    }
 }

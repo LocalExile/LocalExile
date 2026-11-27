@@ -158,9 +158,14 @@ public static partial class Game
         var position = monster.Walk.Position(now);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
         if (HardcoreProgressBlocked(player) || monster.Variety is not { } variety || !monster.Hostile) return;
+        // Hit-kill corpse destruction (Axe Mastery, Kitava's Feast, Unhinged, Pyre, Cremator): remove the corpse before
+        // death skills (e.g. Porcupine spines), corpse consumption, or targeting can observe it.
+        bool corpseDestroyed = destroyCorpse && DestroyHitKillCorpseLocked(player, id, monster);
+        if (corpseDestroyed)
+            session.Enqueue(() => SendWorldRemoval(player, id,
+                $"0x02bd corpse 0x{id:x} ({monster.Label}) destroyed on hit kill"));
         // Devour consumes the killing blow's corpse: its object leaves before the kill's loot and quest work.
-        bool devoured;
-        devoured = ConsumeDevouredCorpseLocked(player, id, monster, now);
+        bool devoured = !corpseDestroyed && ConsumeDevouredCorpseLocked(player, id, monster, now);
         if (devoured)
             session.Enqueue(() => SendWorldRemoval(player, id,
                 $"0x02bd corpse 0x{id:x} ({monster.Label}) devoured by the supported skill"));
@@ -238,8 +243,6 @@ public static partial class Game
             CommitProjectileLoot(session, monster, position, firstBossKill);
             return Task.CompletedTask;
         });
-        if (destroyCorpse)
-            session.Enqueue(() => PublishUnhingedCorpseDestruction(player, id, monster, destroyCorpse));
     }
 
     static void CommitProjectileLoot(ProjectileSession session, SpawnedMonster monster, (int X, int Y) position, bool firstBossKill = false)
