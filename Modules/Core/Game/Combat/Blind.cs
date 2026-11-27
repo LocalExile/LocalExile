@@ -52,7 +52,8 @@ public static partial class Game
         var value = state.PlayerBlind.Read(now, player.PlayerLife == 0);
         if (state.PlayerBlind.NextEnd is double end) StatsChangeAt(end, () => ResourceEffectsTime(player));
         var stats = playerStats ?? StatSourceValues(player);
-        bool selfBlinded = player.PlayerLife > 0 && stats.GetValueOrDefault(Stat.KeystoneBlindMonk) != 0;
+        bool selfBlinded = player.PlayerLife > 0 && (stats.GetValueOrDefault(Stat.KeystoneBlindMonk) != 0
+            || stats.GetValueOrDefault(Stat.YouAreBlind) != 0);
         if ((value.Less > 0 || selfBlinded) && BlindImmune(player, stats))
             return state.PlayerBlind.Read(now, true);
         return selfBlinded && value.Less < 20 ? (20, double.PositiveInfinity) : value;
