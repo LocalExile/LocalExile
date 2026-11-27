@@ -117,7 +117,8 @@ public static partial class Game
         ProjectileRecipes.GetOrAdd(effect, static row =>
         {
             string id = Skills.EffectId(row) ?? "";
-            if (IsArtilleryBallista(id)) return GroundArrow;
+            if (IsArtilleryBallista(id) || id == ThunderstormEffect) return GroundArrow;
+            if (id == ThunderburstEffect) return ThunderburstProjectile;
             if (IsKineticRain(id) || id == KineticAnomalyEffect) return GroundWandRain;
             if (ScourgeProjectileDefinition(id) is { } scourge) return scourge;
             if (id == SomaticShellEffect) return SomaticShellProjectile;

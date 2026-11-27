@@ -11,7 +11,7 @@ public static partial class Game
     static bool IsRainOfArrowsVariant(string? id) => id is RainOfArrowsArtillery or RainOfArrowsSaturation;
 
     static bool ArrowRain(string? id) => IsRainOfArrows(id) || IsBlastRain(id) || id is TrarthusBlastRain or ConflagrationEffect
-        || IsRainOfArrowsVariant(id) || IsToxicRain(id) || IsKineticRain(id) || IsStormRain(id);
+        || id == ThunderstormEffect || IsRainOfArrowsVariant(id) || IsToxicRain(id) || IsKineticRain(id) || IsStormRain(id);
 
     static bool IsRainOfArrows(string? id) => id is "RainOfArrows" or "RainOfArrowsRoyale";
     static bool IsBlastRain(string? id) => id is "BlastRain" or "BlastRainRoyale";
@@ -202,6 +202,12 @@ public static partial class Game
         if (IsStormRain(id))
         {
             ReleaseStormRain(session, use, id, skill, gem.Effect, own, playerStats, actionStart);
+            return;
+        }
+        if (id == ThunderstormEffect)
+        {
+            if (!mirage && totem is null && from is null)
+                ReleaseThunderstorm(session, use, gem, own, playerStats, critical, actionStart);
             return;
         }
         if (IsKineticRain(id))

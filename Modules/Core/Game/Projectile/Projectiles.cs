@@ -350,6 +350,7 @@ public static partial class Game
             ClearElectrocutionArrows();
             ClearVenomGyre();
             ClearStormRain();
+            ClearThunderstorms();
             ClearConflagration();
             ClearExplosiveFuses();
             RetireBannerLocked(Player);

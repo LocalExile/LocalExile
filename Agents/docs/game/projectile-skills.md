@@ -66,6 +66,12 @@ blade. These new flights cannot return. The Vaal cast fills the pool without a f
 the exported secondary duration. The server uses the native buff rows for the counts and the native normal and
 released projectile rows. Exact spiral spacing and the dedicated client orbit updates still need verification.
 
+Thunderstorm plants one storm per paid arrow. Overlapping storms contribute only the strongest Blind to a target.
+The owner must enter, reach the exported stage cap, and exit before the full-stage timeout to detonate the storm.
+Damage and ailment multipliers use the committed shot's inputs. Thunderburst uses the exported projectile and expiry
+area. The landing uses the shared arrow-rain fall timing, and the tornado flight uses shared wandering legs while
+the exact Windstorm action timing and native tornado turns remain unmeasured.
+
 ## Radius, damage and presentation
 
 | Profile | Base blast radius (cells) | Base placement radius (cells) | Explosion multiplier |
