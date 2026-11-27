@@ -75,6 +75,8 @@ public static partial class Game
         if (effectId == "IntuitiveLink") CaptureIntuitiveLink(player, link, gem);
         player.Area.Buffs.Set(player.Id, new(rows.Source, player.Id, skillId, U68: Buff.Seconds(seconds), Tag: link.SourceBuff));
         player.Area.Buffs.Set(target, new(rows.Target, player.Id, skillId, U68: Buff.Seconds(seconds), Tag: link.TargetBuff));
+        if (!SkillsFor(player).IsInstant(gem.Effect))
+            RecordNonInstantSpellUseLocked(player, gem.Effect, now);
         LinksChangedLocked(player);
         await Send(player, [.. bytes], $"0x01c1 {effectId} links 0x{link.Target:x} for {seconds:0.##} s at level {gem.Level}, {(link.ManaPerMinute + link.LifePerMinute) / 60.0:0.#} {(link.LifePerMinute > 0 ? "life" : "mana")} per second");
         await SendCharacterStats(player, PlayerStatChange.Sources);

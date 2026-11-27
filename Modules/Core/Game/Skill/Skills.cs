@@ -1297,6 +1297,9 @@ public static partial class Game
 
     static string? ActorSkillDisabledNow(Player player, int effect, ushort? skillId)
     {
+        if (skillId is ushort blessing && SkillsFor(player).IsAura(effect)
+            && IsBlessingSkill(SupportedSkill(player, blessing)) && BlessingsDisabled(player))
+            return "equipment disables Blessing skills";
         if (VaalMinionProxyDisabled(player, effect, skillId) is { } proxy) return proxy;
         if (SkillMinionFamily(SkillsFor(player).EffectId(effect)) is { } family && !CanHaveMinion(PlayerStatValues(player), family))
             return "equipment prevents summoning this type of minion";

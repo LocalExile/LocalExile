@@ -31,14 +31,17 @@ public static partial class Game
     }
 
     static (uint Life, bool StageStarts) TakeOwnerDamageLocked(Player player, SpawnedMonster m, int damage,
-        bool? rampageSource = null, IReadOnlyDictionary<uint, int>? playerStats = null)
+        bool? rampageSource = null, IReadOnlyDictionary<uint, int>? playerStats = null, bool poisonDeath = false)
     {
         var result = TakeDamageLocked(m, damage);
         if (m.Life > 0 && result.Life == 0)
         {
             CaptureMadnessExplosionLocked(player, m);
             double now = ProjectileWorldTime(player);
-            m.Poisons.RememberDeath(now);
+            m.Poisons.RememberDeath(now, poisonDeath);
+            m.TauntedAtDeath = m.TauntedUntil > now || DecoyTarget(m, now) is not null
+                || ActiveMinionTaunter(player, m.ObjectId, m, now) is not null;
+            m.WitherStacksAtDeath = ReadWithered(m, now).Count;
             CaptureLootAilmentsAtDeath(m, now);
             m.CursedAtDeath = false;
             m.NonAuraHexUntilAtDeath = 0;

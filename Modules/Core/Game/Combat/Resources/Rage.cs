@@ -22,6 +22,24 @@ public static partial class Game
         var value = player.Rage.Read(ProjectileWorldTime(player), inputs);
         if (player.Rage.NextChangeAt() is double next) StatsChangeAt(next, () => ProjectileWorldTime(player));
         RageStats.ExpandItems(stats, value.Effective);
+        if (value.Current > 0)
+        {
+            int stun = RageStat(stats, Stat.StunThresholdPlusPctPerRage);
+            if (stun != 0)
+                stats[Stat.StunThresholdPlusPct] = ActorScale.Saturate(
+                    (long)RageStat(stats, Stat.StunThresholdPlusPct) + (long)stun * value.Current);
+        }
+        long increased = (long)RageStat(stats, Stat.AttackSpeedPlusPctPerRage) * value.Current
+            + CorpsePactSpeed(player, stats, AreaTime(player));
+        if (RageStat(stats, Stat.AttackSpeedPlusPctPerMinionUpTo80Pct) is int perMinion and > 0)
+            increased += Math.Min(80L, (long)perMinion * stats.GetValueOrDefault(Stat.NumberOfActiveMinions));
+        if (increased != 0)
+        {
+            var pools = player.Pools;
+            stats[Stat.MainHandAttackSpeedPlusPct] = ActorScale.Saturate(
+                (long)RageStat(stats, Stat.MainHandAttackSpeedPlusPct)
+                + pools.AttackSpeedWithIncrease(increased) - pools.AttackSpeedPct);
+        }
         foreach (var (name, amount) in RageStats.Display(value, inputs))
             if (name is var key) stats[key] = amount;
     }
@@ -41,10 +59,18 @@ public static partial class Game
         int Get(uint name) => (int)Math.Clamp((long)RageStat(playerStats, name)
             + (own is null ? 0 : RageStat(own, name)), int.MinValue, int.MaxValue);
         var inputs = RageStats.Inputs(Get);
-        if (attack && (WeaponTypeDamage.FamilyOf(weaponClass) is "axe" or "sword"
-                || WeaponTypeDamage.FamilyOf(secondWeaponClass) is "axe" or "sword")
-            && Get(Stat.GainXRageOnHitWithAxesSwords) is int weaponRage and not 0)
-            inputs = inputs with { GainOnAttackHit = ActorScale.Saturate((long)inputs.GainOnAttackHit + weaponRage) };
+        if (attack)
+        {
+            string? primary = WeaponTypeDamage.FamilyOf(weaponClass);
+            string? secondary = WeaponTypeDamage.FamilyOf(secondWeaponClass);
+            bool axe = primary == "axe" || secondary == "axe";
+            if (axe || primary == "sword" || secondary == "sword")
+            {
+                long weaponRage = Get(Stat.GainXRageOnHitWithAxesSwords);
+                if (axe) weaponRage += Get(Stat.GainXRageOnHitWithAxes);
+                inputs = inputs with { GainOnAttackHit = ActorScale.Saturate(inputs.GainOnAttackHit + weaponRage) };
+            }
+        }
         return player.Rage.Hit(ProjectileWorldTime(player), inputs, attack, melee, critical, (random ?? AreaRng(player)).Next(100),
             soulGainPrevention: Get(Stat.HasSoulGainPrevention) != 0, nonDelayingRegenerationPerMinute: RageStats.ManaRegenerationPerMinute(player, Get));
     }
@@ -132,6 +158,14 @@ public static partial class Game
             && (player.SentRage is not { } sent || sent.Maximum == 0 || sent.Current < sent.Maximum))
             LoyaltyMaxRageLocked(player, stats);
         if (player.SentRage == value && player.SentVaalPrevention == prevention) return [];
+        if (RageStat(stats, Stat.MovementSpeedPlusPctPer5Rage) != 0
+            && (player.SentRage?.Current ?? 0) / 5 != value.Current / 5)
+        {
+            // Update the predictive walk estimate now. Lockstep applies the same value with its stat frame.
+            player.Pools = PoolsFor(player, player.Pools.Level);
+            player.ApplyMovementSpeedAt(AreaTime(player));
+            stats = CharacterPlayerStats(player);
+        }
         var bytes = new List<byte>();
         player.RageBuff = (ushort)(value.Current > 0 ? 1 : 0);
         if (value.Current > 0) player.Area.Buffs.Set(player.Id, new(1060, player.Id, Stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));

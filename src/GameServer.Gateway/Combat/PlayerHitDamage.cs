@@ -113,6 +113,9 @@ public static class PlayerHitDamage
             // its history, as the other elemental buckets are.
             if ((path.History & DamageTypeHistory.Elemental) != 0)
                 range = range.Scale(elementalMore * Math.Max(0, 1 + get(Stat.KeystoneElementalOverloadDamagePlusPctFinal) / 100.0));
+            if ((path.History & additional.MaximumMore.History) != 0 && additional.MaximumMore.Percent != 0)
+                range = range with { Max = Math.Max(range.Min,
+                    range.Max * Math.Max(0, 100d + additional.MaximumMore.Percent) / 100d) };
             result = result.Add(path.Type, range, trackPhysicalOrigin && (path.History & DamageTypeHistory.Physical) != 0);
         }
         // WithCharges expands increases and additions, but leaves more multipliers separate. Spell portions retain
@@ -124,6 +127,8 @@ public static class PlayerHitDamage
         // per hit, so the skill's damage stats (its tooltip) carry it too; a totem's hits read its owner's stats.
         if (get(Stat.HierophantPassiveDamagePlusPctFinalPerTotem) is var perTotem and not 0)
             result = result.Scale(Math.Max(0, 1 + (double)perTotem * get(Stat.NumberOfActiveTotems) / 100));
+        if (attack && additional.AttackMorePct is int attackMore and not 0)
+            result = result.Scale(Math.Max(0, 1 + attackMore / 100d));
         return spell || charges == 1 ? result : result.Scale(charges);
     }
 
@@ -155,4 +160,6 @@ public readonly record struct HitIncreases(int Physical = 0, int Elemental = 0,
     public int MeleePhysicalMorePct { get; init; }
     /// <summary>A second, independently multiplied more/less melee physical modifier supplied by the caller.</summary>
     public int AdditionalMeleePhysicalMorePct { get; init; }
+    public (DamageTypeHistory History, int Percent) MaximumMore { get; init; }
+    public int AttackMorePct { get; init; }
 }

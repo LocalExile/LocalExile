@@ -60,6 +60,9 @@ public static partial class Game
         }
         if (Get(Stat.AreaOfEffectPlusPctWhileWieldingBow) is int bow and not 0 && WeaponFor(player).Bow)
             typed += bow;
+        if (Get(Stat.TwoHandedMeleeAreaOfEffectPlusPct) is int twoHandedArea and not 0
+            && WeaponProfileFor(player, activeSet: true).TwoHandMelee)
+            typed = ActorScale.Saturate((long)typed + twoHandedArea);
         if (Get(Stat.AoePlusPctPerSecondWhileStationaryUpTo50) is int stationaryRate and > 0)
         {
             StatGraph.ReadInput((int)StatInput.Walk);

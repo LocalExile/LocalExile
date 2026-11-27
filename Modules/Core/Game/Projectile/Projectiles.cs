@@ -998,8 +998,9 @@ public static partial class Game
             bool projectileAttack = !shot.Spell
                 && (shot.ProjectileAttack ?? (shot.Effect < 0 || SkillsFor(Player).IsProjectile(shot.Effect)));
             int additionalTaken = projectileAttack ? EnsnaredProjectileAttackTaken(target, at) : 0;
-            bool ownHit = shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.FromTotem && !shot.Mirage;
-            bool playerAilmentOwned = !shot.Mirage && (shot.ActualCaster is null || shot.FromTrapOrMine || shot.FromTotem);
+            bool ownHit = shot is { ActualCaster: null, FromTrapOrMine: false, FromTotem: false, Mirage: false }
+                && contact.Projectile.Use.Emitter.Id == Player.Id;
+            bool playerAilmentOwned = ownHit || !shot.Mirage && (shot.FromTrapOrMine || shot.FromTotem);
             int witheredElemental = ownHit ? WitheredElementalHitTaken(target, Player.Id, at, player) : 0;
             var (damage, _, mitigated, takenRules) = ResolveMonsterHit(target, rolled, critical, !shot.Spell, at, resonance.Mods,
                 resonance.Penetration, hitRolls.InvertsResistance(random, shot.SkillResistanceInversionChance),
@@ -1028,7 +1029,7 @@ public static partial class Game
                 allyAt: shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.Mirage ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y),
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell).WithWeapon(weaponLocal),
                 cullPlayer: null, chaosDamage: chaosDamage,
-                preventsShellBreak: shot.PreventsSomaticShellBreak);
+                preventsShellBreak: shot.PreventsSomaticShellBreak, ownHit: ownHit && !immune);
             if (hit is null) return ProjectileHitResult.Miss;
             if (shot.FromTotem && !immune) LeechFromTotemHitLocked(Player, target, directDamage, at, player);
             if (!immune) steel?.Targets.Add(contact.Target);
@@ -1089,10 +1090,13 @@ public static partial class Game
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
                     attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance,
                     areaHit: contact.IsArea, sourceEffect: shot.Effect, ownHit: ownHit, playerAilmentOwned: playerAilmentOwned,
+                    weaponWitherChance: weaponLocal?.GetValueOrDefault(Stat.LocalWitheredOnHitFor2SecondsPctChance) ?? 0,
                     closeRangeBowKnockback: !shot.Spell && ownHit && shot.WeaponClass == "Bow"
                         && (player.GetValueOrDefault(Stat.UniqueChinSolCloseRangeKnockback) != 0
                             || weaponLocal?.GetValueOrDefault(Stat.UniqueChinSolCloseRangeKnockback) > 0)
                         && InCloseRange(Player, target, at));
+                if (critical && shot.DirectAttackContact && ownHit)
+                    TryDeathmarkedLocked(Player, target, at, player);
             }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);

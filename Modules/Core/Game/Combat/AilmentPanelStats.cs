@@ -195,6 +195,8 @@ public static class AilmentPanelStats
         int localIgniteMore = attack && ailment == "ignite"
             ? context.WeaponStats?.GetValueOrDefault(Stat.LocalIgniteDamagePlusPctFinalWithThisWeapon) ?? 0 : 0;
         double multiplier = dotMultiplier * Math.Max(0, 1 + localIgniteMore / 100d)
+            * (ailment == "poison" && critical && !neverFromCrit
+                ? Math.Max(0, 1 + get(Stat.PoisonFromCriticalStrikesDamagePlusPctFinal) / 100d) : 1)
             // Burning Arrow's quality: 1% more ignite damage per quality (GrantedEffectQualityStats).
             * (ailmentType == DamageType.Fire ? Math.Max(0, 1 + get(Stat.ActiveSkillIgniteDamagePlusPctFinal) / 100.0) : 1)
             // Puncture's "49% more Damage with Bleeding".

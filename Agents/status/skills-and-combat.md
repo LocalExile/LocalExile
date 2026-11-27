@@ -87,6 +87,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Mark Mastery blinds around the live marked enemy in offline tests, using the server's 35-cell nearby blind reach.
 - Weapon-local Bloodseeker instant Life leech, Elder life gained against blinded enemies and culling against bleeding
   enemies, and Nametaker critical multiplier and instant leech follow the hand that makes the hit.
+- Replica Innsbury Edge supplies its local Withered chance to accepted weapon hits on the server. Live checks pending.
 - Weapon-conditioned attack damage, bow bleeding, attack ignite and spell poison read their qualifying stats.
   Trap and mine damage, Battlemage, Perseverance, physical reduction bypass and elemental ailment swaps apply offline.
 - Acrobatics, The Agnostic, Imbalanced Guard, Wicked Ward, Corrupted Soul and Transcendence resolve their defences.
@@ -329,7 +330,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Puncture always bleeds, for its skill duration and with its more bleeding damage.
   Power Siphon fires one projectile at each of the nearest enemies ahead, with its per-Power-Charge criticals.
 - Doomfletch's weapon physical gain reaches attacks as separate fire, cold and lightning damage.
-- Equipment modifiers scale from final attributes, Oskarm uses final Accuracy for attack critical chance, and
+- Equipment modifiers scale from final attributes, Oskarm uses final Accuracy for attack critical chance and
+  its item-local Assassin's Mark level for qualifying hits by the wearer, and
   Mask of the Stitched Demon uses full maximum Energy Shield for Life regeneration.
 - Blink Arrow and its variants leave clones at departure; clones use arrows, arrow rain or elemental shots.
   Lightning Warp queues teleports and hits both endpoints.
