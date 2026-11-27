@@ -156,8 +156,6 @@ public static class CharacterVoiceLines
         if (areaId == TutorialObjects.Strand && !Game.LyingOnBeach(player))
             await GrantAudioFlag(player, WashedUpFlag);
         bool isMap = Game.MapDevices.IsMapArea(player.Layout.Hash);
-        if (isMap && !player.Character.HasQuestFlag("InMapArea"))
-            await Game.SetQuestFlags(player, ["InMapArea"]);
         if (FlagForAreaEntry(areaId, isMap) is { } flag)
             await GrantAudioFlag(player, flag);
     }

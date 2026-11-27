@@ -33,8 +33,16 @@ public sealed class QuestObjectsModule : IModule
     {
         QuestobjectsRules.LoadDivineFontData();
         GameEvents.NpcUsesLeagueFlags.Add(module.Manifest.Id, (_, npc) => npc.Id is
-            "Metadata/NPC/Missions/Hideout/Helena" or "Metadata/NPC/Epilogue/Helena"
+            "Metadata/NPC/Missions/Hideout/Helena" or "Metadata/NPC/Epilogue/Helena" or "Metadata/NPC/Epilogue/HelenaIntro"
             or "Metadata/NPC/Epilogue/Kirac" or "Metadata/NPC/Epilogue/KiracHideout"
+            or "Metadata/NPC/Epilogue/Envoy" or "Metadata/NPC/Epilogue/EnvoyRandom" or "Metadata/NPC/Epilogue/EnvoyMaven"
+            or "Metadata/NPC/Epilogue/EnvoyTangle" or "Metadata/NPC/Epilogue/EnvoyCleansingFire"
+            or "Metadata/NPC/Epilogue/EnvoyTangleBoss1" or "Metadata/NPC/Epilogue/EnvoyTangleBoss2"
+            or "Metadata/NPC/Epilogue/EnvoyCleansingFireBoss1" or "Metadata/NPC/Epilogue/EnvoyCleansingFireBoss2"
+            or "Metadata/NPC/Epilogue/Eagon" or "Metadata/NPC/Epilogue/EagonHideout" or "Metadata/NPC/Epilogue/EagonWild"
+            or "Metadata/NPC/Epilogue/EagonMap" or "Metadata/NPC/Epilogue/EagonMemoryClaim"
+            or "Metadata/NPC/Epilogue/EagonConversation" or "Metadata/NPC/Epilogue/EagonFragmentedMemory"
+            or "Metadata/NPC/Epilogue/EagonTemplarVault"
             or "Metadata/NPC/League/Delve/DelveMinerHub"
             or "Metadata/NPC/League/Bestiary/EinharMenagerie");
         var acts = Acts();

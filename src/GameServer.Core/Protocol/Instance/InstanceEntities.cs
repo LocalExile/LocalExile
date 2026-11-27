@@ -1930,3 +1930,79 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     private static void Pool(BlobWriter w, uint current, uint reserved = 0) =>
         w.U32(current).U32(reserved).U16(0).U32(0).U32(0);
 }
+
+/// <summary>
+/// An Eldritch Altar world object (<c>Metadata/MiscellaneousObjects/PrimordialBosses/TangleAltar</c> or
+/// <c>CleansingFireAltar</c>, extending <c>InfluenceAltar.ot</c>). Components in wire order (<c>read = 5</c>):
+/// <c>Positioned</c> (0), <c>BaseEvents</c> (1, server-only), <c>Animated</c> (2), <c>StateMachine</c> (3, shared states
+/// <c>activated</c> and <c>doodads</c>), <c>MinimapIcon</c> (4).
+/// <para>
+/// Altar choices are carried in the entity's <c>BaseData</c> map (<c>0x141dedf80</c> / <c>0x141dfe5a0</c> dispatch
+/// table[8] = <c>0x141e00330</c>, read by <c>BaseData_GetInt32Array @ 0x1402bd900</c> from <c>AltarUI @ 0x140c78140</c>):
+/// each present entry uses <c>elemType = 8</c> (<c>i32 LE[]</c>) where <c>values[0] = Mods.HASH32</c> and
+/// <c>values[1..]</c> are the rolled stat values in the mod's non-null stat order.
+/// </para>
+/// </summary>
+public sealed record PrimordialAltarObject(
+    int GridX,
+    int GridY,
+    IReadOnlyList<PrimordialAltarObject.BaseDataEntry> Entries,
+    bool Activated = false,
+    bool Doodads = true,
+    float Rotation = 0,
+    bool Awake = true)
+{
+    public const string TanglePath = "Metadata/MiscellaneousObjects/PrimordialBosses/TangleAltar";
+    public const string CleansingFirePath = "Metadata/MiscellaneousObjects/PrimordialBosses/CleansingFireAltar";
+
+    /// <summary>Wire <c>BaseData</c> element type for <c>int32[]</c> (<c>0x141e00330</c> → <c>0x1402bd900</c>).</summary>
+    public const byte Int32ArrayElemType = 8;
+
+    /// <summary>Component index of <c>StateMachine</c> in <c>InfluenceAltar.ot</c>: Positioned(0), BaseEvents(1), Animated(2), StateMachine(3), MinimapIcon(4).</summary>
+    public const byte StateMachineIndex = 3;
+
+    // Exact 12 BaseData u32 LE key hashes verified in AltarUI (0x140c78322..0x140c786f7).
+    public const uint Choice1DownsidePrimary = 0x25627829;
+    public const uint Choice1DownsideExtra1 = 0x6fbf2afe;
+    public const uint Choice1DownsideExtra2 = 0xe4ec0e1d;
+    public const uint Choice1UpsidePrimary = 0xbdc9f3e4;
+    public const uint Choice1UpsideExtra1 = 0x1b640097;
+    public const uint Choice1UpsideExtra2 = 0xaa52cada;
+
+    public const uint Choice2DownsidePrimary = 0xf02a2d1a;
+    public const uint Choice2DownsideExtra1 = 0x9ff9f010;
+    public const uint Choice2DownsideExtra2 = 0x4f299c61;
+    public const uint Choice2UpsidePrimary = 0x0a00dad4;
+    public const uint Choice2UpsideExtra1 = 0x8d2f66e3;
+    public const uint Choice2UpsideExtra2 = 0x0bf38232;
+
+    public readonly record struct BaseDataEntry(uint KeyHash, uint ModHash32, IReadOnlyList<int> StatValues);
+
+    public static byte[] ActivatedUpdate(uint entityId, bool doodads = true) =>
+        InstanceEntities.StateMachineUpdate(entityId, StateMachineIndex, new StateMachineData([1, doodads ? 1 : 0], 0));
+
+    public byte[] Blob()
+    {
+        var entries = Entries.Where(e => e.ModHash32 != 0).ToList();
+        if (entries.Count > byte.MaxValue) throw new ArgumentException("Too many BaseData entries.", nameof(Entries));
+        var w = new BlobWriter();
+        w.U8(Awake ? (byte)2 : (byte)0);
+        w.U8((byte)entries.Count);
+        foreach (var entry in entries)
+        {
+            int valueCount = 1 + entry.StatValues.Count;
+            if (valueCount > byte.MaxValue) throw new ArgumentException("Too many stat values for BaseData entry.");
+            w.U32(entry.KeyHash).U8(0).U8((byte)valueCount).U8(Int32ArrayElemType);
+            w.I32(unchecked((int)entry.ModHash32));
+            for (int i = 0; i < entry.StatValues.Count; i++)
+                w.I32(entry.StatValues[i]);
+        }
+        w.Positioned(GridX, GridY, Rotation);                                       // 0: Positioned
+        // 1: BaseEvents is server_only = true (no wire bytes)
+        w.U8(0);                                                                    // 2: Animated (type's .ao)
+        new StateMachineData([Activated ? 1 : 0, Doodads ? 1 : 0], 0).Write(w);    // 3: StateMachine (activated, doodads)
+        w.U8((byte)(Activated ? 0x06 : 0x00));                                      // 4: MinimapIcon
+        w.U8(0);                                                                    // tasks
+        return w.ToArray();
+    }
+}

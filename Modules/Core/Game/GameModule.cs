@@ -327,6 +327,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, Rules.PlayerDebuffStats);
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
         module.Lifetime.Own(global::AtlasBosses.CleanupOnUnload());
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::AtlasBosses.PlayerStats);
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::AtlasBosses.Leaving(player));
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.GrantLinkedMinionRareModifiers);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ItemMinionsOnKill);
