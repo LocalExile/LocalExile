@@ -801,20 +801,12 @@ public static partial class Game
             return;
         }
         if (totem.Strike is not { } strike || now < strike.NextCast) return;
-        bool ownerCentred = SkillsFor(player).EffectId(totem.EffectRow) == "ShockwaveTotemAltX";
         double range = TotemTargetRange(player, totem.SkillId);
-        var targets = player.Area.Monsters.Values.Where(m => TotemTargetable(m) && Dist(m.Walk.Position(now), totem.At) <= range);
-        var centre = totem.At;
-        if (!ownerCentred && SupportedStats(player, totem.SkillId).GetValueOrDefault(Stat.NovaSpellsCastAtTargetLocation) != 0)
-        {
-            var target = targets.MinBy(m => Dist(m.Walk.Position(now), totem.At));
-            if (target is null) return;
-            centre = target.Walk.Position(now);
-        }
-        else if (!targets.Any()) return;
+        if (!player.Area.Monsters.Values.Any(m => TotemTargetable(m) && Dist(m.Walk.Position(now), totem.At) <= range)) return;
         if (TotemCastSeconds(player, totem.SkillId) is not double seconds) return;
         var session = ProjectilesFor(player);
-        var aim = ownerCentred ? player.Walk.Position(now) : centre;
+        bool ownerCentred = SkillsFor(player).EffectId(totem.EffectRow) == "ShockwaveTotemAltX";
+        var aim = ownerCentred ? player.Walk.Position(now) : totem.At;
         ushort sequence = ++totem.Sequence;
         strike.NextCast = now + seconds;
         bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
@@ -825,8 +817,8 @@ public static partial class Game
             double at = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
             if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && !player.Closed && totem.Alive(at))
             {
-                var releaseCentre = ownerCentred ? player.Walk.Position(at) : centre;
-                TotemNovaLocked(player, session, totem, releaseCentre, strike.Radius, sequence);
+                var centre = ownerCentred ? player.Walk.Position(at) : totem.At;
+                TotemNovaLocked(player, session, totem, centre, strike.Radius, sequence);
             }
         });
     }

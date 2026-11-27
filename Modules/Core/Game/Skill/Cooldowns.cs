@@ -366,9 +366,9 @@ public static partial class Game
                 paid = (mana, life);
             }
             else if (reserve && bypass is { } unpaidBypass && !ChargesOf(player).Spend(unpaidBypass)) return false;
-            if (reserve && opportunity is not null)
+            if (reserve && opportunity is { } spent)
             {
-                if (!retainRetaliationUse) SpendRetaliationWindow(player, opportunity);
+                if (!retainRetaliationUse) SpendRetaliationWindow(player, spent);
                 if (payer is null || paid is not null)
                     player.RecentEvents.Record(StatConditions.UsedRetaliation, AreaTime(player));
             }
