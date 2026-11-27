@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
@@ -206,10 +207,12 @@ public static partial class Game
         var scale = mapMods?.Packs ?? default;
         Func<int, int, bool>? scatterable = trapClear.Count == 0 && featureAreas.Count == 0 ? null
             : (x, y) => !trapClear.Contains((x, y)) && !InFeatureArea(x, y);
+        bool isSingleRoomRecipeArena = IsRecipeArea(layout.Hash)
+            && !layout.AreaTransitions.Any(t => t.Transition.DestinationHash16 == layout.Hash && t.Transition.TeleportTo.HasValue);
         var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             safePoints, points,
             AreaPopulation.PopulationSeed(layout.Hash, player.Seed), Spawnable, notes, scale,
-            unassignedAtArrival: MapDevices.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
+            unassignedAtArrival: isSingleRoomRecipeArena, roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
             scatterable: scatterable,
@@ -304,4 +307,37 @@ public static partial class Game
     static bool IsAllowedCampaignPreplacedMonster(string id, bool banditCampHeld) =>
         AllowedCampaignRoomGuards.Contains(id)
         || (!banditCampHeld && AllowedBanditCampGuards.Contains(id));
+
+    static HashSet<ushort>? _recipeAreaHashes;
+    static object? _recipeAreaCacheKey;
+
+    static bool IsRecipeArea(ushort hash16)
+    {
+        var key = ClientTables.CacheKey;
+        var set = _recipeAreaHashes;
+        if (set is null || !ReferenceEquals(_recipeAreaCacheKey, key))
+        {
+            var loaded = new HashSet<ushort>();
+            if (ClientTables.Has("MapDeviceRecipes") && ClientTables.Has("WorldAreas"))
+            {
+                var areas = ClientTables.Table("WorldAreas");
+                var mapAreas = new HashSet<int>();
+                if (ClientTables.Has("Maps"))
+                    foreach (var m in ClientTables.Table("Maps"))
+                    {
+                        if (m.IntOrNull("Regular_WorldAreasKey") is int reg) mapAreas.Add(reg);
+                        if (m.IntOrNull("Unique_WorldAreasKey") is int uniq) mapAreas.Add(uniq);
+                    }
+                foreach (var r in ClientTables.Table("MapDeviceRecipes"))
+                {
+                    if (r.IntOrNull("WorldArea") is not int row || row <= 0 || row >= areas.Count) continue;
+                    if (mapAreas.Contains(row) || !r.Ints("RecipeItems").Any()) continue;
+                    if (areas[row].IntOrNull("HASH16") is int h) loaded.Add((ushort)h);
+                }
+            }
+            _recipeAreaCacheKey = key;
+            _recipeAreaHashes = set = loaded;
+        }
+        return set.Contains(hash16) && MapDevices.Atlas?.ByHash16(hash16) is null;
+    }
 }

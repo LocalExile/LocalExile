@@ -412,7 +412,11 @@ public static class AreaPopulation
         return rooms;
     }
 
-    static bool IsMonsterPoint(string name) => BossPoint(name) is not null || name.StartsWith("%area%-", StringComparison.Ordinal);
+    static bool IsMonsterPoint(string name) => BossPoint(name) is not null || IsWarbandBossPoint(name) || name.StartsWith("%area%-", StringComparison.Ordinal);
+
+    static bool IsWarbandBossPoint(string name) => name.StartsWith("mapbosswarband", StringComparison.OrdinalIgnoreCase);
+
+    static bool IsRitualBossOverridePoint(string name) => string.Equals(name, "ritual_boss_spawn_override", StringComparison.Ordinal);
 
     /// <summary>The bosses a fight brings rather than the area: a later Bosses row with the name of an earlier one whose
     /// Id is that row's Id + "2" (Prisoner's Gate's Abberath2, The Oasis's Shakari2, The Harvest's MalachaiBoss2: the
@@ -510,7 +514,7 @@ public static class AreaPopulation
         return (monsterPoints, direct);
     }
 
-    static readonly System.Text.RegularExpressions.Regex BossPointName =new("^(?:force:)?mapboss(?:([1-9][0-9]*(?:&[1-9][0-9]*)*)|pack)?(?:WG)?$");
+    static readonly System.Text.RegularExpressions.Regex BossPointName = new("^(?:(?:force:)?mapboss(?:([1-9][0-9]*(?:&[1-9][0-9]*)*)|pack)?(?:WG)?|ritual_boss_spawn_override)$");
 
     // One scattered pack per this many walkable cells (The Coast seed 1: 404 620 cells → 45 packs).
     public const int CellsPerPack = 9000;
@@ -670,11 +674,34 @@ public static class AreaPopulation
         var any = bossPoints.Where(b => b.Rows!.Count == 0).Select(b => b.Point).ToList();
         if (any.Count > 0 && rest.Count > 0)
         {
-            // Prefer dedicated boss rooms over treasure alcoves (golden_chest.arm carries a generic mapboss point).
+            // Prefer dedicated boss rooms over treasure alcoves (golden_chest.arm carries a generic mapboss point),
+            // and explicit mapboss* points over ritual_boss_spawn_override when both are present.
             var dedicated = any.Where(pt => pt.Room is null || !pt.Room.EndsWith("/golden_chest.arm", StringComparison.OrdinalIgnoreCase)).ToList();
-            var pool = dedicated.Count > 0 ? dedicated : any;
+            var explicitBoss = dedicated.Where(pt => !IsRitualBossOverridePoint(pt.Name)).ToList();
+            var pool = explicitBoss.Count > 0 ? explicitBoss : dedicated.Count > 0 ? dedicated : any;
             var p = pool[rng.Next(pool.Count)];
             Bosses((p.X, p.Y), p.Name, rest);
+        }
+        else if (rest.Count > 0 && bossPoints.Count > 0)
+        {
+            // Numbered boss points (e.g. MapWorldsPort boss.arm's mapboss1) placed some bosses while leaving others
+            // without their own point: keep them at the existing boss room point rather than dumping them at arrival.
+            var dedicated = bossPoints.Select(b => b.Point)
+                .Where(pt => pt.Room is null || !pt.Room.EndsWith("/golden_chest.arm", StringComparison.OrdinalIgnoreCase)).ToList();
+            var pool = dedicated.Count > 0 ? dedicated : [.. bossPoints.Select(b => b.Point)];
+            var p = pool[rng.Next(pool.Count)];
+            notes.Add($"no dedicated room point for unique boss(es) {string.Join(", ", rest.Select(i => area.Bosses[i]))} of {area.AreaId}: standing at {p.Name} ({p.X}, {p.Y})");
+            Bosses((p.X, p.Y), p.Name, rest);
+        }
+        else if (rest.Count > 0 && points.Where(p => IsWarbandBossPoint(p.Name)).ToList() is { Count: > 0 } warbandPoints)
+        {
+            // Fallback for Warbands boss rooms (Lighthouse / Iceberg / Acid Lakes) when no mapboss* point exists.
+            notes.Add($"using warband boss point(s) for unique boss(es) {string.Join(", ", rest.Select(i => area.Bosses[i]))} of {area.AreaId}");
+            for (int i = 0; i < rest.Count; i++)
+            {
+                var p = warbandPoints[i % warbandPoints.Count];
+                Bosses((p.X, p.Y), p.Name, [rest[i]]);
+            }
         }
         else if (rest.Count > 0 && unassignedAtArrival)
         {
@@ -690,12 +717,10 @@ public static class AreaPopulation
         {
             // The layout gave no free boss point at all (a sparse boss room the doodad fit misses on a seed nobody
             // recorded, or points whose boss already stands elsewhere): the area's unique boss still stands, deep in the
-            // area. Before, it stood nowhere and the area had no boss, which is why a new area needed a walk map visit for
-            // its boss.
-            var deep = Farthest(w, h, walkable, arrival, transitions);
+            // area (or inside its disconnected internal boss arena when localTransitions reach one).
+            var deep = Farthest(w, h, walkable, arrival, transitions, localTransitions);
             notes.Add($"no room point for unique boss(es) {string.Join(", ", rest.Select(i => area.Bosses[i]))} of {area.AreaId}: standing at ({deep.X}, {deep.Y})");
-            for (int i = 0; i < rest.Count; i++)
-                Bosses((deep.X + (i + 1) * 4, deep.Y), "mapboss", [rest[i]]);
+            Bosses(deep, "mapboss", rest);
         }
 
         // The scattered packs: random deep cells away from the arrival, the area transitions and other packs.
@@ -1075,23 +1100,52 @@ public static class AreaPopulation
         return null;
     }
 
-    /// <summary>The walkable cell farthest (in steps) from the arrival, clear of the area transitions: where the layout
-    /// placed no boss room, its unique boss stands deep in the area rather than nowhere.</summary>
+    /// <summary>The walkable cell farthest (in steps) from the arrival, clear of the area transitions (or inside a
+    /// disconnected internal boss arena reached via <paramref name="localTransitions"/>).</summary>
     static (int X, int Y) Farthest(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
-        IReadOnlyList<(int X, int Y)> transitions)
+        IReadOnlyList<(int X, int Y)> transitions,
+        IReadOnlyList<((int X, int Y) From, (int X, int Y) To)>? localTransitions = null)
+    {
+        var mainBest = FarthestInComponent(w, h, walkable, arrival, transitions, out var mainDist);
+        if (localTransitions is { Count: > 0 })
+        {
+            (int X, int Y)? arenaEntry = null;
+            foreach (var (from, to) in localTransitions)
+                if ((uint)to.X < (uint)w && (uint)to.Y < (uint)h && walkable(to.X, to.Y)
+                    && !mainDist.ContainsKey(to) && mainDist.ContainsKey(from))
+                {
+                    arenaEntry = to;
+                    break;
+                }
+            if (arenaEntry is null)
+                foreach (var (_, to) in localTransitions)
+                    if ((uint)to.X < (uint)w && (uint)to.Y < (uint)h && walkable(to.X, to.Y) && !mainDist.ContainsKey(to))
+                    {
+                        arenaEntry = to;
+                        break;
+                    }
+            if (arenaEntry is { } entry)
+                return FarthestInComponent(w, h, walkable, entry, transitions, out _);
+        }
+        return mainBest;
+    }
+
+    static (int X, int Y) FarthestInComponent(int w, int h, Func<int, int, bool> walkable, (int X, int Y) origin,
+        IReadOnlyList<(int X, int Y)> transitions, out Dictionary<(int X, int Y), int> dist)
     {
         bool Clear((int X, int Y) at) =>
             !transitions.Any(t => Math.Abs(t.X - at.X) < TransitionClearance && Math.Abs(t.Y - at.Y) < TransitionClearance);
-        var dist = new Dictionary<(int X, int Y), int>(w * h / 4 + 16) { [arrival] = 0 };
-        var queue = new Queue<(int X, int Y)>([arrival]);
-        (int X, int Y) best = arrival;
-        int bestDistance = -1;
+        dist = new Dictionary<(int X, int Y), int>(Math.Max(16, w * h / 4)) { [origin] = 0 };
+        var queue = new Queue<(int X, int Y)>([origin]);
+        (int X, int Y) bestClear = origin, bestAny = origin;
+        int bestClearDist = -1, bestAnyDist = -1;
         (int X, int Y)[] steps = [(1, 0), (-1, 0), (0, 1), (0, -1)];
         while (queue.Count > 0)
         {
             var at = queue.Dequeue();
             int d = dist[at];
-            if (d > bestDistance && Clear(at)) { bestDistance = d; best = at; }
+            if (d > bestClearDist && Clear(at)) { bestClearDist = d; bestClear = at; }
+            if (d > bestAnyDist) { bestAnyDist = d; bestAny = at; }
             foreach (var step in steps)
             {
                 var next = (at.X + step.X, at.Y + step.Y);
@@ -1101,7 +1155,7 @@ public static class AreaPopulation
                 queue.Enqueue(next);
             }
         }
-        return best;
+        return bestClearDist >= 0 ? bestClear : bestAny;
     }
 
     static MonsterRarity RollRarity(int roll)
