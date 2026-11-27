@@ -480,6 +480,8 @@ public static partial class Game
             string? effectId = skills.EffectId(effect);
             if (CooldownTriggerController(effectId) != 0)
                 stats[Stat.MetaSkillLinkedSkillCount] = CooldownTriggerLinkedCount(player, id, effect);
+            if (effectId == SpellslingerEffect)
+                stats[Stat.MetaSkillLinkedSkillCount] = SpellslingerLinks(player, id).Count();
             if (effectId == TrarthusBlastRain)
                 stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
             bool gatheringLightning = IsGatheringLightning(effect);
@@ -1440,6 +1442,8 @@ public static partial class Game
         if (triggered && SkillsFor(player).EffectId(effect) == ThunderstormEffect)
             return "Thunderstorm must be used directly";
         if (!triggered && TriggerOnlyReason(gem) is { } trigger) return trigger;
+        if (SkillsFor(player).EffectId(effect) == SpellslingerEffect && !SpellslingerLinks(player, skillId).Any())
+            return "Spellslinger requires a linked spell";
         if (SkillsFor(player).EffectId(effect) == ManaInfusedStaffEffect && player.Pools.Mana == 0)
             return "Mana-Infused Staff requires mana to reserve";
         if ((ActorSkillInstanceDisabled(player, effect, skillId) ?? WeaponRestricted(player, effect)
@@ -1749,13 +1753,14 @@ public static partial class Game
                 LifeFlat = reservation.LifeFlat, LifePercent = reservation.LifePercent,
                 ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency,
                 FixedManaReservation = reservation.FixedMana,
+                FixedLifeReservation = reservation.FixedLife,
                 Level = gem.Level, Quality = gem.Quality, WornGrant = gem.WornGrant,
                 SkillStats = skillStats
             };
             player.AuraStatsDirty |= before.ManaFlat != reservation.ManaFlat || before.ManaPercent != reservation.ManaPercent
                 || before.LifeFlat != reservation.LifeFlat || before.LifePercent != reservation.LifePercent
                 || before.ReservesLife != context.Life || before.ReservationEfficiencyPct != context.Efficiency
-                || before.FixedManaReservation != reservation.FixedMana
+                || before.FixedManaReservation != reservation.FixedMana || before.FixedLifeReservation != reservation.FixedLife
                 || before.Level != gem.Level || before.Quality != gem.Quality || before.WornGrant != gem.WornGrant
                 || before.SkillStats is null || !before.SkillStats.SequenceEqual(skillStats);
         }

@@ -142,7 +142,8 @@ public static partial class Game
             // The object flies at the height the clip releases it (the bow's nock, the wand's tip).
             Presentation = (wand ? OrdinaryWandPresentation : OrdinaryArrowPresentation) with { LaunchHeight = release?.HeightSteps },
             // The target's blood and particles on contact, matched to this shot's action (0x1af, kind 3).
-            HitPacket = true, ActionSequence = sequence, ClientPredicted = clientDrawn
+            HitPacket = true, ActionSequence = sequence, ClientPredicted = clientDrawn,
+            FiresWandProjectiles = wand && Get(Stat.ProjectilesAreNotFired) == 0
         };
         var origin = ProjectileSession.Vector(player.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond));
         var target = ProjectileSession.Vector(aim);

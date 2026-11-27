@@ -141,7 +141,7 @@ public static partial class Game
                             Quality(p.Socket, p.Gem), p.Socket));
                 else if (variant.Effect2 >= 0
                     && Supports.Of(variant.Effect2) is { Support: true, Id: SnipeSupportEffect or GeneralsCrySupportEffect
-                        or "SupportBrandSupport" or "SupportIntuitiveLink" or BattlemagesCrySupport or AutomationSupport or AutoexertionSupport })
+                        or "SupportBrandSupport" or "SupportIntuitiveLink" or BattlemagesCrySupport or AutomationSupport or AutoexertionSupport or SpellslingerSupport })
                     candidates.Add(new(variant.Effect2, EffectiveGemLevel(player, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
                         Quality(p.Socket, p.Gem), p.Socket));
             }
@@ -1015,6 +1015,8 @@ public static partial class Game
             double fire = (long)player.PlayerMaxLife * lifePct / 100d;
             raw = raw.Add(GameServer.Core.World.DamageType.Fire, new(fire, fire));
         }
+        if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.GainPctOfBaseWandDamageAsAddedSpellDamage) is > 0 and var wandPct)
+            raw = AddSpellslingerWandDamage(player, raw, wandPct * AddedEffectiveness(player, gem.Effect, gem.Level) / 100d);
         if (!attack && !secondary && Get(Stat.KeystoneBattlemage) != 0
             && WeaponIn(player, ActiveMainHand(player))?.LocalDamage is { } mainHandDamage)
             raw = raw.Add(mainHandDamage.Scale(AddedEffectiveness(player, gem.Effect, gem.Level)));
@@ -1275,6 +1277,7 @@ public static partial class Game
     {
         var gem = SupportedSkill(player, skillId);
         if (SkillsFor(player).EffectId(gem.Effect) is not { } effectId) return null;
+        if (effectId == SpellslingerEffect) return SpellslingerReservation(player, skillId);
         if (IsBlessing(gem)) return null;
         var sourceReservation = SkillsFor(player).Reservation(gem.Effect, gem.Level);
         if (CurseCatalog.Hex(effectId) || effectId == "TemporalChains")

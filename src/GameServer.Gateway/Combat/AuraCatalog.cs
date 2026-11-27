@@ -24,6 +24,7 @@ public static class AuraCatalog
         public bool SelfOnly { get; init; }
         public int MoreEffectPct { get; init; }
         public bool FixedManaReservation { get; init; }
+        public bool FixedLifeReservation { get; init; }
     }
 
     // The source supplies the ground art; the received buff supplies the HUD icon and active-skill association.
@@ -85,6 +86,7 @@ public static class AuraCatalog
         ["ArcticArmour"] = 427,
         ["TempestShield"] = 112,
         ["ManaInfusedStaff"] = 2792,
+        ["Spellslinger"] = 1527,
         ["HeraldOfAsh"] = 344,
         ["HeraldOfIce"] = 345,
         ["HeraldOfThunder"] = 346,
@@ -252,7 +254,7 @@ public static class AuraCatalog
         double flat = 0, percent = 0;
         foreach (var aura in auras)
         {
-            double efficiency = !life && aura.FixedManaReservation ? 1
+            double efficiency = (life ? aura.FixedLifeReservation : aura.FixedManaReservation) ? 1
                 : Math.Max(-99L, (long)efficiencyPct + aura.ReservationEfficiencyPct) / 100.0 + 1;
             var (flatCost, percentCost) = life
                 ? ExplicitLife(aura) ? (aura.LifeFlat, aura.LifePercent) : (aura.ManaFlat, aura.ManaPercent)

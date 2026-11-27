@@ -37,6 +37,8 @@ public static partial class Game
 
     public static string? TriggerOnlyReason(SupportedGem gem)
     {
+        if (gem.Stats.GetValueOrDefault(Stat.SpellslingerTriggerOnWandAttackPct) > 0)
+            return "this spell can only trigger when Spellslinger fires it";
         if (CooldownTriggerSupport(gem) is { } timed)
             return timed.Effect.Id == AutoexertionSupport
                 ? "this warcry can only be triggered by Autoexertion" : "this spell can only be triggered by Automation";

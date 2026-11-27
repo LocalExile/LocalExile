@@ -333,6 +333,9 @@ public static partial class Game
             if (seeded.Payload is ProjectileOffense { ForbiddenRite: { } rite } shot)
                 ReleaseForbiddenRite(seeded, shot, rite);
             if (notifyWisps) SacredWispsOnRelease(seeded);
+            if (seeded.Emitter.Id == Player.Id && seeded.Payload is ProjectileOffense { FiresWandProjectiles: true })
+                SpellslingerOnWandRelease(Player, this, ((int)Math.Round(seeded.Aim.X), (int)Math.Round(seeded.Aim.Y)),
+                    Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
             if (ServerTrace.Projectiles && !Quiet(seeded.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
                     + $"skill={PayloadLabel(seeded.Payload)} metadata={seeded.Profile.Id} count={seeded.Profile.Count} "

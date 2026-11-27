@@ -416,6 +416,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Auras, reservation, Pride, heralds (Herald of Thunder's bolts drawn in the worn skin; walls block them) and
   permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) Â§13.
 - Auras, reservation, Pride, heralds and permanent spell buffs, including Mana-Infused Staff's fixed reservation and block wave. Docs: [11](../docs/protocol/11-skills.md) Â§13.
+- Auras, reservation, Pride, heralds and permanent spell buffs, including Mana-Infused Staff's block wave and Spellslinger's linked spell reservations and wand-release triggers. Docs: [11](../docs/protocol/11-skills.md) Â§13.
 - Animated equipment, including Self Reflection. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Animated Guardian keeps its equipment on death and is unavailable in that non-hideout instance.
 - Summons: quality, source recovery, spell repeats, and enemy-seeking undamageable Skitterbots; mines and traps

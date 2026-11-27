@@ -722,6 +722,10 @@ public static partial class Game
         if (IsExplosiveArrow(SkillsFor(player).EffectId(gem.Effect)) && areaHitInputs is not null)
             use = use with { Payload = shot with { ExplosiveFuse = CaptureExplosiveFuse(context, areaHitInputs, playerStats, own, hand, local) } };
         use = definition.SpecializeRelease?.Invoke(context, use) ?? use;
+        if (ownerAttack && !rain && sacrifice?.Triggered != true && attackSource?.WieldingWand == true
+            && Get(Stat.SkillCanFireWandProjectiles) != 0 && Get(Stat.ProjectilesAreNotFired) == 0
+            && use.Payload is ProjectileOffense wandShot)
+            use = use with { Payload = wandShot with { FiresWandProjectiles = true } };
         if (use.Profile.SequentialDelay > 0 && use.CanEmit is null)
             use = use with
             {

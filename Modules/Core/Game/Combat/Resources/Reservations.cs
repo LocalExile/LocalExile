@@ -38,7 +38,7 @@ public static partial class Game
         IReadOnlyDictionary<uint, int>? playerStats)
     {
         var gem = SupportedSkill(player, skill);
-        if (SkillsFor(player).EffectId(gem.Effect) == ManaInfusedStaffEffect) return (false, 0);
+        if (SkillsFor(player).EffectId(gem.Effect) is ManaInfusedStaffEffect or SpellslingerEffect) return (false, 0);
         playerStats ??= StatSourceValues(player);
         int Own(uint n) => GolemStat(gem.Stats, n);
         int Get(uint n) => Own(n) + (n is var key
@@ -58,6 +58,9 @@ public static partial class Game
             if (effect.StartsWith("HeraldOf", StringComparison.Ordinal))
                 efficiency += Get(Stat.HeraldSkillsManaReservationEfficiencyPlusPct)
                     - 2 * Get(Stat.HeraldSkillsManaReservationEfficiencyMinus2PctPer1);
+            if (Own(Stat.SpellslingerTriggerOnWandAttackPct) > 0)
+                efficiency += Get(Stat.SpellslingerManaReservationEfficiencyPlusPct)
+                    - 2 * Get(Stat.SpellslingerManaReservationEfficiencyMinus2PctPer1);
             if (curse) efficiency += Get(Stat.CurseAuraSkillsManaReservationEfficiencyPlusPct)
                 - 2 * Get(Stat.CurseAuraSkillsManaReservationEfficiencyMinus2PctPer1);
             int mineEfficiency = Get(Stat.ManaReservationEfficiencyPlusPctForSkillsThatThrowMines);
