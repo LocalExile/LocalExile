@@ -66,6 +66,11 @@ public static partial class Game
                 {
                     Hit = shot.Hit.Scale(more), AreaHit = shot.AreaHit?.Scale(more)
                 }
+            },
+            released: () =>
+            {
+                if (profile.EndArea is { Radius: > 0 } eruption)
+                    TriggerEarthshatterSpikesLocked(player, end, eruption.Radius, ProjectileWorldTime(player));
             });
     }
 }

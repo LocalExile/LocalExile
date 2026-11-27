@@ -3466,7 +3466,8 @@ public static partial class Game
             if (!spell && retainedAttack is null && areaAction == EarthshatterFissures.Action)
             {
                 ScheduleEarthshatterLocked(player, skillId, gem, admittedGem, from, to, sequence, repeat, hand, weapon,
-                    offCritical, criticalRoll, radiusMore * chargeRadius, damageMore, ruthless, cryExerted == true, seismicExerted, now);
+                    offCritical, criticalRoll, radiusMore * chargeRadius, damageMore * hitAndAilmentMore, ruthless,
+                    cryExerted == true, seismicExerted, rallyingDamage, now);
                 return;
             }
             if (retainedAttack is null && strikeIndex == 0 && areaAction == PerforateAction)

@@ -70,6 +70,7 @@ public static partial class Game
         {
             if (!Active()) return false;
             double time = ProjectileWorldTime(player);
+            TriggerEarthshatterSpikesLocked(player, at, radius, time);
             var candidates = player.Area.MonstersNear(at, radius)
                 .Where(pair => pair.Value is { Dead: false, Life: > 0, Hostile: true, OwnerId: null, WorldHidden: false })
                 .Where(pair =>
