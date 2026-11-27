@@ -79,9 +79,6 @@ public static partial class Game
             var sources = CharacterStatSources(player, nodes).Stats;
             outputs.Sources = sources;
             foreach (var (k, v) in sources) stats[k] = v;
-            int minionDamageShare = PlayerMinionDamageShare(sources);
-            if (minionDamageShare > 0)
-                AddTo(stats, Stat.DamagePlusPct, (long)sources.GetValueOrDefault(Stat.MinionDamagePlusPct) * minionDamageShare / 100);
             if (MapModsOf(player) is { } map)
             {
                 AddTo(stats, Stat.MapPlayersNoRegenerationIncludingEs, map.Get(Stat.MapPlayersNoRegenerationIncludingEs));
@@ -212,6 +209,14 @@ public static partial class Game
                 FireResistance = Resistance(player, DamageType.Fire), ColdResistance = Resistance(player, DamageType.Cold),
                 LightningResistance = Resistance(player, DamageType.Lightning), ChaosResistance = Resistance(player, DamageType.Chaos),
             })) if (seen.Add(k)) stats[k] = v;
+            // "Additive Minion Damage modifiers also apply to you": transfer the complete additive total once, after the
+            // final Dexterity is in the map, so plain and per-5-Dex values round together instead of at two sites.
+            int share = PlayerMinionDamageShare(stats);
+            if (share > 0)
+            {
+                long additive = AdditiveMinionDamage(stats, stats.GetValueOrDefault(Stat.Dexterity));
+                if (additive != 0) AddTo(stats, Stat.DamagePlusPct, additive * share / 100);
+            }
         });
         // The overcapped lightning resistance's increased crit (PoolsFor derived it once into Pools): the spell consumers read
         // the raw increased stats here (SpellCriticalStrike), while the attack and panel chances already fold the same value

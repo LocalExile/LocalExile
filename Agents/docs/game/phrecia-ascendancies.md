@@ -16,4 +16,6 @@ minion phasing and flask damage on a relic's explosion); it is not yet checked w
 [Polytheist](polytheist.md) records its node checklist, each node's consumer and its engine gaps.
 [Surfcaster](surfcaster.md) records its node checklist, the monster ailment and flee engines it uses, and its opt-in;
 native acceptance is still open.
+The **Wildspeaker** node 24394 (Scourge of the Wilds) applies additive minion-damage modifiers to the owner at 150%,
+including the `minion_damage_+%_per_5_dex` row on complete 5-Dex groups; the class itself is not admitted by this note.
 Other classes require their own acceptance; this change makes no claim about their completion.
