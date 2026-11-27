@@ -22,6 +22,15 @@ public sealed class SlamSupportTriggerTests
     }
 
     [Fact]
+    public async Task Earthshatter_triggers_fissure_when_its_impact_has_no_target()
+    {
+        using var trial = new Trial("Fissure Support", "TriggeredSupportFissure", "Earthshatter", "Earthshatter");
+        Assert.Null(trial.Cooldown);
+        Assert.True(await trial.Cast());
+        Assert.Equal(1, trial.Cooldown!.SpentUses);
+    }
+
+    [Fact]
     public async Task Crystalfall_spends_three_stored_uses_on_hits_and_lands_after_its_fall()
     {
         using var trial = new Trial("Crystalfall Support", "TriggeredSupportCrystalfall");
@@ -63,7 +72,7 @@ public sealed class SlamSupportTriggerTests
         Player Player => fixture.Player;
         internal SingleUseCooldownState? Cooldown => Player.SingleUseCooldowns.GetValueOrDefault(effect);
 
-        internal Trial(string support, string childEffect)
+        internal Trial(string support, string childEffect, string slamName = "Ground Slam", string slamEffect = "GroundSlam")
         {
             fixture = new(clock);
             Player.Use(new(1, "slam-support-test", 240, 240, Origin.X, Origin.Y, (_, _) => true, []));
@@ -74,11 +83,11 @@ public sealed class SlamSupportTriggerTests
             var items = Game.ItemsOf(Player);
             var host = Assert.Single(items.Items(PlayerInventories.Weapon1));
             items.Change(PlayerInventories.Weapon1, host.Id, _ => ItemCatalog.Create(Program.Items.Find("Driftwood Maul")!));
-            fixture.Equip(("Ground Slam", 1), (support, 1));
+            fixture.Equip((slamName, 1), (support, 1));
             var source = Assert.Single(Game.GemSkillEffects(Player), skill => Game.SkillsFor(Player).EffectId(skill.Effect) == childEffect);
             companion = source.Id;
             effect = source.Effect;
-            slam = Assert.Single(Game.GemSkillEffects(Player), skill => Game.SkillsFor(Player).EffectId(skill.Effect) == "GroundSlam").Id;
+            slam = Assert.Single(Game.GemSkillEffects(Player), skill => Game.SkillsFor(Player).EffectId(skill.Effect) == slamEffect).Id;
             stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
             {
                 if (ReferenceEquals(owner, Player))

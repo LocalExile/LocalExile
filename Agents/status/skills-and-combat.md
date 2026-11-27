@@ -199,6 +199,17 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Vaal souls (#308), Vaal Ground Slam's radial wave, Vaal Fireball, Vaal Spark and Vaal Discipline (allied recharge).
   Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
+- Tectonic Slam uses a forward fissure with seeded branches.
+  Contacts advance along each branch and one use can contact each target once.
+- Sunder and its variants time their wave segments and victim shockwaves.
+  Earthbreaking keeps overlapping uses, and Trarthus can redirect at enemies and terrain.
+- Ice Crash lands in three timed circles with one contact per enemy.
+  Cadence uses the swinging hand's radius and requires two compatible weapons.
+- Consecrated Path and its Endurance variant select a target near the aim, land at contact, and create timed ground.
+- Earthshatter and both variants resolve travelling fissures and spikes triggered by slams, warcries or the timer.
+- Perforate resolves repeated Blood spikes and single-hit Sand rays.
+  Duality adds spikes for four seconds after a stance change.
+  Bloodshed always uses its slower, wider Blood sequence.
 - Ground Slam's forward wave scales with area and gains more damage near the player.
   Area attacks publish their final radius.
   Volcanic Fissure hits along its path and launches landing projectiles at the end.
