@@ -324,6 +324,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Storm Rain and its transfigured gems leave arrows that fire periodic area hits between their endpoints.
 - Conflagration leaves arrows that detonate near the caster, setting off adjacent arrows and applying a burning debuff.
 - Kinetic Rain variants land delayed area hits. See [projectile skills](../docs/game/projectile-skills.md).
+- Explosive and Poisonous Concoction land area hits and spend charges for their attack bonuses. Bouncing chains along the ground.
 - Thunderstorm blinds inside the storm, grows while occupied, and releases Thunderburst on a timely full-stage exit.
 - Kinetic Fusillade and Detonation refresh their capped hover queues and discharge in sequence. See [projectile skills](../docs/game/projectile-skills.md).
 - Scourge Arrow and its Royale variant plant pods on release based on channel stages; Scourge Arrow of Menace plants

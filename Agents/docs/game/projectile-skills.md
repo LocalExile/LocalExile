@@ -72,6 +72,12 @@ Damage and ailment multipliers use the committed shot's inputs. Thunderburst use
 area. The landing uses the shared arrow-rain fall timing, and the tornado flight uses shared wandering legs while
 the exact Windstorm action timing and native tornado turns remain unmeasured.
 
+Concoction throws lob bottles over enemies and deal area damage at impact. Charges come from the first
+eligible flask of each element or the first eligible Life Flask, with enough for the full volley. Spending
+charges supplies that attack's damage or ailment bonuses and does not activate the flask. Bouncing releases
+one bottle and spends additional projectile grants on ground chains. Its direction is sampled on each bounce
+and the travel distance uses the shared bounce distance. Exact native bounce spacing is unmeasured.
+
 Kinetic Fusillade queues hovering shots per caster and skill. Reusing that skill refreshes the queue and displaces
 the oldest bolts when the exported cap is reached. The normal gem seeks different targets and chains area hits.
 Detonation instead explodes at each hover position. Both variants use the exported discharge interval and scale

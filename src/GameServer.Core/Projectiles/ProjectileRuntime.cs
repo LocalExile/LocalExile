@@ -702,6 +702,11 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         {
             p.GroundChains--;
             p.GroundBounces++;
+            if (p.Profile.RandomGroundBounceDirection)
+            {
+                double angle = p.Random.NextDouble() * Math.Tau;
+                p.Direction = new(Math.Cos(angle), Math.Sin(angle));
+            }
             p.Remaining = Math.Max(.001, p.Profile.GroundBounceKeepsRange ? p.Profile.Range : p.Profile.GroundBounceDistance);
             Publish(ProjectileEventKind.Redirect, p);
             return;

@@ -448,6 +448,18 @@ public static partial class Game
         if (!double.IsFinite(speed) || speed <= 0)
             throw new InvalidOperationException("Projectile release requires a finite positive speed.");
         var profile = definition.Parameters.Resolve(Get, speed, ArrowsFor(player, gem.Effect));
+        var concoction = IsConcoction(effect) && totem is null && from is null && !fromMirage
+            ? SpendConcoctionFlasks(session, effect!, profile.Count, Get)
+            : default;
+        if (concoction.Modifiers is { } paidStats)
+        {
+            var withFlasks = new Dictionary<uint, int>(own);
+            foreach (var (key, value) in paidStats)
+                withFlasks[key] = ActorScale.Add(key, withFlasks.GetValueOrDefault(key), value);
+            own = withFlasks;
+            admittedGem = admittedGem with { Stats = own };
+            merged = MergeSkillStats(playerStats, own);
+        }
         var at = totem?.At ?? from ?? player.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
         var origin = ProjectileSession.Vector(at);
         if (definition.RequiresTerrain && ProjectileGrid.Blocks(player.Layout.Id, player.Seed, at.X, at.Y) is null)
@@ -515,11 +527,14 @@ public static partial class Game
         int damagePerChain = Get(Stat.ProjectileDamagePlusPctPerChain);
         int damagePerPierce = Get(Stat.ProjectileDamagePlusPctPerPiercedEnemy);
         bool trackTrajectoryDamage = damagePerChain != 0 || damagePerPierce != 0;
+        int criticalMultiplier = SupportedCriticalMultiplier(player, skillId, handWeapon);
+        if (concoction.CriticalMultiplier != 0)
+            criticalMultiplier = ActorScale.Add(Stat.BaseCriticalStrikeMultiplier, criticalMultiplier, concoction.CriticalMultiplier);
         var shot = new ProjectileOffense(
             hitInputs is null ? DamagePacket.Empty : SupportedHitFrom(hitInputs, suppress: false),
             spell, rating,
             SupportedCriticalChanceFor(player, skillId, release: true, weaponCritical: handCritical),
-            SupportedCriticalMultiplier(player, skillId, handWeapon), gem.Name)
+            criticalMultiplier, gem.Name)
         {
             WeaponAttack = weaponAttack,
             DirectAttackContact = hitInputs is { Attack: true, Secondary: false },

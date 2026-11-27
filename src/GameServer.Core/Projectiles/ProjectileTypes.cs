@@ -292,6 +292,7 @@ public sealed record ProjectileProfile(string Id)
     public double ArcHeight { get; init; } = 40;
     public int GroundChains { get; init; }
     public double GroundBounceDistance { get; init; } = 20;
+    public bool RandomGroundBounceDirection { get; init; }
     /// <summary>Reuse each projectile's resolved <see cref="Range"/> for ground-chain bounces instead of
     /// <see cref="GroundBounceDistance"/>.</summary>
     public bool GroundBounceKeepsRange { get; init; }
