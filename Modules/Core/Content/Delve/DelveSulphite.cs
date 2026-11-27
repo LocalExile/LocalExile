@@ -275,6 +275,8 @@ public sealed partial class DelveModule
                     var recipientWorld = WorldOf(PlayerOf(recipient));
                     int gain = MapSulphite.Yield(encounter.AreaLevel, encounter.Mods,
                         CharacterName(recipient).Equals(encounter.Owner, StringComparison.OrdinalIgnoreCase), recipients.Count);
+                    if (VillageResourceHooks.TryInterceptSulphite(recipient, gain, encounter.Mods))
+                        continue;
                     ushort before = 0, after = 0;
                     recipientWorld.CharacterData.Change(SulphiteKey, old =>
                     {

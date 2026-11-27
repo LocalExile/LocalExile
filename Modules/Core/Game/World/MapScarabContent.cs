@@ -10,7 +10,9 @@ public static class MapScarabContent
         Fragments = LoadFragments();
     }
 
-    public const string StandardShrines = "Shrines.Standard", Sulphite = "Sulphite";
+    public const string StandardShrines = "Shrines.Standard", Sulphite = "Sulphite",
+        KalguuranOre = "KalguuranOre", KalguuranGuardedRiches = "KalguuranOre.GuardedRiches",
+        KalguuranRefinement = "KalguuranOre.Refinement", KalguuranEnriching = "KalguuranOre.Enriching";
 
     static MapRunCatalog Fragments = default!;
     static MapRunCatalog LoadFragments() => MapRunCatalog.Load("data");
@@ -46,6 +48,10 @@ public static class MapScarabContent
                 : mods.Get(Stat.MapEssenceImprisonedMonstersEnhancedForEachEssence) > 0 ? "Essence.Adaptation"
                 : mods.Get(Stat.MapEssencesAre1TierHigherChancePct) > 0 ? MapEssences.Ascent : MapEssences.Content;
         if (family == "Delirium" && mods.Get(Stat.MapMapsDropWithAfflictionEnchantmentsChancePct) > 0) return "Delirium.Delusions";
+        if (family == "Settlers")
+            return mods.Get(Stat.MapAllVillagePacksMagicAndAllowRareChancePct) > 0 ? KalguuranGuardedRiches
+                : mods.Get(Stat.MapVillageOreFoundAsBarsInstead) > 0 ? KalguuranRefinement
+                : mods.Get(Stat.MapVillageEscalatingEncounters) > 0 ? KalguuranEnriching : KalguuranOre;
         if (mods.Get(MapScarabPacks.CountStat) > 0) return MapScarabPacks.Cloister;
         if (mods.Get(Stat.MapAtlasBossPackReplacementChancePct) > 0) return "AtlasBossPacks";
         return Encounters.GetValueOrDefault(family);
