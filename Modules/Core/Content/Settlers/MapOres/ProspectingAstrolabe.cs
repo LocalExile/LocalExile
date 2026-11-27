@@ -33,15 +33,32 @@ public sealed class ProspectingAstrolabe
     static Dictionary<ushort, AtlasEntry> _byHash = [];
     static Dictionary<int, AtlasEntry> _byRow = [];
     static Dictionary<string, AtlasEntry> _byAreaId = new(StringComparer.OrdinalIgnoreCase);
+    static Dictionary<string, HashSet<string>> _areaBosses = new(StringComparer.OrdinalIgnoreCase);
 
     public static void LoadGameData()
     {
         var byHash = new Dictionary<ushort, AtlasEntry>();
         var byRow = new Dictionary<int, AtlasEntry>();
         var byArea = new Dictionary<string, AtlasEntry>(StringComparer.OrdinalIgnoreCase);
+        var areaBosses = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         if (ClientTables.Has("AtlasNode") && ClientTables.Has("WorldAreas"))
         {
             var areas = ClientTables.Table("WorldAreas");
+            var varieties = ClientTables.Has("MonsterVarieties") ? ClientTables.Table("MonsterVarieties") : null;
+            if (varieties is not null)
+            {
+                foreach (var areaRow in areas)
+                {
+                    if (areaRow.Text("Id") is not { Length: > 0 } aId) continue;
+                    var bossRows = areaRow.Ints("Bosses_MonsterVarietiesKeys");
+                    if (bossRows.Length == 0) continue;
+                    var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (int vRow in bossRows)
+                        if (varieties.Row(vRow)?.Text("Id") is { Length: > 0 } vId)
+                            set.Add(vId);
+                    if (set.Count > 0) areaBosses[aId] = set;
+                }
+            }
             foreach (var row in ClientTables.Table("AtlasNode"))
             {
                 if (row.BoolOrNull("NotOnAtlas") == true) continue;
@@ -62,6 +79,7 @@ public sealed class ProspectingAstrolabe
         _byHash = byHash;
         _byRow = byRow;
         _byAreaId = byArea;
+        _areaBosses = areaBosses;
     }
 
     public bool MapDeviceAccepts(Player? player, uint typeHash, string itemClass) =>
@@ -172,13 +190,26 @@ public sealed class ProspectingAstrolabe
     }
 
     /// <summary>
-    /// Tracks Shaped Region completion when a map boss dies inside a Prospecting Astrolabe map.
+    /// Tracks Shaped Region completion when the area's final map boss dies inside a Prospecting Astrolabe map
+    /// (verified against <c>WorldAreas.Bosses_MonsterVarietiesKeys</c>, ignoring Rogue Exiles / ore guardians).
     /// </summary>
     public async Task OnMonsterKilled(MonsterKill kill)
     {
         if (kill.Monster.Rarity != MonsterRarity.Unique) return;
         var player = kill.Player;
         if (!MapDevices.IsMapArea(player.Layout.Hash)) return;
+        if (!_areaBosses.TryGetValue(player.Layout.Id, out var bosses) || !bosses.Contains(kill.Monster.VarietyId))
+            return;
+
+        // Multi-boss maps complete only when the final living map boss is slain.
+        foreach (var remaining in player.Area.Monsters.Values.Concat(player.Area.DormantMonsters.Values))
+        {
+            if (!remaining.Hostile || remaining.Dead || remaining.Life <= 0) continue;
+            if (kill.Monster.ObjectId != 0 && remaining.ObjectId == kill.Monster.ObjectId) continue;
+            if (remaining.Variety is { Id.Length: > 0 } v && bosses.Contains(v.Id))
+                return;
+        }
+
         var region = LoadRegion(player);
         if (region is null || region.RemainingAreas.Count == 0) return;
 

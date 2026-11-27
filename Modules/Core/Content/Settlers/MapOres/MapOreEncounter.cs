@@ -55,7 +55,7 @@ public sealed class MapOreEncounter
         public NodeStage Stage = NodeStage.Ready;
         public bool Presented;
         public List<MarkerObj> Markers = [];
-        public List<uint> DecoObjects = [];
+        public List<(uint Id, string Type, int X, int Y, float Rotation)> DecoObjects = [];
 
         // Active encounter tracking
         public double StartedAt;
@@ -94,8 +94,12 @@ public sealed class MapOreEncounter
         public required int Seed;
         public required MapOreStats Stats;
         public readonly List<OreNodeState> Nodes = [];
+        public GameArea? Area;
+        public readonly HashSet<Player> PresentedPlayers = [];
         public int CompletedOres;
         public readonly ConcurrentDictionary<uint, OreNodeState> MonsterOwner = new();
+        /// <summary>Persistent set of all monster IDs spawned by ore encounters (kept past <see cref="OnKill"/> so <see cref="OnDrops"/> still sees them).</summary>
+        public readonly ConcurrentDictionary<uint, byte> OreMonsters = new();
         public readonly ConcurrentDictionary<uint, int> EscalationStacks = new();
         public readonly ConcurrentDictionary<uint, byte> BismuthEmpowered = new();
         public readonly ConcurrentDictionary<uint, double> OrichalcumBuffUntil = new();
@@ -116,7 +120,7 @@ public sealed class MapOreEncounter
         Of(player) is { } state && state.Nodes.Any(n => n.Stage is NodeStage.Channelling or NodeStage.Active);
 
     public bool IsOreMonster(Player player, uint monsterId) =>
-        Of(player) is { } state && state.MonsterOwner.ContainsKey(monsterId);
+        Of(player) is { } state && state.OreMonsters.ContainsKey(monsterId);
 
     // ---- Map Device Opening: Claim all 4 Kalguuran Scarabs ----
 
@@ -331,26 +335,45 @@ public sealed class MapOreEncounter
 
     // ---- Presentation & Late-Joiner / Re-entry Sync ----
 
+    public async Task OnPlayerLeaving(Player player)
+    {
+        if (Of(player) is not { } state) return;
+        await state.Gate.WaitAsync();
+        try { state.PresentedPlayers.Remove(player); }
+        finally { state.Gate.Release(); }
+    }
+
     public async Task PresentAll(Player player)
     {
         if (Of(player) is not { } state || !Current(player)) return;
         await state.Gate.WaitAsync();
         try
         {
+            // When an instance is vacated and re-entered (e.g. returning from Starfall Crater or town),
+            // a fresh GameArea is created with an empty AreaObjectRecords table — recreate every object at its current state.
+            if (!ReferenceEquals(state.Area, player.Area))
+            {
+                state.Area = player.Area;
+                state.PresentedPlayers.Clear();
+                foreach (var n in state.Nodes) n.Presented = false;
+            }
+
+            if (state.PresentedPlayers.Contains(player)) return;
+
             foreach (var node in state.Nodes)
             {
-                if (!node.Presented)
+                if (!node.Presented || !player.Area.Objects.Has(node.PrimaryId))
                 {
                     await CreateNodeObjects(player, state, node);
                     node.Presented = true;
                 }
                 else if (node.Kind == MapOreSlotKind.StarfallCrater && node.TransitionId != 0)
                 {
-                    // Ensure late-joining/re-entering player's layout knows about the Starfall Crater transition.
                     if (!player.Layout.AreaTransitions.Any(t => t.Id == node.TransitionId))
                         player.AddAreaTransition(node.TransitionId, MakeStarfallTransition(node));
                 }
             }
+            state.PresentedPlayers.Add(player);
         }
         finally { state.Gate.Release(); }
     }
@@ -364,68 +387,117 @@ public sealed class MapOreEncounter
         {
             case MapOreSlotKind.CrimsonIron:
             {
-                var sm = MapOreTables.MakeStates(MapOreTables.CrimsonIronStates,
-                    ("activated", 0), ("in_progress", 0), ("ore_empty", 0), ("interactable", 1), ("growths_alive", 1));
+                var sm = node.Stage switch
+                {
+                    NodeStage.Active => MapOreTables.MakeStates(MapOreTables.CrimsonIronStates,
+                        ("activated", 0), ("in_progress", 1), ("ore_empty", 0), ("interactable", 0), ("growths_alive", 1)),
+                    NodeStage.Claimed or NodeStage.Failed => MapOreTables.MakeStates(MapOreTables.CrimsonIronStates,
+                        ("activated", 1), ("in_progress", 0), ("ore_empty", 0), ("interactable", 0), ("growths_alive", 0)),
+                    _ => MapOreTables.MakeStates(MapOreTables.CrimsonIronStates,
+                        ("activated", 0), ("in_progress", 0), ("ore_empty", 0), ("interactable", 1), ("growths_alive", 1)),
+                };
                 var q = new QuestObject(node.X, node.Y, MapOreTables.CrimsonIronComponents, node.Rotation, height) { StateMachine = sm };
                 await CreateSharedObject(player, node.PrimaryId, MapOreTables.CrimsonIronObject, q.Blob(), $"Settlers Crimson Iron #{node.Index + 1}");
                 break;
             }
             case MapOreSlotKind.Orichalcum:
             {
-                var sm = MapOreTables.MakeStates(MapOreTables.DemonCopperStates,
-                    ("activated", 0), ("in_progress", 0), ("ore_empty", 0), ("encounter", 0), ("type", node.Variant), ("lights", 0));
+                var sm = node.Stage switch
+                {
+                    NodeStage.Active => MapOreTables.MakeStates(MapOreTables.DemonCopperStates,
+                        ("activated", 2), ("in_progress", 1), ("ore_empty", 0), ("encounter", 1), ("type", node.Variant), ("lights", 1)),
+                    NodeStage.Claimed or NodeStage.Failed => MapOreTables.MakeStates(MapOreTables.DemonCopperStates,
+                        ("activated", 1), ("in_progress", 0), ("ore_empty", 0), ("encounter", 2), ("type", node.Variant), ("lights", 2)),
+                    _ => MapOreTables.MakeStates(MapOreTables.DemonCopperStates,
+                        ("activated", 0), ("in_progress", 0), ("ore_empty", 0), ("encounter", 0), ("type", node.Variant), ("lights", 0)),
+                };
                 var q = new QuestObject(node.X, node.Y, MapOreTables.DemonCopperComponents, node.Rotation, height) { StateMachine = sm };
                 await CreateSharedObject(player, node.PrimaryId, MapOreTables.DemonCopperObject, q.Blob(), $"Settlers Orichalcum #{node.Index + 1}");
 
                 var altarCell = layout.Near((node.X + 7, node.Y));
-                var asm = MapOreTables.MakeStates(MapOreTables.AltarStates,
-                    ("encounter", 0), ("type", node.Variant), ("claimed", 0));
+                var asm = node.Stage switch
+                {
+                    NodeStage.Active => MapOreTables.MakeStates(MapOreTables.AltarStates, ("encounter", 1), ("type", node.Variant), ("claimed", 0)),
+                    NodeStage.Claimed or NodeStage.Failed => MapOreTables.MakeStates(MapOreTables.AltarStates, ("encounter", 1), ("type", node.Variant), ("claimed", 1)),
+                    _ => MapOreTables.MakeStates(MapOreTables.AltarStates, ("encounter", 0), ("type", node.Variant), ("claimed", 0)),
+                };
                 var aq = new QuestObject(altarCell.X, altarCell.Y, MapOreTables.CopperAltarComponents, node.Rotation, layout.GroundHeight(altarCell.X, altarCell.Y)) { StateMachine = asm };
                 await CreateSharedObject(player, node.AltarId, MapOreTables.CopperAltarObject, aq.Blob(), $"Settlers Orichalcum Altar #{node.Index + 1}");
                 break;
             }
             case MapOreSlotKind.PetrifiedAmber:
             {
-                var sm = MapOreTables.MakeStates(MapOreTables.PetrifiedWoodStates,
-                    ("activated", 0), ("in_progress", 0), ("ore_empty", 0), ("am_dead", 0));
+                var sm = node.Stage switch
+                {
+                    NodeStage.Active => MapOreTables.MakeStates(MapOreTables.PetrifiedWoodStates,
+                        ("activated", 2), ("in_progress", 1), ("ore_empty", 0), ("am_dead", 0)),
+                    NodeStage.Claimed => MapOreTables.MakeStates(MapOreTables.PetrifiedWoodStates,
+                        ("activated", 1), ("in_progress", 0), ("ore_empty", 0), ("am_dead", 0)),
+                    NodeStage.Failed => MapOreTables.MakeStates(MapOreTables.PetrifiedWoodStates,
+                        ("activated", 1), ("in_progress", 0), ("ore_empty", 1), ("am_dead", 1)),
+                    _ => MapOreTables.MakeStates(MapOreTables.PetrifiedWoodStates,
+                        ("activated", 0), ("in_progress", 0), ("ore_empty", 0), ("am_dead", 0)),
+                };
                 var q = new QuestObject(node.X, node.Y, MapOreTables.PetrifiedWoodComponents, node.Rotation, height, Blocked: false) { StateMachine = sm };
                 await CreateSharedObject(player, node.PrimaryId, MapOreTables.PetrifiedWoodObject, q.Blob(), $"Settlers Petrified Amber #{node.Index + 1}");
                 break;
             }
             case MapOreSlotKind.Bismuth:
             {
+                bool claimed = node.Stage is NodeStage.Claimed or NodeStage.Failed;
                 var sm = MapOreTables.MakeStates(MapOreTables.BismuthStates,
-                    ("activated", 0), ("in_progress", 0), ("ore_empty", 0), ("effect_off", 0));
+                    ("activated", claimed ? 1 : 0), ("in_progress", 0), ("ore_empty", 0), ("effect_off", claimed ? 1 : 0));
                 var q = new QuestObject(node.X, node.Y, MapOreTables.BismuthComponents, node.Rotation, height) { StateMachine = sm };
                 await CreateSharedObject(player, node.PrimaryId, MapOreTables.BismuthObject, q.Blob(), $"Settlers Bismuth #{node.Index + 1}");
                 break;
             }
             case MapOreSlotKind.Verisium:
             {
-                var sm = MapOreTables.MakeStates(MapOreTables.VerisiumStates,
-                    ("activated", 0), ("in_progress", 0), ("ore_empty", 0), ("encounter", 0), ("begun_channelling", 0), ("channelling", 0), ("in_zone", 0));
+                var sm = node.Stage switch
+                {
+                    NodeStage.Channelling => MapOreTables.MakeStates(MapOreTables.VerisiumStates,
+                        ("activated", 0), ("in_progress", 1), ("ore_empty", 0), ("encounter", 0), ("begun_channelling", 1), ("channelling", 1), ("in_zone", 1)),
+                    NodeStage.Active => MapOreTables.MakeStates(MapOreTables.VerisiumStates,
+                        ("activated", 0), ("in_progress", 1), ("ore_empty", 0), ("encounter", 1), ("begun_channelling", 1), ("channelling", 0), ("in_zone", 0)),
+                    NodeStage.Claimed or NodeStage.Failed => MapOreTables.MakeStates(MapOreTables.VerisiumStates,
+                        ("activated", 1), ("in_progress", 0), ("ore_empty", 0), ("encounter", 2), ("begun_channelling", 1), ("channelling", 0), ("in_zone", 0)),
+                    _ => MapOreTables.MakeStates(MapOreTables.VerisiumStates,
+                        ("activated", 0), ("in_progress", 0), ("ore_empty", 0), ("encounter", 0), ("begun_channelling", 0), ("channelling", 0), ("in_zone", 0)),
+                };
                 var q = new QuestObject(node.X, node.Y, MapOreTables.VerisiumComponents, node.Rotation, height) { StateMachine = sm };
                 await CreateSharedObject(player, node.PrimaryId, MapOreTables.VerisiumObject, q.Blob(), $"Settlers Verisium #{node.Index + 1}");
                 break;
             }
             case MapOreSlotKind.DustHourglass:
             {
-                var sm = MapOreTables.MakeStates(MapOreTables.HourglassStates,
-                    ("activated", 0), ("in_progress", 0), ("ore_empty", 0), ("encounter", 0), ("type", 1), ("lights", 0));
+                var sm = node.Stage switch
+                {
+                    NodeStage.Active => MapOreTables.MakeStates(MapOreTables.HourglassStates,
+                        ("activated", 2), ("in_progress", 1), ("ore_empty", 0), ("encounter", 1), ("type", 1), ("lights", 1)),
+                    NodeStage.Claimed or NodeStage.Failed => MapOreTables.MakeStates(MapOreTables.HourglassStates,
+                        ("activated", 1), ("in_progress", 0), ("ore_empty", 0), ("encounter", 2), ("type", 1), ("lights", 2)),
+                    _ => MapOreTables.MakeStates(MapOreTables.HourglassStates,
+                        ("activated", 0), ("in_progress", 0), ("ore_empty", 0), ("encounter", 0), ("type", 1), ("lights", 0)),
+                };
                 var q = new QuestObject(node.X, node.Y, MapOreTables.HourglassComponents, node.Rotation, height) { StateMachine = sm };
                 await CreateSharedObject(player, node.PrimaryId, MapOreTables.HourglassObject, q.Blob(), $"Settlers Dust Hourglass #{node.Index + 1}");
 
                 var altarCell = layout.Near((node.X + 4, node.Y));
-                var asm = MapOreTables.MakeStates(MapOreTables.AltarStates,
-                    ("encounter", 0), ("type", 1), ("claimed", 0));
+                var asm = node.Stage switch
+                {
+                    NodeStage.Active => MapOreTables.MakeStates(MapOreTables.AltarStates, ("encounter", 1), ("type", 1), ("claimed", 0)),
+                    NodeStage.Claimed or NodeStage.Failed => MapOreTables.MakeStates(MapOreTables.AltarStates, ("encounter", 1), ("type", 1), ("claimed", 1)),
+                    _ => MapOreTables.MakeStates(MapOreTables.AltarStates, ("encounter", 0), ("type", 1), ("claimed", 0)),
+                };
                 var aq = new QuestObject(altarCell.X, altarCell.Y, MapOreTables.HourglassAltarComponents, node.Rotation, layout.GroundHeight(altarCell.X, altarCell.Y)) { StateMachine = asm };
                 await CreateSharedObject(player, node.AltarId, MapOreTables.HourglassAltarObject, aq.Blob(), $"Settlers Hourglass Altar #{node.Index + 1}");
                 break;
             }
             case MapOreSlotKind.LostShipment:
             {
+                bool opened = node.Stage == NodeStage.Claimed;
                 string model = node.Variant == 0 ? MapOreTables.KalguuranShipmentModel : MapOreTables.KaruiShipmentModel;
-                var q = new QuestObject(node.X, node.Y, MapOreTables.LostShipmentComponents, node.Rotation, height, Model: model, Opened: false);
+                var q = new QuestObject(node.X, node.Y, MapOreTables.LostShipmentComponents, node.Rotation, height, Model: model, Opened: opened);
                 await CreateSharedObject(player, node.PrimaryId, MapOreTables.LostShipmentChestObject, q.Blob(), $"Settlers Lost Shipment #{node.Index + 1}");
                 break;
             }
@@ -442,11 +514,22 @@ public sealed class MapOreEncounter
             }
         }
 
-        // Spawn the 8 MineralClaimedMarkers (initially hidden via claimed=1).
+        // Recreate any spawned encounter spawners (CopperSpawner1/2, FungalSpawner1..5) on re-entry.
+        foreach (var (decoId, decoType, dx, dy, drot) in node.DecoObjects)
+        {
+            if (player.Area.Objects.Has(decoId)) continue;
+            string[] comps = decoType.Contains("CopperSpawner", StringComparison.Ordinal)
+                ? MapOreTables.CopperSpawnerComponents
+                : MapOreTables.FungalSpawnerComponents;
+            var dq = new QuestObject(dx, dy, comps, drot, layout.GroundHeight(dx, dy), Blocked: false);
+            await CreateSharedObject(player, decoId, decoType, dq.Blob(), null);
+        }
+
+        // Spawn the 8 MineralClaimedMarkers at their current claimed state (1 hidden, 2 rising, 3 lit beacon).
         foreach (var marker in node.Markers)
         {
             var msm = MapOreTables.MakeStates(MapOreTables.ClaimedMarkerStates,
-                ("claimed", marker.ClaimedState), ("activated", 0), ("light_colour", 0));
+                ("claimed", marker.ClaimedState), ("activated", marker.ClaimedState >= 2 ? 1 : 0), ("light_colour", marker.ClaimedState >= 2 ? 1 : 0));
             var mq = new QuestObject(marker.X, marker.Y, MapOreTables.ClaimedMarkerComponents, marker.Rotation, layout.GroundHeight(marker.X, marker.Y))
             {
                 StateMachine = msm,
@@ -583,6 +666,8 @@ public sealed class MapOreEncounter
         {
             member.Area.Buffs.Set(member.Id, new Buff(buffRow, node.AltarId, U68: Buff.Seconds(duration)));
             state.OrichalcumBuffUntil[member.Id] = state.Now + duration;
+            MarkPlayerStats(member, PlayerStatStep.Sources);
+            await SendPlayerStatSnapshot(member, () => PlayerStatsOffFrames(member), null);
         }
 
         // Spawn CopperSpawner1/2 portals around the node.
@@ -595,7 +680,7 @@ public sealed class MapOreEncounter
             string spawnerType = s % 2 == 0 ? MapOreTables.CopperSpawner1Object : MapOreTables.CopperSpawner2Object;
             var sq = new QuestObject(pos.X, pos.Y, MapOreTables.CopperSpawnerComponents, (float)angle, player.Layout.GroundHeight(pos.X, pos.Y), Blocked: false);
             await CreateSharedObject(player, sid, spawnerType, sq.Blob(), null);
-            node.DecoObjects.Add(sid);
+            node.DecoObjects.Add((sid, spawnerType, pos.X, pos.Y, (float)angle));
 
             var (fodder, elites) = node.Variant == 1
                 ? (MapOreTables.OrichalcumDemonFodder, MapOreTables.OrichalcumDemonElites)
@@ -636,7 +721,7 @@ public sealed class MapOreEncounter
             uint fid = player.Instance.World.TakeObjectId();
             var fq = new QuestObject(pos.X, pos.Y, MapOreTables.FungalSpawnerComponents, (float)angle, player.Layout.GroundHeight(pos.X, pos.Y));
             await CreateSharedObject(player, fid, MapOreTables.FungalSpawnerObjects[f], fq.Blob(), null);
-            node.DecoObjects.Add(fid);
+            node.DecoObjects.Add((fid, MapOreTables.FungalSpawnerObjects[f], pos.X, pos.Y, (float)angle));
 
             if (f < 3)
                 await SpawnWavePack(player, state, node, MapOreTables.AmberAttackers, MapOreTables.AmberElites, pos, 3, rng);
@@ -808,13 +893,21 @@ public sealed class MapOreEncounter
             if (node.Stage != NodeStage.Ready) return;
             node.Stage = NodeStage.Claimed;
 
-            // Update chest to opened state.
+            // Chest has no 0x2bc update reader: remove the closed chest and recreate under a fresh object id with Opened = true
+            // (matching CampaignChests.Open so Chest.Opened and nameplate removal sync cleanly for all party members).
+            uint oldId = node.PrimaryId;
+            uint openedId = player.Instance.World.TakeObjectId();
+            node.PrimaryId = openedId;
+            await RemoveSharedObject(player, oldId, null);
+
             string model = node.Variant == 0 ? MapOreTables.KalguuranShipmentModel : MapOreTables.KaruiShipmentModel;
             var opened = new QuestObject(node.X, node.Y, MapOreTables.LostShipmentComponents, node.Rotation,
                 player.Layout.GroundHeight(node.X, node.Y), Model: model, Opened: true);
-            await CreateSharedObject(player, node.PrimaryId, MapOreTables.LostShipmentChestObject, opened.Blob(), "Open Lost Shipment");
+            await CreateSharedObject(player, openedId, MapOreTables.LostShipmentChestObject, opened.Blob(), "Open Lost Shipment");
         }
         finally { state.Gate.Release(); }
+
+        if (Environment.GetEnvironmentVariable("Game_DROPS") == "0" || !GameEvents.AllowsLoot(player)) return;
 
         // Drop Runegrafts, currency, and gold piles.
         var rng = new Random(unchecked(state.Seed ^ (node.Index * 7919) ^ 0x707));
@@ -845,12 +938,14 @@ public sealed class MapOreEncounter
 
         foreach (var drop in items)
         {
+            var prepared = GameEvents.PrepareGroundItem(player, drop.Item);
             var pos = ScatterPos(player.Layout, (node.X, node.Y), rng);
-            var ground = new WorldItemObject(pos.X, pos.Y, drop.Item);
+            var ground = new WorldItemObject(pos.X, pos.Y, prepared);
             uint gid = player.Instance.Ground.Add(ground, player);
-            await SendGroundItem(player, gid, ground, $"Lost Shipment drop: {drop.Type.Name}", justDropped: true);
+            await Shared(player, member => SendGroundItem(member, gid, ground, $"Lost Shipment drop: {drop.Type.Name}", justDropped: true));
         }
-        await PlayerOf(player).Tell("Opened a Lost Shipment!");
+        foreach (var member in InstanceMembers(player))
+            await PlayerOf(member).Tell("Opened a Lost Shipment!");
     }
 
     // ---- 8. Starfall Crater Sub-Area Entrance ----
@@ -889,9 +984,17 @@ public sealed class MapOreEncounter
         await state.Gate.WaitAsync();
         try
         {
-            // Clean up expired Orichalcum player buffs.
+            // Clean up expired Orichalcum player buffs and refresh their stats snapshot.
             foreach (var (pid, until) in state.OrichalcumBuffUntil)
-                if (now >= until) state.OrichalcumBuffUntil.TryRemove(pid, out _);
+            {
+                if (now < until) continue;
+                if (!state.OrichalcumBuffUntil.TryRemove(pid, out _)) continue;
+                if (InstanceMembers(player).FirstOrDefault(m => m.Id == pid) is { } expiredMember)
+                {
+                    MarkPlayerStats(expiredMember, PlayerStatStep.Sources);
+                    await SendPlayerStatSnapshot(expiredMember, () => PlayerStatsOffFrames(expiredMember), null);
+                }
+            }
 
             foreach (var node in state.Nodes)
             {
@@ -998,10 +1101,11 @@ public sealed class MapOreEncounter
         if (node.TreeMonsterId != 0)
         {
             player.Area.Monsters.Remove(node.TreeMonsterId, out _);
-            await SendWorldRemoval(player, node.TreeMonsterId, "Petrified Amber tree destroyed");
+            await RemoveSharedObject(player, node.TreeMonsterId, "Petrified Amber tree destroyed");
             node.TreeMonsterId = 0;
         }
-        await PlayerOf(player).Tell("The Petrified Amber tree was destroyed!");
+        foreach (var member in InstanceMembers(player))
+            await PlayerOf(member).Tell("The Petrified Amber tree was destroyed!");
     }
 
     async Task CompleteOreNode(Player player, InstanceOres state, OreNodeState node, double encounterMultiplier)
@@ -1030,7 +1134,7 @@ public sealed class MapOreEncounter
                 if (node.TreeMonsterId != 0)
                 {
                     player.Area.Monsters.Remove(node.TreeMonsterId, out _);
-                    await SendWorldRemoval(player, node.TreeMonsterId, "Petrified Amber defended");
+                    await RemoveSharedObject(player, node.TreeMonsterId, "Petrified Amber defended");
                     node.TreeMonsterId = 0;
                 }
                 break;
@@ -1129,6 +1233,7 @@ public sealed class MapOreEncounter
         if (id == 0) return 0;
 
         state.MonsterOwner[id] = node;
+        state.OreMonsters[id] = 0;
         if (escalating > 0) state.EscalationStacks[id] = escalating;
         if (!isPod) node.AliveMonsters.TryAdd(id, 0);
         return id;
@@ -1157,8 +1262,8 @@ public sealed class MapOreEncounter
             roll.Rarity *= 1.0 + 0.25 * stacks;
         }
 
-        // Prospecting Astrolabe: enhanced ore monster rewards.
-        if (state.Stats.ProspectingAstrolabe && state.MonsterOwner.ContainsKey(id))
+        // Prospecting Astrolabe: enhanced ore monster rewards (uses persistent OreMonsters set because OnKill runs before OnDrops).
+        if (state.Stats.ProspectingAstrolabe && state.OreMonsters.ContainsKey(id))
         {
             roll.Quantity *= 1.25;
             roll.Rarity *= 1.25;
@@ -1218,14 +1323,25 @@ public sealed class MapOreEncounter
         return list;
     }
 
-    static async Task CreateSharedObject(Player player, uint id, string type, byte[] blob, string? log)
+    static bool Framed(Player player) => player.Area.Owned && player.Connection.WorldOutput.Started;
+
+    static async Task Shared(Player player, Func<Player, Task> send)
     {
-        uint typeHash = InstanceEntities.ObjectTypeHash(type);
-        await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, typeHash, blob), log, wake: true, awaitBirth: false);
+        if (Framed(player)) { await send(player); return; }
+        foreach (var member in InstanceMembers(player)) await send(member);
     }
 
+    static Task CreateSharedObject(Player player, uint id, string type, byte[] blob, string? log)
+    {
+        uint typeHash = InstanceEntities.ObjectTypeHash(type);
+        return Shared(player, member => SendWorldCreate(member, id, () => InstanceEntities.CreateObject(id, typeHash, blob), log, wake: true, awaitBirth: false));
+    }
+
+    static Task RemoveSharedObject(Player player, uint id, string? log) =>
+        Shared(player, member => SendWorldRemoval(member, id, log));
+
     static Task UpdateStateMachine(Player player, uint id, byte smIndex, StateMachineData sm) =>
-        SendWorldRecord(player, id, InstanceEntities.StateMachineUpdate(id, smIndex, sm), null);
+        Shared(player, member => SendWorldRecord(member, id, InstanceEntities.StateMachineUpdate(id, smIndex, sm), null));
 
     static float NormalizeRotation(float r) => r < 0 ? r + MathF.Tau : r;
 

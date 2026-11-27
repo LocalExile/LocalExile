@@ -52,6 +52,7 @@ public static class SettlersMapOres
         });
         GameEvents.AreaGenerated.Add(id, encounter.PresentAll);
         GameEvents.PlayerEntered.Add(id, encounter.PresentAll);
+        GameEvents.PlayerLeaving.Add(id, (player, _) => encounter.OnPlayerLeaving(player));
         GameEvents.AreaTick.Add(id, start =>
             !InTown(start) && HideoutCatalog.ByArea(start.Layout.Hash) is null
                 ? (player, seconds) => encounter.Tick(player, seconds)
