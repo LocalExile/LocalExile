@@ -83,6 +83,38 @@ public sealed class CombatBugFixesTests
             sources = Game.PlayerDebuffStats(player, []);
             Assert.Equal(35, sources.GetValueOrDefault(Stat.PhysicalDamageTakenPlusPct));
 
+            // Strongbox (caster == 0) curses deduplicate by strongest-wins instead of clobbering, and Hexproof suppresses
+            // curse effect penalties (and blocks Silence row 275) while keeping curse flag stats.
+            await Game.AddPlayerDebuff(player, vulnerabilityRow, caster: 0,
+                new Dictionary<uint, int> { [Stat.PhysicalDamageTakenPlusPct] = 50 }, 10);
+            await Game.AddPlayerDebuff(player, vulnerabilityRow, caster: 0,
+                new Dictionary<uint, int> { [Stat.PhysicalDamageTakenPlusPct] = 15 }, 10);
+            sources = Game.PlayerDebuffStats(player, []);
+            Assert.Equal(50, sources.GetValueOrDefault(Stat.PhysicalDamageTakenPlusPct));
+
+            const ushort eleWeakRow = 70;
+            const ushort silenceRow = 275;
+            await Game.AddPlayerDebuff(player, eleWeakRow, caster: 0,
+                new Dictionary<uint, int>
+                {
+                    [Stat.BaseResistAllElementsPct] = -30,
+                    [Stat.YouAreCursedWithElementalWeakness] = 1,
+                }, 10);
+            var hexproofSources = Game.PlayerDebuffStats(player, new Dictionary<uint, int> { [Stat.Hexproof] = 1 });
+            Assert.Equal(0, hexproofSources.GetValueOrDefault(Stat.BaseResistAllElementsPct));
+            Assert.Equal(1, hexproofSources.GetValueOrDefault(Stat.YouAreCursedWithElementalWeakness));
+            Assert.Equal(0, hexproofSources.GetValueOrDefault(Stat.PhysicalDamageTakenPlusPct));
+
+            using (GameEvents.PlayerStatSources.Add("Game", (owner, s) =>
+            {
+                if (ReferenceEquals(owner, player)) s[Stat.Hexproof] = 1;
+                return s;
+            }))
+            {
+                await Game.AddPlayerDebuff(player, silenceRow, caster: 0, new Dictionary<uint, int>(), 10);
+                Assert.False(Game.HasPlayerDebuff(player, silenceRow));
+            }
+
             // Map Temporal Chains must not stack on top of an already-stronger debuff Temporal Chains.
             var area = new MapDevice.MapArea(player.Layout.Hash, "MapWorldsStrand", "Strand", 1);
             var map = new MapMods(new Dictionary<uint, int> { [Stat.MapPlayerHasLevelXTemporalChains] = 15 });

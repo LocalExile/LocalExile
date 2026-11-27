@@ -318,7 +318,11 @@ public static partial class Game
             || get(Stat.UnaffectedByCurses) != 0
             || get(Stat.VirtualUnaffectedByCurses) != 0
             || get(Stat.Hexproof) != 0
-            || get(Stat.VirtualHexproof) != 0;
+            || get(Stat.VirtualHexproof) != 0
+            || get(Stat.UnaffectedByTemporalChainsWhileAffectedByHaste) != 0
+                && AffectingAuras(player).Any(a => AuraCatalog.Family(a.EffectId) == "Haste")
+            || get(Stat.UnaffectedByCursesWhileAffectedByZealotry) != 0
+                && AffectingAuras(player).Any(a => AuraCatalog.Family(a.EffectId) == "Zealotry");
         double factor = player.ElementalAilments.TotalActionFactor(now, get(Stat.ActionSpeedMinusPct) - extra)
             * (unaffectedByTc ? 1 : TemporalChainsActionFactor(get(Stat.TemporalChainsActionSpeedPlusPctFinal)));
         if (get(Stat.ActionSpeedCannotBeReducedBelowBase) != 0) factor = Math.Max(1, factor);
