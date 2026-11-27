@@ -666,21 +666,7 @@ public static partial class Game
             result.Add(ability);
             bool spiritAlwaysIgnites = golem.Definition.Kind == "RagingSpirit"
                 && GolemStat(playerStats, Stat.RagingSpiritsAlwaysIgnite) != 0;
-            int AilmentStat(uint name) => name switch
-            {
-                Stat.BaseChanceToIgnitePct when spiritAlwaysIgnites => Math.Max(100, DamageStat(name)),
-                Stat.CriticalAilmentDotMultiplierPlus => DamageStat(name) + 50,
-                _ => DamageStat(name),
-            };
             string hand = spell ? "spell" : "main_hand";
-            var rows = AilmentPanelStats.Compute(new(hand, spell, !spell && projectile is null), rawDamage.Scale(more), conversion, AilmentStat);
-            var ignite = WithIgniteSpread(IgniteSettingsFrom(rows, hand, AilmentStat),
-                mods.Stats, raw, spell, hand, includeActorBaseArea: true);
-            var bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(rows, hand, AilmentStat, golem.Weapon?.LocalSources, projectile is null, projectile is not null);
-            double bleedMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionBleedingDamagePlusPctFinal) / 100d) * zombiePhysicalMore;
-            bleed = bleed with { Min = bleed.Min * bleedMore, Max = bleed.Max * bleedMore, CriticalMin = bleed.CriticalMin * bleedMore, CriticalMax = bleed.CriticalMax * bleedMore };
-            var poison = PoisonSettingsFrom(rows, hand, AilmentStat, golem.Weapon?.LocalSources);
-            int chance = AilmentStat(Stat.BaseChanceToPoisonOnHitPct) + AilmentStat(spell ? Stat.SpellsChanceToPoisonOnHitPct : Stat.ChanceToPoisonOnHitWithAttacksPct) + poison.WeaponChance;
             var weaponLocal = spell ? null : golem.Weapon?.LocalSources;
             var penetration = damage.MaxTotal > 0 ? Penetration.Of(mods.Stats, Stats, !spell, raw, weaponLocal) : default;
             int LeechStat(uint name) => mods[name] + Raw(name);
@@ -706,9 +692,17 @@ public static partial class Game
 
             MinionHitProfile BuildHitProfile(int extraDamage)
             {
-                int AilmentStat(uint name) => mods[name] + Raw(name)
-                    + (name == Stat.CriticalAilmentDotMultiplierPlus ? 50 : 0)
-                    + (name == Stat.DamagePlusPct ? extraDamage : 0);
+                int AilmentStat(uint name)
+                {
+                    int value = mods[name] + Raw(name);
+                    return name switch
+                    {
+                        Stat.BaseChanceToIgnitePct when spiritAlwaysIgnites => Math.Max(100, value),
+                        Stat.CriticalAilmentDotMultiplierPlus => value + 50,
+                        Stat.DamagePlusPct => value + extraDamage,
+                        _ => value,
+                    };
+                }
                 var rows = AilmentPanelStats.Compute(new(hand, spell, !spell && projectile is null),
                     rawDamage.Scale(more), conversion, AilmentStat);
                 var ignite = WithIgniteSpread(IgniteSettingsFrom(rows, hand, AilmentStat),
