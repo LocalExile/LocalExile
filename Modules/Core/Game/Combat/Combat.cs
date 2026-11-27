@@ -1397,6 +1397,14 @@ public static partial class Game
                 || !BeastCompanionAdmissionCurrent(player, beastCompanion, skillId))
                 return false;
         }
+        SpawnedMonster? bodyswapTarget = null;
+        if (SkillsFor(player).EffectId(gem.Effect) == BodyswapSacrificeEffect
+            && placedAdmission is null && !IsTotemSkill(player, skillId)
+            && (bodyswapTarget = BodyswapSacrificeTarget(player, from, to, targetId, AreaTime(player))) is null)
+        {
+            await SendPlayerMana(player, "Bodyswap of Sacrifice: no valid target");
+            return false;
+        }
         bool vaalCast = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is not null;
         if (placedAdmission is { } placedPreflight && !PlacedCastAdmissionCurrent(player, placedPreflight))
             return false;
@@ -1743,6 +1751,9 @@ public static partial class Game
             return await CastMinionUtility(player, skillId, to, targetId, recoveryGeneration, Current);
         if (gem.Name is not null && !IsTotemSkill(player, skillId) && GolemData.Find(SkillsFor(player).EffectId(gem.Effect)) is { } golem)
             return await CastGolem(player, skillId, golem, to, recoveryGeneration, Current);
+        if (bodyswapTarget is not null && spellCastMs is int bodyswapCast)
+            return CompleteSupportedUse(ScheduleBodyswapSacrifice(player, gem, bodyswapTarget, bodyswapCast, sequence,
+                swingAt, recoveryGeneration, Current, criticalRoll, vaalUse?.PactDamageMore ?? 1));
         if (gem.Name is not null && !IsTotemSkill(player, skillId)
             && IsLightningWarpEffect(SkillsFor(player).EffectId(gem.Effect)))
             return CompleteSupportedUse(ScheduleLightningWarp(player, gem, to, Current, criticalRoll, vaalUse?.PactDamageMore ?? 1));

@@ -289,6 +289,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Enduring Cry and Intimidating Cry use their existing skill actions. A restored golem retains its equipment source.
 - Bloodbond's Blood Offering consumes up to four corpses and grants minion damage and life regeneration based on life sacrificed.
   Spell Totem uses its own life, and support traps and mines can apply the offering.
+- A self-cast Bodyswap of Sacrifice moves to a living target at contact and resolves spell damage at both endpoints.
+  A selected damageable minion is destroyed and contributes a separate secondary explosion.
 - Doryani's Touch uses the gloves' unarmed lightning damage and requires both hands to have no weapon.
 - Lightpoacher can earn Spirit Charges on kills with an equipped Abyss Jewel. An accepted skill use can spend a
   live charge to launch Spirit Burst.
