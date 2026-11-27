@@ -16,6 +16,7 @@ public static partial class Game
         "GlacialShieldSwipe" => new("glacial_shield_swipe_opportunity", 2468),
         "Swordstorm" => new("swordstorm_opportunity", 2472),
         "Eviscerate" => new("eviscerate_opportunity", 2473),
+        "ShieldOfLight" => new("shield_of_light_opportunity", 2474),
         _ => null,
     };
 

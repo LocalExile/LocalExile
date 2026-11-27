@@ -355,7 +355,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   guard refuses the next before its cost. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use
   swaps it for its more melee physical damage (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
-- Crushing Fist, Glacial Shield Swipe, Swordstorm and Eviscerate open a use window on block. Swordstorm deals eight
+- Crushing Fist, Glacial Shield Swipe, Swordstorm, Eviscerate and Shield of Light open a use window on block. Swordstorm deals eight
   timed hits with both weapons at a fixed point ahead. Glacial Shield Swipe hits each target once as its forward cone
   expands. Eviscerate attacks with the main-hand weapon and each of its two moving waves can hit a target once
   (all three checked live in prediction and lockstep). The Crushing Fist slam and Shield of Light's attack areas

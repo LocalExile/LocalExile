@@ -23,6 +23,7 @@ public sealed class RetaliationTests
     [InlineData("Glacial Shield Swipe", 2468)]
     [InlineData("Swordstorm", 2472)]
     [InlineData("Eviscerate", 2473)]
+    [InlineData("Shield of Light", 2474)]
     public void Block_opens_one_melee_retaliation_without_expiring_other_skills(string gem, ushort readyRow)
     {
         using var fixture = new TriggeredSummonTests.Fixture();
