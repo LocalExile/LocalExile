@@ -238,22 +238,23 @@ public static partial class Game
 
     static void CursesOnHitLocked(Player player, SpawnedMonster target, ushort sourceSkill, bool spell, double now,
         IReadOnlyDictionary<uint, int>? sourceStats, IReadOnlyDictionary<uint, int> hitStats,
-        bool playerHit, bool mayTriggerItemMark, Random random)
+        bool playerHit, bool ownHit, Random random)
     {
         if (target.Dead || target.Life == 0 || player.Reservations.Secondary) return;
         if (playerHit)
         {
             TemporalChainsOnSuccessfulHitLocked(player, target, now, hitStats,
                 hitStats.GetValueOrDefault(Stat.CurseOnHitPctTemporalChains), random);
-            ItemCursesOnHitLocked(player, target, hitStats, now, mayTriggerItemMark);
+            ItemCursesOnHitLocked(player, target, hitStats, now, ownHit);
         }
+        bool markOnHit = ownHit && !spell && target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique;
         bool mayHextouch = sourceSkill != 0
             && (sourceStats is null || GolemStat(sourceStats, Stat.ApplyLinkedCursesOnHitPct) > 0);
-        if (!mayHextouch && (spell || target.Rarity is not (MonsterRarity.Rare or MonsterRarity.Unique))) return;
+        if (!mayHextouch && !markOnHit) return;
         var source = mayHextouch ? SupportedSkill(player, sourceSkill) : null;
         bool hextouch = source is not null && GolemStat(source.Stats, Stat.ApplyLinkedCursesOnHitPct) is var chance
             && RandomRolls.Chance(chance, 100, AreaRng(player));
-        if (!hextouch && (spell || target.Rarity is not (MonsterRarity.Rare or MonsterRarity.Unique))) return;
+        if (!hextouch && !markOnHit) return;
         var playerStats = CharacterPlayerStats(player);
         foreach (var skill in GemSkillEffects(player))
         {
@@ -264,7 +265,7 @@ public static partial class Game
             if (!curse.Mark && hextouch && source!.Host != 0 && gem.Host == source.Host && gem.Group == source.Group
                 && GolemStat(gem.Stats, Stat.CurseTriggeredByHextouch) != 0)
                 ApplyCurseLocked(player, target, skill.Id, now, false, gem, playerStats);
-            if (curse.Mark && !spell && target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
+            if (curse.Mark && markOnHit
                 && GolemStat(gem.Stats, Stat.TriggerOnAttackHitAgainstRareOrUnique) != 0
                 && now >= player.SkillReadyAt.GetValueOrDefault(gem.Effect))
             {
