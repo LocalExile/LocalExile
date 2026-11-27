@@ -258,7 +258,7 @@ static class LegionDomain
         if (otherCount > 0)
         {
             request.Opening = null;
-            request.Reason = "Place only 2 to 5 different Timeless Emblems to open the Domain of Timeless Conflict.";
+            request.Reason = "Only Timeless Emblems open the Domain of Timeless Conflict: take the other items (maps, scarabs, fragments) out of the Map Device.";
             return;
         }
         if (emblems.Count < 2)
