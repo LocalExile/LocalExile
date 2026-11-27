@@ -186,13 +186,17 @@ public static class CharacterSaves
     public static string? ModuleData(string character, string key) => Look(character) is not { } save ? null
         : save.ModuleData?.GetValueOrDefault(key) ?? (key == "delve.sulphite" ? save.Sulphite?.ToString() : null);
 
-    /// <summary>Changes a module's saved text; a null result changes nothing.</summary>
-    public static bool ChangeModuleData(string character, string key, Func<string?, string?> change)
+    /// <summary>Changes a module's saved text atomically; a null result changes nothing.</summary>
+    public static bool ChangeModuleData(string character, string key, Func<string?, string?> change) => Saves.Atomically(() =>
     {
-        if (change(ModuleData(character, key)) is not { } next) return false;
-        Update(character, s => s with { ModuleData = new(s.ModuleData ?? []) { [key] = next } });
+        var current = Load(character);
+        string? existing = current is null ? null
+            : current.ModuleData?.GetValueOrDefault(key) ?? (key == "delve.sulphite" ? current.Sulphite?.ToString() : null);
+        if (change(existing) is not { } next) return false;
+        var save = current ?? new Save([]);
+        Write(character, save with { ModuleData = new(save.ModuleData ?? []) { [key] = next } });
         return true;
-    }
+    });
 
     /// <summary>Removes a module's saved key atomically; true when the key existed and was removed.</summary>
     public static bool RemoveModuleData(string character, string key) => Saves.Atomically(() =>

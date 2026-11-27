@@ -765,6 +765,19 @@ public static class InstanceItems
     public static InventoryQuickMove ReadInventoryQuickMove(ReadOnlySpan<byte> m) =>
         new(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6] != 0, m[7], m[8] != 0);
 
+    /// <summary>C→S 0x010c (9 bytes BE, caller 0x1403107d0, builder 0x14216eed0, writer 0x141f9fa30, reader 0x141fa05c0):
+    /// Ctrl + click quick-move between player carried inventory (main or expanded) and a mercenary equipment inventory
+    /// (rows 95..97, 107). Layout: u32 BE itemId (+2), u8 fromExpanded (+6), u8 toMercenary (+7: 1 = into mercenary,
+    /// 0 = out to player), u8 target (+8: roster key 0..3 when toMercenary == 1, or Inventories._row 95/96/97/107 when
+    /// toMercenary == 0; note opposite offset order of +7/+8 vs C→S 0x00fd).</summary>
+    public const ushort MercenaryQuickMoveId = 0x010c;
+    public const int MercenaryQuickMoveLength = 9;
+
+    public readonly record struct MercenaryQuickMove(uint ItemId, bool FromExpanded, bool ToMercenary, byte Target);
+
+    public static MercenaryQuickMove ReadMercenaryQuickMove(ReadOnlySpan<byte> m) =>
+        new(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6] != 0, m[7] != 0, m[8]);
+
     public const ushort UseItemClickId = 0x57, FlaskChargesId = 0x00c6, ItemUseResultId = 0x0174;
     public const int UseItemClickLength = 11;
 

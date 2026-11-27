@@ -192,6 +192,33 @@ public static class ItemMoves
         return new(from, to, items.Put(to, outItem with { X = cell.X, Y = cell.Y }));
     });
 
+    /// <summary>Result of a mercenary Ctrl+click quick-move (C→S 0x010c): <see cref="Placed"/> moved from
+    /// <see cref="From"/> to <see cref="To"/>, and if a slot item was swapped out it moved to <see cref="SwappedToRow"/>
+    /// as <see cref="SwappedOut"/>.</summary>
+    public sealed record MercenaryMove(byte From, byte To, InventoryItem Placed, InventoryItem? SwappedOut = null,
+        byte SwappedToRow = 0);
+
+    /// <summary>Quick-moves an equipment item between carried inventory (main/expanded) and a permanent mercenary row
+    /// (rows 95..97, C→S 0x010c). <paramref name="target"/> accepts either roster key 0..3 or <c>Inventories._row</c>
+    /// 95..97/107.</summary>
+    public static MercenaryMove? MoveMercenaryEquipment(PlayerInventories items, byte target, uint itemId,
+        bool toMercenary, bool fromExpanded, bool expandedAllowed, Func<Item, PlayerInventories.Shape?> shapeOf,
+        Func<byte, Item, bool>? canEquip = null) => Saves.Atomically<MercenaryMove?>(() =>
+    {
+        if (PlayerInventories.MercenaryRowForTarget(target) is not byte mercRow
+            || !PlayerInventories.IsPermanentMercenaryRow(mercRow)) return null;
+        if (toMercenary)
+        {
+            return items.QuickMoveToMercenary(mercRow, itemId, fromExpanded, expandedAllowed, shapeOf, canEquip)
+                is var (fromRow, placed, swapped, swappedToRow)
+                ? new MercenaryMove(fromRow, mercRow, placed, swapped, swappedToRow)
+                : null;
+        }
+        return items.QuickMoveFromMercenary(mercRow, itemId, expandedAllowed, shapeOf) is var (toRow, moved)
+            ? new MercenaryMove(mercRow, toRow, moved)
+            : null;
+    });
+
     /// <summary>A price paid: what it took from the main inventory's stacks and from the stash's (either may be null).</summary>
     public sealed record Price(PlayerInventories.Payment? Inventory, AccountStash.Payment? Stash);
 

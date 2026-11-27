@@ -132,6 +132,14 @@ public static class InstanceWaypoints
     /// <c>0x142169dd0</c> reads the row and notifies the listeners at instance +0x1af8. Accept sends 0x3a.</summary>
     public const byte DescendancySelectUi = 0x4c;
 
+    /// <summary>S→C 0x7b kind 0x60: <c>MercenaryLoadout</c> (HUD <c>+0xa18</c>, handler <c>0x140ddda80</c> →
+    /// <c>0x1405b0b20(objectId, key)</c>): <c>a = mercenaryEntityId</c>, <c>b = rosterKey (0..3)</c>.</summary>
+    public const byte MercenaryLoadoutUi = 0x60;
+
+    /// <summary>S→C 0x7b kind 0x61: <c>EncounterMercenaryLoadout</c> (HUD <c>+0xa10</c>, handler <c>0x140dddb20</c> →
+    /// <c>0x1405acf80(objectId)</c>): <c>a = encounterMercenaryEntityId</c>. Requires rulesets <c>0xa1</c> and <c>0xa2</c>.</summary>
+    public const byte EncounterMercenaryLoadoutUi = 0x61;
+
     /// <summary>S→C 0x7b kind 0x72: <c>DeepwaterActiveVoyageWindow</c> (<c>CurrentVoyage</c>, <c>0x14216b9a6</c> ->
     /// <c>instance+0x4678</c>). Ignores the four u32 arguments and requires ruleset 172 (<c>DeepwaterHubRules</c>).</summary>
     public const byte DeepwaterActiveVoyageUi = 0x72;

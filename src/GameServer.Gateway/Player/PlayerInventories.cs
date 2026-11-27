@@ -14,8 +14,78 @@ public sealed partial class PlayerInventories
         Ring1 = 6, Ring2 = 7, Gloves = 8, Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14,
         Offhand2 = 15, CraftingBench = 16, PassiveJewels = 23, AtlasUpgrades = 39, HarvestCrafting = 43,
         HeistNpcEquipmentFirst = 45, HeistNpcEquipmentCount = 9,
-        ExpandedInventory = 84, MavenInvitations = 86, MemoryLineMaps = 94, Ring3 = 102, DeepwaterCollection = 114,
+        ExpandedInventory = 84, MavenInvitations = 86, MemoryLineMaps = 94,
+        Mercenary1 = 95, Mercenary2 = 96, Mercenary3 = 97,
+        Ring3 = 102, MercenaryTemporary = 107, DeepwaterCollection = 114,
         Cursor = InstanceInventories.CursorRow;
+
+    /// <summary>One equipment slot inside a 17×4 mercenary inventory (<c>MercenaryInventories.dat</c>, always <c>Y = 0</c>).</summary>
+    public readonly record struct MercenarySlotSpec(byte EquipmentRow, byte CellX, byte Width, byte Height);
+
+    /// <summary>All 10 mercenary equipment slots from <c>MercenaryInventories.dat</c> (total width 17, max height 4).</summary>
+    public static readonly MercenarySlotSpec[] MercenarySlots =
+    [
+        new(BodyArmour, 0, 2, 3),
+        new(Weapon1, 2, 2, 4),
+        new(Offhand1, 4, 2, 4),
+        new(Helmet, 6, 2, 2),
+        new(Amulet, 8, 1, 1),
+        new(Ring1, 9, 1, 1),
+        new(Ring2, 10, 1, 1),
+        new(Gloves, 11, 2, 2),
+        new(Boots, 13, 2, 2),
+        new(Belt, 15, 2, 1),
+    ];
+
+    public static bool IsMercenaryRow(byte row) => row is Mercenary1 or Mercenary2 or Mercenary3 or MercenaryTemporary;
+    public static bool IsPermanentMercenaryRow(byte row) => row is Mercenary1 or Mercenary2 or Mercenary3;
+
+    public static byte? MercenaryRowForKey(byte key) => key switch
+    {
+        0 => Mercenary1,
+        1 => Mercenary2,
+        2 => Mercenary3,
+        3 => MercenaryTemporary,
+        _ => null,
+    };
+
+    public static byte? MercenaryKeyForRow(byte row) => row switch
+    {
+        Mercenary1 => 0,
+        Mercenary2 => 1,
+        Mercenary3 => 2,
+        MercenaryTemporary => 3,
+        _ => null,
+    };
+
+    /// <summary>Resolves C→S 0x010c <c>Target</c> (roster key 0..3 when moving into mercenary, or <c>Inventories._row</c>
+    /// 95/96/97/107 when moving out) to a roster key 0..3.</summary>
+    public static byte? MercenaryKeyForTarget(byte target) => target switch
+    {
+        <= 3 => target,
+        Mercenary1 => 0,
+        Mercenary2 => 1,
+        Mercenary3 => 2,
+        MercenaryTemporary => 3,
+        _ => null,
+    };
+
+    public static byte? MercenaryRowForTarget(byte target) =>
+        MercenaryKeyForTarget(target) is byte key ? MercenaryRowForKey(key) : null;
+
+    public static MercenarySlotSpec? MercenarySlotAtX(int x)
+    {
+        foreach (var spec in MercenarySlots)
+            if (x >= spec.CellX && x < spec.CellX + spec.Width) return spec;
+        return null;
+    }
+
+    public static MercenarySlotSpec? MercenarySlotForEquipmentRow(byte equipmentRow)
+    {
+        foreach (var spec in MercenarySlots)
+            if (spec.EquipmentRow == equipmentRow) return spec;
+        return null;
+    }
 
     private static readonly ConcurrentDictionary<string, PlayerInventories> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
 
@@ -272,6 +342,16 @@ public sealed partial class PlayerInventories
                 (x, y) = (0, 0);
                 inTheWay = [.. ItemsIn(row)];
             }
+            else if (IsMercenaryRow(row))
+            {
+                if (row == MercenaryTemporary) { why = "temporary mercenary gear is locked"; return null; }
+                if (MercenarySlotAtX(x) is not { } spec || y < 0 || y >= spec.Height) { why = "invalid mercenary slot"; return null; }
+                if (!Accepts(spec.EquipmentRow, shape.Class)) { why = $"{shape.Class} does not go in mercenary slot {spec.EquipmentRow}"; return null; }
+                if (shape.Width > spec.Width || shape.Height > spec.Height) { why = "item does not fit in mercenary slot"; return null; }
+                if (MercenaryHandConflict(row, spec.EquipmentRow, shape.Class, shapeOf) is { } conflict) { why = conflict; return null; }
+                (x, y) = (spec.CellX, 0);
+                inTheWay = [.. ItemsIn(row).Where(i => i.X >= spec.CellX && i.X < spec.CellX + spec.Width)];
+            }
             else
             {
                 if (x < 0 || y < 0 || x + shape.Width > slot.Width || y + shape.Height > slot.Height) { why = "outside the grid"; return null; }
@@ -427,6 +507,7 @@ public sealed partial class PlayerInventories
         lock (_lock)
         {
             why = "";
+            if (row == MercenaryTemporary) { why = "temporary mercenary gear is locked"; return null; }
             var cursor = ItemsIn(Cursor);
             if (incoming is null && cursor.Count == 0) { why = "nothing held"; return null; }
             if (incoming is not null && cursor.Count != 0) { why = "something is held"; return null; }
@@ -497,6 +578,7 @@ public sealed partial class PlayerInventories
         lock (_lock)
         {
             why = "";
+            if (row == MercenaryTemporary) { why = "temporary mercenary gear is locked"; return null; }
             var cursor = ItemsIn(Cursor);
             if (cursor.Count > 0) { why = "something is held"; return null; }
             var items = ItemsIn(row);
@@ -714,6 +796,183 @@ public sealed partial class PlayerInventories
         return null;
     }
 
+    string? MercenaryHandConflict(byte row, byte equipmentRow, string itemClass, Func<Item, Shape?> shapeOf)
+    {
+        if (equipmentRow is not (Weapon1 or Offhand1)) return null;
+        bool main = equipmentRow == Weapon1;
+        var otherSpec = MercenarySlotForEquipmentRow(main ? Offhand1 : Weapon1)!.Value;
+        string? otherClass = _items.TryGetValue(row, out var list)
+            && list.FirstOrDefault(i => i.X >= otherSpec.CellX && i.X < otherSpec.CellX + otherSpec.Width) is { } other
+            ? shapeOf(other.Item)?.Class : null;
+        if (main)
+        {
+            if (itemClass == "Bow") return otherClass is null or "Quiver" ? null : "a bow goes only with an empty off hand or a quiver";
+            if (TwoHand.Contains(itemClass)) return otherClass is null ? null : "a two-handed weapon needs an empty off hand";
+            if (otherClass == "Quiver") return "a quiver goes only with a bow (or an empty main hand)";
+            if (otherClass is not null && OneHand.Contains(otherClass) && (itemClass == "Wand") != (otherClass == "Wand"))
+                return "a wand cannot be dual-wielded with a melee weapon";
+            return null;
+        }
+        if (itemClass == "Quiver") return otherClass is null or "Bow" ? null : "a quiver goes only with a bow or an empty main hand";
+        if (otherClass is not null && TwoHand.Contains(otherClass)) return $"the main hand holds a two-handed weapon ({otherClass})";
+        if (otherClass is not null && OneHand.Contains(itemClass) && OneHand.Contains(otherClass) && (itemClass == "Wand") != (otherClass == "Wand"))
+            return "a wand cannot be dual-wielded with a melee weapon";
+        return null;
+    }
+
+    /// <summary>Removes every item from <paramref name="row"/> in one save, returning the removed item ids.</summary>
+    public IReadOnlyList<uint> ClearRow(byte row)
+    {
+        uint[] removed;
+        lock (_lock)
+        {
+            if (!_items.TryGetValue(row, out var list) || list.Count == 0) return [];
+            removed = [.. list.Select(i => i.Id)];
+            list.Clear();
+            if (row == Cursor) _heldFrom = null;
+        }
+        Persist();
+        return removed;
+    }
+
+    /// <summary>Replaces every item in <paramref name="row"/> with fresh item ids in one save, returning the removed ids
+    /// and the newly placed items.</summary>
+    public (IReadOnlyList<uint> RemovedIds, IReadOnlyList<InventoryItem> Added) ReplaceRow(byte row,
+        IEnumerable<(byte X, byte Y, Item Item)> items)
+    {
+        uint[] removed;
+        List<InventoryItem> added = [];
+        lock (_lock)
+        {
+            var list = ItemsIn(row);
+            removed = [.. list.Select(i => i.Id)];
+            list.Clear();
+            foreach (var (x, y, item) in items)
+            {
+                var placed = new InventoryItem(_nextItemId++, x, y, item);
+                list.Add(placed);
+                added.Add(placed);
+            }
+            if (row == Cursor) _heldFrom = null;
+        }
+        Persist();
+        return (removed, added);
+    }
+
+    /// <summary>Atomically quick-moves an item from the player's main/expanded bag into a permanent mercenary row,
+    /// swapping any single occupying item back into the bag if it fits.</summary>
+    public (byte FromRow, InventoryItem Placed, InventoryItem? SwappedOut, byte SwappedToRow)? QuickMoveToMercenary(
+        byte targetRow, uint itemId, bool fromExpanded, bool expandedAllowed, Func<Item, Shape?> shapeOf,
+        Func<byte, Item, bool>? canEquip = null)
+    {
+        (byte, InventoryItem, InventoryItem?, byte)? result;
+        lock (_lock)
+        {
+            if (!IsPermanentMercenaryRow(targetRow) || _offered.ContainsKey(itemId)) return null;
+            byte preferred = fromExpanded ? ExpandedInventory : MainInventory;
+            byte alternate = fromExpanded ? MainInventory : ExpandedInventory;
+            byte from;
+            InventoryItem item;
+            if (ItemsIn(preferred).FirstOrDefault(i => i.Id == itemId) is { } inPreferred) { from = preferred; item = inPreferred; }
+            else if (ItemsIn(alternate).FirstOrDefault(i => i.Id == itemId) is { } inAlternate) { from = alternate; item = inAlternate; }
+            else return null;
+            if (shapeOf(item.Item) is not { } shape) return null;
+            var targetList = ItemsIn(targetRow);
+            MercenarySlotSpec? chosen = null;
+            bool chosenEmpty = false;
+            foreach (var spec in MercenarySlots)
+            {
+                if (!Accepts(spec.EquipmentRow, shape.Class)) continue;
+                if (shape.Width > spec.Width || shape.Height > spec.Height) continue;
+                if (MercenaryHandConflict(targetRow, spec.EquipmentRow, shape.Class, shapeOf) is not null) continue;
+                if (canEquip is not null && !canEquip(spec.EquipmentRow, item.Item)) continue;
+                bool empty = !targetList.Any(i => i.X >= spec.CellX && i.X < spec.CellX + spec.Width);
+                if (empty) { chosen = spec; chosenEmpty = true; break; }
+                chosen ??= spec;
+            }
+            if (chosen is not { } slot) return null;
+            var fromList = ItemsIn(from);
+            if (chosenEmpty)
+            {
+                fromList.Remove(item);
+                var placed = item with { X = slot.CellX, Y = 0 };
+                targetList.Add(placed);
+                result = (from, placed, null, 0);
+            }
+            else
+            {
+                var occupants = targetList.Where(i => i.X >= slot.CellX && i.X < slot.CellX + slot.Width).ToList();
+                if (occupants.Count != 1) return null;
+                var existing = occupants[0];
+                if (_offered.ContainsKey(existing.Id) || shapeOf(existing.Item) is not { } existingShape) return null;
+                byte[] candidateBags = from == MainInventory
+                    ? (expandedAllowed ? [MainInventory, ExpandedInventory] : [MainInventory])
+                    : (expandedAllowed ? [ExpandedInventory, MainInventory] : [MainInventory]);
+                byte destBag = 0;
+                (byte X, byte Y)? destCell = null;
+                foreach (byte bag in candidateBags)
+                {
+                    var probe = bag == from ? fromList.Where(i => i.Id != item.Id).ToList() : ItemsIn(bag);
+                    if (bag == from)
+                    {
+                        var bagSlot = InstanceInventories.PlayerDefaults[bag];
+                        if (item.X + existingShape.Width <= bagSlot.Width && item.Y + existingShape.Height <= bagSlot.Height
+                            && !probe.Any(i => shapeOf(i.Item) is { } s && i.X < item.X + existingShape.Width && item.X < i.X + s.Width
+                                && i.Y < item.Y + existingShape.Height && item.Y < i.Y + s.Height))
+                        {
+                            destBag = bag;
+                            destCell = (item.X, item.Y);
+                            break;
+                        }
+                    }
+                    if (FreeCellIn(bag, probe, existingShape.Width, existingShape.Height, shapeOf) is { } free)
+                    {
+                        destBag = bag;
+                        destCell = free;
+                        break;
+                    }
+                }
+                if (destCell is not { } at) return null;
+                fromList.Remove(item);
+                targetList.Remove(existing);
+                var placed = item with { X = slot.CellX, Y = 0 };
+                var swapped = existing with { X = at.X, Y = at.Y };
+                targetList.Add(placed);
+                ItemsIn(destBag).Add(swapped);
+                result = (from, placed, swapped, destBag);
+            }
+        }
+        Persist();
+        return result;
+    }
+
+    /// <summary>Atomically quick-moves an item out of a permanent mercenary row into the player's main (or expanded) bag.</summary>
+    public (byte ToRow, InventoryItem Placed)? QuickMoveFromMercenary(byte sourceRow, uint itemId, bool expandedAllowed,
+        Func<Item, Shape?> shapeOf)
+    {
+        (byte, InventoryItem)? result;
+        lock (_lock)
+        {
+            if (!IsPermanentMercenaryRow(sourceRow) || _offered.ContainsKey(itemId)) return null;
+            var sourceList = ItemsIn(sourceRow);
+            if (sourceList.FirstOrDefault(i => i.Id == itemId) is not { } item || shapeOf(item.Item) is not { } shape) return null;
+            byte destBag = MainInventory;
+            var cell = FreeCellCore(MainInventory, shape.Width, shape.Height, shapeOf);
+            if (cell is null && expandedAllowed)
+            {
+                destBag = ExpandedInventory;
+                cell = FreeCellCore(ExpandedInventory, shape.Width, shape.Height, shapeOf);
+            }
+            if (cell is not { } at) return null;
+            sourceList.Remove(item);
+            var placed = item with { X = at.X, Y = at.Y };
+            ItemsIn(destBag).Add(placed);
+            result = (destBag, placed);
+        }
+        Persist();
+        return result;
+    }
+
     /// <summary>
     /// Finds the first empty compatible slot among <paramref name="candidateRows"/> for an item of <paramref name="shape"/>:
     /// a single-item row must be empty, accept its class (<see cref="Accepts"/>) and have no <see cref="HandConflict"/>; a
@@ -837,6 +1096,7 @@ public sealed partial class PlayerInventories
         {
             why = "";
             if (row == Cursor) { why = "the cursor"; return null; }
+            if (row == MercenaryTemporary) { why = "temporary mercenary gear is locked"; return null; }
             var cursor = ItemsIn(Cursor);
             if (cursor.Count > 0) { why = "something is held"; return null; }
             var items = ItemsIn(row);
@@ -1043,7 +1303,7 @@ public sealed partial class PlayerInventories
     {
         lock (_lock)
         {
-            if (row == Cursor || ItemsIn(Cursor).Count > 0 || RemoveCore(row, itemId) is not { } it) return null;
+            if (row == Cursor || row == MercenaryTemporary || ItemsIn(Cursor).Count > 0 || RemoveCore(row, itemId) is not { } it) return null;
             _heldFrom = (row, it.X, it.Y);   // where the held item goes back to as a sale imprint (Offer)
             var held = it with { X = 0, Y = 0 };
             ItemsIn(Cursor).Add(held);
@@ -1259,7 +1519,7 @@ public sealed partial class PlayerInventories
         bool moved = false;
         lock (_lock)
         {
-            if (_offered.ContainsKey(itemId) || ItemsIn(row).FirstOrDefault(i => i.Id == itemId) is not { } it
+            if (row == MercenaryTemporary || _offered.ContainsKey(itemId) || ItemsIn(row).FirstOrDefault(i => i.Id == itemId) is not { } it
                 || it.Item.SkinTransferSource is not null || it.Item.Sockets.Any(s => s.Gem is not null)) return null;
             if (row == Cursor)
             {
