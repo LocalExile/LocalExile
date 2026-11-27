@@ -22,8 +22,8 @@ public static class VillageTownService
     static readonly ConcurrentDictionary<Player, byte> OnlinePlayers = new();
 
     /// <summary>Optional external simulation callback invoked inside the state lock with <c>(state, productiveSeconds, nowUtc)</c>.
-    /// Sibling subsystems (shipping, mapping, disenchanting) hook here to share the single authoritative clock and zero-treasury cutoff.</summary>
-    public static event Action<VillageTownState, double, long>? OnSimulateTick;
+    /// Return <c>true</c> only when the handler actually mutated state so idle ticks avoid redundant SQLite writes and <c>0x04</c> syncs.</summary>
+    public static event Func<VillageTownState, double, long, bool>? OnSimulateTick;
 
     /// <summary>Optional async notification fired after a full/incremental state sync for a player (e.g. Kingsmarch visual updates).</summary>
     public static event Func<Player, VillageTownState, Task>? OnStateSynced;
@@ -247,12 +247,15 @@ public static class VillageTownService
         // Notify sibling operations (shipping, mapping, disenchanting) on the same authoritative clock & cutoff.
         if (OnSimulateTick is { } tickHandlers)
         {
-            foreach (Action<VillageTownState, double, long> handler in Delegate.EnumerateInvocationList(tickHandlers))
+            foreach (Func<VillageTownState, double, long, bool> handler in Delegate.EnumerateInvocationList(tickHandlers))
             {
-                try { handler(state, totalProductiveSeconds, nowUtc); }
+                try
+                {
+                    if (handler(state, totalProductiveSeconds, nowUtc))
+                        changed = true;
+                }
                 catch (Exception ex) { Console.WriteLine($"[settlers] OnSimulateTick handler failed: {ex.Message}"); }
             }
-            changed = true;
         }
 
         return changed;
@@ -443,6 +446,7 @@ public static class VillageTownService
         byte[] workerPkt, recruitPkt, statePkt;
         byte[][] shipPkts = new byte[VillageData.ShipCount][];
         byte[][] quotaPkts = new byte[VillageData.PortCount][];
+        byte[]?[] mapNamePkts = new byte[VillageData.MapDeviceCount][];
         byte rewardNotice;
 
         lock (state.Gate)
@@ -462,6 +466,12 @@ public static class VillageTownService
                     slots[q] = state.PortQuotas[p][q].ToWire();
                 quotaPkts[p] = InstanceVillage.PortQuotas((byte)p, slots);
             }
+            for (int d = 0; d < VillageData.MapDeviceCount; d++)
+            {
+                string mapName = state.MapDevices[d].CurrentMapName;
+                if (!string.IsNullOrEmpty(mapName))
+                    mapNamePkts[d] = InstanceVillage.MapDeviceCurrentMapName((byte)d, mapName);
+            }
             statePkt = InstanceVillage.FullVillageState(state.ToWireSnapshot((ulong)Math.Max(0, now)));
             rewardNotice = state.ActiveRewardNotice;
         }
@@ -473,6 +483,9 @@ public static class VillageTownService
         for (int p = 0; p < VillageData.PortCount; p++)
             await Program.Send(player, quotaPkts[p], $"0x02c9[0x03] village port {p + 1} quotas");
         await Program.Send(player, statePkt, "0x02c9[0x04] full village state");
+        for (int d = 0; d < VillageData.MapDeviceCount; d++)
+            if (mapNamePkts[d] is { } pkt)
+                await Program.Send(player, pkt, $"0x02c9[0x0d] map device {d} current map name");
         if (rewardNotice > 0)
             await Program.Send(player, InstanceVillage.ActiveRewardNotice(rewardNotice), $"0x02c9[0x08] active reward notice {rewardNotice}");
 

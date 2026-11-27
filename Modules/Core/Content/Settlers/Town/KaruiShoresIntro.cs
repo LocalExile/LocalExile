@@ -142,8 +142,17 @@ public static class KaruiShoresIntro
         }
         else
         {
-            // Ensure Karui Shores / Hideout players can use Johan's "Visit Kingsmarch" & "Manage Town".
-            await EnsureBaselineAccessFlagsAsync(player);
+            // Keep Johan's Karui Shores "Introduction" (NPCTalk 3632, hidden if 685 or 608 is set) visible on first visit;
+            // only sync baseline access flags once the player has heard Johan's intro or visited Kingsmarch.
+            var state = VillageTownService.GetState(player);
+            bool unlocked;
+            lock (state.Gate)
+            {
+                unlocked = state.TutorialFlags.HasFlag(VillageTutorialFlags.JohanIntroDone)
+                    || state.TutorialFlags.HasFlag(VillageTutorialFlags.KingsmarchVisited);
+            }
+            if (unlocked || HideoutCatalog.ByArea(player.Layout.Hash) is not null)
+                await EnsureBaselineAccessFlagsAsync(player);
         }
 
         await VillageTownService.SyncFullAsync(player);

@@ -204,7 +204,7 @@ public static class KingsmarchHubWorld
             }
         }
 
-        // Send all creates cleanly to this entering / re-entering / party-joining player.
+        // Send all creates cleanly in one non-stalling batch (wake: true, awaitBirth: false prevents a 349-frame lockstep stall).
         var previousView = Program.ViewOf.Value;
         Program.ViewOf.Value = player;
         try
@@ -212,8 +212,7 @@ public static class KingsmarchHubWorld
             foreach (var (id, type, qObj, log) in toPresent)
             {
                 byte[] create = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), qObj.Blob());
-                await G.SendWorldCreate(player, id, create, log);
-                await G.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), null);
+                await G.SendWorldCreate(player, id, () => create, log, wake: true, awaitBirth: false);
             }
         }
         finally { Program.ViewOf.Value = previousView; }

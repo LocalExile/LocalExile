@@ -91,34 +91,28 @@ public static class VillageWorkersAndEconomy
     static async Task HandleHireRecruitAsync(Player player, byte recruitIndex)
     {
         var state = VillageTownService.GetState(player);
+        var stash = G.PersonalStashOf(player);
         long now = VillageTownService.ClockUtcSeconds();
 
-        uint hireCost;
-        lock (state.Gate)
-        {
-            VillageTownService.SimulateLocked(state, now);
-            if (recruitIndex >= state.Recruits.Count) return;
-            if (state.Workers.Count >= VillageData.MaxWorkers) return;
-            hireCost = state.Recruits[recruitIndex].HireCost;
-        }
-
-        var stash = G.PersonalStashOf(player);
-        if (stash.TrySpendGold(hireCost) is not uint goldAfter) return;
-
         TownWorker? hired = null;
+        uint hireCost = 0;
+        uint goldAfter = 0;
         byte[]? addWorkerPkt = null;
         byte[]? recruitPkt = null;
         bool firstHire = false;
 
         lock (state.Gate)
         {
+            VillageTownService.SimulateLocked(state, now);
             if (recruitIndex >= state.Recruits.Count || state.Workers.Count >= VillageData.MaxWorkers)
-            {
-                // Race guard: refund gold if pool changed between check and lock re-entry.
-                stash.AddGold(hireCost);
                 return;
-            }
+
             var recruit = state.Recruits[recruitIndex];
+            hireCost = recruit.HireCost;
+            if (stash.TrySpendGold(hireCost) is not uint after)
+                return;
+
+            goldAfter = after;
             state.Recruits.RemoveAt(recruitIndex);
             hired = new TownWorker
             {
