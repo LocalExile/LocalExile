@@ -1,4 +1,5 @@
 using GameServer.Core.Projectiles;
+using GameServer.Core.World;
 
 public static partial class Game
 {
@@ -70,6 +71,33 @@ public static partial class Game
     }
 
     static bool IsSwordstorm(string? effect) => effect == "Swordstorm";
+
+    // The ice and lightning retaliation cones advance the same 10-cell band, at different speeds and angles.
+    static List<uint>? RetaliationConeTargetsLocked(Player player, (int X, int Y) origin, (double X, double Y) facing,
+        double sine, double cosine, int radius, int step, int steps, HashSet<uint> seen)
+    {
+        const int band = 10;
+        int inner = (int)((long)Math.Max(0, radius - band) * step / steps);
+        int outer = Math.Min(radius, inner + band);
+        double time = ProjectileWorldTime(player);
+        List<uint>? targets = null;
+        foreach (var (id, monster) in player.Area.MonstersNear(origin, outer))
+        {
+            if (!monster.Hostile || monster.Dead || monster.Life == 0 || monster.OwnerId is not null
+                || monster.WorldHidden || seen.Contains(id)) continue;
+            var at = monster.Walk.Position(time);
+            double dx = at.X - origin.X, dy = at.Y - origin.Y;
+            double distanceSq = dx * dx + dy * dy;
+            int body = LivingCollision.Size(monster);
+            double near = Math.Max(0, inner - body), far = (double)outer + body;
+            if (distanceSq < near * near || far < 0 || distanceSq > far * far) continue;
+            double forward = dx * facing.X + dy * facing.Y;
+            double across = dy * facing.X - dx * facing.Y;
+            if (forward * sine < Math.Abs(across) * cosine || !MeleeArcSight(player, origin, at)) continue;
+            (targets ??= []).Add(id);
+        }
+        return targets;
+    }
 
     static void HitRetaliationWaveLocked(Player player,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) origin,

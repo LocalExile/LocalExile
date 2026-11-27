@@ -1,11 +1,9 @@
 using GameServer.Core.Projectiles;
-using GameServer.Core.World;
 
 public static partial class Game
 {
     const ushort GlacialShieldSwipeAction = 0xc727;
     const int GlacialShieldSwipeSteps = 14;
-    const int GlacialShieldSwipeBand = 10;
     const double GlacialShieldSwipeStepSeconds = .05;
     const double SwipeSin = .766044443118978, SwipeCos = .642787609686539;
 
@@ -15,7 +13,7 @@ public static partial class Game
     {
         if (radius <= 0 || ShieldWeapon(player, gem.Id) is not { } shield) return;
         var origin = player.Walk.Position(now);
-        var (facingX, facingY) = origin == aim
+        var facing = origin == aim
             ? (Math.Sin(player.Layout.SpawnRotation), -Math.Cos(player.Layout.SpawnRotation))
             : GroundSlamWave.Direction(origin, aim);
         var attack = CaptureAreaAttack(player, gem.Id, source, AttackHand.Main, shield, null, damageMore, damageMore, "ice-wave");
@@ -30,25 +28,8 @@ public static partial class Game
         // Its five adjacent 20° sectors share one set of targets (0x141bdb160/0x141be07d0).
         void Schedule(int step) => session.ScheduleContact(start + ProjectileRuntime.Time(step * GlacialShieldSwipeStepSeconds), Current, () =>
         {
-            int inner = (int)((long)Math.Max(0, radius - GlacialShieldSwipeBand) * step / GlacialShieldSwipeSteps);
-            int outer = Math.Min(radius, inner + GlacialShieldSwipeBand);
-            var time = ProjectileWorldTime(player);
-            List<uint>? targets = null;
-            foreach (var (id, monster) in player.Area.MonstersNear(origin, outer))
-            {
-                if (!monster.Hostile || monster.Dead || monster.Life == 0 || monster.OwnerId is not null
-                    || monster.WorldHidden || seen.Contains(id)) continue;
-                var at = monster.Walk.Position(time);
-                double dx = at.X - origin.X, dy = at.Y - origin.Y;
-                double distanceSq = dx * dx + dy * dy;
-                int body = LivingCollision.Size(monster);
-                double near = Math.Max(0, inner - body), far = (double)outer + body;
-                if (distanceSq < near * near || far < 0 || distanceSq > far * far) continue;
-                double forward = dx * facingX + dy * facingY;
-                double across = dy * facingX - dx * facingY;
-                if (forward * SwipeSin < Math.Abs(across) * SwipeCos || !MeleeArcSight(player, origin, at)) continue;
-                (targets ??= []).Add(id);
-            }
+            var targets = RetaliationConeTargetsLocked(player, origin, facing, SwipeSin, SwipeCos,
+                radius, step, GlacialShieldSwipeSteps, seen);
             HitRetaliationWaveLocked(player, gem, origin, sequence, radius, critical, ruthless, session, Current, attack, seen, targets);
             if (step < GlacialShieldSwipeSteps) Schedule(step + 1);
         });

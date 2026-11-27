@@ -355,11 +355,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   guard refuses the next before its cost. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use
   swaps it for its more melee physical damage (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
-- Crushing Fist, Glacial Shield Swipe, Swordstorm, Eviscerate and Shield of Light open a use window on block. Swordstorm deals eight
-  timed hits with both weapons at a fixed point ahead. Glacial Shield Swipe hits each target once as its forward cone
-  expands. Eviscerate attacks with the main-hand weapon and each of its two moving waves can hit a target once
-  (all three checked live in prediction and lockstep). The Crushing Fist slam and Shield of Light's attack areas
-  are still missing.
+- Crushing Fist, Glacial Shield Swipe, Swordstorm, Eviscerate and Shield of Light open a use window on block.
+  Swordstorm deals eight timed dual-weapon hits. Glacial Shield Swipe advances a forward cone.
+  Eviscerate advances two waves that can each hit a target. Shield of Light sends a forward cone and, on its
+  first contact, independent waves from nearby allies (checked live in prediction and lockstep).
+  Crushing Fist still needs its native slam placement and timing.
 - Bloodscent applies its Rage grant to the weapon that landed the hit (checked offline).
 - Blood Rage: attack speed, physical attack life leech, Frenzy Charge chance on kill and its physical degeneration;
   a kill refreshes it (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
