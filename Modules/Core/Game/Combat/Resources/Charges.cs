@@ -127,7 +127,7 @@ public static partial class Game
         bool frozen;
         double now = ProjectileWorldTime(player);
         frozen = m.Ailments.FrozenAtDeath(now);
-        int poisons = m.Poisons.Stacks(now);
+        int poisons = m.Poisons.StacksAtDeath(now);
         RecordPlayerMonsterKill(player, m, now);
         if (player.TinctureEffects.BurnStacks > 0) TinctureOnKillLocked(player, CharacterPlayerStats(player));
         TryGainElusiveLocked(player, critical: false, kill: true, now);
