@@ -392,7 +392,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `LabyrinthTrials.cs`, QuestObjects `Rules.LabyrinthTrials.cs`.
   Docs: [labyrinth-trials](../docs/game/labyrinth-trials.md).
 
-- Breach: maps roll Unstable Breaches; a touch opens the arena and the wave. Hive, boss and rewards are pending.
+- Breach: Unstable Breaches, Hives, Hive Fortress, Monastery, Genesis Tree, Wombgifts, Foulborn, Vruun, and Tul & Esh.
 
 ## Not working yet
 

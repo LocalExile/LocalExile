@@ -366,9 +366,19 @@ public static class BreachTables
         byte transitionState = 1, string? log = null, params (string Name, int Value)[] states)
     {
         if (Spec(type) is not { } spec) return false;
-        if (BuildObject(type, x, y, rotation, model, opened, blocked, transitionState, states) is not { } obj) return false;
-        byte[] blob = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(spec.Type), obj.Blob());
-        await SendWorldCreate(player, id, () => blob, log ?? $"0x02bb Breach {spec.Type} 0x{id:x} at ({x}, {y})",
+        // Chests must be sent with a concrete Chests.dat Id (BreachBoxChest01..04), not the abstract parent BrequelChestBase.
+        string wireType = spec.Type;
+        string? wireModel = model;
+        if (spec.Type == ChestBaseType)
+        {
+            wireType = model is { Length: > 3 } && model.EndsWith(".ao", StringComparison.OrdinalIgnoreCase)
+                ? model[..^3]
+                : "Metadata/Chests/Breach/BreachBoxChest01";
+            wireModel = null;
+        }
+        if (BuildObject(type, x, y, rotation, wireModel, opened, blocked, transitionState, states) is not { } obj) return false;
+        byte[] blob = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(wireType), obj.Blob());
+        await SendWorldCreate(player, id, () => blob, log ?? $"0x02bb Breach {wireType} 0x{id:x} at ({x}, {y})",
             wake: true, awaitBirth: false);
         if (blocked && spec.Size > 0)
             player.SetObjectBlocker(id, x, y, spec.Size, false);

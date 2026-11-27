@@ -331,12 +331,15 @@ public static partial class BreachGenesisTree
         return changed;
     }
 
+    static bool IsImplicitRoot(ushort gid) =>
+        StartNodeBySubTree.Values.Contains(gid) || WombNodeBySubTree.Values.Contains(gid);
+
     static void EnsureStartNodes(SavedTreeState state)
     {
-        // Keep only non-start allocated nodes (matching Atlas 0x3d convention: root start nodes are implicit roots in
-        // ChayulaTreePassiveSkillGraph and are stripped if any older save recorded them).
-        if (StartNodeBySubTree.Count == 0) return;
-        state.Allocated.RemoveAll(id => StartNodeBySubTree.Values.Contains(id));
+        // Keep only non-root allocated nodes: both the 4 StartNodes (22476, 19625, 42956, 47967) and the 4 Wombs
+        // (33919, 41240, 28988, 7411) are implicitly active on the 3.29.3c/d client.
+        if (StartNodeBySubTree.Count == 0 && WombNodeBySubTree.Count == 0) return;
+        state.Allocated.RemoveAll(IsImplicitRoot);
     }
 
     // ---- Wire packet builders & handlers (S→C 0x02cf, C→S 0x02d0 / 0x02d1 / 0x02d3) ----
@@ -357,7 +360,7 @@ public static partial class BreachGenesisTree
         w.U8(pointsOnly ? (byte)1 : (byte)0);
         if (!pointsOnly)
         {
-            var sorted = state.Allocated.Where(id => !StartNodeBySubTree.Values.Contains(id)).Distinct().Order().ToArray();
+            var sorted = state.Allocated.Where(id => !IsImplicitRoot(id)).Distinct().Order().ToArray();
             w.U16(checked((ushort)sorted.Length));
             Span<byte> le = stackalloc byte[2];
             foreach (ushort id in sorted)
@@ -454,8 +457,8 @@ public static partial class BreachGenesisTree
             return ("item is not a Wombgift", []);
 
         var state = LoadState(player);
-        if (!WombNodeBySubTree.TryGetValue(fruit.SubTree, out ushort wombGid) || !state.Allocated.Contains(wombGid))
-            return ($"matching womb node ({wombGid}) is not allocated on the Genesis Tree", []);
+        if (!WombNodeBySubTree.ContainsKey(fruit.SubTree))
+            return ($"no womb node configured for sub-tree {fruit.SubTree}", []);
 
         int level = ReadFruitLevel?.Invoke(invItem.Item) ?? invItem.Item.ItemLevel;
         int cost = RequiredHivebloodFor(fruit, level);
@@ -515,7 +518,7 @@ public static partial class BreachGenesisTree
     {
         int spent = 0;
         foreach (ushort gid in state.Allocated)
-            if (NodesByGraphId.TryGetValue(gid, out var node) && node.SubTree == subTree && !node.IsStart)
+            if (NodesByGraphId.TryGetValue(gid, out var node) && node.SubTree == subTree && !node.IsStart && !node.IsWomb)
                 spent++;
         return spent;
     }
@@ -545,8 +548,8 @@ public static partial class BreachGenesisTree
     {
         if (!NodesByGraphId.TryGetValue(graphId, out var node))
             return $"unknown Genesis Tree node {graphId}";
-        if (node.IsStart)
-            return "starting nodes are always allocated";
+        if (node.IsStart || node.IsWomb)
+            return "starting and womb nodes are always active";
 
         int[] earned = EarnedPointsBySubTree(player);
         int totalProgress = BreachHub.CountTurnedInBodyParts(player) + BreachHub.CountTurnedInFruitQuests(player);
@@ -570,6 +573,8 @@ public static partial class BreachGenesisTree
             var allocatedSet = state.Allocated.ToHashSet();
             if (StartNodeBySubTree.TryGetValue(node.SubTree, out ushort startRoot))
                 allocatedSet.Add(startRoot);
+            if (WombNodeBySubTree.TryGetValue(node.SubTree, out ushort wombRoot))
+                allocatedSet.Add(wombRoot);
 
             // Connectivity against ChayulaTreePassiveSkillGraph (graph "brequel") when extracted.
             if (Adjacency.Count > 0)
@@ -617,8 +622,8 @@ public static partial class BreachGenesisTree
     {
         if (!NodesByGraphId.TryGetValue(graphId, out var node))
             return $"unknown Genesis Tree node {graphId}";
-        if (node.IsStart)
-            return "cannot refund a starting node";
+        if (node.IsStart || node.IsWomb)
+            return "cannot refund a starting or womb node";
 
         string? refusal = null;
         bool changed = MutateState(player, state =>
@@ -634,15 +639,16 @@ public static partial class BreachGenesisTree
                 return false;
             }
 
-            // Verify every remaining allocated node in this sub-tree stays reachable from its implicit start root.
-            if (Adjacency.Count > 0 && StartNodeBySubTree.TryGetValue(node.SubTree, out ushort start))
+            // Verify every remaining allocated node in this sub-tree stays reachable from its implicit start/womb roots.
+            if (Adjacency.Count > 0)
             {
                 var remaining = state.Allocated
                     .Where(id => id != graphId && NodesByGraphId.TryGetValue(id, out var n) && n.SubTree == node.SubTree)
                     .ToHashSet();
                 var visited = new HashSet<ushort>();
                 var queue = new Queue<ushort>();
-                queue.Enqueue(start);
+                if (StartNodeBySubTree.TryGetValue(node.SubTree, out ushort start)) queue.Enqueue(start);
+                if (WombNodeBySubTree.TryGetValue(node.SubTree, out ushort womb)) queue.Enqueue(womb);
                 while (queue.Count > 0)
                 {
                     ushort cur = queue.Dequeue();
@@ -725,8 +731,8 @@ public static partial class BreachGenesisTree
         if (FindFruit(invItem.Item.TypeHash) is not { } fruit) return "item is not a Wombgift";
 
         var state = LoadState(player);
-        if (!WombNodeBySubTree.TryGetValue(fruit.SubTree, out ushort wombGid) || !state.Allocated.Contains(wombGid))
-            return "matching womb node is not allocated on the Genesis Tree";
+        if (!WombNodeBySubTree.ContainsKey(fruit.SubTree))
+            return "no womb node configured for this Wombgift";
         if (state.Slots.ContainsKey(fruit.SubTree))
             return "womb slot already contains a Wombgift";
 

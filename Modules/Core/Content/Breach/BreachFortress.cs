@@ -417,7 +417,8 @@ public sealed class BreachFortress
         await SetObjectStates(player, state.StabiliserId, StabiliserType, ("interaction_state", 1), ("bomb_defence", 1));
         if (Monsters.Find(ChayulaFarmerWildMonsterId) is { Supported: true } ailithVariety)
         {
-            uint aid = await SpawnMonster(player, ailithVariety, AreaLevel(player), MonsterRarity.Unique, state.AilithX, state.AilithY, alone: false);
+            uint aid = await SpawnMonster(player, ailithVariety, AreaLevel(player), MonsterRarity.Unique, state.AilithX, state.AilithY,
+                alone: false, friendly: true, scripted: true, owned: (_, m) => { m.NoRewards = true; m.EntranceGrace = true; });
             if (aid != 0)
             {
                 state.AilithId = aid;

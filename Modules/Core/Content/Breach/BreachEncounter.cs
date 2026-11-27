@@ -247,6 +247,7 @@ public sealed class BreachEncounter
         if (RulesetRow is not { } row || Initiator is not { } initiator) return "the client data has no Breach ruleset or Initiator";
         var (components, states, _) = initiator;
         var layout = player.Layout;
+        if (layout.Id is FortressAreaId or BossAreaId or MonasteryAreaId) return "Breach sub-area";
         if (!MapDevices.IsMapArea(layout.Hash)) return "not a map";
         if (layout.Walkable is null) return "no walk map";
         var (count, roll) = Count(area);

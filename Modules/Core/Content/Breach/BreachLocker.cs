@@ -34,21 +34,27 @@ public static class BreachLocker
     public const string WombgiftItemClass = "BrequelFruit";
 
     static HashSet<uint> AcceptedTypeHashes = [];
-    static int GridWidth = 24, GridHeight = 12;
+    static int GridXOffset = 12, GridWidth = 12, GridHeight = 12;
 
     /// <summary>Loads <c>BrequelLockerLayout</c> and <c>BrequelFruitTypes</c> from <c>client.db</c>.</summary>
     public static void LoadGameData()
     {
         var accepted = new HashSet<uint>();
         var acceptedClasses = new HashSet<int>();
+        int xOffset = 12, width = 12, height = 12;
 
         foreach (var row in ClientTables.TableOrEmpty("BrequelLockerLayout"))
         {
             if (row.IntOrNull("ItemClass") is int cls) acceptedClasses.Add(cls);
-            if (row.IntOrNull("__col1") is int w and > 0 && row.IntOrNull("__col2") is int h and > 0)
+            // BrequelLockerLayout row 0 ('Fruit'): __col1 = x offset (12), __col2 = width (12), __col3 = height (12)
+            // within the 24 × 12 BrequelStorage1 inventory (columns 0..11 were the removed Fleshgraft half).
+            if (row.IntOrNull("__col1") is int x0 and >= 0
+                && row.IntOrNull("__col2") is int w and > 0
+                && row.IntOrNull("__col3") is int h and > 0)
             {
-                GridWidth = Math.Max(w, 24);
-                GridHeight = Math.Max(h, 12);
+                xOffset = x0;
+                width = w;
+                height = h;
             }
         }
         if (acceptedClasses.Count == 0) acceptedClasses.Add(96);
@@ -69,12 +75,15 @@ public static class BreachLocker
 
         if (ClientTables.TableOrNull("Inventories") is { } invs && LockerRow < invs.Count)
         {
-            int w = invs[LockerRow].IntOrNull("Width") ?? 24;
-            int h = invs[LockerRow].IntOrNull("Height") ?? 12;
-            if (w > 0) GridWidth = w;
-            if (h > 0) GridHeight = h;
+            int invW = invs[LockerRow].IntOrNull("Width") ?? 24;
+            int invH = invs[LockerRow].IntOrNull("Height") ?? 12;
+            if (invW > 0 && xOffset + width > invW) xOffset = Math.Max(0, invW - width);
+            if (invH > 0 && height > invH) height = invH;
         }
 
+        GridXOffset = xOffset;
+        GridWidth = width;
+        GridHeight = height;
         AcceptedTypeHashes = accepted;
     }
 
@@ -177,9 +186,10 @@ public static class BreachLocker
 
     static (byte X, byte Y)? FreeLockerCell(PlayerInventories items, PlayerInventories.Shape shape)
     {
+        int xEnd = GridXOffset + GridWidth;
         var taken = items.Items(LockerRow).Select(i => (Item: i, Shape: ShapeOf(i.Item) ?? new(1, 1, WombgiftItemClass))).ToList();
         for (int y = 0; y + shape.Height <= GridHeight; y++)
-            for (int x = 0; x + shape.Width <= GridWidth; x++)
+            for (int x = GridXOffset; x + shape.Width <= xEnd; x++)
                 if (!taken.Any(t => t.Item.X < x + shape.Width && x < t.Item.X + t.Shape.Width
                     && t.Item.Y < y + shape.Height && y < t.Item.Y + t.Shape.Height))
                     return ((byte)x, (byte)y);

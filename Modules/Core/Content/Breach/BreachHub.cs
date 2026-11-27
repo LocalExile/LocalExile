@@ -92,6 +92,17 @@ public static class BreachHub
         PlayerInventories.Cursor,
     ];
 
+    sealed class HubAreaState
+    {
+        public uint TreeId;
+        public (int X, int Y) TreeAt;
+        public int TreeReach;
+        public uint LockerId;
+        public (int X, int Y) LockerAt;
+        public int LockerReach;
+        public readonly List<uint> BackDoorBlockerIds = [];
+    }
+
     sealed class HubState
     {
         public uint TreeId;
@@ -107,6 +118,7 @@ public static class BreachHub
 
     sealed class HideoutState { public uint LockerId; }
 
+    static readonly ConditionalWeakTable<GameArea, HubAreaState> HubAreas = new();
     static readonly ConditionalWeakTable<Player, HubState> States = new();
     static readonly ConditionalWeakTable<GameArea, HideoutState> HideoutLockers = new();
 
@@ -123,6 +135,7 @@ public static class BreachHub
     /// <summary>Clears cached weak-table state on hot-reload.</summary>
     public static void Clear()
     {
+        HubAreas.Clear();
         States.Clear();
         HideoutLockers.Clear();
     }
@@ -196,45 +209,56 @@ public static class BreachHub
         if (ensureLeagueFlags.Count > 0)
             await SetLeagueQuestFlags(player, ensureLeagueFlags);
 
+        var areaState = HubAreas.GetOrCreateValue(player.Area);
+        bool backDoorOpen = player.Character.LeagueQuestFlags.Contains(LqfTurnInBodyPart9);
+
+        // Spawn Monastery world objects once per GameArea instance so re-entering the same area does not duplicate them.
+        if (areaState.TreeId == 0 && areaState.LockerId == 0)
+        {
+            var roomObjects = player.Layout.Level?.RoomObjects ?? [];
+
+            // 1. Genesis Tree (TreeTree) at (402, 221).
+            var treeObj = roomObjects.FirstOrDefault(o => o.Type == TreeTreeType);
+            var (tx, ty, trot, tz, tmodel) = treeObj is not null
+                ? (treeObj.X, treeObj.Y, treeObj.Rotation, treeObj.Z, treeObj.Model)
+                : TreePlacement;
+            if (await SpawnObjectAsync(module, player, TreeTreeType, tx, ty, trot, tz, tmodel, TreeStates, "door_open", backDoorOpen ? 1 : 0) is { } tree)
+                (areaState.TreeId, areaState.TreeAt, areaState.TreeReach) = (tree.Id, (tx, ty), tree.Reach);
+
+            // 2. Wombgift Locker (GraftLocker) at (345, 257).
+            var lockerObj = roomObjects.FirstOrDefault(o => o.Type == BreachLocker.GraftLockerType);
+            var (lx, ly, lrot, lz, lmodel) = lockerObj is not null
+                ? (lockerObj.X, lockerObj.Y, lockerObj.Rotation, lockerObj.Z, lockerObj.Model)
+                : LockerPlacement;
+            if (await SpawnObjectAsync(module, player, BreachLocker.GraftLockerType, lx, ly, lrot, lz, lmodel, LockerStates, "open", 0) is { } locker)
+                (areaState.LockerId, areaState.LockerAt, areaState.LockerReach) = (locker.Id, (lx, ly), locker.Reach);
+
+            // 3. HubBackDoorBlocker (6 cells along y=279): client instantiates no_serialise=true from hub.arm and unblocks
+            //    with TurnInChayulaBodyPart9 (LQF 1609); mirror walk blockers on the server until LQF 1609 is set.
+            if (!backDoorOpen)
+            {
+                var blockerCells = roomObjects.Where(o => o.Type == HubBackDoorBlockerType).Select(o => (o.X, o.Y)).ToArray();
+                if (blockerCells.Length == 0) blockerCells = BackDoorBlockerCells;
+                foreach (var (bx, by) in blockerCells)
+                {
+                    uint bid = player.TakeObjectId();
+                    player.SetObjectBlocker(bid, bx, by, 5, false);
+                    areaState.BackDoorBlockerIds.Add(bid);
+                }
+            }
+        }
+
         var state = States.GetOrCreateValue(player);
-        state.TreeId = 0;
-        state.LockerId = 0;
+        state.TreeId = areaState.TreeId;
+        state.TreeAt = areaState.TreeAt;
+        state.TreeReach = areaState.TreeReach;
+        state.LockerId = areaState.LockerId;
+        state.LockerAt = areaState.LockerAt;
+        state.LockerReach = areaState.LockerReach;
         state.LockerOpen = false;
         state.IsHideoutLocker = false;
         state.BackDoorBlockerIds.Clear();
-
-        var roomObjects = player.Layout.Level?.RoomObjects ?? [];
-
-        // 1. Genesis Tree (TreeTree) at (402, 221).
-        bool backDoorOpen = player.Character.LeagueQuestFlags.Contains(LqfTurnInBodyPart9);
-        var treeObj = roomObjects.FirstOrDefault(o => o.Type == TreeTreeType);
-        var (tx, ty, trot, tz, tmodel) = treeObj is not null
-            ? (treeObj.X, treeObj.Y, treeObj.Rotation, treeObj.Z, treeObj.Model)
-            : TreePlacement;
-        if (await SpawnObjectAsync(module, player, TreeTreeType, tx, ty, trot, tz, tmodel, TreeStates, "door_open", backDoorOpen ? 1 : 0) is { } tree)
-            (state.TreeId, state.TreeAt, state.TreeReach) = (tree.Id, (tx, ty), tree.Reach);
-
-        // 2. Wombgift Locker (GraftLocker) at (345, 257).
-        var lockerObj = roomObjects.FirstOrDefault(o => o.Type == BreachLocker.GraftLockerType);
-        var (lx, ly, lrot, lz, lmodel) = lockerObj is not null
-            ? (lockerObj.X, lockerObj.Y, lockerObj.Rotation, lockerObj.Z, lockerObj.Model)
-            : LockerPlacement;
-        if (await SpawnObjectAsync(module, player, BreachLocker.GraftLockerType, lx, ly, lrot, lz, lmodel, LockerStates, "open", 0) is { } locker)
-            (state.LockerId, state.LockerAt, state.LockerReach) = (locker.Id, (lx, ly), locker.Reach);
-
-        // 3. HubBackDoorBlocker (6 cells along y=279): client instantiates no_serialise=true from hub.arm and unblocks
-        //    with TurnInChayulaBodyPart9 (LQF 1609); mirror walk blockers on the server until LQF 1609 is set.
-        if (!backDoorOpen)
-        {
-            var blockerCells = roomObjects.Where(o => o.Type == HubBackDoorBlockerType).Select(o => (o.X, o.Y)).ToArray();
-            if (blockerCells.Length == 0) blockerCells = BackDoorBlockerCells;
-            foreach (var (bx, by) in blockerCells)
-            {
-                uint bid = player.TakeObjectId();
-                player.SetObjectBlocker(bid, bx, by, 5, false);
-                state.BackDoorBlockerIds.Add(bid);
-            }
-        }
+        state.BackDoorBlockerIds.AddRange(areaState.BackDoorBlockerIds);
 
         await BreachGenesisTree.SyncStateAsync(player, "entered Monastery");
     }

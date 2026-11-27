@@ -54,8 +54,9 @@ public sealed class BreachModule : IModule
         // Map Unstable Breaches, Established Hives, Hive Fortresses, Wild/Pinnacle Bosses, Atlas & Scarabs.
         _world.Register(module);
 
-        // Hiveblood & Genesis Tree state on area entry, Monastery hub/quests, and Hideout Wombgift Locker.
-        GameEvents.EnterMessages.Add(id, player =>
+        // Hiveblood & Genesis Tree state MUST be sent BEFORE 0x0021 EnterArea so the client's
+        // BrequelSkillTreeCanvas::OnInstanceChanged finds BrequelTreePassives* already allocated.
+        GameEvents.BeforeEnterMessages.Add(id, player =>
         [
             BreachHiveblood.EnterMessage(player),
             BreachGenesisTree.EnterMessage(player),

@@ -423,20 +423,25 @@ public sealed class BreachBosses
         var tulSpot = runner.Layout.Near((state.ArenaX - 18, state.ArenaY + 14));
         var eshSpot = runner.Layout.Near((state.ArenaX + 18, state.ArenaY + 14));
 
-        if (Monsters.Find(FallenKnightId) is { Supported: true } tulVar)
+        // Adopt the area's existing boss_01.arm Tul & Esh if already populated so we never duplicate the dual bosses.
+        foreach (var (mid, m) in runner.Area.Monsters)
         {
+            if (m.Dead) continue;
+            if (state.TulId == 0 && m.Variety?.Id == FallenKnightId) state.TulId = mid;
+            else if (state.EshId == 0 && m.Variety?.Id == HandMageId) state.EshId = mid;
+        }
+
+        if (state.TulId == 0 && Monsters.Find(FallenKnightId) is { Supported: true } tulVar)
             state.TulId = await SpawnMonster(runner, tulVar, state.Level, MonsterRarity.Unique, tulSpot.X, tulSpot.Y,
                 alone: false, extraMods: extra);
-            if (state.TulId != 0)
-                await SetMonsterStates(runner, state.TulId, ("boss_life_bar", 1), ("global_first_aggro", 1), ("epk", 1));
-        }
-        if (Monsters.Find(HandMageId) is { Supported: true } eshVar)
-        {
+        if (state.TulId != 0)
+            await SetMonsterStates(runner, state.TulId, ("boss_life_bar", 1), ("global_first_aggro", 1), ("epk", 1));
+
+        if (state.EshId == 0 && Monsters.Find(HandMageId) is { Supported: true } eshVar)
             state.EshId = await SpawnMonster(runner, eshVar, state.Level, MonsterRarity.Unique, eshSpot.X, eshSpot.Y,
                 alone: false, extraMods: extra);
-            if (state.EshId != 0)
-                await SetMonsterStates(runner, state.EshId, ("boss_life_bar", 1), ("global_first_aggro", 1), ("epk", 1), ("music_state", 1));
-        }
+        if (state.EshId != 0)
+            await SetMonsterStates(runner, state.EshId, ("boss_life_bar", 1), ("global_first_aggro", 1), ("epk", 1), ("music_state", 1));
 
         foreach (var m in members)
             await PlayerOf(m).Tell("It That Was Tul and It That Was Esh descend upon the Hive Colony!");
@@ -461,17 +466,15 @@ public sealed class BreachBosses
         // Reveal Breachlord Bloodline Descension Altar
         await SetObjectStates(runner, state.DescensionAltarId, DescensionObjectType, ("visible", 1), ("enabled", 1));
 
-        // Spawn exit portal (BrequelPortalBoss / AreaTransition return to hideout)
-        state.ExitPortalId = runner.Instance.World.TakeObjectId();
-        foreach (var member in members)
-            await EnsureExitPortal(member, state);
-
-        // Award Pinnacle Hiveblood, guaranteed Wombgifts (including Ancient), and quest flags
+        // Award Pinnacle Hiveblood, guaranteed Wombgifts (including Ancient), and quest/league flags
+        // (set flags before spawning exit portal so UpdateShownTransitions never collides with it).
         var atlas = BreachAtlas.From(runner);
         var rng = AreaRng(runner);
         foreach (var member in members)
         {
             await SetQuestFlags(member, [DefeatedFlag]);
+            if (!member.Character.LeagueQuestFlags.Contains(BreachHub.LqfEshAndTulDefeated))
+                await SetLeagueQuestFlags(member, [BreachHub.LqfEshAndTulDefeated]);
             await GiveHiveblood(member, atlas.ScaleHiveblood(member, 500));
             if (MakeWombgift(member, AncientWombgift, state.Level, rng) is { } ancient)
                 await DropGroundItem(member, (state.ArenaX, state.ArenaY), ancient, "Hive Colony Ancient Wombgift");
@@ -485,6 +488,12 @@ public sealed class BreachBosses
                 await DropGroundItem(member, (state.ArenaX, state.ArenaY + 6), bodyPart, "Hive Colony quest body part");
             await PlayerOf(member).Tell("It That Was Tul and It That Was Esh have been defeated! The Breachlord Altar and Exit Portal have appeared.");
         }
+
+        // Spawn exit portal (BrequelPortalBoss / AreaTransition return to hideout)
+        state.ExitPortalId = runner.Instance.World.TakeObjectId();
+        foreach (var member in members)
+            await EnsureExitPortal(member, state);
+
         Console.WriteLine($"[breach] Hive Colony pinnacle encounter defeated!");
     }
 
@@ -496,8 +505,6 @@ public sealed class BreachBosses
             ?? player.Layout.Hash;
         var (ax, ay) = player.Layout.Near((state.ArenaX, state.ArenaY - 16));
         var gate = new AreaTransitionObject(ax, ay, dest, "Metadata/Terrain/Leagues/Breach/Doodads/EntranceBeanStalk01.ao") { Kind = 3 };
-        if (!player.Layout.AreaTransitions.Any(t => t.Id == state.ExitPortalId))
-            player.AddAreaTransition(state.ExitPortalId, gate);
         if (!player.Area.Objects.Has(state.ExitPortalId))
             await SendWorldCreate(player, state.ExitPortalId,
                 () => InstanceEntities.CreateObject(state.ExitPortalId, InstanceEntities.ObjectTypeHash(AreaTransitionObject.MetadataPath), gate.Blob()),
