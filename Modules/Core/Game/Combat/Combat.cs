@@ -3478,7 +3478,8 @@ public static partial class Game
             }
             if (stormPeriod is double interval && strikeIndex == 0)
                 CreateBladestormLocked(player, gem, admittedGem, hand, weapon, offCritical, from, to, interval,
-                    sequence, now, radiusMore, damageMore, ruthless, repeat, cryExerted);
+                    sequence, now, radiusMore * chargeRadius, damageMore * hitAndAilmentMore, ruthless, cryExerted,
+                    rallyingDamage);
             if (swordstorm && retainedAttack is null)
             {
                 ScheduleSwordstormLocked(player, gem, admittedGem, weapon, criticalRoll, to, sequence, now, radius, damageMore, ruthless);

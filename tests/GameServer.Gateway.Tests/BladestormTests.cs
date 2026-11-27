@@ -145,6 +145,93 @@ public sealed class BladestormTests
         }
     }
 
+    [Fact]
+    public async Task Bladestorm_projects_stance_stat_scales_sandstorm_area_and_forwards_exertion_to_storms()
+    {
+        // Native Bladestorm sandstorm AoE modifier (0x14274e883): only applies when affected_by_sandstorm != 0.
+        Assert.Equal(1.0, SkillArea.Modifier(k => k == Stat.BladestormAreaOfEffectPlusPctFinalWhileInSandstorm ? 25 : 0, spell: false), 6);
+        Assert.Equal(1.25, SkillArea.Modifier(k => k == Stat.BladestormAreaOfEffectPlusPctFinalWhileInSandstorm ? 25
+            : k == Stat.AffectedBySandstorm ? 1 : 0, spell: false), 6);
+
+        var clock = new ViperStrikeMambaTests.AttackClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        EquipWeapon(fixture, clock.At);
+        using var sources = GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
+        {
+            if (!ReferenceEquals(owner, player)) return stats;
+            stats[Stat.GlobalAlwaysHit] = 1;
+            stats[Stat.GlobalCannotCrit] = 1;
+            stats[Stat.AttackMinimumAddedPhysicalDamage] = stats[Stat.AttackMaximumAddedPhysicalDamage] = 200;
+            return stats;
+        });
+        fixture.Equip(("Bladestorm", 1), ("Overexertion Support", 1), ("Rallying Cry", 1));
+        var effects = Game.GemSkillEffects(player);
+        ushort skill = effects.Single(g => g.Name == "Bladestorm").Id;
+        ushort cry = effects.Single(g => g.Name == "Rallying Cry").Id;
+
+        // Bladestorm projects in_sand_stance onto its skill stats for the native action (0x141b5ea30).
+        player.Stance = StanceCatalog.BloodSelection;
+        var bloodSkill = Game.PlayerSkills(player).Single(s => s.Id == skill);
+        Assert.NotNull(bloodSkill.Stats);
+        Assert.Equal(0, bloodSkill.Stats.Single(s => s.Key == Stat.InSandStance).Value);
+        player.Stance = StanceCatalog.SandSelection;
+        var sandSkill = Game.PlayerSkills(player).Single(s => s.Id == skill);
+        Assert.NotNull(sandSkill.Stats);
+        Assert.Equal(1, sandSkill.Stats.Single(s => s.Key == Stat.InSandStance).Value);
+        player.Stance = StanceCatalog.BloodSelection;
+
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            double period = Game.SupportedAttackSeconds(player, skill);
+            var initialTarget = AddTarget(910, (112, 100));
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (112, 100)));
+            uint plainSpin = initialTarget.MaxLife - initialTarget.Life;
+            Assert.True(plainSpin > 0);
+            player.Area.Monsters.Remove(910);
+
+            var plainStormTarget = AddTarget(911, (108, 100));
+            Step(period + 0.05);
+            uint plainPulse = plainStormTarget.MaxLife - plainStormTarget.Life;
+            Assert.True(plainPulse > 0);
+            player.Area.Monsters.Remove(911);
+            Step(4.0);
+
+            // Exert with Rallying Cry (2 allies -> +10% more) + Overexertion Support (+18% more) = ~1.298x on both spin and storm.
+            Game.GrantRallyingCryExertsLocked(player, Game.SupportedSkill(player, cry).Stats,
+                new Dictionary<uint, int>(), affectedAllies: 2);
+            var exertedSpinTarget = AddTarget(912, (112, 100));
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (112, 100)));
+            uint exertedSpin = exertedSpinTarget.MaxLife - exertedSpinTarget.Life;
+            player.Area.Monsters.Remove(912);
+
+            var exertedStormTarget = AddTarget(913, (108, 100));
+            Step(period + 0.05);
+            uint exertedPulse = exertedStormTarget.MaxLife - exertedStormTarget.Life;
+            Assert.InRange(exertedSpin / (double)plainSpin, 1.28, 1.32);
+            Assert.InRange(exertedPulse / (double)plainPulse, 1.28, 1.32);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+
+        SpawnedMonster AddTarget(uint id, (int X, int Y) at)
+        {
+            var monster = new SpawnedMonster("bladestorm witness", new(at.X, at.Y, 0), 0, 0, 1_000_000)
+                { ObjectId = id, Hostile = true, NoRewards = true };
+            player.Area.Monsters[id] = monster;
+            player.Area.Grid.Set(new(id), at);
+            return monster;
+        }
+
+        void Step(double seconds)
+        {
+            clock.At += seconds;
+            fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+        }
+    }
+
     static uint EquipWeapon(TriggeredSummonTests.Fixture fixture, double now)
     {
         var player = fixture.Player;

@@ -494,6 +494,11 @@ public static partial class Game
                 stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
                 stats[Stat.InSandStance] = player.Stance == StanceCatalog.SandSelection ? 1 : 0;
             }
+            else if (IsBladestorm(effectId))
+            {
+                // Bladestorm's native action (0x141b5ea30) reads in_sand_stance directly from the skill stats to pick Sand vs Blood spin visuals.
+                stats[Stat.InSandStance] = player.Stance == StanceCatalog.SandSelection ? 1 : 0;
+            }
             bool perforate = skills.ActionHash(effect) == PerforateAction;
             if (perforate) PublishPerforateStats(player, skills, effect, stats);
             if (gatheringLightning)
