@@ -85,18 +85,61 @@ sealed partial class VendorRecipes
         public int Left = placement.Item.StackSize;
     }
 
-    public Quote Evaluate(IEnumerable<InventoryItem> offered, Random random, double? basicSaleMultiplier = null)
+    public Quote Evaluate(IEnumerable<InventoryItem> offered, Random random, double? basicSaleMultiplier = null, Player? player = null)
     {
-        if (basicSaleMultiplier is { } multiplier) return BasicSale(offered, multiplier);
+        var ordered = offered.OrderBy(x => x.Id).ToList();
+        if (ordered.Select(i => i.Id).Distinct().Count() != ordered.Count) throw new ArgumentException("Duplicate vendor ingredient id");
+
+        List<Item>? customRewards = null;
+        List<string>? customRecipes = null;
+        HashSet<uint>? customUsedCurrency = null;
+        if (player is not null && GameEvents.VendorRecipe.Any)
+        {
+            var context = new VendorRecipeContext(player, ordered, _catalog, random);
+            GameEvents.RunVendorRecipes(context);
+            if (context.Rewards.Count > 0 || context.Recipes.Count > 0)
+            {
+                customRewards = [.. context.Rewards];
+                customRecipes = [.. context.Recipes];
+            }
+            var remaining = new List<InventoryItem>(ordered.Count);
+            foreach (var entry in ordered)
+            {
+                int left = context.Remaining(entry.Id);
+                if (left <= 0) continue;
+                if (left < entry.Item.StackSize && _catalog.ByHash(entry.Item.TypeHash)?.Class == "StackableCurrency")
+                    (customUsedCurrency ??= []).Add(entry.Item.TypeHash);
+                remaining.Add(left == entry.Item.StackSize ? entry : entry with { Item = entry.Item with { StackSize = (ushort)left } });
+            }
+            ordered = remaining;
+        }
+
+        if (basicSaleMultiplier is { } multiplier)
+        {
+            if (customUsedCurrency is not null)
+            {
+                var forBasic = new List<InventoryItem>(ordered.Count);
+                foreach (var entry in ordered)
+                {
+                    if (customUsedCurrency.Contains(entry.Item.TypeHash))
+                        (customRewards ??= []).Add(entry.Item);
+                    else
+                        forBasic.Add(entry);
+                }
+                ordered = forBasic;
+            }
+            var basic = BasicSale(ordered, multiplier);
+            if (customRewards is null && customRecipes is null) return basic;
+            return new([.. (customRewards ?? []), .. basic.Rewards], [.. (customRecipes ?? []), .. basic.Recipes]);
+        }
         var rng = random;
-        var pool = offered.OrderBy(x => x.Id).Select(i => new Ingredient(i, Type(i.Item))).ToList();
-        if (pool.Select(i => i.Id).Distinct().Count() != pool.Count) throw new ArgumentException("Duplicate vendor ingredient id");
+        var pool = ordered.Select(i => new Ingredient(i, Type(i.Item))).ToList();
         if (pool.Any(i => i.Item.Mods.Any(m => (_sellTypes.GetValueOrDefault(m.Hash) ?? []).Any(t => t >= 9 && t != 34))))
             throw new NotSupportedException("This item's special vendor recipe is not implemented yet. Nothing has been sold.");
-        var rewards = new List<Item>();
-        var recipes = new List<string>();
+        var rewards = customRewards ?? new List<Item>();
+        var recipes = customRecipes ?? new List<string>();
         var currency = new Dictionary<uint, int>();
-        var usedCurrency = new HashSet<uint>();
+        var usedCurrency = customUsedCurrency ?? new HashSet<uint>();
         void Money(string name, int count = 1)
         {
             var type = Exact(name) ?? throw new InvalidOperationException($"Vendor reward missing: {name}");

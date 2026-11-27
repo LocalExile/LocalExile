@@ -18,8 +18,9 @@ public sealed class MapDevice
         CampaignMapItem = "Metadata/Items/QuestItems/Act7/MaligaroMap";
     public static readonly uint CampaignMapHash = InstanceEntities.ObjectTypeHash(CampaignMapItem);
 
-    public static bool AcceptsItem(uint typeHash, string itemClass) =>
-        typeHash == CampaignMapHash || IsRecipeItem(typeHash) || AcceptsClass(itemClass);
+    public static bool AcceptsItem(uint typeHash, string itemClass, Player? player = null) =>
+        typeHash == CampaignMapHash || IsRecipeItem(typeHash) || AcceptsClass(itemClass)
+        || GameEvents.AllowsMapDeviceItem(player, typeHash, itemClass);
 
     /// <summary>ItemClasses Ids the slots take.</summary>
     public const string MapClass = "Map", MapKeyClass = "MapKey", FragmentClass = "MapFragment",
@@ -236,6 +237,9 @@ public sealed class MapDevice
         /// <summary>The item's name words (Words HASH32): a unique map's name, which picks its legendary area.</summary>
         public IReadOnlyList<uint> NameWords { get; init; } = [];
 
+        /// <summary>The full source item in the Map Device slot when available (for custom item components).</summary>
+        public Item? SourceItem { get; init; }
+
         public bool IsMap =>
             Class is MapClass or MapKeyClass
             || Components is { } c && (c.Contains("Map") || c.Contains("MapKey"));
@@ -250,6 +254,9 @@ public sealed class MapDevice
 
         /// <summary>Pantheon soul to capture when a Divine Vessel was placed with a matching map.</summary>
         public PantheonCatalog.Soul? PantheonSoul { get; init; }
+
+        /// <summary>Optional serializable module metadata attached during <c>GameEvents.MapOpening</c> and forwarded to the opened map run.</summary>
+        public IReadOnlyDictionary<string, string>? ContentData { get; init; }
     }
 
     /// <summary>
@@ -259,7 +266,7 @@ public sealed class MapDevice
     /// </summary>
     public Opening? Check(IReadOnlyList<Slot> slots, out string why) => Check(slots, null, null, out why);
 
-    public Opening? Check(IReadOnlyList<Slot> slots, string? character, ModCatalog? mods, out string why, bool campaign = false)
+    public Opening? Check(IReadOnlyList<Slot> slots, string? character, ModCatalog? mods, out string why, bool campaign = false, Player? player = null)
     {
         why = "";
         if (campaign)
@@ -285,7 +292,7 @@ public sealed class MapDevice
             && AreaOfWorld(earlyRecipe) is { } earlyArea)
             return new Opening(earlyArea, mods is null ? MapMods.None : _runs.OfRecipe(earlyRecipe, mods),
                 slots.Count > 0 ? slots[0].BaseRow : 0);
-        if (slots.FirstOrDefault(s => !AcceptsClass(s.Class) && !s.IsMap && s.Class.Length > 0) is { Class: not null } wrong)
+        if (slots.FirstOrDefault(s => !AcceptsClass(s.Class) && !s.IsMap && s.Class.Length > 0 && !AcceptsItem(s.TypeHash, s.Class, player)) is { Class: not null } wrong)
         {
             why = $"{wrong.Name} cannot be used in the Map Device: only maps and map fragments can.";
             return null;
@@ -383,6 +390,9 @@ public sealed class MapDevice
 
         /// <summary>Pantheon soul bound to this map run when opened with a Divine Vessel.</summary>
         public PantheonCatalog.Soul? PantheonSoul { get; init; }
+
+        /// <summary>Module metadata forwarded from the map device opening.</summary>
+        public IReadOnlyDictionary<string, string>? ContentData { get; init; }
     }
 
     public sealed record Origin(ushort Area, ulong Instance, int X, int Y);
@@ -397,6 +407,7 @@ public sealed class MapDevice
             Atlas = map.Area.UsesAtlas,
             BossOption = map.BossOption,
             PantheonSoul = map.PantheonSoul,
+            ContentData = map.ContentData,
         };
 
         /// <summary>The run is an Atlas map: the atlas tree, the tier block and the device stats apply. False for a run a
@@ -408,6 +419,9 @@ public sealed class MapDevice
 
         /// <summary>Pantheon soul bound to this map run when opened with a Divine Vessel.</summary>
         public PantheonCatalog.Soul? PantheonSoul { get; init; }
+
+        /// <summary>Module metadata forwarded from the map device opening.</summary>
+        public IReadOnlyDictionary<string, string>? ContentData { get; init; }
     }
 
     /// <summary>The map a transfer's ticket opens its instance with (<see cref="PendingTransfer.Map"/>), until that
@@ -441,7 +455,8 @@ public sealed class MapDevice
 
     /// <summary>Opens a map with the requested number of portal places, up to the device's capacity.</summary>
     public static OpenMap Activate(string character, MapArea area, MapMods? mods, int itemRow, Origin? returnTo,
-        Origin? entrance, byte bossOption, PantheonCatalog.Soul? pantheonSoul, int portalCount)
+        Origin? entrance, byte bossOption, PantheonCatalog.Soul? pantheonSoul, int portalCount,
+        IReadOnlyDictionary<string, string>? contentData = null)
     {
         lock (Open)
         {
@@ -451,7 +466,7 @@ public sealed class MapDevice
                     Open.TryRemove(other);
             return Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, Math.Clamp(portalCount, 1, PortalCount))],
                 mods ?? MapMods.None, itemRow)
-                { Owner = character, ReturnTo = returnTo, Entrance = entrance, BossOption = bossOption, PantheonSoul = pantheonSoul };
+                { Owner = character, ReturnTo = returnTo, Entrance = entrance, BossOption = bossOption, PantheonSoul = pantheonSoul, ContentData = contentData };
         }
     }
 

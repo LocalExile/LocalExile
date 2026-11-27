@@ -75,6 +75,30 @@ public class InstanceItemsTests
     }
 
     [Fact]
+    public void A_custom_name_sets_bit_7_takes_precedence_over_name_words_and_requires_identification()
+    {
+        var rare = new Item(1, ["Mods"], 0)
+        {
+            Rarity = ItemRarity.Rare, CustomName = "Ab", NameWords = [0x11223344], Mods = [new(ModSection.Explicit, 0x1234, [3])],
+        };
+        Assert.Equal("01000000" + "0000" + "01" + "00" + "0000" +
+            "AA00" + "00" +                                // rare | identified | bit 5 | bit 7 (0x80), bit 8 (0x100) cleared
+            "02000000" + "41006200" +                      // WStr32("Ab") before explicit mods
+            "01" + "3412" + "03" + "00" + "00",
+            Convert.ToHexString(rare.Payload()));
+
+        var normal = new Item(1, ["Mods"], 0) { Rarity = ItemRarity.Normal, CustomName = "Ab" };
+        Assert.Equal("01000000" + "0000" + "01" + "00" + "0000" +
+            "8800" + "00" +                                // normal | identified | bit 7 (0x80)
+            "02000000" + "41006200" + "00" + "00",
+            Convert.ToHexString(normal.Payload()));
+
+        var unid = rare with { Identified = false };
+        Assert.Equal("01000000" + "0000" + "01" + "00" + "0000" + "0200" + "00" + "00" + "00",
+            Convert.ToHexString(unid.Payload()));
+    }
+
+    [Fact]
     public void Use_item_on_item_reads_both_items_big_endian()
     {
         // Live 2026-10-20: a Scroll of Wisdom (stash-range id 0x40000018) on an unidentified ring (187), both in the main inventory.

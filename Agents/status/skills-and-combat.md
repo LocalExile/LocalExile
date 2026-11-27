@@ -78,6 +78,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Cursed and ignited kill effects use the accepted hit and corpse state. Retained hexes support Asenath's corpse effects.
   Witchbane grants its timed immunity on player kills, and minion curse explosions use the killing minion's damage.
 - Hex Master and Defiled Forces govern curse duration and ailment refresh. Firestorm schedules timed hits.
+- Monster Temporal Chains uses the curse's buff row and action-speed cap. The strongest timed or held source supplies the
+  curse's effects, and walk speed follows stat publication on application and removal.
 - Linked spells resolve offline. See [linked spells](../docs/protocol/25-gem-supports.md#native-linked-spell-payloads).
 - Mark Mastery blinds around the live marked enemy in offline tests, using the server's 35-cell nearby blind reach.
 - Weapon-local Bloodseeker instant Life leech, Elder life gained against blinded enemies and culling against bleeding
@@ -197,6 +199,17 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Vaal souls (#308), Vaal Ground Slam's radial wave, Vaal Fireball, Vaal Spark and Vaal Discipline (allied recharge).
   Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
+- Tectonic Slam uses a forward fissure with seeded branches.
+  Contacts advance along each branch and one use can contact each target once.
+- Sunder and its variants time their wave segments and victim shockwaves.
+  Earthbreaking keeps overlapping uses, and Trarthus can redirect at enemies and terrain.
+- Ice Crash lands in three timed circles with one contact per enemy.
+  Cadence uses the swinging hand's radius and requires two compatible weapons.
+- Consecrated Path and its Endurance variant select a target near the aim, land at contact, and create timed ground.
+- Earthshatter and both variants resolve travelling fissures and spikes triggered by slams, warcries or the timer.
+- Perforate resolves repeated Blood spikes and single-hit Sand rays.
+  Duality adds spikes for four seconds after a stance change.
+  Bloodshed always uses its slower, wider Blood sequence.
 - Ground Slam's forward wave scales with area and gains more damage near the player.
   Area attacks publish their final radius.
   Volcanic Fissure hits along its path and launches landing projectiles at the end.
@@ -209,6 +222,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   needs an axe and sword pair and adds reach at its Rage thresholds.
 - Shield Crush and Shield Crush of the Chieftain use their three ShieldBash wave events. Each enemy can be selected by
   the centre wave and one side wave. Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Purifying Flame variants hit along their path and at the impact, create Consecrated Ground and only hit fresh targets
+  on Consecrated Ground with the shockwave. Self, triggered, totem, trap and mine casts share the same targeting rules.
+- Wave of Conviction resolves a travelling cone with the strongest elemental Exposure. Trarthus contacts once on each
+  leg of the ring. Each caster's new wave replaces its previous one.
+- Crackling Lance resolves its beam geometry, native Intensity, proxy casts, and Disintegration Shock cap.
+- Manabond resolves its mana-based cross and base Lightning Damage on direct, triggered, and placed casts.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.
   Docs: [11](../docs/protocol/11-skills.md), "Hit effects".
 - Seismic, Ancestral, Infernal and Battlemage's Cry grant their timed buffs to the caster and nearby allies.
@@ -216,6 +235,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   to a target with no active poisons. Unnatural Strength grants minions conversion and Wither on hit.
 - Intimidating Cry applies War Bringer's exertion count and carries the spent exertion
   to the attack's melee and projectile hits for Overexertion. Docs: [11](../docs/protocol/11-skills.md) Â§10i.
+- Seismic Cry gives six melee slams more area after release, independently of the timed armour buff (predictive and lockstep).
+- Ancestral Cry gives eight melee strikes two additional targets after release, independently of the resistance buff (predictive and lockstep).
 - Strike targeting: spirit strikes and the previous location. Frost Blades and Lightning Strike resolve their extra
   melee contacts and projectile volleys. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
 - Passive enemy auras. Docs: [11](../docs/protocol/11-skills.md) Â§10e.
@@ -311,10 +332,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns (a guard skill cast from the bar as well as one a trigger releases),
   opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear
-  landings across terrain gaps, monster-blocker landing slide, and same-frame `0x02bc` cooldown refreshes queued behind
-  `0x01ce` so predictive clients execute the blink (verified live). `Frostblink of Wintry Blast` (`FrostblinkAltX`)
-  teleports at cast contact with 32/42-cell IceDash clamping, hits both ends at 20 base radius without chilled ground,
-  scales hit damage per 5% target chill and removes chill on hit (verified live). A guard's bar entry is held at the
+  landings across terrain gaps, walk-only door crossing (prison grates via layer-1 sight barriers) while stopping before
+  solid walls and projectile-blocking doors with the 5-cell minimum displacement check, Flame Dash 25/60-cell sight-line
+  and fallback clamping, pre-cooldown admission, and burning-ground segment DoT, sight-aware movement landing fallback,
+  monster-blocker landing slide, and same-frame `0x02bc` cooldown refreshes queued behind `0x01ce` so predictive clients
+  execute the blink (verified live). `Frostblink of Wintry Blast` (`FrostblinkAltX`) teleports at cast contact with
+  32/42-cell IceDash clamping, hits both ends at 20 base radius without chilled ground, scales hit damage per 5% target
+  chill and removes chill on hit (verified live). A guard's bar entry is held at the
   skill's own cooldown with a zero recovery rate while its buff runs and counts at the character's recovery after it, as
   the official client shows. The held entry is published before the instant action so the client skips its press
   prediction, and a stat-only skill refresh (a guard or self buff starting/ending) no longer rebuilds the skill bar; a
@@ -349,6 +373,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Invention scales trap and mine damage by their age at the trigger.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Bladefall places timed volleys and eligible lingering blades for supported mine, totem and triggered casts.
+- Blade Blast chains through up to 50 landed blades across direct, triggered and proxy casts, honoring blade retention.
+- Blade Blast of Unloading consumes up to ten orbiting blades in a sequence of expanding blasts.
+- Blade Blast of Dagger Detonation adds eligible weapon damage to its nova, including on spell totems.
+- Blade Vortex stacks individually timed blades on the caster, scales its pulse with the blade count, and supports
+  repeats, triggered casts, and spell totems.
+- Vaal Blade Vortex pursues nearby enemies and hits periodically from direct casts and paid spell totems.
+- Ball Lightning of Static places a finite stationary orb for self-casts, damage triggers and mines.
 - Ball Lightning applies repeated bolts with one hit interval per target and release. Orbiting steers one orb along
   a widening spiral, checks clearance at each grid step and shares the client's seeded launch speed for hand casts.
   Static places a finite orb for self-casts, damage triggers and mines and uses the same hit interval.
@@ -412,6 +443,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   ground effects.
   Docs: [11](../docs/protocol/11-skills.md) Â§10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) Â§12.
+- [World effect rules](../docs/dev/combat-effect-rules.md) drive Onslaught and basic percentage-based charge gains on kill and their shield, dual-wield, frozen-enemy and poison-count variants, item-granted marks on hit and Svalinn's socketed spell on block. Player and hostile monster skill hits share the Frenzy and Power charge rules. The separate Power-on-hit roll is player-only. Ice Bite uses the same frozen-kill rule for a player and a supported minion; the killer gains the Frenzy Charge.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) Â§8a.
 - Rampage and Soul Eater from item stats, with Soul Ascension's souls from hits on rare and unique enemies.
   Docs: [11](../docs/protocol/11-skills.md) Â§12.
@@ -451,7 +483,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md), "Cyclone area updates".
 - Player-cast Blade Flurry and Blade Flurry of Incision with aimed acquisition, paid stages, and release strikes.
   Docs: [11](../docs/protocol/11-skills.md#blade-flurry).
-- Charged Dash and its Projection variant steer a projection, hit along its path and release a scaled final wave.
+- Both Charged Dash gems channel in place, hit along the steered path and release a final wave. Only the base gem teleports.
   The normal gem moves to a legal landing; the Projection variant stays in place.
   Docs: [11](../docs/protocol/11-skills.md#charged-dash-projection-and-release).
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.
@@ -464,7 +496,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Base Penance Brand and Brand Recall were exercised against Amarissa in Predictive and Lockstep on the
   3.29.3d DX12 client. Conduction currently spreads only from its attached monster to two nearby targets.
   Arcanist Brand requires a supported trigger executor for each linked spell.
+  Recalling a brand supported by Foulgrasp creates hands that detonate once when an enemy enters range.
   Docs: [11](../docs/protocol/11-skills.md).
+- Prismatic Burst triggers on a supported player attack hit and rolls one element using squared attributes and Combat Focus.
+- Enemy hits trigger Avenging Flame on supported totems, scaling fire damage with the totem's maximum life.
+- Sacred Wisps take their lifetime from the linked summon skill and preserve their shared limit when switching attacks.
 - Snipe (`channelled_snipe` gem and Assailum) stage channelling (`snipe_stacks` 1494) and staged bow attack release,
   and General's Cry (`generals_cry` + variants) corpse selection and non-blocking Mirage Warrior melee execution
   (not checked live). Docs: [11](../docs/protocol/11-skills.md).

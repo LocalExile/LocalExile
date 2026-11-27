@@ -24,6 +24,7 @@ public static partial class Game
     {
         internal IReadOnlyList<GemSupports.Applied> LivingLightningSupports { get; init; } = [];
         internal GameServer.Core.World.DamageType? WildStrikeFollowupElement { get; init; }
+        internal GameServer.Core.World.DamageType? PrismaticBurstElement { get; init; }
     }
 
     public sealed record PlayerSkillSource(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem,
@@ -52,12 +53,17 @@ public static partial class Game
         IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null)
     {
         equipment ??= ItemsOf(player).EquipmentSnapshot();
-        return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && (g.ManuallyCast || g.EffectId is SpiritBurstEffect or GuardianWeaponEffect || TriggeredItemMinion(g) is not null)
+        return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && (g.ManuallyCast
+                || g.EffectId is SpiritBurstEffect or GuardianWeaponEffect or FoulgraspEffect or PrismaticBurstEffect
+                    or AvengingFlameEffect or SummonSacredWispEffect
+                || TriggeredItemMinion(g) is not null)
             && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId)
-            && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
+            && (ItemEffectRules.Enabled && ItemEffectRules.Current.Marks(SkillsFor(player), g).Length != 0
+                || g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
                 || SkillsFor(player).IsWarcry(g.Effect)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
-                || g.EffectId is SnipeEffect or SpiritBurstEffect or "DoryanisTouch" or ApproachingFlamesEffect
+                || g.EffectId is SnipeEffect or SpiritBurstEffect or FoulgraspEffect or PrismaticBurstEffect
+                    or AvengingFlameEffect or SummonSacredWispEffect or "DoryanisTouch" or ApproachingFlamesEffect
                     or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink" or CallOfSteelEffect
                     or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry" or GuardianWeaponEffect
                 || TriggeredItemMinion(g) is not null
@@ -362,6 +368,25 @@ public static partial class Game
             Console.WriteLine($"[gateway] {CharacterName(player)}: off-hand {offhand.Id} supports main-hand skill {skillId}: {(summary.Length > 0 ? summary : "none")}");
         }
         return result;
+    }
+
+    internal static PlayerSkillSource? SupportCompanionSourceLocked(Player player, SupportedGem parent,
+        GemSupports.Applied support, string effectId, string hungryLoopSupport)
+    {
+        uint host = parent.WornGrant?.Host ?? parent.Host;
+        int socket = support.Gem.Socket;
+        if (socket >= OffhandSocketBase)
+        {
+            var offhand = ItemsOf(player).EquipmentSnapshot().FirstOrDefault(item => item.Row == PlayerInventories.Offhand1).Item;
+            if (offhand is null) return null;
+            host = offhand.Id;
+            socket -= OffhandSocketBase;
+        }
+        var skills = SkillsFor(player);
+        return PlayerSkillSourcesLocked(player).FirstOrDefault(source => source.Active && source.Identity.Host == host
+            && skills.EffectId(source.Effect) == effectId
+            && (source.Identity.Socket == socket
+                || source.WornGrant?.ModId == hungryLoopSupport && source.Level == support.Gem.Level));
     }
 
     static bool HasModStat(Player player, Item item, uint stat) =>
@@ -909,8 +934,15 @@ public static partial class Game
             else { types.Remove(2); types.Remove(7); }
         }
         var plan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
+        if (totem && projectileTotemLife is uint totemLife && plan.Kind == SkillHitKind.Spell
+            && gem.Stats.GetValueOrDefault(Stat.InfernalBoltBaseFireDamagePctMaximumLife) is > 0 and var firePercent)
+        {
+            double fire = totemLife * (double)firePercent / 100;
+            plan = plan with { SpellBase = plan.SpellBase.Add(DamageType.Fire, new(fire, fire)) };
+        }
         if (plan.Kind == SkillHitKind.Spell
-            && gem.Stats.GetValueOrDefault(Stat.ManaVoidGainPctMissingUnreservedManaAsBaseLightningDamage) is > 0 and var manaDamage)
+            && gem.Stats.GetValueOrDefault(Stat.ManaVoidGainPctMissingUnreservedManaAsBaseLightningDamage) is > 0 and var manaDamage
+            && !totem && gem.Stats.GetValueOrDefault(Stat.IsTotem) == 0 && !placed.Trap && !placed.Mine)
         {
             long missing = Math.Max(0, (long)UnreservedMana(player) - player.PlayerMana);
             double lightning = Math.Floor(missing * (double)manaDamage / 100);
@@ -1014,6 +1046,8 @@ public static partial class Game
         // Elemental Overload's per-skill window (see WithElementalOverload): this skill's hits and ailments, including a
         // totem's or a trap's use of it, gain the bonus while its own eight-second crit window is open.
         if (HasElementalOverload(stats)) AddElementalOverload(player, SkillsFor(player).EffectId(gem.Effect), stats);
+        if (gem.PrismaticBurstElement is { } burstElement)
+            raw = DamagePacket.Empty.Add(burstElement, raw[burstElement]);
         Func<uint, int> hitStats = attackWeapon is null || secondary ? Get : SupportedAttackDamage.HitModifiers(attackWeapon, Get, attackAccuracy);
         var conversion = DamageStats.Conversion(stats, Stats, secondary ? null : attack);
         if (attackWeapon is not null && !secondary)
@@ -1116,7 +1150,7 @@ public static partial class Game
     {
         var gem = SupportedSkill(player, skillId);
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
-        if (!hitPlan.CanHit) return 0;
+        if (!hitPlan.CanHit && gem.Stats.GetValueOrDefault(Stat.InfernalBoltBaseFireDamagePctMaximumLife) <= 0) return 0;
         // Inspiration: "Supported Skills have (6-11)% increased Critical Strike Chance per Inspiration Charge".
         if (player.SupportGems.InspirationCharges > 0
             && Stat.CriticalStrikeChancePlusPctPerRighteousCharge is var chargeCrit)

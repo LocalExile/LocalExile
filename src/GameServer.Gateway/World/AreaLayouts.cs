@@ -378,11 +378,11 @@ public static class AreaLayouts
             if (i >= w && dist[i - w] > next) { dist[i - w] = next; queue[tail++] = i - w; }
         }
         bool hasFeatures = featureAreas is { Count: > 0 };
-        bool InFeature(int x, int y)
+        static bool InFeature(IReadOnlyList<(int X0, int Y0, int X1, int Y1)> areas, int x, int y)
         {
-            for (int j = 0; j < featureAreas!.Count; j++)
+            for (int j = 0; j < areas.Count; j++)
             {
-                var (x0, y0, x1, y1) = featureAreas[j];
+                var (x0, y0, x1, y1) = areas[j];
                 if (x >= x0 && x < x1 && y >= y0 && y < y1) return true;
             }
             return false;
@@ -391,10 +391,10 @@ public static class AreaLayouts
         for (int i = 0; i < n; i++)
         {
             int d = dist[i];
-            if (d == int.MaxValue || (!hasFeatures ? d <= deepest : d <= deepest && d <= fallbackDeepest)) continue;
-            if (hasFeatures && InFeature(i % w, i / w))
+            if (d == int.MaxValue || (d <= deepest && (best >= 0 || !hasFeatures || d <= fallbackDeepest))) continue;
+            if (hasFeatures && InFeature(featureAreas!, i % w, i / w))
             {
-                if (d > fallbackDeepest) { fallbackDeepest = d; fallback = i; }
+                if (best < 0 && d > fallbackDeepest) { fallbackDeepest = d; fallback = i; }
                 continue;
             }
             if (d > deepest) { deepest = d; best = i; }

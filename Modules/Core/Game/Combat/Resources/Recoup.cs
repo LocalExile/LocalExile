@@ -44,11 +44,11 @@ public static partial class Game
         recovery.Add(now, amount * RecoupRate(get, shield), LifeRecoupSeconds(get));
     }
 
-    static void AdvanceShieldRecoupLocked(Player player, double now, Func<uint, int> get, double mapRecovery)
+    static void AdvanceShieldRecoupLocked(Player player, double now, Func<uint, int> get, double mapRecovery, uint esCeiling)
     {
         if (!ShieldRecoup.TryGetValue(player, out var recovery)) return;
         double amount = recovery.Take(now);
-        if (amount > 0 && !ShieldRecoupBlocked(get)) player.EnergyShield.Gain(amount * mapRecovery);
+        if (amount > 0 && !ShieldRecoupBlocked(get)) player.EnergyShield.Gain(amount * mapRecovery, esCeiling);
     }
 
     public static double LifeRecoupSeconds(Func<uint, int> get) =>

@@ -220,7 +220,7 @@ public static class ItemModStats
     }
 
     /// <summary>One item's local stats by Stats.dat Id (local_critical_strike_chance_+% …).</summary>
-    sealed record LocalValues(Dictionary<uint, int> Stats);
+    sealed record LocalValues(long Revision, Dictionary<uint, int> Stats);
     sealed class LocalItems
     {
         public readonly System.Runtime.CompilerServices.ConditionalWeakTable<Item, LocalValues> Items = new();
@@ -244,8 +244,12 @@ public static class ItemModStats
         var game = Program.GameLogicOrNull;
         var rules = LocalCatalogs.GetOrCreateValue(mods);
         var cache = (game is null ? rules.Default : rules.Games.GetOrCreateValue(game)).Items;
-        return cache.GetValue(item, current => new(SumValues(
-            Values(current, mods, local: true, subject: default, statExists: null, game: game)))).Stats;
+        long revision = mods.Revision;
+        if (cache.TryGetValue(item, out var existing) && existing.Revision == revision)
+            return existing.Stats;
+        var stats = SumValues(Values(item, mods, local: true, subject: default, statExists: null, game: game));
+        cache.AddOrUpdate(item, new LocalValues(revision, stats));
+        return stats;
     }
 
     /// <summary>Local conditional rows need the current actor's subject and cannot use the immutable item cache.</summary>

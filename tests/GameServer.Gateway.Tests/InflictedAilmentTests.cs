@@ -35,6 +35,30 @@ public class InflictedAilmentTests
     // Shock", the one-type forms and the chill and freeze ones make other types count, a cannot keeps one out, "Hits
     // always Shock" needs no chance, and the caps can be raised.
     [Fact]
+    public void Player_charge_rolls_use_the_freeze_captured_on_kill()
+    {
+        var stats = With(("chance_to_gain_power_charge_on_killing_frozen_enemy_%", 100),
+            ("chance_to_gain_frenzy_charge_on_killing_frozen_enemy_%", 100), ("add_power_charge_on_kill_%_chance", 100));
+        var target = new MonsterElementalAilments();
+        ChargeEvent.Kill KillAt(double now) => new(MonsterRarity.Normal, Frozen: target.FrozenAtDeath(now));
+        void Check(ChargeEvent.Kill kill, params ChargeType[] expected) =>
+            Assert.Equal(expected, ChargeGains.Roll(kill, stats, default, new Random(1)).Select(g => g.Type));
+
+        target.Inflict(Taken(cold: 10), false, 100, 0, With(), With(), new Random(1));
+        Assert.True(target.Magnitude(Chill, .1) > 0);
+        Check(KillAt(.1), ChargeType.Power);
+        target.Inflict(Taken(cold: 10), true, 100, 1, With(), With(), new Random(1));
+        var frozenKill = KillAt(1.1);
+        Check(KillAt(2), ChargeType.Power); // The freeze lasted 0.6 seconds.
+        Check(frozenKill, ChargeType.Power, ChargeType.Power, ChargeType.Frenzy);
+
+        target.Inflict(Taken(cold: 10), true, 100, 3, With(), With(), new Random(1));
+        target.Shatter();
+        Assert.Equal(0, target.Magnitude(Freeze, 3));
+        Check(KillAt(3), ChargeType.Power, ChargeType.Power, ChargeType.Frenzy);
+    }
+
+    [Fact]
     public void Minimums_caps_damage_types_and_conditional_penetration_set_what_a_hit_does()
     {
         var shockAtLeast15 = With(("shock_minimum_damage_taken_increase_%", 15));

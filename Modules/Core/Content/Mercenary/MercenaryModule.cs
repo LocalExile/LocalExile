@@ -42,6 +42,9 @@ public sealed partial class MercenaryModule : IModule
         public uint Hired { get; set; }
         public double Clock { get; set; }
         public int Steps { get; set; }
+        public List<MercenaryEquipment.Worn> Equipment { get; set; } = [];
+        public List<Wild> Wilds { get; set; } = [];
+        public bool WildsPlanned { get; set; }
         [System.Text.Json.Serialization.JsonIgnore] public bool Busy;
     }
 
@@ -70,6 +73,8 @@ public sealed partial class MercenaryModule : IModule
         // The panel's duel choice, a C→S ruleset action.
         GameEvents.Packet(InstanceRulesets.ActionId).Add(id, Choose);
         GameEvents.Kill.Add(id, OnKill);
+        GameEvents.MapOpening.Add(id, Opening);
+        GameEvents.Kill.Add(id, WildKilled);
     }
 
     Run? Peek(Player player)

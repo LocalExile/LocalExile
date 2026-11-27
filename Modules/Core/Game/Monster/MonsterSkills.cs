@@ -103,8 +103,10 @@ public static partial class MonsterSkills
                 RallyCharge: rally, RallyCount: count);
         }
         if (IsCorpseSkill(effect)) return CorpseUseOf(skills, effect, level, shape, stats, seconds);
-        ushort row = ActionClasses.OfEffect(effect)?.SelfBuff is { } buff && BuffRows.TryGetValue(buff(skills, effect), out ushort own)
-            ? own : BuffRowOf(skills.EffectId(effect) ?? "", shape);
+        ushort row = shape == MonsterSkillShape.Curse && stats.ContainsKey(Stat.TemporalChainsActionSpeedPlusPctFinal)
+            ? AuraCatalog.BuffRow("TemporalChains")
+            : ActionClasses.OfEffect(effect)?.SelfBuff is { } buff && BuffRows.TryGetValue(buff(skills, effect), out ushort own)
+                ? own : BuffRowOf(skills.EffectId(effect) ?? "", shape);
         return shape switch
         {
             MonsterSkillShape.Travel => new(shape, 0, 0, stats, TravelMinRange),
@@ -363,7 +365,8 @@ public static partial class MonsterSkills
                 if (isDash)
                 {
                     target = Game.DashLanding(player.Layout, player.Barrier, from,
-                        order.Player, TravelPct(player, a.Effect!.Value, m.Level), false, m.Variety?.ObjectSize ?? 1);
+                        order.Player, TravelPct(player, a.Effect!.Value, m.Level), false, m.Variety?.ObjectSize ?? 1,
+                        player.SightBarrier);
                 }
                 else
                 {
@@ -378,9 +381,10 @@ public static partial class MonsterSkills
                 bool groundSlide = a.Effect is int slideEffect
                     && SkillCatalog.ActionTypeId(slideEffect) is "BladeFlurry" or "WhirlingBlades"
                         or "ShieldCharge" or "NewShieldCharge" or "NewNewShieldCharge";
+                var travelBarrier = isDash ? player.SightBarrier : player.Barrier;
                 foreach (var cell in GameServer.Core.World.ClientPathfinder.Line(from, target))
                 {
-                    if (player.Barrier.Contains(cell)) return null;
+                    if (travelBarrier.Contains(cell)) return null;
                     if (groundSlide && cell != from && !m.Walk.Floor(cell.X, cell.Y)) return null;
                 }
             }
