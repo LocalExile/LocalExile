@@ -137,6 +137,11 @@ public static class BossKits
     /// <summary>Whether the effect is <see cref="MercenaryPortalOut"/>.</summary>
     public static bool IsLeavePortal(SkillCatalog catalog, int effect) => effect >= 0 && catalog.EffectId(effect) == MercenaryPortalOut;
 
+    // Entity-marker-only ([15]) and ally-only ([3]) actions require a real targetObjectId; MaligaroVanish (ActionType
+    // 636, tgt=[4]) dereferences targetEntity->Positioned unchecked in OnStart. Generic AI passes targetObjectId=0.
+    internal static bool IsUnsafeGenericTarget(int effect) =>
+        EntityOrAllyOnlyTargets.Contains(effect) || SkillCatalog.ActionTypeId(effect) == "MaligaroVanish";
+
     /// <summary>Whether one granted effect is something the ordinary AI can play as an action (the test <see cref="Effects"/>
     /// applies to each of a variety's effects), for a caller whose effects do not come from the variety's own list: a
     /// mercenary's build skills.</summary>
@@ -144,13 +149,7 @@ public static class BossKits
     {
         if (SolarisLunaris.IsBody(variety) && effect is 6739 or 6740) return false;
         if (effect < 0 || catalog.CastsOnDeath(effect) || IsDamageTakenTrigger(catalog, effect)
-            // Entity-marker-only ([15]) and ally-only ([3]) actions require a real targetObjectId; generic AI only
-            // passes ground coordinates at the player and crashes unchecked client handlers (ArakaaliHide, AbberathHide,
-            // LbBossFlee) or gets rejected in CanUse.
-            || EntityOrAllyOnlyTargets.Contains(effect)
-            // MaligaroVanish (ActionType 636, tgt=[4]) dereferences targetEntity->Positioned unchecked in OnStart;
-            // generic boss AI sends targetObjectId=0 and would crash map Maligaro (Maligaro2Map).
-            || SkillCatalog.ActionTypeId(effect) == "MaligaroVanish"
+            || IsUnsafeGenericTarget(effect)
             // A summon's movement attack is how it reaches the player (Doubt's spider MonsterFlickerStrike); a boss
             // keeps only its non-movement skills.
             || (catalog.IsMovement(effect) && !(forSummon && catalog.IsAttack(effect)))
@@ -278,6 +277,7 @@ public static class BossKits
         foreach (bool trigger in new[] { false, true })
             foreach (int effect in candidates)
                 if (effect >= 0 && !effects.Contains(effect) && !catalog.CastsOnDeath(effect) && !IsLeavePortal(catalog, effect)
+                    && !IsUnsafeGenericTarget(effect)
                     && !(MonsterKitHooks.HasEffectFilters && !MonsterKitHooks.AllowEffect(variety, effect, catalog.EffectId(effect)))
                     && IsDamageTakenTrigger(catalog, effect) == trigger
                     && (MonsterSkills.ShapeOf(catalog, effect) is not null || trigger && (catalog.IsAttack(effect) || catalog.IsSpell(effect))))

@@ -419,8 +419,11 @@ public sealed class BossKitsTests
                 Assert.False(BossKits.IsUsable(catalog, sample, effect), $"effect {effect} ({catalog.EffectId(effect)}) must stay out of generic kits");
 
             var mapMaligaro = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Maligaro/Maligaro2Map"));
-            var maligaroKit = BossKits.Kit(player, mapMaligaro, 75, Game.MavenNucleus.CombatEffect(catalog, mapMaligaro));
+            var maligaroKit = BossKits.Kit(player, mapMaligaro, 75, Game.MavenNucleus.CombatEffect(catalog, mapMaligaro), unique: true);
             Assert.DoesNotContain(maligaroKit, k => k.Effect == 6426);
+            var uniqueEffects = BossKits.UniqueOrder(catalog, mapMaligaro, [.. (mapMaligaro.GrantedEffects ?? []), .. blocked]);
+            foreach (int effect in blocked)
+                Assert.DoesNotContain(effect, uniqueEffects);
 
             // Native marker types used by ArakaaliHide and AbberathHide serialize cleanly and keep disjoint SceneObjects prefixes.
             var placements = new[]
