@@ -982,11 +982,34 @@ public static partial class Game
             stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, Get(Stat.DamagePlusPct),
                 Get(Stat.ForbiddenRiteDamagePlusPct));
         }
+        int traumaMeleeMore = 0;
+        int traumaStacks = 0;
+        if (attackWeapon is not null && !secondary && WeaponAttributeDamage.Armed(attackWeapon))
+        {
+            int traumaMin = stats.GetValueOrDefault(Stat.AttackMinimumAddedPhysicalDamageWithWeaponsPerTrauma);
+            int traumaMax = stats.GetValueOrDefault(Stat.AttackMaximumAddedPhysicalDamageWithWeaponsPerTrauma);
+            traumaMeleeMore = types.Contains(19) ? stats.GetValueOrDefault(Stat.SupportTraumaMeleeDamagePlusPctFinalPerTrauma) : 0;
+            if (traumaMin != 0 || traumaMax != 0 || traumaMeleeMore != 0)
+            {
+                traumaStacks = CurrentTraumaCount(player, ProjectileWorldTime(player));
+                if (traumaStacks > 0)
+                {
+                    if (traumaMin != 0)
+                        stats[Stat.AttackMinimumAddedPhysicalDamage] = ActorScale.Saturate(
+                            (long)stats.GetValueOrDefault(Stat.AttackMinimumAddedPhysicalDamage) + (long)traumaMin * traumaStacks);
+                    if (traumaMax != 0)
+                        stats[Stat.AttackMaximumAddedPhysicalDamage] = ActorScale.Saturate(
+                            (long)stats.GetValueOrDefault(Stat.AttackMaximumAddedPhysicalDamage) + (long)traumaMax * traumaStacks);
+                }
+            }
+        }
         var raw = secondary ? SecondaryRawHit(player, gem, spellBase, Get)
             : attackWeapon is not null
             ? SupportedAttackDamage.Raw(attackWeapon, Get, new(attackAccuracy),
                 coefficients.Base, coefficients.Added, melee: types.Contains(19) && !SkillsFor(player).RequiresShield(gem.Effect))
             : DamageStats.RawAdded(spellBase, Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
+        if (traumaMeleeMore != 0 && traumaStacks > 0)
+            raw = raw.Scale(Math.Max(0, 1 + (long)traumaMeleeMore * traumaStacks / 100d));
         if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.SpellBaseFireDamagePctMaximumLife) is int lifePct and > 0)
         {
             double fire = (long)player.PlayerMaxLife * lifePct / 100d;

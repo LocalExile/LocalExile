@@ -16,7 +16,7 @@ public static partial class Game
     static ProjectileUse? ReleaseWildStrike(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll critical, ushort sequence,
-        int repeat, bool cryExerted, double ruthless, int ancestralTargets, int? rallyingDamage)
+        int repeat, bool cryExerted, double ruthless, int ancestralTargets, int? rallyingDamage, TraumaUse? traumaUse = null)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         uint primary = LightningStrikeTarget(player, from, aim, targetId, now);
@@ -34,7 +34,8 @@ public static partial class Game
             immediate: true, sequence: sequence, criticalRoll: critical, targetId: primary,
             radiusOverride: WeaponFor(player).Range + monster.StopRange, damageMore: more,
             onHit: NoteContact, scheduledSession: session, cryExerted: cryExerted, repeat: repeat,
-            targetFilter: (id, _) => id == primary, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage);
+            targetFilter: (id, _) => id == primary, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage,
+            traumaUse: traumaUse);
         if (!contact.IsCompleted) throw new InvalidOperationException("Scheduled Wild Strike contact must not yield.");
         contact.GetAwaiter().GetResult();
         if (contacts.Count == 0) return null;

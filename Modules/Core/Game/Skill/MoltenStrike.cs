@@ -132,7 +132,15 @@ public static partial class Game
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
-        double? swingAt = null, bool cryExerted = false, int ancestralTargets = 0, int? rallyingDamage = null)
+        double? swingAt = null, bool cryExerted = false, int ancestralTargets = 0, int? rallyingDamage = null) =>
+        ScheduleMoltenStrike(player, skillId, gem, from, to, recoveryGeneration, targetId, sequence, actionToken,
+            cooldownUse, criticalRoll, swingAt, cryExerted, ancestralTargets, rallyingDamage, traumaUse: null);
+
+    internal static Task ScheduleMoltenStrike(Player player,
+        ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+        (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId, ushort sequence,
+        int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll,
+        double? swingAt, bool cryExerted, int ancestralTargets, int? rallyingDamage, TraumaUse? traumaUse)
     {
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
         if (!hitPlan.CanHit) return Task.CompletedTask;
@@ -173,15 +181,24 @@ public static partial class Game
             jobs.Add(ExecuteMoltenStrikeSwing(player, skillId, gem, from, to,
                 recoveryGeneration, targetId, sequence, actionToken, cooldownUse, roll, acceptedAt,
                 repeat, meleeRepeats, attackSeconds, repeat * repeatInterval, ruthless,
-                fifthAttack, repeat == 0 ? armFifthBuff : (ushort)0, cryExerted, ancestralTargets, rallyingDamage));
+                fifthAttack, repeat == 0 ? armFifthBuff : (ushort)0, cryExerted, ancestralTargets, rallyingDamage, traumaUse));
         return Task.WhenAll(jobs);
     }
 
-    public static async Task ExecuteMoltenStrikeSwing(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+    public static Task ExecuteMoltenStrikeSwing(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId, ushort sequence,
         int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll criticalRoll, double? swingAt,
         int repeat, int totalRepeats, double attackSeconds, double repeatDelay, double ruthless,
-        bool fifthAttack = false, ushort armFifthBuff = 0, bool cryExerted = false, int ancestralTargets = 0, int? rallyingDamage = null)
+        bool fifthAttack = false, ushort armFifthBuff = 0, bool cryExerted = false, int ancestralTargets = 0, int? rallyingDamage = null) =>
+        ExecuteMoltenStrikeSwing(player, skillId, gem, from, to, recoveryGeneration, targetId, sequence, actionToken,
+            cooldownUse, criticalRoll, swingAt, repeat, totalRepeats, attackSeconds, repeatDelay, ruthless,
+            fifthAttack, armFifthBuff, cryExerted, ancestralTargets, rallyingDamage, traumaUse: null);
+
+    internal static async Task ExecuteMoltenStrikeSwing(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+        (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId, ushort sequence,
+        int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll criticalRoll, double? swingAt,
+        int repeat, int totalRepeats, double attackSeconds, double repeatDelay, double ruthless,
+        bool fifthAttack, ushort armFifthBuff, bool cryExerted, int ancestralTargets, int? rallyingDamage, TraumaUse? traumaUse)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         bool Current() => PlayerStateAllowsAction(player)
@@ -495,6 +512,8 @@ public static partial class Game
                     sequence, (uint)(totalRepeats - repeat), delay, repeatMore, hitOrigins, AreaRng(player), fifthAttack, cryExerted: cryExerted,
                     otherWarcryExertions: ancestralTargets > 0 ? 1 : 0, rallyingDamage: rallyingDamage, ancestralExerted: ancestralTargets > 0);
             }
+            if (results.Count > 0 && traumaUse is { Gained: false })
+                TryGainTraumaLocked(player, ProjectilesFor(player), supported, traumaUse, now, "Trauma");
         }
 
         var supportedStats = SupportedSkill(player, skillId).Stats;

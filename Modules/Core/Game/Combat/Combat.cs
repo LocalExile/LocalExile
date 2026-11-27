@@ -2369,23 +2369,24 @@ public static partial class Game
         if (IsBaseChainHook(effectId))
             return ScheduleBaseChainHook(player, skillId, gem, to, targetId, recoveryGeneration,
                 actionToken ?? player.ActionCount, sequence, swingAt, cooldownUse, criticalRoll, cryExerted, rallyingDamage);
+        var supported = SupportedSkill(player, skillId);
+        var traumaUse = channelGeneration is null ? TraumaUseFor(player, supported) : null;
         if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)))
             return ScheduleMoltenStrike(player, skillId, gem, from, to, recoveryGeneration,
-                targetId, sequence, actionToken, cooldownUse, criticalRoll, swingAt, cryExerted, ancestralTargets, rallyingDamage);
+                targetId, sequence, actionToken, cooldownUse, criticalRoll, swingAt, cryExerted, ancestralTargets, rallyingDamage, traumaUse);
         if (IsLightningStrike(gem.Effect) || IsFrostBlades(gem.Effect) || IsWildStrike(gem.Effect))
             return ScheduleProjectileStrike(player, skillId, gem, from, to, targetId,
                 recoveryGeneration, cooldownUse, criticalRoll,
-                sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage);
+                sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage, traumaUse);
         if (IsSmite(gem.Effect))
             return ScheduleSmite(player, skillId, gem, from, to, targetId,
-                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage);
+                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage, traumaUse);
         if (IsStaticStrike(gem.Effect))
             return ScheduleStaticStrike(player, skillId, gem, from, to, targetId,
-                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage);
+                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage, traumaUse);
         if (IsBoneshatter(gem.Effect))
             return ScheduleBoneshatter(player, skillId, gem, from, to, targetId,
-                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage);
-        var supported = SupportedSkill(player, skillId);
+                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage, traumaUse);
         var beidat = CastingBeidatSpell(player, skillId);
         int seals = UnleashSeals(player, skillId, supported, ProjectileWorldTime(player), spend: true);
         double reoccurrenceMore = Math.Max(0, 1 + GolemStat(supported.Stats, Stat.SupportSpellRapidFireRepeatUseDamagePlusPctFinal) / 100d);
@@ -2474,7 +2475,7 @@ public static partial class Game
                     sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll,
                     targetId: targetId, repeat: pair, swingAt: pairAt, sacrifice: sacrifice, cryExerted: cryExerted,
                     damageMore: MeleeRepeatDamageMore(player, skillId, pair), strikeSeconds: duration, ancestralTargets: ancestralTargets,
-                    rallyingDamage: rallyingDamage));
+                    rallyingDamage: rallyingDamage, traumaUse: traumaUse));
                 pairAt += duration;
             }
             await Task.WhenAll(jobs);
@@ -2557,7 +2558,8 @@ public static partial class Game
                 repeatDelay: repeat * repeatInterval + sealDelay, radiusMore: radiusMore, sacrifice: sacrifice,
                 damageMore: fistMore * (reoccurrence ? reoccurrenceMore : 1) * (meleeRepeats > 0 ? MeleeRepeatDamageMore(player, skillId, repeat) : 1),
                 discharge: discharge, cryExerted: cryExerted, hitAndAilmentMore: (beidat?.More ?? 1) * useDamageMore,
-                seismicExerted: seismicArea.HasValue, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage));
+                seismicExerted: seismicArea.HasValue, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage,
+                traumaUse: traumaUse));
             Hit(to);
             foreach (var area in cascadeAreas) Hit(area);
         }
@@ -3062,7 +3064,8 @@ public static partial class Game
         BoneshatterContact? boneshatter = null, InfernalBlowUse? infernalBlast = null,
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false, bool seismicExerted = false, int ancestralTargets = 0,
-        int? rallyingDamage = null, RetainedAreaAttack? retainedAttack = null, IReadOnlyList<uint>? contactTargets = null) =>
+        int? rallyingDamage = null, RetainedAreaAttack? retainedAttack = null, IReadOnlyList<uint>? contactTargets = null,
+        TraumaUse? traumaUse = null) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
@@ -3073,7 +3076,7 @@ public static partial class Game
             boneshatter: boneshatter, infernalBlast: infernalBlast, strikeSeconds: strikeSeconds,
             extraShockChance: extraShockChance, cascadeBurst: cascadeBurst,
             flurryRelease: flurryRelease, nearbyOnly: nearbyOnly, seismicExerted: seismicExerted, ancestralTargets: ancestralTargets,
-            rallyingDamage: rallyingDamage, contactTargets: contactTargets);
+            rallyingDamage: rallyingDamage, contactTargets: contactTargets, traumaUse: traumaUse);
 
     private static async Task AreaSkillHitStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -3093,7 +3096,7 @@ public static partial class Game
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         IReadOnlyList<uint>? contactTargets = null, BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false,
         LacerateUse? lacerate = null, SupportedGem? triggeredSpellSource = null, bool seismicExerted = false,
-        int ancestralTargets = 0, int? rallyingDamage = null)
+        int ancestralTargets = 0, int? rallyingDamage = null, TraumaUse? traumaUse = null)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
@@ -4556,6 +4559,10 @@ public static partial class Game
             if (sweepStats is { } stats) stats.Dispose();
         }
         await SettleSweep();
+        if (landed > 0 && ownerContact && !spell && traumaUse is { Gained: false }
+            && boneshatter is null && infernalBlast is null && hammer is null && retainedAttack is null)
+            using (ProjectileMutation(player, advance: scheduledSession is null))
+                TryGainTraumaLocked(player, scheduledSession, admittedGem, traumaUse, ProjectileWorldTime(player), "Trauma");
         if (holyPath) await PublishFlaskChanges(player);
         // The wave reports its own shape (the tunables to calibrate, GroundSlamWave) instead of the circle; a gem melee
         // attack reports the clip its contact came from (GemAttackContactDelay), which the live check can compare with the
@@ -4640,7 +4647,8 @@ public static partial class Game
                 targetFilter: targetFilter, extraStunThresholdReduction: extraStunThresholdReduction, extraStunDurationPct: extraStunDurationPct,
                 extraKnockbackDistancePct: extraKnockbackDistancePct, removeStunAndKnockback: removeStunAndKnockback,
                 offHandWeapon: offHandWeapon, shieldUse: shieldUse, additionalStrikeTargets: additionalStrikeTargets,
-                lacerate: lacerate, seismicExerted: seismicExerted, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage);
+                lacerate: lacerate, seismicExerted: seismicExerted, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage,
+                traumaUse: traumaUse);
         }
     }
 

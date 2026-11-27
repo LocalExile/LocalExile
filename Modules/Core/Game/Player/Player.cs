@@ -274,6 +274,7 @@ public static partial class Game
         player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
         ClearDoubleStrikeMomentum(player);
+        ClearTrauma(player);
         ClearWardBreakOnDeath(player);
         player.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
         player.SpiritChieftains.End(AreaTime(player));   // the chieftain minion dies with the player

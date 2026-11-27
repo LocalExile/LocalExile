@@ -1148,6 +1148,9 @@ public static partial class Game
                     target: !shot.FromTrapOrMine && !shot.FromTotem ? target : null);
             if (shot.ActualCaster is null) ChargesOnHit(Player, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false,
                 primary: shot.FirstHit?.Claim() ?? true, skillStats: shot.SkillStats);
+            if (shot.ActualCaster is null && !shot.FromTotem && !shot.FromTrapOrMine
+                && shot.Trauma is { Gained: false } trauma && shot.TraumaSource is { } traumaSource)
+                TryGainTraumaLocked(Player, this, traumaSource, trauma, at, "Trauma");
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
                 OwnerStun(Player, shot.Effect, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats, lifeBefore,
                     localStunReduction: shot.LocalStunThresholdReduction, weaponClass: shot.WeaponClass));

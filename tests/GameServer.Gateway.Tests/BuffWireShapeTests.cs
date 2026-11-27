@@ -76,5 +76,16 @@ public sealed class BuffWireShapeTests
         Assert.Equal(
             new Buff(1, captainId, Values: [0u], U82: 0).Add(playerId, 9),
             new Buff(1, captainId).Add(playerId, 9));
+
+        // trauma (row 1873) is non-recovery, has no u82, and has no list backend: emits U68 + Stacks and empty list.
+        var traumaInfo = BuffRows.Of(1873);
+        Assert.NotNull(traumaInfo);
+        Assert.Equal("trauma", traumaInfo.Id);
+        Assert.False(traumaInfo.IsRecovery);
+        Assert.False(traumaInfo.HasU82);
+        Assert.Null(BuffRows.DefaultList(traumaInfo));
+        Assert.Equal(
+            InstanceEntities.AddBuff(playerId, 10, 1873, playerId, u68: Buff.Seconds(5), stacks: 3),
+            new Buff(1873, playerId, U68: Buff.Seconds(5), Stacks: 3).Add(playerId, 10));
     }
 }

@@ -9,7 +9,8 @@ public static partial class Game
     static Task ScheduleSmite(Player player,
         ushort id, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint target, int recovery,
-        CooldownUseTicket? ticket, SkillCriticalRoll critical, ushort sequence, double? swingAt, bool cryExerted = false, int ancestralTargets = 0, int? rallyingDamage = null)
+        CooldownUseTicket? ticket, SkillCriticalRoll critical, ushort sequence, double? swingAt, bool cryExerted = false, int ancestralTargets = 0, int? rallyingDamage = null,
+        TraumaUse? traumaUse = null)
     {
         var session = ProjectilesFor(player);
         session.Advance();
@@ -28,7 +29,7 @@ public static partial class Game
                     || index > 0 && player.ActionCount != action || ticket is not null && !ticket.Current(player)
                     || !SameTriggerSource(source, SupportedSkill(player, id))) return;
                 ReleaseSmite(player, session, id, gem, from, aim, target,
-                    critical, sequence, index, ruthless, cryExerted, ancestralTargets, rallyingDamage);
+                    critical, sequence, index, ruthless, cryExerted, ancestralTargets, rallyingDamage, traumaUse);
             });
         }
         return Task.CompletedTask;
@@ -37,7 +38,8 @@ public static partial class Game
     internal static void ReleaseSmite(Player player,
         ProjectileSession session, ushort id, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint target, SkillCriticalRoll critical, ushort sequence,
-        int repeat, double ruthless, bool cryExerted = false, int ancestralTargets = 0, int? rallyingDamage = null)
+        int repeat, double ruthless, bool cryExerted = false, int ancestralTargets = 0, int? rallyingDamage = null,
+        TraumaUse? traumaUse = null)
     {
         var skill = SupportedSkill(player, id);
         bool vaal = SkillsFor(player).IsVaal(gem.Effect);
@@ -66,7 +68,7 @@ public static partial class Game
                 radiusOverride: single is null ? SkillRadius(player, skill.Stats, false, gem.Effect) : WeaponFor(player).Range + 4,
                 damageMore: MeleeRepeatDamageMore(player, id, repeat), singleStrikeTarget: single,
                 once: once, onHit: victim => { hit = true; once?.Add(victim); }, scheduledSession: session, repeat: repeat, cryExerted: cryExerted,
-                allowMeleeSplash: single is not null, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage);
+                allowMeleeSplash: single is not null, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage, traumaUse: traumaUse);
             if (!task.IsCompleted) throw new InvalidOperationException("Scheduled Smite contact must not yield.");
             task.GetAwaiter().GetResult();
         }

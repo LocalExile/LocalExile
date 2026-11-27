@@ -126,8 +126,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   runs data-driven periodic chained beam hits (`Modules/Core/Game/Skill/StaticStrike.cs`, live-verified).
   Gathering Lightning gains a timed stack on melee contact and emits a beam from that contact. Its chain allowance
   and hit and ailment damage grow with the stacks already held. Docs [11](../docs/protocol/11-skills.md).
-- Boneshatter and its Complex Trauma and Carnage variants resolve stun pulses at contact. Regular and Complex Trauma
-  track independent stack lifetimes and physical self-hits. Docs: [11](../docs/protocol/11-skills.md#boneshatter).
+- Boneshatter (Regular, Complex Trauma, Carnage) and Trauma Support resolve stun pulses, independent Trauma stack
+  lifetimes, added physical attack damage and stun duration per Trauma, and physical self-hits. Docs: [11](../docs/protocol/11-skills.md#boneshatter).
 - Eternal Blessing suspends other skills' mana reservations while its aura is active and preserves life reservations.
 - Guardian's Blessing needs a living minion that shares its support link. The minion takes physical damage over time,
   and the aura ends when the last qualifying minion is gone.
