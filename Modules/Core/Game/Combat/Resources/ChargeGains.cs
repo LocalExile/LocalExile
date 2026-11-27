@@ -78,13 +78,21 @@ public static class ChargeGains
         new(Stat.AddPowerChargeOnKillPctChance, ChargeType.Power, (e, _) => e is ChargeEvent.Kill),
     ];
 
-    internal static readonly IReadOnlyList<Rule> OtherRules =
+    internal static readonly Rule[] AdditionalKillRules =
     [
         new(Stat.AddEnduranceChargeOnKill, ChargeType.Endurance, (e, _) => e is ChargeEvent.Kill, Flag: true),
         new(Stat.AddFrenzyChargeOnKill, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill, Flag: true),
         new(Stat.PowerFrenzyOrEnduranceChargeOnKillPct, null, (e, _) => e is ChargeEvent.Kill),
+    ];
+
+    static readonly Rule[] LegacyEquipmentKillChances =
+    [
         new(Stat.EnduranceChargeOnKillPercentChanceWhileHoldingShield, ChargeType.Endurance, (e, w) => e is ChargeEvent.Kill && w.Shield),
         new(Stat.AddFrenzyChargeOnKillPctChanceWhileDualWielding, ChargeType.Frenzy, (e, w) => e is ChargeEvent.Kill && w.DualWield),
+    ];
+
+    internal static readonly IReadOnlyList<Rule> OtherRules =
+    [
         new(Stat.ChanceToGainPowerChargeOnKillingFrozenEnemyPct, ChargeType.Power, (e, _) => e is ChargeEvent.Kill { Frozen: true }),
         new(Stat.ChanceToGainFrenzyChargeOnKillingFrozenEnemyPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill { Frozen: true }),
         // On hit
@@ -166,7 +174,7 @@ public static class ChargeGains
         new(Stat.GainPowerChargeWhenThrowingTrapPct, ChargeType.Power, (e, _) => e is ChargeEvent.SkillUse { Trap: true }),
     ];
 
-    public static readonly IReadOnlyList<Rule> Rules = [.. LegacyKillChances, .. OtherRules];
+    public static readonly IReadOnlyList<Rule> Rules = [.. LegacyKillChances, .. AdditionalKillRules, .. LegacyEquipmentKillChances, .. OtherRules];
 
     /// <summary>One gain: a charge type, how many (negative: a loss; <see cref="All"/>: every charge above the
     /// minimum), and the stat or rule that granted it (for the log). <paramref name="ToMaximum"/>: up to the maximum.</summary>
