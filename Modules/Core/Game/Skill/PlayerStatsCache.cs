@@ -24,6 +24,8 @@ public static partial class Game
     /// A stat rule works them out itself, so the graph records what it read.
     public static IReadOnlyDictionary<uint, int> StatSourceValues(Player player) =>
         !StatGraph.InRule && FrameStatsOf.TryGetValue(player, out var frame) && frame.ByFrame && frame.Outputs.Sources is { } sources
+            && ReferenceEquals(ItemsOfUnread(player), frame.Items)
+            && ItemsOfUnread(player).Changes == frame.ItemChanges
             ? sources : CharacterStatSources(player).Stats;
 
     /// <summary>The player's stats, not to be changed: in an area's frames the graph's last step's values, off them a
@@ -304,8 +306,16 @@ public static partial class Game
         }
         runningFrame = frame;
         bool built;
+        long statProbe = ConnectionPerformance.ProbeStart();
+        long previousRuns = statProbe == 0 ? 0 : graph.RuleRuns;
         try { built = graph.Step(); }
-        finally { runningFrame = null; }
+        finally
+        {
+            runningFrame = null;
+            // Step's result only reports published changes. A recomputation can produce the same values.
+            if (statProbe != 0 && graph.RuleRuns != previousRuns)
+                player.Connection.Performance.StatBuild(statProbe);
+        }
         if (frame.Conditions < 0 || built) CheckConditions(player, frame, graph);
         if (built || frame.Updated)
         {
@@ -380,7 +390,9 @@ public static partial class Game
         {
             if (key == StatConditions.UsedSkill && MapSkillActionSpeedPerUse(player) != 0)
                 MarkPlayerStats(player, PlayerStatStep.TailCritical);
-            if (player.StatSourcesCache?.Key.Amounts?.WasRead(key) == true)
+            if (player.StatSourcesCache?.Key.Amounts?.WasRead(key) == true
+                || key == StatConditions.ConsumedCorpse
+                    && graph.Values.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPctPerCorpseConsumedRecently) > 0)
                 MarkPlayerStats(player, PlayerStatStep.Sources);
         };
         On([PlayerStatStep.Rage], a => player.Rage.Changed = a);

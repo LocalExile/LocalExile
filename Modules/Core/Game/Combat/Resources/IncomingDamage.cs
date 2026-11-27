@@ -83,6 +83,9 @@ public static partial class Game
         // Doppelgänger Guise's sane conditional final is component-specific and follows ordinary increased Damage Taken.
         // Apply it before every resource pool so it is not repeated between mitigation and allocation.
         physical = ApplyUnhingedTaken(physical, DamageType.Physical, Get);
+        if (physical > 0 && player.EnergyShield.Full
+            && Get(Stat.PassiveMasteryPhysicalDamageTakenPlusPctFinalWhileOnFullEnergyShield) is int fullShield and not 0)
+            physical = ActorScale.Saturate((long)Math.Round(physical * Math.Max(0, 100d + fullShield) / 100d));
         chaos = ApplyUnhingedTaken(chaos, DamageType.Chaos, Get);
         (physical, other, chaos) = MitigateTriggeredGuardHit(player, physical, other, chaos, at);
         (physical, other, chaos) = VaalArcticArmourHit(player, physical, other, chaos, at);

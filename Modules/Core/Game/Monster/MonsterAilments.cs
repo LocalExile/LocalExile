@@ -154,7 +154,18 @@ public static partial class Game
         double area = AilmentArea(playerStats, _ => 0, spell: false);
         if (playerStats(Stat.ChillEnemyWhenHitDurationMs) is > 0 and int ms)
             InflictedLocked(player, m, m.Ailments.WithoutDamage(Kind.Chill, ms / 1000.0, now, playerStats, Target, area, stated: 30));
+        bool enemy = m is { Hostile: true, Dead: false, Life: > 0, EntranceGrace: false, Invulnerable: false };
+        if (enemy && RandomRolls.Chance(playerStats(Stat.ApplyCoveredInAshToAttackerWhenHitPct), 100, random))
+        {
+            m.CoveredInAshUntil = Math.Max(m.CoveredInAshUntil, now + HitDebuffSeconds / m.RecipientDebuffRate);
+            m.PresentationChanged?.Invoke();
+        }
         if (!blocked) return;
+        if (enemy && playerStats(Stat.PermanentlyIntimidateEnemyOnBlock) != 0 && !double.IsPositiveInfinity(m.IntimidatedUntil))
+        {
+            m.IntimidatedUntil = double.PositiveInfinity;
+            m.PresentationChanged?.Invoke();
+        }
         AlternateAilmentsOnBlockLocked(m, playerStats, now);
         if (RandomRolls.Chance(playerStats(Stat.ChillAttackersFor4SecondsOnBlockPctChance), 100, random))
             InflictedLocked(player, m, m.Ailments.WithoutDamage(Kind.Chill, 4, now, playerStats, Target, area));
@@ -329,8 +340,20 @@ public static partial class Game
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
-        bool areaHit = false, int glacialFreezeMore = 0, int sourceEffect = -1, bool? ownHit = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None)
+        bool areaHit = false, int glacialFreezeMore = 0, int sourceEffect = -1, bool? ownHit = null,
+        int weaponWitherChance = 0, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None)
     {
+        bool owned = ownHit ?? playerHit;
+        int blindChilled = owned && m is { Hostile: true, EntranceGrace: false, Invulnerable: false }
+            ? Math.Max(0, playerStats.GetValueOrDefault(Stat.BlindChilledEnemiesOnHitPct)) : 0;
+        long Effect(uint key) => (long)playerStats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0);
+        long shockVsCursed = Effect(Stat.ShockEffectAgainstCursedEnemiesPlusPct);
+        if (shockVsCursed != 0 && (!m.HasCurses || !m.Curses.HasActive(now))) shockVsCursed = 0;
+        long lightningVsChilled = Effect(Stat.LightningAilmentEffectPlusPctAgainstChilledEnemies);
+        bool chilledBeforeHit = (blindChilled > 0 || lightningVsChilled != 0) && m.Ailments.Magnitude(Kind.Chill, now) > 0;
+        if (!chilledBeforeHit) lightningVsChilled = 0;
+        long coldVsShocked = Effect(Stat.ColdAilmentEffectPlusPctAgainstShockedEnemies);
+        if (coldVsShocked != 0 && m.Ailments.Magnitude(Kind.Shock, now) <= 0) coldVsShocked = 0;
         const uint nativeExposure = Stat.PurgeExposeResistPctMatchingHighestElementDamage;
         int? dominantExposure = (long)playerStats.GetValueOrDefault(nativeExposure) + (skill?.GetValueOrDefault(nativeExposure) ?? 0) < 0
             ? HighestElementalDamageTaken(m, mitigated, now) : null;
@@ -345,7 +368,7 @@ public static partial class Game
             && skill?.GetValueOrDefault(Stat.TriggerPrismaticBurstOnHitPctChance) is > 0 and var burstChance)
             TriggerPrismaticBurstLocked(player, sourceSkill, sourceEffect, m.Walk.Position(now), now, playerStats, burstChance);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
-        CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, random);
+        CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, owned, random);
         if (ownHit ?? playerHit) ItemMarksOnHitLocked(player, m, now);
         if (playerHit && critical) ArcaneSurgeOnCritLocked(player, playerStats, now, random);
         if (critical && (ownHit ?? playerHit) && m.Hostile && !m.Invulnerable)
@@ -379,6 +402,10 @@ public static partial class Game
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(uint key) => playerStats.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
+        if (owned && critical && m is { Hostile: true, EntranceGrace: false, Invulnerable: false }
+            && Player(Stat.GainFrenzyChargeOnCriticalStrikeAtCloseRangePct) is > 0 and var frenzyChance
+            && InCloseRange(player, m, now) && RandomRolls.Chance(frenzyChance, 100, random))
+            GainFromAttackAilmentLocked(player, true, ChargeType.Frenzy, Stat.GainFrenzyChargeOnCriticalStrikeAtCloseRangePct);
         // The physical part counts after the monster's armour + physical reduction and its Maim, as the hit's damage does.
         double physRaw = mitigated[DamageType.Physical].Min;
         double physReduction = HitMitigation.PhysicalReduction(Monsters, m, physRaw,
@@ -391,9 +418,21 @@ public static partial class Game
         int frozenShock = spell && m.Ailments.Magnitude(Kind.Freeze, now) > 0
             ? ActorScale.Saturate((long)Player(Stat.SpellChanceToShockFrozenEnemiesPct) +
                 Skill(Stat.SpellChanceToShockFrozenEnemiesPct)) : 0;
+        long criticalEffect = critical && Player(Stat.KeystoneElementalOverload) == 0
+            ? (long)Player(Stat.NonDamagingAilmentEffectPlusPctWithCriticalStrikes)
+                + Skill(Stat.NonDamagingAilmentEffectPlusPctWithCriticalStrikes) : 0;
         int Attacker(uint name)
         {
             int value = Player(name) + PanelStats.Of(name, Skill);
+            long effect = name switch
+            {
+                Stat.VirtualShockEffectPlusPct => criticalEffect + shockVsCursed + lightningVsChilled,
+                Stat.VirtualSapEffectPlusPct => criticalEffect + lightningVsChilled,
+                Stat.VirtualChillEffectPlusPct or Stat.VirtualFrostburnEffectPlusPct => criticalEffect + coldVsShocked,
+                Stat.VirtualScorchEffectPlusPct => criticalEffect,
+                _ => 0,
+            };
+            if (effect != 0) value = ActorScale.Saturate(value + effect);
             if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock + extraShockChance);
             if (name == Stat.ChanceToFreezePct) value = ActorScale.Saturate((long)value + projectileFreezeChance);
             if (!tinctureWeapon) return value;
@@ -467,6 +506,11 @@ public static partial class Game
                 + Skill(Stat.ChanceToTauntOnHitPct)), 100, random))
             ApplyPlayerTauntLocked(player, m, now, TauntSeconds(Attacker));
         HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now, random);
+        if (blindChilled > 0 && chilledBeforeHit)
+        {
+            if (blind == default) blind = BlindHitInput.Capture(playerStats, skill);
+            blind = blind with { GlobalChance = blind.GlobalChance + blindChilled };
+        }
         InflictMonsterBlind(player, targetId, m, now, blind, spell, critical, random);
         int ExposureChance(uint name) => ActorScale.Saturate((long)Player(name) + Skill(name));
         var skillExposure = (Fire: ExposureChance(Stat.FireSkillChanceToInflictFireExposurePct),
@@ -483,8 +527,9 @@ public static partial class Game
         }
         ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, AreaRng(player), dominantExposure, skillExposure);
         int WitherStat(uint name) => ActorScale.Saturate((long)Player(name) + Skill(name)
-            + (preCursed && name == Stat.WitheredOnHitFor2SecondsPctChance ? witherAgainstCursed : 0));
-        uint? witherSource = (ownHit ?? playerHit) ? player.Id : null;
+            + (preCursed && name == Stat.WitheredOnHitFor2SecondsPctChance ? witherAgainstCursed : 0)
+            + (!spell && name == Stat.WitheredOnHitFor2SecondsPctChance ? weaponWitherChance : 0));
+        uint? witherSource = owned ? player.Id : null;
         WitherOnHitLocked(m, WitherStat, now, AreaRng(player), witherSource);
         int poisonStacksBefore = m.Poisons.Stacks(now);
         double poisonUntilBefore = m.Poisons.Until;
@@ -506,6 +551,8 @@ public static partial class Game
         }
         // Fleeing (MonsterFlee): its own draws (AreaRng(player)), so a projectile's reaction draws stay in order.
         int fleeChance = MonsterFlee.Chance(spell, Player, Skill);
+        if (owned && m.Bleeds.IgnitedAt(now))
+            fleeChance = ActorScale.Saturate((long)fleeChance + Player(Stat.PctChanceToCauseBleedingEnemiesToFleeOnHit));
         if (TryFleeFromHitLocked(player, m, player.Walk.Position(now), fleeChance, now))
         {
             // Which hit made it run, and from what chance: the stat sources are not logged by the panel, and a fleeing

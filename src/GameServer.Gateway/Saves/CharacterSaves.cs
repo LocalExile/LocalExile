@@ -810,11 +810,16 @@ public static class CharacterSaves
             throw new UnknownSavedItemException($"item type 0x{s.Type:x8}" + (catalog.Error is { } e ? $" ({e})" : ""));
         bool emptyResonator = ItemCatalog.ResonatorSockets(t) > 0 && (s.Sockets ?? []).All(k => k.Gem is null);
         if (emptyResonator) t = catalog.EmptyResonatorType(t);
+        ItemCatalog.BaseType? fragmentUpgrade = !s.Corrupted && !s.Mirrored && s.Mods is not { Count: > 0 } && s.Sockets is not { Count: > 0 }
+            ? catalog.NormalizedFragment(t) : null;
+        if (fragmentUpgrade is not null) t = fragmentUpgrade;
         var item = ItemCatalog.Create(t, defenceBaseRoll: s.DefenceBaseRoll) with
         {
-            VisualIdentity = s.Visual ?? t.VisualIdentity,
+            VisualIdentity = (fragmentUpgrade is not null ? null : s.Visual) ?? t.VisualIdentity,
             DefenceBaseRoll = s.DefenceBaseRoll,
-            ItemLevel = s.ItemLevel, Quality = s.Quality, Charges = s.Charges, StackSize = s.StackSize, GemExperience = s.GemExperience, GemVariant = s.GemVariant, GemFlags = s.GemFlags,
+            ItemLevel = s.ItemLevel, Quality = s.Quality, Charges = s.Charges,
+            StackSize = fragmentUpgrade is not null ? Math.Clamp(s.StackSize, (ushort)1, Math.Max((ushort)1, t.MaxStack)) : s.StackSize,
+            GemExperience = s.GemExperience, GemVariant = s.GemVariant, GemFlags = s.GemFlags,
             Sockets = emptyResonator ? ItemCatalog.ResonatorSocketList(t)
                 : [.. (s.Sockets ?? []).Select(k => new ItemSocket(k.Colour, k.Gem is null ? null : FromSaved(k.Gem, catalog)))],
             Links = emptyResonator ? null : s.Links, Rarity = s.Rarity, Identified = s.Identified, NameWords = s.Name ?? [], Corrupted = s.Corrupted, FracturedCount = s.Fractured, Mirrored = s.Mirrored,

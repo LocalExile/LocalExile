@@ -60,6 +60,7 @@ public static partial class Game
         int before = state.Active.Count;
         foreach (var (id, value) in state.Active.ToArray())
             if (player.PlayerLife == 0 || InTown(player) || AreaTime(player) >= value.Until
+                || value.Blessing && BlessingsDisabled(player)
                 || !player.Auras.TryGetValue(id, out var aura) || aura.Buff != value.Aura.Buff
                 || !SameTriggerSource(value.Source, SupportedSkill(player, id)))
                 RemoveTemporaryAura(player, state, id);
@@ -121,7 +122,7 @@ public static partial class Game
         if (!current()) return false;
         var skill = SupportedSkill(player, id);
         string effect = SkillsFor(player).EffectId(skill.Effect) ?? "";
-        if (!IsBlessing(skill) || !AuraCatalog.Supported(effect)) return false;
+        if (!IsBlessing(skill) || !AuraCatalog.Supported(effect) || BlessingsDisabled(player)) return false;
         double seconds = VaalAuraSeconds(GolemStat(skill.Stats, Stat.SupportAuraDurationBaseBuffDuration),
             CharacterPlayerStats(player), skill.Stats);
         if (seconds <= 0) return false;

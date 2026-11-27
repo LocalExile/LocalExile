@@ -477,7 +477,7 @@ public static partial class Game
         var swingHand = spell || totem is not null ? AttackHand.Main : weaponHand ?? AttackHandFor(player, skillId, sequence);
         var shield = spell ? null : ShieldWeapon(player, skillId);
         var handWeapon = shield ?? OffHandSwing(player, swingHand);
-        int? handCritical = SwingWeaponCritical(player, swingHand);
+        int? handCritical = SwingWeaponCritical(player, swingHand, playerStats);
         var attackSource = spell || shield is not null ? null : HandWeapon(player, swingHand);
         var local = attackSource?.LocalSources;
         int addedChaos = sacrifice?.AddedChaos() ?? 0;
@@ -507,6 +507,7 @@ public static partial class Game
             SupportedCriticalMultiplier(player, skillId, handWeapon), gem.Name)
         {
             WeaponAttack = weaponAttack,
+            DirectAttackContact = hitInputs is { Attack: true, Secondary: false },
             OffHandWeapon = swingHand == AttackHand.Off,
             TargetCritical = TargetCriticalBonuses.From(playerStats, own),
             SkeletonWeaponContactSource = weaponAttack && totem is null ? SkeletonWeaponContactSource(player, swingHand, local) : null,

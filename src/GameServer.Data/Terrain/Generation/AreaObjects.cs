@@ -159,12 +159,15 @@ public static class AreaObjects
         return (room.X * 23 + cx, room.Y * 23 + cy, angle);
     }
 
-    /// <summary>Where the player arrives in a level: <see cref="GenerationResult.Start"/>'s <c>default</c> point, or the
-    /// first non-feature placed room carrying a <c>default</c> entrance point; null without one.</summary>
-    public static (int X, int Y, float Angle)? Start(GenerationResult result)
+    /// <summary>Where the player arrives in a level whose terrain plugin marks a start room (<see cref="GenerationResult.Start"/>):
+    /// that room's <c>default</c> point, placed; null without a start room or point.</summary>
+    public static (int X, int Y, float Angle)? Start(GenerationResult result) =>
+        result.Start is { } room && room.Room.Points.FirstOrDefault(p => p.Name == "default") is { } p ? Place(room, p.X, p.Y, p.Angle) : null;
+
+    /// <summary>The first non-feature placed room's <c>default</c> point: the arrival when neither a start room nor the
+    /// room fit gives one (a map beside a Sacred Grove); null without one.</summary>
+    public static (int X, int Y, float Angle)? Entrance(GenerationResult result)
     {
-        if (result.Start is { } room && room.Room.Points.FirstOrDefault(p => p.Name == "default") is { } p)
-            return Place(room, p.X, p.Y, p.Angle);
         foreach (var record in result.Records)
         {
             if (record.FeatureWorldArea >= 0) continue;

@@ -6,6 +6,26 @@ public static partial class Game
 {
     sealed record HolyArmamentTarget(uint Id, SpawnedMonster Monster);
     static readonly RuleTable<Player, Dictionary<ushort, HolyArmamentTarget>> HolyArmamentTargets = new();
+    static readonly RuleTable<SpawnedMonster, object> HitMarkedMonsters = new();
+    static readonly RuleTable<GameArea, object> IndexedHitMarkAreas = new();
+    static readonly object HitMarkPresent = new();
+
+    // The marks are connection state and can survive a Game module reload. Rebuild the weak lookups
+    // once in the area's frame when the new module first touches the area.
+    static void IndexExistingHitMarksLocked(Player player)
+    {
+        if (IndexedHitMarkAreas.TryGetValue(player.Area, out _)) return;
+        Index(player);
+        foreach (var peer in player.Frames.Players())
+            if (!ReferenceEquals(peer, player) && ReferenceEquals(peer.Area, player.Area)) Index(peer);
+        IndexedHitMarkAreas.AddOrUpdate(player.Area, HitMarkPresent);
+
+        static void Index(Player owner)
+        {
+            foreach (var mark in owner.Summons.HitMarks.Values)
+                HitMarkedMonsters.AddOrUpdate(mark.Monster, HitMarkPresent);
+        }
+    }
 
     static bool IsAbsolutionHitSpell(Player player, int effect) =>
         SkillsFor(player).EffectId(effect) is "Absolution" or "AbsolutionAltX";
@@ -47,8 +67,10 @@ public static partial class Game
             && (monster.Effects[Stat.CannotBeDominated] > 0 || monster.Effects[Stat.CannotBeConvertedOrDominated] > 0)) return;
         var pair = player.Area.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, monster));
         if (pair.Value is null) return;
-        if (monster.Rarity is MonsterRarity.Rare or MonsterRarity.Unique && random.Next(100)
-            < GolemStat(skill, definition.Family == "Absolution" ? Stat.AbsolutionBlastChanceToSummonOnHittingRareOrUniquePct : Stat.DominatingBlowChanceToSummonOnHittingUnqiuePct))
+        bool absolution = definition.Family == "Absolution";
+        bool rarityQualifies = monster.Rarity == MonsterRarity.Unique || absolution && monster.Rarity == MonsterRarity.Rare;
+        if (rarityQualifies && random.Next(100) < GolemStat(skill,
+                absolution ? Stat.AbsolutionBlastChanceToSummonOnHittingRareOrUniquePct : Stat.DominatingBlowChanceToSummonOnHittingUnqiuePct))
             player.Summons.HitSummons.Add(new(pair.Key, monster, source, gem.Effect, gem.SourceGem, false));
         if (monster.Rarity == MonsterRarity.Unique) return;
         var playerStats = PlayerStatValues(player);
@@ -56,11 +78,13 @@ public static partial class Game
             playerStats.GetValueOrDefault, n => GolemStat(skill, n));
         player.Summons.HitMarks[(pair.Key, source)] = new(monster, source, gem.Effect, gem.SourceGem, now + duration)
             { PlayerConsumesCorpse = playerConsumesCorpse };
+        HitMarkedMonsters.AddOrUpdate(monster, HitMarkPresent);
         if (monster.Dead || monster.Life == 0) HitSummonsOnDeathLocked(player, pair.Key, monster, now);
     }
 
     static void HitSummonsOnDeathLocked(Player player, uint id, SpawnedMonster monster, double now)
     {
+        HitMarkedMonsters.Remove(monster);
         QueueMarkedDeath(player, id, monster, now);
         foreach (var peer in player.Instance.PlayersExcept(player.Id))
             if (peer is { Closed: false, LeavingArea: false } other && ReferenceEquals(other.Instance, player.Instance))
@@ -69,6 +93,7 @@ public static partial class Game
 
     static void QueueMarkedDeath(Player player, uint id, SpawnedMonster monster, double now)
     {
+        if (player.Summons.HitMarks.Count == 0) return;
         foreach (var (key, mark) in player.Summons.HitMarks.Where(p => p.Key.Id == id).ToArray())
         {
             player.Summons.HitMarks.Remove(key);
@@ -82,6 +107,7 @@ public static partial class Game
     {
         SummonedMinions.HitSummon[] pending;
         if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused) return;
+        IndexExistingHitMarksLocked(player);
         if (player.Summons.HitMarks.Count == 0 && player.Summons.HitSummons.Count == 0) return;
         foreach (var (key, mark) in player.Summons.HitMarks.ToArray())
             if (now >= mark.Until || player.Area.Monsters.GetValueOrDefault(key.Id) != mark.Monster || player.PlayerLife == 0)
