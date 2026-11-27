@@ -545,7 +545,7 @@ public static partial class Game
                     ? MeleeAreaCentre.Of(SkillsFor(player).ActionHash(gem.Effect), warriorPos, aim, radius + weapon.Range)
                     : aim;
                 var splashMore = new Dictionary<uint, double>();
-                (int Radius, double More)? splash = SkillsFor(player).IsStrike(gem.Effect) && MeleeAttack(player, gem.Effect)
+                (int Radius, double More)? splash = !isArea && SkillsFor(player).IsStrike(gem.Effect) && MeleeAttack(player, gem.Effect)
                     ? MeleeSplash.Settings(SkillAreaStats(player, skillStats, gem.Effect, playerStats).GetValueOrDefault)
                     : null;
 
@@ -576,7 +576,7 @@ public static partial class Game
                 {
                     var struck = victims.Select(v => v.Id).ToHashSet();
                     foreach (var (_, _, primaryAt) in victims.ToArray())
-                        foreach (var (id, m) in player.Area.Monsters)
+                        foreach (var (id, m) in player.Area.MonstersNear(primaryAt, splashSettings.Radius))
                         {
                             if (!m.Hostile || m.Dead || m.Life == 0 || m.OwnerId is not null || m.WorldHidden) continue;
                             var mAt = m.Walk.Position(now);

@@ -573,7 +573,7 @@ public static partial class Game
         await WhilePaused(player);
         // One use, one Fortification and one Rage gain (as one AreaSkillHit sweep), whichever of its hits lands first.
         bool fortified = false, raged = false;
-        var primaryAt = m.Walk.Position(AreaTime(player));
+        var splashOrigins = weapon.Melee ? new List<(int X, int Y)>(1) : null;
         if (!await HitTarget(use.TargetId, m, target)) return;
         List<(uint Id, SpawnedMonster M, (int X, int Y) At)> extras;
         double now2 = AreaTime(player);
@@ -587,20 +587,19 @@ public static partial class Game
             extras.Add((echoId, echoed, echoed.Walk.Position(now2)));
         foreach (var (extraId, extra, at) in extras)
             if (!await HitTarget(extraId, extra, at)) return;
-        if (weapon.Melee)
+        if (weapon.Melee && splashOrigins is { Count: > 0 })
         {
             var merged = SkillAreaStats(player, ownPenetration ?? new Dictionary<uint, int>(), attackEffect);
             if (MeleeSplash.Settings(key => merged.GetValueOrDefault(key)) is { } splash)
             {
+                double splashNow = AreaTime(player);
                 var struck = new HashSet<uint> { use.TargetId };
                 foreach (var (extraId, _, _) in extras) struck.Add(extraId);
-                var origins = new List<(int X, int Y)>(1 + extras.Count) { primaryAt };
-                foreach (var (_, _, at) in extras) origins.Add(at);
                 var splashTargets = new List<(uint Id, SpawnedMonster M, (int X, int Y) At)>();
-                foreach (var splashAt in origins)
+                foreach (var splashAt in splashOrigins)
                     foreach (var (sid, sm) in player.Area.MonstersNear(splashAt, splash.Radius))
                         if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null && !sm.WorldHidden
-                            && sm.Walk.Position(now2) is var smAt && Dist(smAt, splashAt) <= splash.Radius && struck.Add(sid))
+                            && sm.Walk.Position(splashNow) is var smAt && Dist(smAt, splashAt) <= splash.Radius && struck.Add(sid))
                             splashTargets.Add((sid, sm, smAt));
                 foreach (var (sid, sm, smAt) in splashTargets)
                     if (!await HitTarget(sid, sm, smAt, splash.More, isSplash: true)) return;
@@ -686,6 +685,7 @@ public static partial class Game
                     Console.WriteLine($"[gateway] {player.Connection.Remote} attack on 0x{targetId:x} ({m.Label}) blocked");
                     return true;
                 }
+                if (!isSplash) splashOrigins?.Add(m.Walk.Position(contactAt));
                 var pen = Penetration.Of(playerStats, Stats, attack: true, ownPenetration, weapon.LocalSources);
                 var resistanceMods = HitResistMods(playerStats, ownPenetration);
                 var hit = prehit.Hit;
