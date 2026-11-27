@@ -33,22 +33,32 @@ public sealed partial class Player
     internal sealed class BodyList
     {
         public readonly List<ClientPathfinder.Blocker> Fixed = [];
+        public readonly List<ClientPathfinder.Blocker> PlayerFixed = [];
         public readonly List<(uint Id, int X, int Y)> Copies = [];
-        public readonly List<(uint Id, ClientPathfinder.Blocker Body)> Monsters = [];
+        public readonly List<(uint Id, ClientPathfinder.Blocker Body, bool BlocksPlayer)> Monsters = [];
         public (int X, int Y)? Player;
         public bool Phasing;
+        public bool HasSeparatePlayerFixed;
+        public bool HasAlliedMinion;
 
         public void Read(Player owner, double now, bool placement)
         {
-            Fixed.Clear(); Copies.Clear(); Monsters.Clear();
+            Fixed.Clear(); PlayerFixed.Clear(); Copies.Clear(); Monsters.Clear();
             Player = null;
-            Fixed.AddRange(owner.StationaryBlockers);
+            HasAlliedMinion = false;
+            var stationary = owner.StationaryBlockers;
+            var playerStationary = owner.PlayerStationaryBlockers;
+            HasSeparatePlayerFixed = !ReferenceEquals(stationary, playerStationary);
+            Fixed.AddRange(stationary);
+            if (HasSeparatePlayerFixed) PlayerFixed.AddRange(playerStationary);
             // Another player stands where its own walk has it: every client runs the same player from the same orders.
             foreach (var peer in owner.Instance?.PlayersExcept(owner.Id) ?? [])
                 if (peer.PlayerLife > 0 && peer is { } other)
                 {
                     var p = other.Walk.Position(now);
-                    Fixed.Add(new(p.X, p.Y, LivingCollision.PlayerSize));
+                    ClientPathfinder.Blocker peerBody = new(p.X, p.Y, LivingCollision.PlayerSize);
+                    Fixed.Add(peerBody);
+                    if (HasSeparatePlayerFixed) PlayerFixed.Add(peerBody);
                 }
             bool phasing = owner.IsPhasing;
             if (owner.Connection.PlayerSent && owner.PlayerLife > 0 && !phasing) Player = owner.Walk.Position(now);
@@ -62,7 +72,9 @@ public sealed partial class Player
                     var (id, m) = living[i];
                     if (!LivingCollision.StepsWithBodies(m)) continue;
                     var p = m.Walk.Position(now);
-                    Monsters.Add((id, new(p.X, p.Y, LivingCollision.Size(m))));
+                    bool blocksPlayer = !m.AlliedMinion;
+                    if (!blocksPlayer) HasAlliedMinion = true;
+                    Monsters.Add((id, new(p.X, p.Y, LivingCollision.Size(m)), blocksPlayer));
                 }
             }
             else
@@ -70,18 +82,32 @@ public sealed partial class Player
                 for (int i = 0; i < living.Count; i++)
                 {
                     var (id, m) = living[i];
-                    if (owner.MonsterBody(id, m, now) is { } body) Monsters.Add((id, body));
+                    if (owner.MonsterBody(id, m, now) is { } body)
+                    {
+                        bool blocksPlayer = !m.AlliedMinion;
+                        if (!blocksPlayer) HasAlliedMinion = true;
+                        Monsters.Add((id, body, blocksPlayer));
+                    }
                 }
                 if (owner.HasCorpses)
                 {
                     foreach (uint id in owner.KeptCorpseIds)
                         if (owner.Area.Monsters.TryGetValue(id, out var m) && (m.Dead || m.Life == 0)
                             && owner.MonsterBody(id, m, now) is { } body)
-                            Monsters.Add((id, body));
+                        {
+                            bool blocksPlayer = !m.AlliedMinion;
+                            if (!blocksPlayer) HasAlliedMinion = true;
+                            Monsters.Add((id, body, blocksPlayer));
+                        }
                 }
                 if (owner.Area.DormantMonsters.Count > 0)
                     foreach (var (id, m) in owner.Area.DormantMonsters)
-                        if (owner.MonsterBody(id, m, now) is { } body) Monsters.Add((id, body));
+                        if (owner.MonsterBody(id, m, now) is { } body)
+                        {
+                            bool blocksPlayer = !m.AlliedMinion;
+                            if (!blocksPlayer) HasAlliedMinion = true;
+                            Monsters.Add((id, body, blocksPlayer));
+                        }
             }
             // Phasing (Quartz Flask): the player and the monsters pass each other.
             Phasing = phasing;
@@ -89,12 +115,17 @@ public sealed partial class Player
 
         public bool Same(BodyList other)
         {
-            if (Phasing != other.Phasing || Player != other.Player || Fixed.Count != other.Fixed.Count
+            if (Phasing != other.Phasing || HasSeparatePlayerFixed != other.HasSeparatePlayerFixed
+                || HasAlliedMinion != other.HasAlliedMinion || Player != other.Player
+                || Fixed.Count != other.Fixed.Count || PlayerFixed.Count != other.PlayerFixed.Count
                 || Copies.Count != other.Copies.Count || Monsters.Count != other.Monsters.Count) return false;
             for (int i = 0; i < Monsters.Count; i++)
-                if (Monsters[i].Id != other.Monsters[i].Id || Monsters[i].Body != other.Monsters[i].Body) return false;
+                if (Monsters[i].Id != other.Monsters[i].Id || Monsters[i].Body != other.Monsters[i].Body
+                    || Monsters[i].BlocksPlayer != other.Monsters[i].BlocksPlayer) return false;
             for (int i = 0; i < Fixed.Count; i++)
                 if (Fixed[i] != other.Fixed[i]) return false;
+            for (int i = 0; i < PlayerFixed.Count; i++)
+                if (PlayerFixed[i] != other.PlayerFixed[i]) return false;
             for (int i = 0; i < Copies.Count; i++)
                 if (Copies[i] != other.Copies[i]) return false;
             return true;
@@ -106,8 +137,10 @@ public sealed partial class Player
         readonly Player owner;
         MonsterBlockerFrame? outer;
         readonly BlockerSet fixedBlockers = new();
+        readonly BlockerSet playerFixedBlockers = new();
         readonly BlockerSet current = new();
-        readonly Dictionary<uint, (int Body, int Current)> indices = [];
+        readonly BlockerSet playerCurrent = new();
+        readonly Dictionary<uint, (int Body, int Current, int PlayerCurrent)> indices = [];
         readonly Dictionary<uint, IReadOnlyList<ClientPathfinder.Blocker>> views = [];
         int playerBody = -1;
         IReadOnlyList<ClientPathfinder.Blocker> forPlayer = [];
@@ -150,20 +183,33 @@ public sealed partial class Player
             playerBody = -1;
             fixedBlockers.Reset(Read.Fixed);
             current.Reset(Read.Fixed);
+            bool separatePlayer = Read.HasSeparatePlayerFixed || Read.HasAlliedMinion;
+            bool buildPlayerCurrent = separatePlayer && !Read.Phasing;
+            if (separatePlayer)
+            {
+                var pFixed = Read.HasSeparatePlayerFixed ? Read.PlayerFixed : Read.Fixed;
+                playerFixedBlockers.Reset(pFixed);
+                if (buildPlayerCurrent) playerCurrent.Reset(pFixed);
+            }
             for (int i = 0; i < Read.Copies.Count; i++)
             {
                 var (id, x, y) = Read.Copies[i];
-                indices.Add(id, (Bodies.Count, current.Add(new(x, y, LivingCollision.PlayerSize))));
+                ClientPathfinder.Blocker copyBody = new(x, y, LivingCollision.PlayerSize);
+                int pIndex = buildPlayerCurrent ? playerCurrent.Add(copyBody) : -1;
+                indices.Add(id, (Bodies.Count, current.Add(copyBody), pIndex));
                 Bodies.Add((id, x, y, LivingCollision.PlayerSize));
             }
             if (Read.Player is { } player) playerBody = current.Add(new(player.X, player.Y, LivingCollision.PlayerSize));
             for (int i = 0; i < Read.Monsters.Count; i++)
             {
-                var (id, blocker) = Read.Monsters[i];
-                indices.Add(id, (Bodies.Count, current.Add(blocker)));
+                var (id, blocker, blocksPlayer) = Read.Monsters[i];
+                int pIndex = buildPlayerCurrent && blocksPlayer ? playerCurrent.Add(blocker) : -1;
+                indices.Add(id, (Bodies.Count, current.Add(blocker), pIndex));
                 Bodies.Add((id, blocker.X, blocker.Y, blocker.Size));
             }
-            forPlayer = Read.Phasing ? fixedBlockers : playerBody >= 0 ? current.Without(playerBody) : current;
+            forPlayer = !separatePlayer
+                ? (Read.Phasing ? fixedBlockers : playerBody >= 0 ? current.Without(playerBody) : current)
+                : (Read.Phasing ? playerFixedBlockers : playerCurrent);
             owner.Connection.Performance.Elapsed(LatencyPhase.BlockerBuild, startedAt);
         }
 
@@ -189,7 +235,9 @@ public sealed partial class Player
             // A nonblocking actor still takes movement turns, but has no body entry to update.
             if (!indices.TryGetValue(id, out var index)) return;
             var before = Bodies[index.Body];
-            current.Replace(index.Current, new(x, y, before.Size));
+            ClientPathfinder.Blocker moved = new(x, y, before.Size);
+            current.Replace(index.Current, moved);
+            if (index.PlayerCurrent >= 0) playerCurrent.Replace(index.PlayerCurrent, moved);
             Bodies[index.Body] = (id, x, y, before.Size);
         }
 
@@ -198,6 +246,7 @@ public sealed partial class Player
         {
             if (!indices.Remove(id, out var index)) return;
             current.Remove(index.Current);
+            if (index.PlayerCurrent >= 0) playerCurrent.Remove(index.PlayerCurrent);
             Bodies[index.Body] = (id, current[index.Current].X, current[index.Current].Y, -1);
         }
 

@@ -38,14 +38,14 @@ public static partial class Game
         var skill = SkillsFor(player).FindByRow(SkillCatalog.FirstSkillId, effect, level, own.Select(s => (s.Key, s.Value)).ToArray());
         if (skill is null) return null;
         var blob = new MonsterObject(at.X, at.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
-            Team: 0, Skills: [skill], Stats: [(Stat.MaximumLife, (int)life)]) { LifeData = variety.LifeData, Chain = variety.Chain };
+            Team: 0, Skills: [skill], Stats: [(Stat.MaximumLife, (int)life)]) { LifeData = variety.LifeData, Chain = variety.Chain, IsMinion = true };
         await SendWorldBatch(player, [], admission =>
         {
             if (!RampageEffectCurrent(player, epoch)) return null;
             double now = ProjectileWorldTime(player);
             player.Area.Monsters[id] = new(variety.Name, player.NewMonsterWalk(id, at.X, at.Y, variety.MovementSpeed,
                 Math.Clamp(variety.ObjectSize - 1, -1, 127), false), variety.AggroRange, variety.AttackRange, life)
-            { OwnerId = player.Id, Hostile = false, Variety = variety, Level = actorLevel,
+            { OwnerId = player.Id, Hostile = false, AlliedMinion = true, Variety = variety, Level = actorLevel,
                 HitAnimations = Monsters.TakeHit(variety.Id) };
             player.RampageWorld.Actors[id] = new(id, epoch, weapon, actorLevel, now + lifetime, now, effect);
             var bytes = new WorldRecordBuilder(player, admission);

@@ -491,6 +491,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Skill bars without a saved attack-in-place mask use each bound skill's default.
 - Searing Bond totems burn enemies along their links, and Searing Bond of Detonation leaves a timed area burn at cap.
 - Artillery Ballista's mortar volleys, including Cross Strafe and Focus Fire (checked offline).
+  Ballista and Spell Totem varieties follow native `SkillTotemVariations` selection (`ShotgunTotem`, `MortarTotem`,
+  `SnipeTotem`, attribute-colored spell totems, and `totem_art_variation`), Rain of Arrows (and variants) place as
+  ballistas, and player totems/allied minions set `Positioned` `+0x1e0` bit 15 so players walk through them while
+  enemies stay blocked (checked live 2026-11-28).
   Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Minions inherit spell suppression chance and the minion damage over time multiplier from their owner.
 - Holy Flame Totem and its Ire variant use their native projectiles. Leaving the area retires totem objects and their

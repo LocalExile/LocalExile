@@ -78,7 +78,7 @@ public static partial class Game
             if (player.Layout.WalkableFor(landing.X, landing.Y, totem.BodySize) && !player.Barrier.Contains(landing))
             {
                 totem.Relocate(landing);
-                player.SetObjectBlocker(totem.Id, landing.X, landing.Y, totem.BodySize, true);
+                player.SetObjectBlocker(totem.Id, landing.X, landing.Y, totem.BodySize, true, null, blocksPlayer: false);
                 session.World(totem.Id, InstanceProtocol.Teleport(totem.Id, landing.X, landing.Y));
             }
         }

@@ -369,6 +369,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>Non-blocking actor (e.g. Mirage Warrior): excluded from living collision so walkers pass through it. Read
     /// each frame, so a caller may give a monster its body later (false), in the area's frame.</summary>
     public bool NonBlocking { get; set; }
+    /// <summary>Player-allied minion carrying Positioned +0x1e0 bit 15 (0x8000): players pass through it while hostile
+    /// monsters and other minions still collide with it (0x141e65ae0, 0x141e36100).</summary>
+    public bool AlliedMinion { get; init; }
     public uint? OwnerId { get; init; }
     // The monster whose summoning skill brought it (MonsterAttack.Summon), whether its death gives no experience or items
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
@@ -1079,6 +1082,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public const int NpcBlockerSize = 4, StashBlockerSize = 2, MapDeviceBlockerSize = 3;
     readonly Dictionary<uint, ClientPathfinder.Blocker> _blockers = [];
     volatile IReadOnlyList<ClientPathfinder.Blocker> _blockerList = [];
+    readonly HashSet<uint> nonPlayerBlockers = [];
+    volatile IReadOnlyList<ClientPathfinder.Blocker> _playerStationaryBlockers = [];
     // Cached player blocker snapshot (Blockers): reused while stationary, monster and peer bodies stay on the same cells.
     // Never mutated after publication so concurrent readers stay race-free.
     readonly Lock _playerBlockersGate = new();
@@ -1089,7 +1094,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
         get
         {
             if (Instance?.World.AreaBodies is { } area) return area(Id);
-            var fixedOnes = _blockerList;
+            var fixedOnes = _playerStationaryBlockers;
             if (IsPhasing) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
             double now = Clock.Elapsed.TotalSeconds;
             lock (_playerBlockersGate)
@@ -1101,12 +1106,12 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
                 if (Area.DormantMonsters.Count == 0)
                 {
                     foreach (var (id, m) in Area.Monsters)
-                        if (MonsterBody(id, m, now) is { } body) list.Add(body);
+                        if (!m.AlliedMinion && MonsterBody(id, m, now) is { } body) list.Add(body);
                 }
                 else
                 {
                     foreach (var (id, m) in CollisionMonsters)
-                        if (MonsterBody(id, m, now) is { } body) list.Add(body);
+                        if (!m.AlliedMinion && MonsterBody(id, m, now) is { } body) list.Add(body);
                 }
                 // Another player stands where its own walk has it.
                 var peers = Instance?.PlayersExcept(Id);
@@ -1145,6 +1150,9 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     }
 
     public IReadOnlyList<ClientPathfinder.Blocker> StationaryBlockers => _blockerList;
+    /// <summary>Stationary blockers that also block player walkers (excludes player-allied totems, which carry
+    /// Positioned +0x1e0 bit 15 so players walk through them while hostile monsters stay blocked).</summary>
+    public IReadOnlyList<ClientPathfinder.Blocker> PlayerStationaryBlockers => _playerStationaryBlockers;
 
     public (int X, int Y)? StationaryPosition(uint id)
     {
@@ -1170,34 +1178,47 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     }
 
     public void SetBlocker(uint id, int x, int y, int size, double? collisionRadius = null) =>
-        UpdateBlocker(id, x, y, size, collisionRadius, null);
+        UpdateBlocker(id, x, y, size, collisionRadius, null, blocksPlayer: true);
 
     public void SetRingBlocker(uint id, int x, int y, double ringRadius)
     {
         lock (_blockers)
         {
             actorOrChestBlockers.Remove(id);
+            nonPlayerBlockers.Remove(id);
             _blockers[id] = new(x, y, 0) { RingRadius = ringRadius };
-            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
-            sceneryBlockers = null;
+            RefreshBlockerListsLocked();
         }
         BlockersChanged?.Invoke();
     }
 
     public void SetObjectBlocker(uint id, int x, int y, int size, bool actorOrChest, double? collisionRadius = null) =>
-        UpdateBlocker(id, x, y, size, collisionRadius, actorOrChest);
+        UpdateBlocker(id, x, y, size, collisionRadius, actorOrChest, blocksPlayer: true);
 
-    void UpdateBlocker(uint id, int x, int y, int size, double? collisionRadius, bool? actorOrChest)
+    public void SetObjectBlocker(uint id, int x, int y, int size, bool actorOrChest, double? collisionRadius, bool blocksPlayer) =>
+        UpdateBlocker(id, x, y, size, collisionRadius, actorOrChest, blocksPlayer);
+
+    void UpdateBlocker(uint id, int x, int y, int size, double? collisionRadius, bool? actorOrChest, bool blocksPlayer)
     {
         lock (_blockers)
         {
             if (actorOrChest == true) actorOrChestBlockers.Add(id);
             else if (actorOrChest == false) actorOrChestBlockers.Remove(id);
+            if (blocksPlayer) nonPlayerBlockers.Remove(id);
+            else nonPlayerBlockers.Add(id);
             _blockers[id] = new(x, y, size) { CollisionRadius = collisionRadius };
-            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
-            sceneryBlockers = null;
+            RefreshBlockerListsLocked();
         }
-        BlockersChanged?.Invoke();
+        if (blocksPlayer) BlockersChanged?.Invoke();
+    }
+
+    void RefreshBlockerListsLocked()
+    {
+        _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
+        _playerStationaryBlockers = nonPlayerBlockers.Count == 0
+            ? _blockerList
+            : new GameServer.Core.World.BlockerSet(_blockers.Where(b => !nonPlayerBlockers.Contains(b.Key)).Select(b => b.Value));
+        sceneryBlockers = null;
     }
 
     /// <summary>A stationary blocker was added or moved (the player may now stand in it).</summary>
@@ -1209,8 +1230,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
         {
             if (!_blockers.Remove(id)) return;
             actorOrChestBlockers.Remove(id);
-            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
-            sceneryBlockers = null;
+            nonPlayerBlockers.Remove(id);
+            RefreshBlockerListsLocked();
         }
     }
 
