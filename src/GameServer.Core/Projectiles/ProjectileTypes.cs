@@ -273,6 +273,8 @@ public sealed record ProjectileProfile(string Id)
     /// <summary>Emit an allowed end area before a successful return turnaround; end emissions stay deferred.</summary>
     public bool EndAreaOnReturnTurnaround { get; init; }
     public ProjectileAreaRecipe? ContactArea { get; init; }
+    /// <summary>The contact area supplies the direct victim's damage profile.</summary>
+    public bool ContactAreaReplacesDirectContact { get; init; }
     public bool ContactAreaOnReturn { get; init; } = true;
     /// <summary>Suppress outbound terminal areas after actor contacts, including terrain contact areas.</summary>
     public bool TerminalAreaRequiresNoContact { get; init; }

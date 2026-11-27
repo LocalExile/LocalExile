@@ -119,6 +119,7 @@ public static partial class Game
             string id = Skills.EffectId(row) ?? "";
             if (IsArtilleryBallista(id) || id == ThunderstormEffect) return GroundArrow;
             if (id == ThunderburstEffect) return ThunderburstProjectile;
+            if (id is "KineticFusillade" or KineticFusilladeDetonation) return KineticFusilladeProjectile;
             if (IsKineticRain(id) || id == KineticAnomalyEffect) return GroundWandRain;
             if (ScourgeProjectileDefinition(id) is { } scourge) return scourge;
             if (id == SomaticShellEffect) return SomaticShellProjectile;

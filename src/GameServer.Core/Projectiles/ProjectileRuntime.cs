@@ -452,8 +452,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 ? endArea : null;
             var contactArea = p.Phase == 0 || p.Profile.ContactAreaOnReturn ? p.Profile.ContactArea : null;
             ProjectileVector? centre = contactArea is { CentreOnContactTarget: true } ? target.Position(Now) : null;
-            var result = Damage(p, target, terminal?.Stage ?? "direct", multiplier: terminal?.Multiplier ?? 1,
-                admissionStage: "direct", isArea: terminal is not null);
+            var contactDamage = terminal ?? (p.Profile.ContactAreaReplacesDirectContact ? contactArea : null);
+            var result = Damage(p, target, contactDamage?.Stage ?? "direct", multiplier: contactDamage?.Multiplier ?? 1,
+                admissionStage: "direct", isArea: contactDamage is not null);
             if (result == ProjectileHitResult.Miss) return;
             if (contactArea is not null && (!contactArea.RequiresEnemyHit || result == ProjectileHitResult.Hit))
                 Area(p, contactArea, contactArea.ExcludeContactTarget ? target.Key : null, centre);

@@ -72,6 +72,12 @@ Damage and ailment multipliers use the committed shot's inputs. Thunderburst use
 area. The landing uses the shared arrow-rain fall timing, and the tornado flight uses shared wandering legs while
 the exact Windstorm action timing and native tornado turns remain unmeasured.
 
+Kinetic Fusillade queues hovering shots per caster and skill. Reusing that skill refreshes the queue and displaces
+the oldest bolts when the exported cap is reached. The normal gem seeks different targets and chains area hits.
+Detonation instead explodes at each hover position. Both variants use the exported discharge interval and scale
+damage by the number of preceding shots. The hover positions use the client's offset range with server-selected
+angles. The dedicated client hover motion has not been checked with GPU rendering.
+
 ## Radius, damage and presentation
 
 | Profile | Base blast radius (cells) | Base placement radius (cells) | Explosion multiplier |

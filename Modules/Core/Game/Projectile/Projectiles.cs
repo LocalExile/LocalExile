@@ -317,11 +317,22 @@ public static partial class Game
         /// <summary>Releases a resolved use at the runtime's current instant. Call in the area's frame.</summary>
         public long ReleaseNow(ProjectileUse use)
         {
+            if (use.Payload is ProjectileOffense { Fusillade: { } cast } shot)
+            {
+                QueueFusillade(use, shot, cast);
+                SacredWispsOnRelease(use);
+                return 0;
+            }
+            return ReleaseFlight(use, notifyWisps: true);
+        }
+
+        long ReleaseFlight(ProjectileUse use, bool notifyWisps)
+        {
             var seeded = use with { Seed = ++seed };
             long useId = Runtime.Release(seeded);
             if (seeded.Payload is ProjectileOffense { ForbiddenRite: { } rite } shot)
                 ReleaseForbiddenRite(seeded, shot, rite);
-            SacredWispsOnRelease(seeded);
+            if (notifyWisps) SacredWispsOnRelease(seeded);
             if (ServerTrace.Projectiles && !Quiet(seeded.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
                     + $"skill={PayloadLabel(seeded.Payload)} metadata={seeded.Profile.Id} count={seeded.Profile.Count} "
@@ -351,6 +362,7 @@ public static partial class Game
             ClearVenomGyre();
             ClearStormRain();
             ClearThunderstorms();
+            ClearFusillades();
             ClearConflagration();
             ClearExplosiveFuses();
             RetireBannerLocked(Player);
@@ -1342,7 +1354,7 @@ public static partial class Game
             }
         }
 
-        void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
+        void Effect(int x, int y, string ao, long? lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
             float animationValue = 0, uint animatedId = 0, int? artRadius = null, (uint Clip, long Length)? endClip = null,
             float rotation = 0, uint? startClip = null, (uint Clip, long After)? thenClip = null, Action<Action>? captureRemoval = null,
@@ -1372,14 +1384,17 @@ public static partial class Game
                 visual.Created = true;
                 return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
             }, wake: true);
-            if (thenClip is { } next && next.After < lifetime)
+            if (thenClip is { } next && (lifetime is null || next.After < lifetime))
                 Runtime.Schedule(Runtime.Now + next.After, () => WorldRecords(id, () => visual.Created && !visual.Ended
                     ? [InstanceProtocol.AnimationUpdate(id, 0, next.Clip, 1)] : null));
             // endClip: a clip the art plays when its time is up (a ground's fade-out); the object goes after it.
-            if (endClip is { } ending)
-                Runtime.Schedule(Runtime.Now + lifetime, () => WorldRecords(id, () => visual.Created && !visual.Ended
-                    ? [InstanceProtocol.AnimationUpdate(id, 0, ending.Clip, 1)] : null));
-            Runtime.Schedule(Runtime.Now + lifetime + (endClip?.Length ?? 0), Remove);
+            if (lifetime is { } duration)
+            {
+                if (endClip is { } ending)
+                    Runtime.Schedule(Runtime.Now + duration, () => WorldRecords(id, () => visual.Created && !visual.Ended
+                        ? [InstanceProtocol.AnimationUpdate(id, 0, ending.Clip, 1)] : null));
+                Runtime.Schedule(Runtime.Now + duration + (endClip?.Length ?? 0), Remove);
+            }
             captureRemoval?.Invoke(Remove);
             captureMovement?.Invoke((toX, toY, seconds) => World(id, () => visual.Created && !visual.Ended
                 ? InstanceProtocol.MoveTo(id, toX, toY, seconds, InstanceProtocol.FollowTerrain) : null));
@@ -1393,7 +1408,7 @@ public static partial class Game
                     return visual.Created ? [InstanceProtocol.RemoveObject(id)] : null;
                 }, remove: true);
             }
-            if (attach is not { } child) return;
+            if (attach is not { } child || lifetime is not { } childLifetime) return;
             // The art attached to the effect's bone: the client carries it along with the parent's animation.
             uint childId = Player.TakeObjectId();
             // The official split-arrow art sends kind 0 and mask 3 (the base record of the Animated component), which
@@ -1409,7 +1424,7 @@ public static partial class Game
                 return InstanceEntities.CreateObject(childId, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), childEffect.Blob());
             });
             World(childId, () => childVisual.Created ? InstanceProtocol.EnterWakeZone(childId) : null);
-            Runtime.Schedule(Runtime.Now + lifetime, () =>
+            Runtime.Schedule(Runtime.Now + childLifetime, () =>
             {
                 childVisual.Ended = true;
                 WorldRecords(childId, () =>
