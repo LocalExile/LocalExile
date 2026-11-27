@@ -1016,18 +1016,26 @@ public static partial class Game
     public static Task RestoreSkillBarAfterActorUpdate(Player player, bool force = false)
     {
         var pending = PendingBarRestores.GetOrCreateValue(player);
-        lock (pending) pending.Force |= force;
+        int gen;
+        lock (pending)
+        {
+            // The generation moves with the force: a newer call must both supersede this timer and be the one whose
+            // force the timer reads, or a stale one consumes it (review 2026-11-26).
+            pending.Force |= force;
+            gen = Interlocked.Increment(ref player.SkillBarRestoreGeneration);
+        }
         if (player.Connection.LockstepClient)
         {
-            int gen = Interlocked.Increment(ref player.SkillBarRestoreGeneration);
             _ = Task.Delay(2 * FrameMs + 16).ContinueWith(_ =>
             {
-                if (!player.Closed && !player.LeavingArea && player.SkillBarRestoreGeneration == gen)
+                bool forced;
+                lock (pending)
                 {
-                    bool forced;
-                    lock (pending) { forced = pending.Force; pending.Force = false; }
-                    _ = player.Frames.Run(() => SendSkillBarHoldingGuard(player, forced));
+                    if (player.Closed || player.LeavingArea || player.SkillBarRestoreGeneration != gen) return;
+                    forced = pending.Force;
+                    pending.Force = false;
                 }
+                _ = player.Frames.Run(() => SendSkillBarHoldingGuard(player, forced));
             });
             return Task.CompletedTask;
         }
