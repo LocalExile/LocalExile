@@ -31,6 +31,9 @@ public static partial class MutatedUniqueCatalog
     [GeneratedRegex(@"^(Unique[A-Za-z]+[0-9]+)", RegexOptions.CultureInvariant)]
     private static partial Regex UniqueTokenRegex();
 
+    /// <summary>Builds the mutated unique lookup table once at Gateway startup (<see cref="WorldLoader"/>).</summary>
+    public static void LoadGameData(ModCatalog mods) => EnsureLoaded(mods);
+
     static void EnsureLoaded(ModCatalog mods)
     {
         long rev = mods.Revision;
@@ -129,6 +132,6 @@ public static partial class MutatedUniqueCatalog
         var nextMods = uniqueItem.Mods.ToList();
         for (int i = 0; i < mutations; i++)
             nextMods[chosenSlots[i]] = chosenPool[i].Roll(ModSection.Explicit, random);
-        return uniqueItem with { Mods = nextMods };
+        return uniqueItem with { Mods = nextMods, Foulborn = true };
     }
 }

@@ -1144,6 +1144,7 @@ public sealed class ItemCatalog
             Sockets = ResonatorSockets(t) > 0 ? ResonatorSocketList(t)
                 : sockets ?? (t.Id == AbyssJewels.StygianVise ? [new(SocketColour.Abyss)] : t.HasOneSocket ? [new(SocketColour.White)] : []),
             Links = ResonatorSockets(t) > 0 ? null : links ?? (t.HasOneSocket && sockets is null ? [(byte)1] : null),
+            BrequelFruitLevel = t.Components.Contains("BrequelFruit") ? 1u : null,
             Mods = t.Components.Contains("Mods")
                 ? [.. t.Cluster?.Roll(random) ?? [], .. (t.Implicits ?? []).Select(m => m.Roll(ModSection.Implicit, random))] : [],
         };

@@ -1,0 +1,2 @@
+ALTER TABLE items ADD COLUMN brequel_fruit_level INTEGER;
+ALTER TABLE items ADD COLUMN foulborn INTEGER NOT NULL DEFAULT 0;

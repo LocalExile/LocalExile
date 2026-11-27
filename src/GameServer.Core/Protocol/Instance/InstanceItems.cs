@@ -124,8 +124,17 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// <summary>Synthesised: the Mods component's flag bit 5 (+0x2e5, "synthetic" in its debug dump 0x1421e7b00).</summary>
     public bool Synthesised { get; init; }
 
+    /// <summary>Mods flag bit 9 (0x0200, <c>0x1421e614e</c> → <c>Mods + 0x2e6</c>): Foulborn / mutated item (shows the
+    /// Breach/Foulborn icon, prefixes unique names with "Foulborn {0}", and enforces Foulborn currency rules).</summary>
+    public bool Foulborn { get; init; }
+
     /// <summary>Mods flag bit 10: a vestigial item, which the client excludes from currency modification.</summary>
     public bool Vestigial { get; init; }
+
+    /// <summary>The BrequelFruit component (Component 170, reader <c>0x141ebaec0</c>): 4-byte <c>u32 LE</c>
+    /// <c>fleshgraftLevel</c> stored at <c>+0x18</c> (default 1), driving Wombgift Hiveblood cost via
+    /// <c>BrequelItemResourceValues</c>.</summary>
+    public uint? BrequelFruitLevel { get; init; }
     public HeistBlueprintState? HeistBlueprint { get; init; }
 
     /// <summary>The DeepwaterChart component (slot 5 0x1424bbe90): u8 +0x30 the Area Level its tooltip shows, u8 +0x31
@@ -183,7 +192,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter", "IncursionTemple", "ExpeditionSaga"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter", "IncursionTemple", "ExpeditionSaga", "BrequelFruit"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -257,7 +266,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 case "Mods":
                     w.U8(ItemLevel).U8((byte)Math.Clamp(RequiredLevel ?? LevelRequirementOf?.Invoke(this) ?? 0, 0, 255))
                         .U16((ushort)((Mirrored ? 0x2 : 0) | (Split ? 0x4 : 0) | (Synthesised ? 0x20 : 0) | (Foreseeing ? 0x100 : 0)
-                            | (RelicStyle is not null ? 0x10 : 0) | (Vestigial ? 0x400 : 0)));
+                            | (Foulborn ? 0x200 : 0) | (RelicStyle is not null ? 0x10 : 0) | (Vestigial ? 0x400 : 0)));
                     if (RelicStyle is byte relic) w.U8(relic);
                     MagicProperties(w); w.U8(MemoryStrands).U8(Intangibility);
                     break;
@@ -298,6 +307,10 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     break;
                 case "ExpeditionSaga":
                     (ExpeditionSaga ?? new ExpeditionSagaData(0, [])).Write(w);
+                    break;
+                // BrequelFruit (Component 170, reader 0x141ebaec0 / writer 0x141ebae80): u32 LE fleshgraftLevel (+0x18, default 1).
+                case "BrequelFruit":
+                    w.U32(Math.Max(1u, BrequelFruitLevel ?? 1u));
                     break;
                 // 0x1424755d0: i32 experience (-1: one level over the cap), u32 +0x3c the variant (the copy 0x142476520
                 // checks it against the GemVariants count and sets +0x10 bit 5 when it is not 0), u8 +0x10, u16 +0x40 an

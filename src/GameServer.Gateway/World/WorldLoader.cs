@@ -42,6 +42,7 @@ public static class WorldLoader
         Step("timeless jewels", TimelessJewelCatalog.LoadGameData);
         Step("item types", () => Program.Items = new());
         if (Program.Items.Error is { } error) log?.Invoke($"[gateway] game data: item reference data unavailable: {error}");
+        Step("mutated uniques", () => MutatedUniqueCatalog.LoadGameData(Program.Items.Mods));
         Step("item rolls", () => Program.Rolls = new(Program.Items));
         Step("crafting bench", () => Program.Bench = new(Program.Items, Program.Rolls));
         Step("passive tree", () => Program.Passives = new());
