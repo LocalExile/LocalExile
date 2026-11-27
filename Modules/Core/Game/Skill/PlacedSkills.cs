@@ -773,7 +773,7 @@ public static partial class Game
         {
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y,
                 placed.At.X, placed.At.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
-            StartBladeTrap(player, placed, blades, currentSkill, inventionMore);
+            StartBladeTrap(player, placed, blades, currentSkill, releaseMore);
             return;
         }
         bool rainSkill = !bear && currentSkill && ArrowRain(SkillsFor(player).EffectId(placed.Effect));
