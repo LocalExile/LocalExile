@@ -173,6 +173,7 @@ public sealed class GameModule : IModule, IDisposable
             foreach (var p in kill.Player.Frames.Players()) global::Game.MonsterDebuffsChanged(p, kill.Monster.ObjectId);
             return Task.CompletedTask;
         });
+        GameEvents.MonsterKilled.Add(module.Manifest.Id, global::Game.DeathsOathKilled);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => Rules.ClearPlayerMonsterAurasAsync(player));
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => global::Sirus.Leaving(player));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
