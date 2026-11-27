@@ -318,7 +318,8 @@ public static partial class Game
                 // refused when none is; the server teleports the player, which the client does not.
                 bool flicker = cast && gem.Name is not null && SkillsFor(player).ActionHash(gem.Effect) == FlickerStrike.Action;
                 (uint Id, (int X, int Y) At, (int X, int Y) Landing)? flickerTo = null;
-                bool flameDash = cast && gem.Name is not null && chargeBonus == 0 && IsFlameDashEffect(SkillsFor(player).EffectId(gem.Effect));
+                var moveEffect = cast && gem.Name is not null && chargeBonus == 0 ? SkillsFor(player).EffectId(gem.Effect) : null;
+                bool flameDash = IsFlameDashEffect(moveEffect);
                 (int X, int Y)? flameDashTo = null;
                 LeapSlam.Use? leap = null;
                 bool movedByCast = false;
@@ -467,9 +468,9 @@ public static partial class Game
                         $"0x02c8 Flame Dash burning ground ({px}, {py}) -> ({moveLanding.X}, {moveLanding.Y})");
                     PlaceFlameDashGround(player, (px, py), moveLanding, use.SkillId, gem.Effect, at);
                 }
-                // Flicker Strike strikes from where it lands, at the monster it went to; Flame Dash hits at its resolved landing.
+                // Use the server-approved endpoint for movement contacts and ground effects.
                 var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At)
-                    : flameDash ? ((px, py), moveLanding)
+                    : flameDash || IsWhirlingBlades(moveEffect) ? ((px, py), moveLanding)
                     : ((px, py), (use.X, use.Y));
                 if (cast && !projectileRuntime && (!flameDash || movedByCast)) _ = CastGemSkill(player, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
                     actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse, swingAt: swingAt, movedByCast: movedByCast);

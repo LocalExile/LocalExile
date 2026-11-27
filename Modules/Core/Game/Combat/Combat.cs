@@ -989,7 +989,8 @@ public static partial class Game
         }
         // Flicker Strike's client action strikes without moving the player: the server teleports it (FlickerStrike).
         bool flicker = moves && SkillsFor(player).ActionHash(gem.Effect) == FlickerStrike.Action, flickers = false;
-        bool flameDash = moves && IsFlameDashEffect(SkillsFor(player).EffectId(gem.Effect));
+        var moveEffect = moves ? SkillsFor(player).EffectId(gem.Effect) : null;
+        bool flameDash = IsFlameDashEffect(moveEffect);
         ((int X, int Y) Aim, (int X, int Y) Landing)? flameDashTo = null;
         double? flameDashAt = null;
         // The monster Flicker Strike goes to, which may not be the clicked one (FlickerStrike.Pick): its strike's target.
@@ -1113,7 +1114,7 @@ public static partial class Game
             MovementSeconds(player, gem.Effect, gem.Level, use.SkillId), gem.Name!);
         if (!spellProjectileRuntime && !spellAcknowledged) return;
         if (!spellProjectileRuntime && (!flameDash || movedByCast)) _ = CastGemSkill(player, use.SkillId,
-            flicker ? landing : stand, flameDash ? landing : aim, struckId,
+            flicker ? landing : stand, flameDash || IsWhirlingBlades(moveEffect) ? landing : aim, struckId,
             sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse, swingAt: immediateSwingAt,
             movedByCast: movedByCast);
     }
@@ -2230,7 +2231,8 @@ public static partial class Game
         OverheatConsumeLocked(player, skillId,
             name => name is var key ? overheatStats.GetValueOrDefault(key) : 0,
             AreaTime(player));
-        if (ArrowRain(SkillsFor(player).EffectId(gem.Effect)))
+        var effectId = SkillsFor(player).EffectId(gem.Effect);
+        if (ArrowRain(effectId))
         {
             var rainCritical = criticalRoll ?? CaptureSkillCriticalRoll(player, skillId);
             var session = ProjectilesFor(player);
@@ -2268,7 +2270,13 @@ public static partial class Game
             else onShieldChargeReady(StartCharge);
             return Task.CompletedTask;
         }
-        if (IsBaseChainHook(SkillsFor(player).EffectId(gem.Effect)))
+        if (IsWhirlingBlades(effectId))
+        {
+            ScheduleWhirlingBlades(player, gem, from, to, sequence, actionToken ?? player.ActionCount,
+                recoveryGeneration, cooldownUse, swingAt, criticalRoll, cryExerted, rallyingDamage);
+            return Task.CompletedTask;
+        }
+        if (IsBaseChainHook(effectId))
             return ScheduleBaseChainHook(player, skillId, gem, to, targetId, recoveryGeneration,
                 actionToken ?? player.ActionCount, sequence, swingAt, cooldownUse, criticalRoll, cryExerted, rallyingDamage);
         if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)))
@@ -2962,7 +2970,7 @@ public static partial class Game
         BoneshatterContact? boneshatter = null, InfernalBlowUse? infernalBlast = null,
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false, bool seismicExerted = false, int ancestralTargets = 0,
-        int? rallyingDamage = null, RetainedAreaAttack? retainedAttack = null) =>
+        int? rallyingDamage = null, RetainedAreaAttack? retainedAttack = null, IReadOnlyList<uint>? contactTargets = null) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
@@ -2973,7 +2981,7 @@ public static partial class Game
             boneshatter: boneshatter, infernalBlast: infernalBlast, strikeSeconds: strikeSeconds,
             extraShockChance: extraShockChance, cascadeBurst: cascadeBurst,
             flurryRelease: flurryRelease, nearbyOnly: nearbyOnly, seismicExerted: seismicExerted, ancestralTargets: ancestralTargets,
-            rallyingDamage: rallyingDamage);
+            rallyingDamage: rallyingDamage, contactTargets: contactTargets);
 
     private static async Task AreaSkillHitStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,

@@ -524,6 +524,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 
 - Frozen Legion and Rallying spend stored uses per placed statue. Each statue steps inward and attacks once with Frozen Sweep.
+- Whirling Blades selects targets along its resolved slide and hits them in travel order.
 
 ## Not working yet
 
