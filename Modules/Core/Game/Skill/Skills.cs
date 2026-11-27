@@ -1013,29 +1013,74 @@ public static partial class Game
     // when it steps that frame, whereas 0x0053 is an instance packet handled immediately on receipt. Wait two lockstep
     // frames on wall-clock time (coalesced via SkillBarRestoreGeneration, working both while playing and while paused)
     // so 0x0053 always arrives after the client has applied 0x2bc and cannot be overwritten by it.
-    public static Task RestoreSkillBarAfterActorUpdate(Player player)
+    public static Task RestoreSkillBarAfterActorUpdate(Player player, bool force = false)
     {
+        var pending = PendingBarRestores.GetOrCreateValue(player);
+        int gen;
+        lock (pending)
+        {
+            // The generation moves with the force: a newer call must both supersede this timer and be the one whose
+            // force the timer reads, or a stale one consumes it (review 2026-11-26).
+            pending.Force |= force;
+            gen = Interlocked.Increment(ref player.SkillBarRestoreGeneration);
+        }
         if (player.Connection.LockstepClient)
         {
-            int gen = Interlocked.Increment(ref player.SkillBarRestoreGeneration);
             _ = Task.Delay(2 * FrameMs + 16).ContinueWith(_ =>
             {
-                if (!player.Closed && !player.LeavingArea && player.SkillBarRestoreGeneration == gen)
-                    _ = player.Frames.Run(() => SendSkillBarHoldingGuard(player));
+                bool forced;
+                lock (pending)
+                {
+                    if (player.Closed || player.LeavingArea || player.SkillBarRestoreGeneration != gen) return;
+                    forced = pending.Force;
+                    pending.Force = false;
+                }
+                _ = player.Frames.Run(() => SendSkillBarHoldingGuard(player, forced));
             });
             return Task.CompletedTask;
         }
-        return SendSkillBarHoldingGuard(player);
+        bool immediate;
+        lock (pending) { immediate = pending.Force; pending.Force = false; }
+        return SendSkillBarHoldingGuard(player, immediate);
     }
 
     // The bar re-creates every slot's cooldown entry, so a held guard's frozen entry goes out again behind it, or its
     // cooldown counts while the buff runs (issue #1127). Built at the send gate, as SendSkills' re-hold is.
-    static async Task SendSkillBarHoldingGuard(Player player)
+    // A skill-list update schedules this restore for its own bindings, but during a guard's buff the list changes far
+    // more often than the bar does: every rebuild re-creates the slots' cooldown entries and replays the ring, which
+    // the re-held entry behind it cannot stop (the client applies the rebuild after that entry; live 2026-11-25, a 5-10 %
+    // sweep on every move or cast). While a guard is held, the same bar goes out only once.
+    static readonly RuleTable<Player, byte[]> HeldSkillBar = new();
+
+    // A forced restore cancels an earlier pending one while it coalesces, but the force itself must survive that: the
+    // aura toggle's own 0x0053 was dropped that way on lockstep (review 2026-11-26).
+    sealed class PendingBarRestore { public bool Force; }
+    static readonly RuleTable<Player, PendingBarRestore> PendingBarRestores = new();
+
+    static async Task SendSkillBarHoldingGuard(Player player, bool force = false)
     {
+        // An entry left in the store by a finished guard still answers TryGetValue: only a running buff may hold the
+        // bar back, or every later unchanged restore would stay suppressed for the rest of the area (review 2026-11-26).
+        if (TriggeredGuards.TryGetValue(player, out var running) && running.Until > AreaTime(player)
+            && TriggeredGuardCurrent(player, running) && SkillBarRecord(player) is { Length: > 0 } bar)
+        {
+            HeldSkillBar.TryGetValue(player, out var prev);
+            if (force || prev is null || !prev.AsSpan().SequenceEqual(bar))
+            {
+                // The copy is what the compare above needs: the send writes into the packet's own buffer (the client
+                // receives it encrypted), so an array kept past the send no longer holds the bar (live 2026-11-25).
+                HeldSkillBar.AddOrUpdate(player, bar.ToArray());
+                await Send(player, bar, "0x0053 current skill bar (held)");
+                // A rebuild re-creates every slot's cooldown entry at the skill's own rate, so the held entry follows
+                // it. Only a rebuild: the entry repeats with nothing to replay it, and a repeated entry replays the
+                // bar's animation too (11-skills §9).
+                await Send(player, [], "0x02bc guard cooldown re-held after the skill bar",
+                    atGate: () => HeldGuardCooldownRefresh(player));
+            }
+            return;
+        }
+        HeldSkillBar.Remove(player);
         await SendSkillBar(player);
-        if (TriggeredGuards.TryGetValue(player, out _))
-            await Send(player, [], "0x02bc guard cooldown re-held after the skill bar",
-                atGate: () => HeldGuardCooldownRefresh(player));
     }
 
     // A bind received while an earlier refresh waits for the send gate must win over that refresh.
@@ -1742,7 +1787,9 @@ public static partial class Game
             || (gone.Count > 0 || added.Count > 0)
                 && added.All(id => resolvedBar is not null && Array.IndexOf(resolvedBar, id) >= 0
                     || SkillEffectId(player, id) is { } effect && saved?.Contains(effect) == true))
-            await RestoreSkillBarAfterActorUpdate(player);
+            // A skill really joining or leaving can empty a bound slot: that restore goes out even when the bar reads
+            // the same as the last one.
+            await RestoreSkillBarAfterActorUpdate(player, force: gone.Count > 0 || added.Count > 0);
         // The same recalculation may have changed which worn weapons qualify.
         await SendModelIfHandsChanged(player);
     }

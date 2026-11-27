@@ -357,7 +357,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   enemies without moving its caster. Vaal Ancestral Warchief slams, leaps and grants its owner more melee damage
   while active. Offline checks cover the server's timing, damage and movement.
 - Steelskin, Immortal Call and Molten Shell cast by hand start the triggered guard buff; a running or recovering
-  guard refuses the next before its cost. Docs: [11](../docs/protocol/11-skills.md) Â§12.
+  guard refuses the next before its cost. Immortal Call also sends its cast art, whose sound events are the
+  activation sound an instant skill's own 0x1ce does not play. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use
   swaps it for its more melee physical damage (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Bloodscent applies its Rage grant to the weapon that landed the hit (checked offline).

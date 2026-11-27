@@ -1592,6 +1592,11 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   native use refresh briefly restores the recovery rate, but the held remaining stays full so the ring does not move;
   `StartTriggeredGuard`'s held entry behind the 0x1ce freezes the rate again. Without the pre-entry the prediction swept
   ~109 ms (3.00 → 2.89) on a slow first press before the held entry froze it (#1127).
+  The order of the two is not what the sends say: a 0x1ce world record waits for the area frame while the held send
+  goes out at once, so the action can run after that entry and consume it, leaving the prediction with nothing to
+  freeze it (live 2026-11-25: the ring swept through a whole buff and restarted when it ended). `UseInstantSkill`
+  therefore publishes the held entry again about 150 ms after the action (`4 * FrameMs + 16`), in the area frame
+  (`HeldGuardCooldownRefresh`), which freezes the running prediction without restarting its animation.
   A skill-list refresh (Actor 0x20, `SendSkills`) replaces every skill record, and that replacement refreshes an existing
   zero-rate entry (the `0x141ef1573` case above): a movement or conditional-item-stat refresh during the buff therefore
   started the held entry counting again at the recovery rate (Frida: `[3,3,0]` → `[3,3,1]` → counting, live 2026-11-19).
@@ -3182,7 +3187,12 @@ BuffDefinitions row 1873 is `trauma`, with a countdown and stack count. The nati
   Guard backends also require additional-data element 0: the remaining absorption capacity (or Immortal Call's
   consumed charge count). Getter `0x141f84000` dereferences Buff `+0x80` without a null check; an empty list
   crashes the HUD. Guard definitions are not `IsRecovery`, so no inline stat values precede that list.
-  Hand-cast guards start that same buff (`SelfBuffSkills.cs`). Phase Run and Blood Rage send their rows
+  Hand-cast guards start that same buff (`SelfBuffSkills.cs`). An instant skill's S→C 0x1ce runs its action without
+  an animation, so the client plays no cast art of its own and Immortal Call's activation sound (the SoundEvents of
+  that art) is missing until the server sends it: an `EffectObject` of MiscAnimated `ImmortalCallCast`
+  (`Metadata/Effects/Spells/immortal_call/rig.ao`), Animated bit3 so the `.ao`'s default animation plays, attached to
+  the player's root bone and removed at 2 s (`TriggeredGuards.PresentImmortalCallCast`; the silence reported live
+  2026-11-25). Phase Run and Blood Rage send their rows
   (`new_phase_run` 467 and `new_phase_run_damage` 468, not the older `phase_run` 65; `blood_rage` 11) as Flicker
   Strike's buff is sent, with no additional-data list; whether their backends read one is not known (unchecked live).
   The generic source-object/skill labels above are context-dependent: the concrete RapidFireCharge and

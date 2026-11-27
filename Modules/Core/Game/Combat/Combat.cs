@@ -1841,7 +1841,16 @@ public static partial class Game
         if (!player.ProjectileActive(epoch) || player.Paused || !player.Connection.PlayerSent || player.PendingTransfer is not null) return;
         if (!TryBeginSkillCooldownUse(player, skillId, gem.Effect,
             cooldownPlan,
-            true, () => { }, out var cooldownUse)) return;
+            true, () => { }, out var cooldownUse))
+        {
+            // A press the running guard refuses still made the client predict a sweep of its own; a zero-rate entry
+            // that follows it freezes it, as the accepted path's does behind the instant action (issue #1127).
+            if (guard)
+                _ = player.Frames.Run(() => Send(player, [],
+                    "0x02bc guard cooldown re-held after a refused press",
+                    atGate: () => HeldGuardCooldownRefresh(player)));
+            return;
+        }
         // The guard starts after the instant action, so the action's record carries no guard work before it and the
         // guard's one lock entry goes out right behind it (StartGuard publishes it).
         Action? guardStart = guard
@@ -1874,6 +1883,19 @@ public static partial class Game
                 });
             if (committed) guardStart?.Invoke();
             await SendNativeCooldownRefresh(player);
+            // The client's own use refresh may run after the guard's held entry: S→C 0x1ce waits for the area frame
+            // while the held send goes out at once, so the action consumes that entry and starts its sweeping
+            // prediction with nothing left to freeze it (live 2026-11-25: the ring swept through a whole buff and
+            // restarted when it ended). Publish the held entry again once that refresh has run; a zero-rate entry
+            // that follows the prediction freezes it without restarting its animation (#1127).
+            if (guard && committed)
+                _ = Task.Delay(4 * FrameMs + 16).ContinueWith(_ =>
+                {
+                    if (player.Closed || player.LeavingArea || !player.ProjectileActive(epoch)) return;
+                    _ = player.Frames.Run(() => Send(player, [],
+                        "0x02bc guard cooldown re-held after its instant action",
+                        atGate: () => HeldGuardCooldownRefresh(player)));
+                });
         }
     }
 
@@ -2120,8 +2142,8 @@ public static partial class Game
         await SendPlayerEnergyShield(player);
         // The toggle's skill refresh can empty the aura's own bound slot (live 2026-11-22: Malevolence with Eternal
         // Blessing left Q), and the full refresh above resends the skill list without the bar, so the saved bar goes out
-        // again after it.
-        await RestoreSkillBarAfterActorUpdate(player);
+        // again after it — forced, because the bar can read the same while a slot still has to be restored.
+        await RestoreSkillBarAfterActorUpdate(player, force: true);
         return true;
     }
 
