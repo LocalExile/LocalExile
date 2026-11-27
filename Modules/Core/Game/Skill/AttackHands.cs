@@ -186,10 +186,21 @@ public static partial class Game
     public static double DefaultAttackSeconds(Player player, AttackHand hand, IReadOnlyDictionary<uint, int> playerStats)
     {
         var main = WeaponFor(player);
-        if (hand != AttackHand.Off || OffhandWeaponFor(player) is not { } off) return main.AttackSeconds(playerStats);
+        if (hand != AttackHand.Off || OffhandWeaponFor(player) is not { } off)
+        {
+            if (main.ItemClass is not null || !main.Melee) return main.AttackSeconds(playerStats);
+            int extra = UnarmedClawAttackSpeed(playerStats.GetValueOrDefault);
+            if (extra == 0) return main.AttackSeconds(playerStats);
+            int speed = ActorScale.Saturate((long)main.IncreasedAttackSpeed(playerStats) + extra);
+            return Math.Max(TickSeconds, main.AttackMs / 1000d / Math.Max(0.01, 1 + speed / 100d));
+        }
         return DualWieldPanel.OffHandSeconds(off, SkillCatalog.Unarmed.OffHandAttackSpeedPct(main.IncreasedAttackSpeed(playerStats),
             WeaponProfileFor(player, activeSet: true).LocalAttackSpeedPct));
     }
+
+    static int UnarmedClawAttackSpeed(Func<uint, int> get) =>
+        get(Stat.ModifiersToClawAttackSpeedAlsoAffectUnarmedMeleeAttackSpeed) != 0
+            ? get(Stat.ClawAttackSpeedPlusPct) : 0;
 
     /// <summary>The default attack's time for this use (its recorded hand), before the action factor.</summary>
     public static double DefaultAttackSeconds(Player player, ushort sequence, IReadOnlyDictionary<uint, int> playerStats) =>

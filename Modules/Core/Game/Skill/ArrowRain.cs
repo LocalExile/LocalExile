@@ -99,7 +99,9 @@ public static partial class Game
         if (transform is not null) shot = transform(shot);
         use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true,
             FromTrapOrMine = shot.FromTrapOrMine || from is not null,
-            FromMine = shot.FromMine || placedKind.Mine } };
+            FromMine = shot.FromMine || placedKind.Mine,
+            Penetration = placedKind.Mine && !shot.FromMine
+                ? Penetration.WithMine(shot.Penetration, shot.ActualCaster ?? playerStats, own) : shot.Penetration } };
         if (IsKineticRain(id))
         {
             ReleaseKineticRain(session, use, gem, id, aim, own, playerStats, critical, sequence);

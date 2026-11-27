@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 
 static partial class Game
 {
@@ -6,9 +7,16 @@ static partial class Game
     {
         if (!SkillsFor(caster).IsSpell(effect) || caster.PlayerLife <= 1) return 0;
         int percent = stats.GetValueOrDefault(Stat.SacrificePctLifeOnSpellSkill);
-        if (percent <= 0) return 0;
-        uint sacrificed = (uint)Math.Min(caster.PlayerLife - 1, (long)caster.PlayerLife * percent / 100);
+        uint sacrificed = (uint)Math.Min(caster.PlayerLife - 1, (long)caster.PlayerLife * Math.Max(0, percent) / 100);
         caster.PlayerLife -= sacrificed;
+        int shieldPercent = stats.GetValueOrDefault(Stat.SacrificePctMaximumLifeToGainAsEsOnSpellCast);
+        if (shieldPercent > 0 && caster.PlayerLife > 1)
+        {
+            uint forShield = (uint)Math.Min(caster.PlayerLife - 1, (long)caster.PlayerMaxLife * shieldPercent / 100);
+            caster.PlayerLife -= forShield;
+            caster.EnergyShield.Gain(forShield);
+            sacrificed += forShield;
+        }
         return sacrificed;
     }
 
@@ -57,8 +65,12 @@ static partial class Game
             int percent = Get(Stat.SupportSacrificeSacrificePctOfCurrentLife);
             int sacrificed = SkillsFor(caster).IsSpell(effect) && percent > 0 && caster.PlayerLife > 1
                 ? (int)Math.Min((long)caster.PlayerLife - 1, (long)caster.PlayerLife * percent / 100) : 0;
-            caster.PlayerLife -= (uint)sacrificed;
-            if (sacrificed > 0) paid?.Invoke();
+            if (sacrificed > 0 && !RandomRolls.Chance(PlayerStatValues(caster).GetValueOrDefault(Stat.SkipLifeSacrificeChancePct),
+                100, AreaRng(caster)))
+            {
+                caster.PlayerLife -= (uint)sacrificed;
+                paid?.Invoke();
+            }
             added = (int)((long)sacrificed * Get(Stat.SupportSacrificeGainPctOfSacrificedLifeAsAddedChaosDamage) / 100);
             return added.Value;
         }

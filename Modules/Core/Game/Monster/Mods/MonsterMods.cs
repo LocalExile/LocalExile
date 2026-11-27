@@ -188,6 +188,7 @@ public static partial class Game
         }
         return resistance with { Value = resistance.Value + m.Effects.Resistance(type) + MonsterExposure(m, type, now)
                 + ScorchedResistance(m, type, now)
+                + (type == DamageType.Chaos ? PoisonedChaosResistancePct(m, now) : 0)
                 + (type == DamageType.Physical ? 0 : m.SpiderWebs.Resistance(now)),
             Maximum = m.Effects.MaximumResistance(type), Penetration = pen.Of(type) + (type == DamageType.Cold
                 && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0 ? pen.ColdVsChilled : 0) };
@@ -417,11 +418,13 @@ public static partial class Game
     /// damage, impale, flinch or hit message. The skill's "reduced Enemy Block Chance" (Block Chance Reduction) applies
     /// to both attack and spell block, and a blocked supported hit applies Overpowered.</summary>
     public static bool MonsterBlocks(SpawnedMonster m, Random random, bool spell, double now = 0,
-        IReadOnlyDictionary<uint, int>? skill = null)
+        IReadOnlyDictionary<uint, int>? skill = null, IReadOnlyDictionary<uint, int>? attacker = null)
     {
         int baseChance = spell ? m.Effects.SpellBlockChance : m.Effects.BlockChance;
         if (baseChance <= 0) return false;
         int Skill(uint name) => skill is not null && name is var k ? skill.GetValueOrDefault(k) : 0;
+        if (!spell && ((attacker?.GetValueOrDefault(Stat.YourAttacksCannotBeBlocked) ?? 0) != 0
+            || Skill(Stat.YourAttacksCannotBeBlocked) != 0)) return false;
         int chance = baseChance - Math.Max(0, Skill(Stat.SupportReduceEnemyBlockAndSpellBlockPct));
         if (m.OverpoweredUntil > now) chance -= m.OverpoweredPercent;
         if (chance <= 0 || random.Next(100) >= chance) return false;
@@ -443,13 +446,15 @@ public static partial class Game
     public static MonsterHit? HitUnlessBlockedLocked(Player player, SpawnedMonster m, int damage) =>
         damage is Blocked or Evaded ? null : ApplyMonsterHitLocked(player, m, damage);
 
-    internal readonly record struct TargetCriticalBonuses(long FullLife, long Unique, long Taunted)
+    internal readonly record struct TargetCriticalBonuses(long FullLife, long Unique, long Taunted, long Bleeding,
+        bool FixedMultiplier = false)
     {
         public static TargetCriticalBonuses From(IReadOnlyDictionary<uint, int>? player, IReadOnlyDictionary<uint, int>? own)
         {
             long Sum(uint key) => (long)(player?.GetValueOrDefault(key) ?? 0) + (own?.GetValueOrDefault(key) ?? 0);
             return new(Sum(Stat.CriticalStrikeMultiplierVsEnemiesOnFullLifePlus),
-                Sum(Stat.CriticalStrikeMultiplierPlusVsUniqueEnemies), Sum(Stat.CriticalStrikeMultiplierPlusVsTauntedEnemies));
+                Sum(Stat.CriticalStrikeMultiplierPlusVsUniqueEnemies), Sum(Stat.CriticalStrikeMultiplierPlusVsTauntedEnemies),
+                Sum(Stat.CriticalStrikeMultiplierPlusVsBleedingEnemies), FixedCriticalHitMultiplier(player, own));
         }
     }
 
@@ -466,10 +471,15 @@ public static partial class Game
     static int CriticalMultiplierOn(SpawnedMonster m, int multiplier, TargetCriticalBonuses bonuses, double at, bool noExtra)
     {
         if (noExtra || m.Effects.NoExtraCriticalDamage) return 100;
-        long ordinary = (long)multiplier + m.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf];
-        if (m.MaxLife > 0 && m.Life >= m.MaxLife) ordinary += bonuses.FullLife;
-        if (m.Rarity == MonsterRarity.Unique) ordinary += bonuses.Unique;
-        if (m.TauntedUntil > at) ordinary += bonuses.Taunted;
+        long ordinary = 300;
+        if (!bonuses.FixedMultiplier)
+        {
+            ordinary = (long)multiplier + m.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf];
+            if (m.MaxLife > 0 && m.Life >= m.MaxLife) ordinary += bonuses.FullLife;
+            if (m.Rarity == MonsterRarity.Unique) ordinary += bonuses.Unique;
+            if (m.TauntedUntil > at) ordinary += bonuses.Taunted;
+            if (bonuses.Bleeding != 0 && m.Bleeds.IgnitedAt(at)) ordinary += bonuses.Bleeding;
+        }
         if (ordinary > 100)
         {
             int reduction = Math.Clamp(m.Effects[Stat.BaseSelfCriticalStrikeMultiplierMinusPct], 0, 100);
@@ -558,6 +568,9 @@ public static partial class Game
     static void RegenerateOneMonsterLocked(uint id, SpawnedMonster m, double seconds, double now, int onHitPct, List<(uint Id, uint Life)> changed)
     {
         double spreadRecovery = SpreadPoisonRecovery(m, now);
+        int periodic = m.Effects[Stat.GuardianGainLifeRegenerationPerMinutePctFor1SecondEvery10Seconds];
+        if (periodic > 0) m.PeriodicLifeRegenStarted ??= now;
+        else m.PeriodicLifeRegenStarted = null;
         // Not while EntranceGrace or a non-lethal encounter floor holds it out of the fight: it does not regain life.
         if (m.Dead || m.EntranceGrace || m.OnNonLethalZero is not null || m.Life == 0 || m.Life >= m.MaxLife) { m.Regen = 0; return; }
         double perSecond = m.Effects.LifeRegenPerSecond(m.MaxLife);
@@ -566,9 +579,36 @@ public static partial class Game
             double recently = Math.Max(0, Math.Min(now, m.PlayerHitAt + RecentlySeconds) - Math.Max(now - seconds, m.PlayerHitAt));
             perSecond *= 1 - recently / seconds * (1 - Math.Max(0, 1 + onHitPct / 100.0));
         }
-        if (perSecond > 0 && seconds > 0) perSecond *= FrostBombRegenerationFactor(m, now - seconds, now);
-        if (perSecond <= 0 && spreadRecovery <= 0) return;
-        double total = m.Regen + Math.Max(0, perSecond) * seconds + spreadRecovery;
+        if (perSecond > 0 && seconds > 0)
+        {
+            double from = now - seconds;
+            if (m.HinderedRegenPct < 0)
+            {
+                double overlap = Math.Max(0, Math.Min(now, m.HinderedRegenUntil) - Math.Max(from, m.HinderedRegenFrom));
+                perSecond *= 1 - overlap / seconds * Math.Clamp(-m.HinderedRegenPct / 100d, 0, 1);
+            }
+            perSecond *= FrostBombRegenerationFactor(m, from, now);
+        }
+        double periodicRecovery = 0;
+        if (m.PeriodicLifeRegenStarted is double start && seconds > 0)
+        {
+            double from = now - seconds;
+            double Window(double first, double last) => last > first
+                ? PeriodicRegenSeconds(last - start) - PeriodicRegenSeconds(first - start) : 0;
+            double AfterRecentHit(double first, double last) => Window(first, last)
+                + Window(Math.Max(first, m.PlayerHitAt), Math.Min(last, m.PlayerHitAt + RecentlySeconds))
+                    * (Math.Max(0, 1 + onHitPct / 100d) - 1);
+            double AfterHinder(double first, double last) => AfterRecentHit(first, last)
+                - AfterRecentHit(Math.Max(first, m.HinderedRegenFrom), Math.Min(last, m.HinderedRegenUntil))
+                    * Math.Clamp(-m.HinderedRegenPct / 100d, 0, 1);
+            double active = AfterHinder(from, now);
+            if (active > 0 && FrostBombDebuffs.TryGetValue(m, out var frostBomb))
+                active -= AfterHinder(Math.Max(from, frostBomb.Started), Math.Min(now, frostBomb.Until))
+                    * Math.Clamp(-frostBomb.Regeneration / 100d, 0, 1);
+            periodicRecovery = Math.Max(0, active) * (double)m.MaxLife * periodic / 6000;
+        }
+        if (perSecond <= 0 && spreadRecovery <= 0 && periodicRecovery <= 0) return;
+        double total = m.Regen + Math.Max(0, perSecond) * seconds + spreadRecovery + periodicRecovery;
         uint whole = (uint)Math.Truncate(total);
         m.Regen = total - whole;
         if (whole == 0) return;

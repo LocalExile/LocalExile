@@ -92,13 +92,19 @@ public static class IncomingResourceDefences
         return bypass + shield.Damage(Math.Max(0, damage) - bypass, false, now);
     }
 
+    public static double FinalOverTimeTakenFactor(CharacterStats.Pools pools, Func<uint, int> get) =>
+        FinalOverTimeTakenFactor(get, LessTakenPct(pools, get));
+
+    static double FinalOverTimeTakenFactor(Func<uint, int> get, int lessPct) =>
+        FinalTakenFactor(get, lessPct) * GameEvents.StatMultiplier(GameEvents.DamageOverTimeTakenMore, get);
+
     public static int TakenOverTime(double damage, Func<uint, int> get, ref double carry, int lessPct = 0,
         int typedIncreasedPct = 0, int reductionPct = 0, int finalTakenPct = 0)
     {
         double earned = Math.Max(0, damage)
             * Math.Max(0, 1 + ((long)get(Stat.BaseDamageTakenPlusPct) + get(Stat.DegenEffectPlusPct) + typedIncreasedPct) / 100.0)
             * Math.Max(0, 1 - Math.Clamp(reductionPct, 0, 100) / 100.0)
-            * FinalTakenFactor(get, lessPct)
+            * FinalOverTimeTakenFactor(get, lessPct)
             * Math.Max(0, 1 + finalTakenPct / 100.0) + carry;
         int whole = (int)Math.Min(int.MaxValue, Math.Floor(earned + 1e-9));
         carry = Math.Max(0, earned - whole);

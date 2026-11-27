@@ -112,7 +112,7 @@ public static partial class Game
                 if (player.EntryProtection.End(now, player.Walk.Position(now), action: true) is ushort)
                     player.Area.Buffs.Clear(player.Id, GracePeriod.BuffRow, player.Id);
                 accepted(done);
-                ApplyEquipmentFlaskCleansesLocked(player, now);
+                ApplyEquipmentFlaskUseEffectsLocked(player, now);
             }
             return ([done.Id], [done]);
         }, changed => $"0x00c6 flask {slot}: {changed[0].Item.Charges}/{charges.MaxCharges} charges", retainOutput: accepted is not null);
@@ -148,7 +148,7 @@ public static partial class Game
             foreach (var (flask, local, charges, gain) in gaining)
             {
                 if (!CanGainFlaskCharges(player, flask, local, character)) continue;
-                int whole = player.FlaskChargeCarry.Take(flask.Id, gain * FlaskCharges.GainMultiplier(local, Get, areaIncrease));
+                int whole = player.FlaskChargeCarry.Take(flask.Id, gain * FlaskGainMultiplier(player, flask.Id, local, Get, areaIncrease));
                 if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, i => Flasks.Gain(i, charges, whole)) is { } done)
                 {
                     changed.Add(done);
@@ -156,6 +156,23 @@ public static partial class Game
             }
             return ([.. changed.Select(c => c.Id)], changed);
         }, changed => $"0x00c6 flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
+    }
+
+    const uint ChaliceBlocksCharges = Stat.LocalUniqueOverflowingChaliceFlaskCannotGainFlaskChargesDuringFlaskEffect;
+    const uint ChaliceOtherFlaskCharges = Stat.LocalUniqueFlaskChargesGainedPlusPctDuringFlaskEffect;
+
+    static double FlaskGainMultiplier(Player player, uint item, IReadOnlyDictionary<uint, int> local,
+        Func<uint, int> character, int areaIncrease)
+    {
+        int chalice = 0;
+        if (player.UtilityFlaskEffects.Any)
+        {
+            double now = AreaTime(player);
+            foreach (var effect in player.UtilityFlaskEffects.All())
+                if (effect.Ends > now && effect.ItemId != item)
+                    chalice = Math.Max(chalice, effect.LocalStats?.GetValueOrDefault(ChaliceOtherFlaskCharges) ?? 0);
+        }
+        return FlaskCharges.GainMultiplier(local, character, ActorScale.Saturate((long)areaIncrease + chalice));
     }
 
     public static bool CanGainFlaskCharges(Player player, InventoryItem flask) =>
@@ -166,7 +183,11 @@ public static partial class Game
     {
         var activeEffect = player.UtilityFlaskEffects.Of(flask.Id);
         local ??= FlaskLocalStats(player, flask.Item);
-        bool running = activeEffect is not null && activeEffect.Ends > AreaTime(player);
+        double now = AreaTime(player);
+        if (local.GetValueOrDefault(ChaliceBlocksCharges) != 0
+            && player.UtilityFlaskEffects.FirstWithLocalStat(ChaliceBlocksCharges, effect => effect.Ends > now) is not null)
+            return false;
+        bool running = activeEffect is not null && activeEffect.Ends > now;
         if (FlaskEnchantments.BlocksGain(local, running)) return false;
         var rules = LeagueFor(player).Rules;
         var catalog = ItemsFor(player);
@@ -181,6 +202,9 @@ public static partial class Game
     // Game_FLASK_CHARGES=full every flask full.
     public static Task GainKillCharges(Player player, MonsterRarity rarity, string why) =>
         GainKillCharges(player, rarity, why, 0);
+
+    static int BleedingKillFlaskChargesPct(Player player, bool inflictedBleed) => inflictedBleed
+        ? PlayerStatValues(player).GetValueOrDefault(Stat.EnemiesYouBleedGrantFlaskChargesPlusPct) : 0;
 
     static Task GainKillCharges(Player player, MonsterRarity rarity, string why, int grantedPct)
     {
@@ -226,8 +250,18 @@ public static partial class Game
     {
         bool Current() => PlayerUpdatesCurrent(player, updates);
         EveryAsPlayer(player, 3000, Current, GainPeriodicFlaskCharges);
+        EveryAsPlayer(player, 5000, Current, GainTraitorFlaskCharges,
+            () => player.PlayerLife > 0 && StatSourceValues(player).GetValueOrDefault(Stat.KeystoneOasis) != 0);
         EveryAsPlayer(player, 1000, Current, GainUniqueHitFlaskCharges, () => player.PlayerLife > 0
             && player.RecentEvents.Happened(StatConditions.HitUniqueEnemy, AreaTime(player)));
+    }
+
+    static Task GainTraitorFlaskCharges(Player player)
+    {
+        if (player.PlayerLife == 0 || StatSourceValues(player).GetValueOrDefault(Stat.KeystoneOasis) == 0)
+            return Task.CompletedTask;
+        int empty = Math.Max(0, 5 - ItemsOf(player).Items(PlayerInventories.Flask).Count);
+        return empty > 0 ? GainFlaskCharges(player, empty * 4, "The Traitor") : Task.CompletedTask;
     }
 
     static Task GainUniqueHitFlaskCharges(Player player)

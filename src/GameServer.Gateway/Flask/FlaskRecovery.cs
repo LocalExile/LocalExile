@@ -41,7 +41,11 @@ public static class FlaskRecovery
     /// / (1 + increased recovery rate), the character's flask recovery rate dividing it again.
     /// </remarks>
     public static Use For(Flasks.Flask type, Item flask, IReadOnlyDictionary<uint, int> local, Func<uint, int> character,
-        uint life, uint maxLife, int playerLevel = 1, double finalMultiplier = 1)
+        uint life, uint maxLife, int playerLevel = 1, double finalMultiplier = 1) =>
+        For(type, flask, local, character, life, maxLife, playerLevel, finalMultiplier, lifeAmountMultiplier: 1);
+
+    public static Use For(Flasks.Flask type, Item flask, IReadOnlyDictionary<uint, int> local, Func<uint, int> character,
+        uint life, uint maxLife, int playerLevel, double finalMultiplier, double lifeAmountMultiplier)
     {
         int L(uint name) => local.GetValueOrDefault(name);
         bool lowLife = LowLife(life, maxLife);
@@ -58,7 +62,7 @@ public static class FlaskRecovery
             baseAmount * quality * (100 + L(Stat.LocalFlaskAmountToRecoverPlusPct) + L(localSpecific)) / 100.0
             * (100 + character(characterSpecific) + character(Stat.FlaskLifeAndManaToRecoverPlusPct) + extraCharacterPct) / 100.0 * (effect + lowLifeMore - 1);
         double life0 = Amount(type.LifePerUse, Stat.LocalFlaskLifeToRecoverPlusPct, Stat.FlaskLifeToRecoverPlusPct,
-            lowLife ? character(Stat.LifeRecoveryPlusPctFromFlasksWhileOnLowLife) : 0);
+            lowLife ? character(Stat.LifeRecoveryPlusPctFromFlasksWhileOnLowLife) : 0) * lifeAmountMultiplier;
         double mana0 = Amount(type.ManaPerUse, Stat.LocalFlaskManaToRecoverPlusPct, Stat.FlaskManaToRecoverPlusPct);
         double commonRate = (100.0 + L(Stat.LocalFlaskRecoverySpeedPlusPct)) / 100.0
             * (100.0 + character(Stat.FlaskRecoverySpeedPlusPct)) / 100.0;

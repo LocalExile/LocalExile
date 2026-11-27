@@ -77,10 +77,13 @@ public static partial class Game
         var skills = SkillsFor(player);
         bool linkedOnly = player.Auras.Count > 0 && NonCurseAurasOnlyReachLinks(player);
         bool linked = linkedOnly && minion.Monster is not null && ActiveMinionLink(player, minion, AreaTime(player)) is not null;
+        int ownMinionEffect = StatSourceValues(player).GetValueOrDefault(Stat.MinionsHaveNonCurseAuraEffectPlusPctFromParentSkills);
         var own = player.PlayerLife == 0 || InTown(player) ? [] : player.Auras.Values
             .Where(a => !a.SelfOnly && SharedPlayerAura(a.EffectId) && (linkedOnly ? linked : Reaches(player.Id, a.SkillId)))
-            .Select(a => a with { AffectsSelf = true, ExternalEffectPct = player.Pools.AuraEffectPct + a.SupportEffectPct });
-        var directAvian = SharedAvianAuras(player).Where(a => Reaches(player.Id, a.Aura.SkillId)).Select(a => a.Aura);
+            .Select(a => a with { AffectsSelf = true, ExternalEffectPct = ActorScale.Saturate((long)player.Pools.AuraEffectPct
+                + a.SupportEffectPct + ownMinionEffect) });
+        var directAvian = SharedAvianAuras(player).Where(a => Reaches(player.Id, a.Aura.SkillId))
+            .Select(a => a.Aura with { ExternalEffectPct = ActorScale.Saturate((long)a.Effect + ownMinionEffect) });
         var auras = own.Concat(directAvian).Concat(player.Instance.PlayersExcept(player.Id).Where(p => p.PlayerLife > 0)
                 .SelectMany(p => p.SharedAuras.Where(a => Reaches(p.Id, a.Aura.SkillId))
                     .Select(a => a.Aura with { AffectsSelf = true, ExternalEffectPct = a.Effect })))

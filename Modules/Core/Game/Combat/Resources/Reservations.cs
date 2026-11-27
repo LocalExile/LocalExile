@@ -88,9 +88,19 @@ public static partial class Game
         + CooldownTriggerReservation(player, life: true),
         0, int.MaxValue);
 
+    static int ReservedManaArmourIncrease(int reserved, int per50) =>
+        ActorScale.Saturate((long)(reserved / 50) * per50);
+
     public static void ClampReservedResources(Player player)
     {
-        player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
+        int reserved = ReservedMana(player);
+        if (player.Pools.ArmourPctPer50ReservedMana != 0
+            && ReservedManaArmourIncrease(reserved, player.Pools.ArmourPctPer50ReservedMana) != player.Pools.ArmourPctFromReservedMana)
+        {
+            player.Pools = PoolsFor(player, player.Pools.Level);
+            player.AuraStatsDirty = true;
+        }
+        player.PlayerMana = Math.Min(player.PlayerMana, (uint)Math.Max(0, (long)player.Pools.Mana - reserved));
         player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));
         TrimLeechLocked(player);
     }

@@ -52,6 +52,26 @@ public sealed class PlayerElementalAilments
 
     public bool HasEffects { get { lock (effects) return effects.Count > 0; } }
 
+    public int ActiveIgnites(double now)
+    {
+        lock (effects) return effects.Count(e => e.Kind == Kind.Ignite && e.From <= now && now < e.Until);
+    }
+
+    public void EndIgnite(double now, int index)
+    {
+        lock (effects)
+        {
+            for (int i = 0; i < effects.Count; i++)
+            {
+                var effect = effects[i];
+                if (effect.Kind != Kind.Ignite || effect.From > now || now >= effect.Until || index-- != 0) continue;
+                effects[i] = effect with { Until = now };
+                Changed?.Invoke();
+                return;
+            }
+        }
+    }
+
     /// <summary>An ailment was added, removed or retimed (the stats and presentation that show them follow).</summary>
     public Action? Changed;
 
@@ -147,8 +167,8 @@ public sealed class PlayerElementalAilments
     public double ActionFactor(double now) => TotalActionFactor(now, 0);
     // Unaffected by Shock (PoB SelfShockEffect 100% less): the shock stays on the player and in is_shocked, with no effect.
     // increasedPct: the hit's other increased damage taken (from a Blinded enemy), additive with the shock's.
-    public double DamageTakenFactor(double now, int increasedPct = 0) =>
-        Math.Max(0, 1 + ((unaffectedByShock ? 0 : Magnitude(Kind.Shock, now)) + increasedPct) / 100);
+    public double DamageTakenFactor(double now, int increasedPct = 0, bool suppressShock = false) =>
+        Math.Max(0, 1 + ((unaffectedByShock || suppressShock ? 0 : Magnitude(Kind.Shock, now)) + increasedPct) / 100);
 
     static string Name(Kind kind) => kind.ToString().ToLowerInvariant();
     // Per Kind: immune_to_*, cannot_be_*, self_*_duration_-% and avoid_*_%.
@@ -258,7 +278,7 @@ public sealed class PlayerElementalAilments
     // Unaffected by Ignite (PoB SelfIgniteEffect 100% less): the ignite stays on the player and in is_ignited, dealing nothing.
     // takenFrom: the increased damage taken from the strongest ignite's source monster (a Blinded one), with the shock's.
     public int Advance(double from, double until, Func<uint, int> get, int fireResistance, int maxFireResistance,
-        bool fireImmune, Func<uint, int>? takenFrom = null, double dotTakenFactor = 1)
+        bool fireImmune, Func<uint, int>? takenFrom = null, double dotTakenFactor = 1, bool suppressShock = false)
     {
         lock (effects)
         {
@@ -274,7 +294,7 @@ public sealed class PlayerElementalAilments
                         .MaxBy(e => e.Magnitude) is not { } ignite) continue;
                 int fromSource = ignite.Source is uint source && takenFrom is not null ? takenFrom(source) : 0;
                 damage += DamageModel.Mitigate(ignite.Magnitude, fireResistance, maxFireResistance)
-                    * DamageTakenFactor(at, fromSource) * (boundaries[i] - boundaries[i - 1]);
+                    * DamageTakenFactor(at, fromSource, suppressShock) * (boundaries[i] - boundaries[i - 1]);
             }
             effects.RemoveAll(e => e.Until <= until);
             damage *= dotTakenFactor;

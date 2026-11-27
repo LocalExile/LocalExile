@@ -63,6 +63,7 @@ public static class CharacterStats
         // Calculated zero attributes are valid; legacy partial pool records may still need class defaults.
         public bool AttributesResolved { get; init; }
         public bool IgnoreAttributeRequirements { get; init; }
+        public bool FixedMovementVelocity { get; init; }
         public bool EvasionBasedOnWard { get; init; }
         public bool ImpalesNearbyEnemies { get; init; }
         public bool HalveColdAndLightningResistance { get; init; }
@@ -71,6 +72,8 @@ public static class CharacterStats
         public int MapTemporalChainsActionSpeedPct { get; init; }
         public int AttackerSlowPct { get; init; }
         public int EnemyRegenerationOnHitPct { get; init; }
+        public int ArmourPctPer50ReservedMana { get; init; }
+        public int ArmourPctFromReservedMana { get; init; }
         public int VsBlindedCriticalPct { get; init; }
         public bool WhileMovingStats { get; init; }
         public bool ConvertSuppressionToSpellDodge { get; init; }
@@ -152,8 +155,19 @@ public static class CharacterStats
         public bool NoEnergyShieldFromIntelligence { get; init; }
         public int LifeToEnergyShieldPct { get; init; }
         public int EvasionPerTenMaximumLife { get; init; }
+        public int ArmourStrengthDivisor { get; init; }
         public int ManaStrengthDivisor { get; init; }
         public int EnergyShieldStrengthDivisor { get; init; }
+        public decimal HelmetGlovesArmour { get; init; }
+        public decimal GlovesArmour { get; init; }
+        public decimal HelmetBootsEvasion { get; init; }
+        public decimal BootsEvasion { get; init; }
+        public long GlovesBootsEnergyShield { get; init; }
+        public int HelmetGlovesArmourPct { get; init; }
+        public int HelmetBootsEvasionPct { get; init; }
+        public int GlovesBootsEnergyShieldPct { get; init; }
+        public decimal EquipmentWard { get; init; }
+        public int EquipmentWardPct { get; init; }
         public static readonly Bonus None = new();
     }
 
@@ -254,20 +268,26 @@ public static class CharacterStats
         // character's 15 base and gains 1% per 5 dexterity; armour has no base outside items and passives. The
         // overcapped cold resistance's increase is one of the evasion increases (it applies before the conversion, so
         // Iron Reflexes' converted evasion keeps it, as PoB's converted branch reads the same Evasion INC bucket).
-        int armourPct = b.ArmourPct;
+        int armourPct = ActorScale.Saturate((long)b.ArmourPct + (b.ArmourStrengthDivisor > 0 ? str / b.ArmourStrengthDivisor : 0));
         // Native slot calculations add slot-specific increases to the applicable global bucket. Sum fractional
         // contributions before rounding the final rating (AR 0x142739a97, EV 0x14273114b, ES 0x142533297).
         // A further slot (the helmet, or the gloves and boots) has its own increase in the same way.
         decimal Increased(decimal total, decimal shield, decimal body, long increase, long shieldIncrease,
-            long bodyIncrease = 0, bool bodyAsArmour = false, decimal slot = 0, long slotIncrease = 0)
+            long bodyIncrease = 0, bool bodyAsArmour = false, decimal slot = 0, long slotIncrease = 0,
+            decimal extraSlot = 0, long extraSlotIncrease = 0, decimal overlap = 0)
         {
             // Keep each known local source even if the aggregate was saturated while merging equipment.
             decimal fromShield = Math.Max(0m, shield), fromBody = Math.Max(0m, body), fromSlot = Math.Max(0m, slot);
             decimal bodyFactor = bodyAsArmour ? b.NoBodyArmour ? 0m : b.DoubleBodyArmour ? 2m : 1m : 1m;
-            return Math.Max(0m, total - fromShield - fromBody - fromSlot) * Math.Max(0m, 100m + increase) / 100m
-                + (b.NoShieldDefences ? 0m : fromShield * Math.Max(0m, 100m + increase + shieldIncrease) / 100m)
-                + fromBody * Math.Max(0m, 100m + increase + bodyIncrease) / 100m * bodyFactor
-                + fromSlot * Math.Max(0m, 100m + increase + slotIncrease) / 100m;
+            decimal fromExtra = Math.Max(0m, extraSlot);
+            decimal fromBoth = Math.Clamp(overlap, 0m, Math.Min(fromSlot, fromExtra));
+            decimal Scale(decimal basis, long added = 0) => basis * Math.Max(0m, 100m + increase + added) / 100m;
+            return Scale(Math.Max(0m, total - fromShield - fromBody - fromSlot - fromExtra + fromBoth))
+                + (b.NoShieldDefences ? 0m : Scale(fromShield, shieldIncrease))
+                + Scale(fromBody, bodyIncrease) * bodyFactor
+                + Scale(fromSlot - fromBoth, slotIncrease)
+                + Scale(fromExtra - fromBoth, extraSlotIncrease)
+                + Scale(fromBoth, slotIncrease + extraSlotIncrease);
         }
         decimal More(decimal value, decimal increase)
         {
@@ -277,7 +297,8 @@ public static class CharacterStats
         int Rating(decimal value) => (int)Math.Clamp(Math.Round(value, MidpointRounding.AwayFromZero), 0m, int.MaxValue);
         decimal armourValue = More(More(Increased(b.Armour, b.ShieldArmour, b.BodyArmour, armourPct,
             (long)b.ShieldArmourPct + b.SharedShieldDefencesPct, b.BodyArmourPct, bodyAsArmour: true,
-            b.GlovesBootsArmour, b.GlovesBootsArmourPct), b.ArmourMorePct), b.ExtraDefenceMorePct);
+            b.GlovesBootsArmour, b.GlovesBootsArmourPct,
+            b.HelmetGlovesArmour, b.HelmetGlovesArmourPct, b.GlovesArmour), b.ArmourMorePct), b.ExtraDefenceMorePct);
         // These item coefficients use complete groups of final production attributes. They join ordinary INC,
         // before slot increases/MORE; Iron Reflexes retains this item term while excluding inherent Dexterity.
         long ordinaryEvasionPct = (long)b.EvasionPct + b.ColdOvercapEvasionPct
@@ -286,12 +307,14 @@ public static class CharacterStats
         int evasionPct = (int)Math.Clamp(totalEvasionPct, int.MinValue, int.MaxValue);
         decimal evasionBase = BaseEvasion + b.Evasion + (long)b.EvasionPerTenMaximumLife * (life / 10);
         decimal evasionValue = More(More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, totalEvasionPct,
-            (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct, b.BodyEvasionPct), b.EvasionMorePct), b.ExtraDefenceMorePct);
+            (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct, b.BodyEvasionPct,
+            slot: b.HelmetBootsEvasion, slotIncrease: b.HelmetBootsEvasionPct), b.EvasionMorePct), b.ExtraDefenceMorePct);
         // "Increased evasion while moving" joins the same increased bucket while the condition holds (PoB Condition Moving).
         // shortcut: Iron Reflexes' converted armour does not get it; upgrade when armour reads a moving condition.
         int? evasionWhileMoving = b.EvasionWhileMovingPct == 0 || b.IronReflexes ? null
             : Rating(More(More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, totalEvasionPct + b.EvasionWhileMovingPct,
-                (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct, b.BodyEvasionPct), b.EvasionMorePct), b.ExtraDefenceMorePct));
+                (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct, b.BodyEvasionPct,
+                slot: b.HelmetBootsEvasion, slotIncrease: b.HelmetBootsEvasionPct), b.EvasionMorePct), b.ExtraDefenceMorePct));
         if (b.IronReflexes)
         {
             // Iron Reflexes converts all evasion rating to armour and removes dexterity's evasion bonus. The converted
@@ -302,7 +325,8 @@ public static class CharacterStats
             decimal converted = More(More(More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, convertedPct,
                 (long)b.ShieldArmourPct + b.ShieldEvasionPct + b.SharedShieldDefencesPct,
                 (long)b.BodyArmourPct + b.BodyEvasionPct, bodyAsArmour: true,
-                b.GlovesBootsEvasion, b.GlovesBootsArmourPct), b.EvasionMorePct), b.ArmourMorePct), b.ExtraDefenceMorePct);
+                b.GlovesBootsEvasion, b.GlovesBootsArmourPct,
+                b.HelmetBootsEvasion, b.HelmetBootsEvasionPct, b.BootsEvasion), b.EvasionMorePct), b.ArmourMorePct), b.ExtraDefenceMorePct);
             armourValue = armourValue > decimal.MaxValue - converted ? decimal.MaxValue : armourValue + converted;
             evasionPct = (int)Math.Clamp(ordinaryEvasionPct, int.MinValue, int.MaxValue);
             evasionValue = 0;
@@ -328,7 +352,8 @@ public static class CharacterStats
                 * Math.Max(0m, 100m + b.LifePct + totalEnergyShieldPct) / 100m * lifeMore;
         uint energyShield = b.NoEnergyShield ? 0u : (uint)Rating(Increased(b.EnergyShield, b.ShieldEnergyShield, b.BodyEnergyShield,
             totalEnergyShieldPct, (long)b.ShieldEnergyShieldPct + b.SharedShieldDefencesPct, b.BodyEnergyShieldPct,
-            slot: b.HelmetEnergyShield, slotIncrease: b.HelmetEnergyShieldPct) + convertedShield);
+            slot: b.HelmetEnergyShield, slotIncrease: b.HelmetEnergyShieldPct,
+            extraSlot: b.GlovesBootsEnergyShield, extraSlotIncrease: b.GlovesBootsEnergyShieldPct) + convertedShield);
         int Max(int bonus) => Math.Min(DamageModel.MaxResistCap, DamageModel.DefaultMaxResistance + bonus);
         int maxBlock = Math.Min(DamageModel.BlockChanceCap, DamageModel.DefaultMaxBlockChance + b.BlockChanceMax);
         int maxSpellBlock = Math.Min(DamageModel.BlockChanceCap, DamageModel.DefaultMaxSpellBlockChance + b.SpellBlockChanceMax);
@@ -389,7 +414,7 @@ public static class CharacterStats
             LifeReservationEfficiencyPct: b.LifeReservationEfficiencyPct,
             AuraEffectPct: b.AuraEffectPct, AuraAreaPct: b.AuraAreaPct,
             ColdOvercapEvasionPct: b.ColdOvercapEvasionPct, LightningOvercapCritPct: b.LightningOvercapCritPct,
-            ArmourAppliesToChaosDamage: b.ArmourAppliesToChaosDamage, Ward: WardState.Max(b.Ward, b.WardPct),
+            ArmourAppliesToChaosDamage: b.ArmourAppliesToChaosDamage, Ward: WardState.Max(b.Ward, b.WardPct, b.EquipmentWard, b.EquipmentWardPct),
             EvasionWhileMoving: evasionWhileMoving)
             {
                 AttributesResolved = true, AccuracyBase = accuracyBase,

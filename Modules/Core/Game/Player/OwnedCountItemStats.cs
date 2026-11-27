@@ -2,10 +2,13 @@
 public static class OwnedCountItemStats
 {
     public const string Totems = "Item.ActiveTotems", Skeletons = "Item.ActiveSkeletons",
-        RagingSpirits = "Item.ActiveRagingSpirits", Zombies = "Item.ActiveZombies", Spectres = "Item.ActiveSpectres";
+        RagingSpirits = "Item.ActiveRagingSpirits", Zombies = "Item.ActiveZombies", Spectres = "Item.ActiveSpectres",
+        TrapsAndMines = "Item.ActiveTrapsAndMines";
     public static readonly (uint Input, string Count, uint[] Outputs)[] Rules =
     [
         (Stat.XArmourPerActiveTotem, Totems, [Stat.BasePhysicalDamageReductionRating]),
+        (Stat.MovementVelocityPlusPctPerTotem, Totems, [Stat.BaseMovementVelocityPlusPct]),
+        (Stat.DamagePlusPctForEachTrapAndMineActive, TrapsAndMines, [Stat.DamagePlusPct]),
         (Stat.AdditionalAttackBlockPctPerSummonedSkeleton, Skeletons, [Stat.AdditionalBlockPct]),
         (Stat.AttackAndCastSpeedPlusPctPerSummonedRagingSpirit, RagingSpirits, [Stat.AttackSpeedPlusPct, Stat.BaseCastSpeedPlusPct]),
         (Stat.LifeRegenerationRatePerMinutePctPerRaisedZombie, Zombies, [Stat.LifeRegenerationRatePerMinutePct]),
@@ -20,6 +23,7 @@ public static class OwnedCountItemStats
         foreach (var key in Rules.Select(r => r.Count)) measured[key] = 0;
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
         measured[Totems] = player.Totems.Living(totemNow).Count();
+        measured[TrapsAndMines] = player.Placed.All.Count;
         foreach (var minion in player.Minions.All)
         {
             if (minion.Monster.Dead || minion.Monster.Life == 0 || minionNow >= minion.Until

@@ -125,6 +125,7 @@ public static class ChargeEffects
         P(Stat.SkillAreaOfEffectPlusPctPerPowerCharge, Stat.BaseSkillAreaOfEffectPlusPct),
         new(Stat.SkillAreaOfEffectPlusPctPerPowerChargeUpTo50Pct, ChargeType.Power, [Stat.BaseSkillAreaOfEffectPlusPct], Cap: 50),
         P(Stat.SpellDamagePlusPctPerPowerCharge, Stat.SpellDamagePlusPct),
+        P(Stat.WandDamagePlusPctPerPowerCharge, Stat.WandDamagePlusPct),
         P(Stat.ProjectileDamagePlusPctPerPowerCharge, Stat.ProjectileDamagePlusPct),
         P(Stat.DamagePlusPctPerPowerCharge, Stat.DamagePlusPct),
         P(Stat.ElementalDamagePlusPctPerPowerCharge, Stat.ElementalDamagePlusPct),

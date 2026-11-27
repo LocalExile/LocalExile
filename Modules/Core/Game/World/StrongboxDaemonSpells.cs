@@ -62,11 +62,17 @@ public static partial class MapStrongboxes
     {
         if (!Cursed.TryGetValue(player, out var cursed) || cursed.Active.Count == 0) return stats;
         double now = Now;
+        bool protectElementalResistance = stats.GetValueOrDefault(Stat.ElementalResistanceCannotBeLoweredByCurses) != 0;
         lock (cursed)
             foreach (var (curse, until, _) in cursed.Active)
                 if (until > now)
                     foreach (var (key, value) in curse)
+                    {
+                        if (protectElementalResistance && value < 0 && key is Stat.BaseResistAllElementsPct
+                            or Stat.BaseFireDamageResistancePct or Stat.BaseColdDamageResistancePct or Stat.BaseLightningDamageResistancePct)
+                            continue;
                         stats[key] = (int)Math.Clamp((long)stats.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
+                    }
         return stats;
     }
 

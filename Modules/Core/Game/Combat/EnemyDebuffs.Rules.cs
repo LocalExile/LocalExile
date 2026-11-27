@@ -18,13 +18,19 @@ public static partial class Game
     /// <paramref name="seconds"/> (a warcry, a Basalt Flask); a new taunt replaces the player's old one on a monster (wiki
     /// Taunt: "you can replace your own taunts"). The enemy-debuff step shows it and takes it off. In the area's frame;
     /// the number taunted.</summary>
-    public static int TauntLocked(Player player, (int X, int Y) at, int radius, double now, double seconds)
+    public static int TauntLocked(Player player, (int X, int Y) at, int radius, double now, double seconds) =>
+        TauntLocked(player, at, radius, now, seconds, intimidate: false, stunDurationPct: 0);
+
+    static int TauntLocked(Player player, (int X, int Y) at, int radius, double now, double seconds,
+        bool intimidate, int stunDurationPct)
     {
         if (!CurrentGameWork || player.PlayerLife == 0 || seconds <= 0) return 0;
         int taunted = 0;
         foreach (var m in player.Area.Monsters.Values)
         {
-            if (Dist(m.Walk.Position(now), at) <= radius && ApplyPlayerTauntLocked(player, m, now, seconds)) taunted++;
+            if (Dist(m.Walk.Position(now), at) > radius || !ApplyPlayerTauntLocked(player, m, now, seconds)) continue;
+            taunted++;
+            if (intimidate) ApplyIntimidateLocked(m, now, m.TauntedUntil, stunDurationPct);
         }
         return taunted;
     }
@@ -39,6 +45,9 @@ public static partial class Game
         target.TauntingPlayerId = player.Id;
         target.TakenFromPlayer = target.TakenFromPlayer with { All = player.EnemyDebuffs.TauntedDamageTakenPct };
         target.PresentationChanged?.Invoke();
+        int chance = StatSourceValues(player).GetValueOrDefault(Stat.ChanceToGainEnduranceChargeWhenYouTauntEnemyPct);
+        if (RandomRolls.Chance(chance, 100, AreaRng(player)))
+            ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, 1, "taunt"));
         return true;
     }
 

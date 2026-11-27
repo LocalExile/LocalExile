@@ -862,7 +862,8 @@ public static partial class Game
                 && skills.IsAttack(effect) && own.TryGetValue(Stat.ManaCost, out int baseMana))
             {
                 var (remainingMana, _, convertedLife) = ManaRecoveryRules.SplitCostToLife(
-                    baseMana, Get, skills.IsChannelled(effect), SkillCostMore(player, own), split);
+                    baseMana, Get, skills.IsChannelled(effect),
+                    ScopedManaCostMore(SkillCostMore(player, own), skills.HasType(effect, "Lightning"), Get), split);
                 Publish(Stat.ManaCost, remainingMana);
                 if (convertedLife > 0)
                     Publish(Stat.LifeCost, (int)Math.Min(int.MaxValue, (long)Math.Max(0, Get(Stat.LifeCost)) + convertedLife));
@@ -872,6 +873,8 @@ public static partial class Game
                 Publish(Stat.ManaCost, 0);
                 Publish(Stat.ManaCostPerMinute, 0);
             }
+            if (Get(Stat.LifeCost) is > 0 and var lifeCost && Get(Stat.SkillLifeCostPlusPctFinalWhileOnLowLife) != 0)
+                Publish(Stat.LifeCost, LowLifeSkillCost(lifeCost, Get));
             // Bladefall of Trarthus' volley interval: 0 hung the client on its first use (#584).
             if (Get(Stat.BladefallBaseVolleyFrequencyMs) is int volleyMs and > 0)
                 Publish(Stat.BladefallVolleyFrequencyMs, BladefallVolleys.FrequencyMs(volleyMs,

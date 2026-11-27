@@ -65,8 +65,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     `maximum_siphoning_charges_per_elder_or_shaper_item_equipped`), so they need unique definitions beyond
     Mageblood (#60), abyss sockets on the other uniques that have them and a consumer for `Item.Influences`
     ([13](../docs/protocol/13-items.md) §2f). Blitz and Challenger have no 3.29 source.
-  - Penetration: the conditional forms not read yet (Zealotry's critical-only, Enmity's
-    Embrace's overcapped fire, recent kill or block, flask, tincture, while chilled, single-skill).
+  - Penetration: remaining conditional forms include Zealotry's critical-only, recent kills or blocks,
+    flasks, tinctures, chilled targets and single-skill modifiers.
   - Ailments: validate the twelve duration/effect aliases, then ailment chance/eligibility, damaging ranges,
     duration/application and stacking. Left/right ring operators are slot-local: do not sum them globally.
   - Defences: official fractional/group arithmetic, the remaining prohibitions and conversions, all-source immediate

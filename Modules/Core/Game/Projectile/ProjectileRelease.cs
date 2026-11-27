@@ -411,8 +411,14 @@ public static partial class Game
             }
         }
         int extraBeidatProjectiles = CastingBeidatSpell(player, skillId)?.Projectiles ?? 0;
-        int Get(uint k) => k == Stat.NumberOfAdditionalProjectiles
-            ? merged.GetValueOrDefault(k) + extraBeidatProjectiles : merged.GetValueOrDefault(k);
+        var placed = from is not null ? PlacedKind(admittedGem) : default;
+        int extraPlacedChains = placed.Trap || placed.Mine ? merged.GetValueOrDefault(Stat.TrapMineSkillNumOfAdditionalChains) : 0;
+        int Get(uint k) => k switch
+        {
+            Stat.NumberOfAdditionalProjectiles => merged.GetValueOrDefault(k) + extraBeidatProjectiles,
+            Stat.NumberOfAdditionalChainsForProjectiles => ActorScale.Add(k, merged.GetValueOrDefault(k), extraPlacedChains),
+            _ => merged.GetValueOrDefault(k),
+        };
         int Player(uint k) => playerStats.GetValueOrDefault(k);
         int Own(uint k) => own.GetValueOrDefault(k);
         var definition = ResolveProjectileDefinition(gem.Effect) ?? (ArrowRain(SkillsFor(player).EffectId(gem.Effect)) ? GroundArrow : null)

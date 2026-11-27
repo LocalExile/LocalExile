@@ -109,7 +109,7 @@ public static partial class Game
             if (items.ByHash(flask.Item.TypeHash) is not { } type || items.UtilityFlaskOf(type) is not { } utility) continue;
             var use = UtilityFlaskUseFor(player, effect.Slot, flask.Item, utility,
                 ItemModStats.Local(flask.Item, items.Mods), Get, level);
-            player.UtilityFlaskEffects.Retune(effect, use.Stats, use.SelfChaosRate);
+            player.UtilityFlaskEffects.Retune(effect, use.Stats, use.SelfChaosRate, use.FlatSelfChaosRate);
         }
     }
 }

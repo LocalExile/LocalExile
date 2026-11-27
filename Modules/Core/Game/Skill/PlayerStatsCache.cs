@@ -387,7 +387,7 @@ public static partial class Game
         // A soul eaten at the cap changes no stat, but its beam is shown.
         On([PlayerStatStep.SoulEater, PlayerStatStep.AttackSpeed], a => player.SoulEater.Changed = () => { a(); PresentStats(player); });
         On([PlayerStatStep.SpiritLeadership], a => player.SpiritChieftains.Changed = a);
-        On([PlayerStatStep.Ward], a => player.Ward.Changed = a);
+        On([PlayerStatStep.Ward, PlayerStatStep.Sources], a => player.Ward.Changed = a);
         On([PlayerStatStep.Sources, PlayerStatStep.TimedRecovery], a => player.WardBreak.Changed = a);
         On([PlayerStatStep.TotemAura], a => player.Totems.Changed = a);
         On([PlayerStatStep.Rampage], a => player.Rampage.Changed = a);

@@ -47,6 +47,7 @@ public sealed class MonsterIgnites
 
         public bool FireCannotIgnite { get; init; }
         public bool ColdCanIgnite { get; init; }
+        public bool CriticalNeedsIgniteChance { get; init; }
         public DamageRanges? ChilledTarget { get; init; }
         public DamageRanges Ranges => new(Min, Max, CriticalMin, CriticalMax);
 
@@ -95,6 +96,7 @@ public sealed class MonsterIgnites
             {
                 FireCannotIgnite = get(Stat.UniqueFireDamageShocks) != 0,
                 ColdCanIgnite = get(Stat.UniqueColdDamageIgnites) != 0,
+                CriticalNeedsIgniteChance = get(Stat.CriticalStrikesDoNotAlwaysIgnite) != 0,
             };
         }
     }
@@ -175,6 +177,8 @@ public sealed class MonsterIgnites
         accrued = Advance(until, factor, aggravatedExtra);
 
     double expiryRate = 1;
+    public double ExpiryRate => expiryRate;
+
     public void SetExpiryRate(double now, double rate)
     {
         rate = Math.Max(.25, rate);
@@ -220,6 +224,7 @@ public sealed class MonsterIgnites
     }
 
     public bool Burning => active.Count > 0;
+    public bool BurningAt(double now) => active.Any(ignite => ignite.From <= now && now < ignite.Until);
 
     /// <summary>Nothing burns and no buff is shown.</summary>
     public bool Idle => active.Count == 0 && Buff is null && accrued == 0;
@@ -267,7 +272,8 @@ public sealed class MonsterIgnites
         perSecond = 0;
         if (settings.NeverFromCrit) critical = false;
         if (settings.OnlyFromCrit && !critical) return false;
-        if (immune || settings.Seconds <= 0 || !critical && !RandomRolls.Chance(settings.Chance, 100, random)
+        if (immune || settings.Seconds <= 0
+            || (!critical || settings.CriticalNeedsIgniteChance) && !RandomRolls.Chance(settings.Chance, 100, random)
             || avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
         perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();

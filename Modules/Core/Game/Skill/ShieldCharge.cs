@@ -149,7 +149,8 @@ public static partial class Game
     static void SyncShieldChargeMovementStat(Player player, double at)
     {
         player.Pools = PoolsFor(player, player.Pools.Level);
-        int publishedPct = player.Pools.MovementVelocityPct + player.Rampage.Current.MovementPercent;
+        int publishedPct = player.Pools.MovementVelocityPct
+            + (player.Pools.FixedMovementVelocity ? 0 : player.Rampage.Current.MovementPercent);
         // Publish into Area.Stats immediately so the 0x1b3 movement-speed update ships in the same frame as Shield Charge's
         // 0x1ab start/end for both Lockstep and Predictive clients.
         if (player.Frames.Running && player.Area.Stats.HasWritten(player.Id))

@@ -33,7 +33,15 @@ public static partial class Game
     {
         // The caller captures membership before ALL stat readers, which may prune a later clock boundary.
         int Get(uint key) => stats.GetValueOrDefault(key);
-        int chance = RecentEnemyHits.Chance(priorContacts, Get(RecentEnemyHits.PerHit), Get(RecentEnemyHits.GenericChance));
+        long generic = Get(RecentEnemyHits.GenericChance);
+        int perMissingShield = Get(Stat.ChanceToDefendWith150PctArmourPctPer5PctMissingEnergyShield);
+        uint maximumShield = player.EnergyShield.Maximum;
+        if (perMissingShield != 0 && maximumShield > 0)
+        {
+            long missing = maximumShield - Math.Min(maximumShield, player.EnergyShield.Current);
+            generic += 20 * missing / maximumShield * perMissingShield;
+        }
+        int chance = RecentEnemyHits.Chance(priorContacts, Get(RecentEnemyHits.PerHit), ActorScale.Saturate(generic));
         int armour = HitArmour(player, player.Pools.Armour, stats);
         return RecentEnemyHits.Resolve(armour, chance, relevant, player.IncomingHitRandom);
     }

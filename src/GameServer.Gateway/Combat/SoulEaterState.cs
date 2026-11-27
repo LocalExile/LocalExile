@@ -75,17 +75,22 @@ public sealed class SoulEaterState
         return true;
     }
 
-    public void Clear()
+    public void LoseSouls()
     {
         bool had = stacks != 0;
         stacks = 0;
         lastSoul = double.NegativeInfinity;
+        Souls.Clear();
+        if (had) Changed?.Invoke();
+    }
+
+    public void Clear()
+    {
         lastHitSoul = double.NegativeInfinity;
         Enabled = false;
         FlaskFed = false;
         HitFed = false;
-        Souls.Clear();
-        if (had) Changed?.Invoke();
+        LoseSouls();
     }
 
     void Decay(double now)

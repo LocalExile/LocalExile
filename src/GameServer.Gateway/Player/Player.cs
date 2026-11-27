@@ -144,6 +144,7 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     public PlayerElementalAilments.HitSettings Ailments { get; init; }
     /// <summary>The skill's own poison chance (%) and duration (seconds), applied on an unblocked hit beside the monster's
     /// mods (an essence boulder whose skill carries 100% poison). Zero: the skill adds none.</summary>
+    public bool AlwaysBleedsOnHit { get; init; }
     public int PoisonChance { get; init; }
     public double PoisonSeconds { get; init; }
     public CorruptedBloodOnHit? CorruptedBlood { get; init; }
@@ -521,6 +522,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double Burn;
     // Life regeneration not yet applied (fractions of a point between ticks; RegenerateMonsters).
     public double Regen;
+    public double? PeriodicLifeRegenStarted;
     // When the player last hit it (Clock seconds): "enemies you've Hit Recently". Reset at the player's death.
     public double PlayerHitAt = double.NegativeInfinity;
     // When its attack last hit the player (Clock seconds; evaded and blocked attacks do not hit): "enemies that have Hit
@@ -583,6 +585,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double IntimidatedUntil = double.NegativeInfinity, IntimidateShownUntil, UnnervedUntil = double.NegativeInfinity,
         UnnerveShownUntil;
     public ushort IntimidateBuff, UnnerveBuff;
+    public double IntimidateStunDurationUntil;
+    public int IntimidateStunDurationPct;
     // Crushed by his hits (Awakened Brutality) until when, shown with its own crushed buff; Crush lowers its physical
     // damage reduction (Game.CrushReduction).
     public double CrushedUntil = double.NegativeInfinity, CrushShownUntil;
@@ -599,6 +603,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double MaimedPhysicalTakenUntil = double.NegativeInfinity;
     public ushort MaimBuff;
     public int MaimedPhysicalTakenPct;
+    public double MaimedDotTakenUntil;
+    public int MaimedDotTakenPct;
     public int MaimedMovementShownPct;
     public bool MaimedMovementShown;
     public double WalkSpeedAtZeroFactor;
@@ -606,6 +612,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // hindered enemies have 30% reduced movement speed (Game.HinderSeconds and the walk factor).
     public double HinderedUntil = double.NegativeInfinity, HinderShownUntil;
     public double TotemHinderedUntil = double.NegativeInfinity;
+    public double HinderedRegenFrom, HinderedRegenUntil;
+    public int HinderedRegenPct;
     public ushort HinderBuff;
     // Knocked back by a hit (Game.KnockbackOnHitLocked): the cell the AI tick presents with a Teleport, null when none.
     public (int X, int Y)? KnockbackPending;
@@ -669,6 +677,13 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     {
         foreach (var ((source, k), until) in sourceMarks) if (k == key) yield return (source, until);
     }
+    /// <summary>Changes the remaining time of each source's active mark when its clock rate changes.</summary>
+    public void RetimeSourceMarks(string key, double now, double oldRate, double newRate)
+    {
+        foreach (var (source, until) in SourceMarks(key).ToArray())
+            if (until > now)
+                sourceMarks[(source, key)] = RecipientEffectTime.RetimedDeadline(until, now, oldRate, newRate);
+    }
     /// <summary>Removes every value and mark <paramref name="source"/> keeps on it (the source left the instance).</summary>
     public void ForgetSource(uint source)
     {
@@ -719,6 +734,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public bool CorpseConsumed;
     public int HitFireExplosionPercent;
     public bool CursedAtDeath;
+    public bool? ShockedAtDeath, FrozenAtDeath;
     public double NonAuraHexUntilAtDeath;
     // Shared-instance sync shows these bodies to new viewers and removes each view on consumption or expiry.
     public bool CreatedAsCorpse;

@@ -111,9 +111,12 @@ public static partial class Game
     }
 
     // "You gain Onslaught for X seconds on Hit" (the Honoured Berserker tattoo and other sources): every player hit.
-    public static bool OnslaughtOnHitLocked(Player player, double now)
+    public static bool OnslaughtOnHitLocked(Player player, double now, int criticalDurationMs = 0)
     {
-        return player.PlayerLife > 0 && KillOnslaughtOf(player).Hit(now) && Marked(player, PlayerStatStep.Onslaught);
+        if (player.PlayerLife == 0) return false;
+        var onslaught = KillOnslaughtOf(player);
+        return onslaught.Gain(now, Math.Max(onslaught.HitMs, criticalDurationMs) / 1000d)
+            && Marked(player, PlayerStatStep.Onslaught);
     }
 
     // The kill Onslaught's stats while applied, as sources of the same buff as a Silver Flask's (UtilityStats): with both,

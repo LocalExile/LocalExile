@@ -2,10 +2,57 @@ using System.Collections.Concurrent;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 
 public static partial class Game
 {
+    static void TryRestoreBrokenWard(Player player, double now, int chance, Random random)
+    {
+        AdvanceWardLocked(player, now);
+        if (!player.Ward.Broken || !RandomRolls.Chance(chance, 100, random)) return;
+        player.Ward.Restore();
+        WardRestoredLocked(player, now);
+    }
+
+    static void AdvanceWardLocked(Player player, double now)
+    {
+        if (player.Ward.Advance(now))
+            WardRestoredLocked(player, now);
+    }
+
+    static void WardRestoredLocked(Player player, double now)
+    {
+        if (player.PlayerLife == 0 || player.Ward.Current == 0
+            || StatSourceValues(player).GetValueOrDefault(Stat.RemoveRandomDamagingAilmentWhenWardRestores) == 0) return;
+        int incoming = player.IncomingAilments.ActiveDamagingAilments(now);
+        int total = incoming + player.ElementalAilments.ActiveIgnites(now);
+        if (total == 0) return;
+        int index = total == 1 ? 0 : AreaRng(player).Next(total);
+        if (index < incoming) player.IncomingAilments.EndDamagingAilment(now, index);
+        else player.ElementalAilments.EndIgnite(now, index - incoming);
+    }
+
+    static void GrantWardBreakResourcesLocked(Player player, IReadOnlyDictionary<uint, int> stats)
+    {
+        void Grant(ChargeType type, uint key)
+        {
+            if (stats.GetValueOrDefault(key) is > 0 and var amount)
+                ChargesOf(player).Enqueue(new ChargeEvent.Grant(type, amount, "Ward break"));
+        }
+
+        Grant(ChargeType.Endurance, Stat.GainXEnduranceChargeWhenWardBreaks);
+        Grant(ChargeType.Power, Stat.GainXPowerChargeWhenWardBreaks);
+        Grant(ChargeType.Frenzy, Stat.GainXFrenzyChargeWhenWardBreaks);
+        if (stats.GetValueOrDefault(Stat.IronFlasksGainXChargeWhenWardBreaks) is not (> 0 and var charges)) return;
+        int epoch = player.ProjectileEpoch;
+        // A self-hit can break Ward inside a paid flask use. Reuse the normal bar transaction after that use releases it.
+        _ = AreaFrames.Start(() => CurrentGameWork && player.ProjectileActive(epoch) && player.PlayerLife > 0
+            ? GainFlaskCharges(player, (flask, _) =>
+                ItemsFor(player).ByHash(flask.Item.TypeHash)?.Id == "Metadata/Items/Flasks/FlaskUtility18" ? charges : 0, "Ward break")
+            : Task.CompletedTask);
+    }
+
     public static bool PlayerAlwaysHits(Player player) => Stat.GlobalAlwaysHit is var key
         && CharacterPlayerStats(player).GetValueOrDefault(key) != 0;
 
@@ -63,7 +110,7 @@ public static partial class Game
     {
         if (player.Closed || player.LeavingArea || player.RageRetired) return null;
         EnsureWardBreakPools(player);
-        player.Ward.Advance(AreaTime(player));
+        AdvanceWardLocked(player, AreaTime(player));
         var ward = (player.Ward.Maximum, player.Ward.Broken);
         double adrenaline = player.PlayerLife > 0 && player.WardBreak.Adrenaline(AreaTime(player))
             ? player.WardBreak.AdrenalineUntil : double.NegativeInfinity;
@@ -111,7 +158,7 @@ public static partial class Game
         if (player.Closed || player.RageRetired) return;
         if (player.PlayerLife == 0) ClearWardBreakOnDeath(player);
         double now = AreaTime(player);
-        player.Ward.Advance(now);
+        AdvanceWardLocked(player, now);
         foreach (var (old, entry) in CarriedWardBreak)
             if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedWardBreak.TryRemove(old, out _);
         CarriedWardBreak.TryAdd(ticket, new(CharacterName(player), DateTime.UtcNow,

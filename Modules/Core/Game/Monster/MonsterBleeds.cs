@@ -119,7 +119,11 @@ public static partial class Game
     // (wiki Bleeding, Aggravate): they deal damage as though it moved for the rest of their durations.
     // shortcut: callers only come here for a hit that dealt physical damage, so a hit without any never aggravates.
     public static List<byte[]>? BleedOnHitLocked(Player player, uint id, SpawnedMonster target,
-        MonsterIgnites.Settings settings, bool critical, double now, bool reflect = false)
+        MonsterIgnites.Settings settings, bool critical, double now, bool reflect = false) =>
+        BleedOnHitLocked(player, id, target, settings, critical, now, reflect, playerOwned: true);
+
+    static List<byte[]>? BleedOnHitLocked(Player player, uint id, SpawnedMonster target,
+        MonsterIgnites.Settings settings, bool critical, double now, bool reflect, bool playerOwned)
     {
         if (target.Invulnerable || LabyrinthTrials.BleedingBuffRow is not ushort row) return null;
         // Elemental Overload: the ailment is not from a critical strike, so it rolls the hit's chance and aggravate.
@@ -139,13 +143,13 @@ public static partial class Game
                 e[Stat.ImmuneToBleeding] != 0 || e[Stat.CannotGainBleeding] != 0 || e[Stat.BaseCannotGainBleeding] != 0,
                 player.IgniteRandom, out double perSecond)) return null;
         player.Area.ActiveBleedMonsters.Add(id);
-        InflictedLocked(player, target, AilmentType.Bleed, now + settings.Seconds);
+        if (playerOwned) InflictedLocked(player, target, AilmentType.Bleed, now + settings.Seconds / target.Bleeds.ExpiryRate);
         // Rupture Support: the critical strike that inflicted this bleeding also ruptures the target.
         if (critical && settings.RupturePercent > 0)
         {
             target.Ruptures.SetExpiryRate(now, target.RecipientDebuffRate);
             target.Ruptures.Add(now, settings.RupturePercent);
-            target.Bleeds.SetExpiryRate(now, BleedingExpiryRate(target, now));
+            SetBleedingExpiryRate(target, now);
         }
         if (reflect)
         {
@@ -201,6 +205,15 @@ public static partial class Game
     public static double BleedingExpiryRate(SpawnedMonster target, double now) =>
         target.RecipientDebuffRate * (1 + .25 * target.Ruptures.Stacks(now));
 
+    static void SetBleedingExpiryRate(SpawnedMonster target, double now)
+    {
+        double previous = target.Bleeds.ExpiryRate;
+        double rate = BleedingExpiryRate(target, now);
+        if (rate == previous) return;
+        target.Bleeds.SetExpiryRate(now, rate);
+        target.RetimeSourceMarks(InflictedKeys[(int)AilmentType.Bleed], now, previous, target.Bleeds.ExpiryRate);
+    }
+
     // Settle at each stack's expiry, even if a delayed tick crosses several. Damage is committed by the normal DoT
     // tick; changing the rate or adding another bleed must not discard damage already earned by an expired instance.
     public static void SettleBleeding(SpawnedMonster target, double now)
@@ -209,7 +222,7 @@ public static partial class Game
         {
             double before = Math.BitDecrement(end);
             target.Bleeds.Accrue(end, BleedTaken(target, before), AggravatedExtra(target, before));
-            target.Bleeds.SetExpiryRate(end, BleedingExpiryRate(target, end));
+            SetBleedingExpiryRate(target, end);
         }
         target.Bleeds.Accrue(now, BleedTaken(target, now), AggravatedExtra(target, now));
     }

@@ -137,7 +137,8 @@ public sealed class BestiaryEncounter
         var layout = player.Layout;
         if (player.Instance is not { } instance || layout.Walkable is not { } walkable) return;
         var rng = new Random(area.Seed ^ 0x42657374);
-        if (!Rolled(layout.Id, AreaLeagueStats(player), MapDevices.IsMapArea(layout.Hash), rng,
+        var stats = AreaLeagueStats(player);
+        if (!Rolled(layout.Id, stats, MapDevices.IsMapArea(layout.Hash), rng,
             LeagueFor(player).HardMode, ForcedChance(Environment.GetEnvironmentVariable("Game_LEAGUE_CHANCES")))) return;
         if (BestiaryTables.PlanFor(layout.Id, area.Level, rng) is not { } plan) return;
         var taken = area.Taken.ToList();
@@ -154,11 +155,23 @@ public sealed class BestiaryEncounter
         }
         var run = new BestiaryRun { MissionId = plan.Mission.Id, Level = area.Level };
         var live = new Live(run, rng);
+        int rageStacks = Math.Clamp(stats.GetValueOrDefault(Stat.MapBestiaryBeastHasXBestialRage), 0, 100);
+        MonsterModSet? rageMods = rageStacks == 0 ? null : new([], [], new MonsterModEffects(new Dictionary<uint, int>
+        {
+            [Stat.BaseActorScalePlusPct] = 10 * rageStacks,
+            [Stat.BaseMovementVelocityPlusPct] = 5 * rageStacks,
+            [Stat.AttackSpeedPlusPct] = 10 * rageStacks,
+            [Stat.DamagePlusPct] = 20 * rageStacks,
+        }));
         async Task Spawn(ushort row, MonsterRarity rarity, (int X, int Y) at, bool red)
         {
             if (Monsters.All[row] is not { Supported: true } variety) return;
-            uint id = await SpawnMonster(player, variety, area.Level, rarity, at.X, at.Y, bulk: true);
-            if (id != 0 && player.Area.Monsters.TryGetValue(id, out var body)) run.Add(id, body, red);
+            uint id = await SpawnMonster(player, variety, area.Level, rarity, at.X, at.Y, bulk: true, extraMods: rageMods);
+            if (id != 0 && player.Area.Monsters.TryGetValue(id, out var body))
+            {
+                run.Add(id, body, red);
+                if (rageStacks > 0) player.Area.Buffs.Set(id, new(2426, id, Stacks: (ushort)rageStacks));
+            }
         }
         foreach (var red in plan.Reds)
             if (Spot() is { } at)

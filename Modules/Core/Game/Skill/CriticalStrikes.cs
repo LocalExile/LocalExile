@@ -29,12 +29,16 @@ public static partial class Game
             || Flag(Stat.KeystoneElementalOverload) || Flag(Stat.KeystoneAilmentCrit);
     }
 
-    public static int CriticalHitMultiplier(long ordinary, bool noExtra) => noExtra ? 100
-        : (int)Math.Clamp(ordinary, int.MinValue, int.MaxValue);
+    public static int CriticalHitMultiplier(long ordinary, bool noExtra, bool fixedMultiplier = false) => noExtra ? 100
+        : fixedMultiplier ? 300 : (int)Math.Clamp(ordinary, int.MinValue, int.MaxValue);
+
+    static bool FixedCriticalHitMultiplier(IReadOnlyDictionary<uint, int>? player, IReadOnlyDictionary<uint, int>? own) =>
+        (player?.GetValueOrDefault(Stat.CriticalStrikeMultiplierIs300) ?? 0) != 0
+        || (own?.GetValueOrDefault(Stat.CriticalStrikeMultiplierIs300) ?? 0) != 0;
 
     public static int CriticalHitMultiplier(long ordinary, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? own = null) => CriticalHitMultiplier(ordinary,
-            CriticalHitsDealNoExtraDamage(player, own));
+            CriticalHitsDealNoExtraDamage(player, own), FixedCriticalHitMultiplier(player, own));
 
     static long ClawDaggerCriticalBonus(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? own)

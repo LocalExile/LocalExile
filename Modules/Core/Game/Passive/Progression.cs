@@ -161,6 +161,7 @@ public static partial class Game
                 sources[key] = Math.Max(1, sources.GetValueOrDefault(key));
         foreach (var (key, value) in MadnessRawStatsLocked(player, sources))
             sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
+        AddRetributionConfluxStats(player, sources);
         ConfigureChargeDegeneration(player, worn, inactive);
         ConfigureRecentHitLifeLoss(player, worn, inactive);
         sources = WithAvatarOfFire(player, sources);
@@ -853,7 +854,7 @@ public static partial class Game
             ItemModStats.Global(itemBonuses, ItemsFor(player).Mods, Stats, conditionSubject));
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
         // normal stat at floor(Devotion / 10) steps before the pools and panels read this view.
-        DevotionStats.Apply(sources, Stats);
+        DevotionStats.Apply(sources, Stats, conditionFlags);
         GrandSpectrum.Apply(sources, Stats);
         // The first snapshot after equipment/point changes must use the new limits and conversion, before the charge
         // ticker observes them. Rebuild the conditional sum from its inputs, never add a second folded contribution.
@@ -873,7 +874,7 @@ public static partial class Game
             var passSubject = ConditionSubject(rawAttributes, active, equippedActive);
             sources = ItemModStats.Plus(FoldPassiveConditions(passives, passSubject),
                 ItemModStats.Global(itemBonuses, ItemsFor(player).Mods, Stats, passSubject));
-            DevotionStats.Apply(sources, Stats);
+            DevotionStats.Apply(sources, Stats, conditionFlags);
             GrandSpectrum.Apply(sources, Stats);
         }
         sourcesKey = sourcesKey with { Flags = conditionFlags };
@@ -884,6 +885,19 @@ public static partial class Game
         AbyssJewels.Count(active, catalog, Stats, sources);
         ApplySocketedGhastlyEyeBonuses(active, catalog, sources);
         ItemStatAliases.Apply(sources);
+        foreach (uint key in ItemStatAliases.RingFinalStats)
+        {
+            decimal factor = 1;
+            foreach (var (row, equipped) in equipment)
+                if (row is PlayerInventories.Ring1 or PlayerInventories.Ring2 or PlayerInventories.Ring3
+                    && !inactive.Contains(equipped.Id) && active.Contains(equipped.Item))
+                {
+                    int value = ItemModStats.LocalValue(equipped.Item, catalog.Mods, key);
+                    factor *= Math.Max(0m, 100m + value) / 100m;
+                }
+            if (factor != 1)
+                sources[key] = (int)Math.Clamp(decimal.Round((factor - 1) * 100, MidpointRounding.AwayFromZero), int.MinValue, int.MaxValue);
+        }
         var attributes = AttributeInputs(rawAttributes);
         var finalAttributes = attributes.Apply(c.Strength + (player.God ? 1000 : 0),
             c.Dexterity + (player.God ? 1000 : 0), c.Intelligence + (player.God ? 1000 : 0));
@@ -894,6 +908,20 @@ public static partial class Game
         OwnedCountItemStats.Apply(sources, Stats, sourcesKey.Amounts);
         ApplyRecentSavageHitItemStats(sources, Stats, sourcesKey.Flags);
         ApplyFlaggedItemStats(sources, sourcesKey.Flags);
+        if (sources.GetValueOrDefault(Stat.TailwindIfHaveCritRecently) != 0
+            && sources.GetValueOrDefault(Stat.HasTailwind) == 0
+            && recentEvents.Contains(StatConditions.Crit))
+        {
+            sources[Stat.HasTailwind] = 1;
+            sources[Stat.ActionSpeedMinusPct] = ActorScale.Saturate((long)sources.GetValueOrDefault(Stat.ActionSpeedMinusPct) - 8);
+        }
+        if (sources.GetValueOrDefault(Stat.PhysicalDotMultiplierPlusWhileWieldingAxesSwords) is not 0 and var physicalDot)
+        {
+            var weapons = WeaponProfileFrom(items.Items, inactive.Contains, catalog, activeSet: true, () => false);
+            if (weapons.Axe || weapons.Sword)
+                sources[Stat.PhysicalDotMultiplierPlus] = ActorScale.Saturate(
+                    (long)sources.GetValueOrDefault(Stat.PhysicalDotMultiplierPlus) + physicalDot);
+        }
         if (recentAmounts.GetValueOrDefault(StatConditions.DetonatedMine) is long mines and > 0)
         {
             int count = ActorScale.Saturate(mines);
@@ -902,6 +930,10 @@ public static partial class Game
             if (sources.GetValueOrDefault(Stat.CriticalStrikeChancePlusPctPerMineDetonatedRecentlyUpTo100Pct) is int perMine and > 0)
                 sources[Stat.CriticalStrikeChancePlusPct] = ActorScale.Saturate(sources.GetValueOrDefault(Stat.CriticalStrikeChancePlusPct)
                     + Math.Min(100L, (long)count * perMine));
+            if (sources.GetValueOrDefault(Stat.CriticalStrikeMultiplierPlusPerMineDetonatedRecentlyUpTo40) is int perMineMultiplier and > 0)
+                sources[Stat.BaseCriticalStrikeMultiplierPlus] = ActorScale.Saturate(
+                    sources.GetValueOrDefault(Stat.BaseCriticalStrikeMultiplierPlus)
+                    + Math.Min(40L, (long)count * perMineMultiplier));
         }
         player.StatSourcesCache = new(sourcesKey with { Before = inactive }, new(sources), attributes, inactive, wornItems);
         PublishQualifiedItemLifeReservationPercent(player, qualifiedItemReservationPercent);
@@ -1247,26 +1279,43 @@ public static partial class Game
         var gear = EquippedBaseDefences(player, EquipmentInput);
         var slots = EquippedArmourDefences(player, EquipmentInput).ToArray();
         var shieldDefence = slots.FirstOrDefault(d => d.Row == PlayerInventories.Offhand1).Defence;
+        decimal extraShieldArmour = EquipmentInput(Stat.ArmourFromShieldDoubled) == 0 ? 0 : shieldDefence.Armour;
         var body = slots.FirstOrDefault(d => d.Row == PlayerInventories.BodyArmour).Defence;
         var helmet = slots.FirstOrDefault(d => d.Row == PlayerInventories.Helmet).Defence;
-        var glovesBoots = slots.Where(d => d.Row is PlayerInventories.Gloves or PlayerInventories.Boots)
-            .Aggregate((Armour: 0m, Evasion: 0m), (sum, d) => (sum.Armour + d.Defence.Armour, sum.Evasion + d.Defence.Evasion));
+        var gloves = slots.FirstOrDefault(d => d.Row == PlayerInventories.Gloves).Defence;
+        var boots = slots.FirstOrDefault(d => d.Row == PlayerInventories.Boots).Defence;
+        decimal wardFromOtherDefences = Math.Truncate(helmet.Armour / 10)
+            * EquipmentInput(Stat.GainXWardPer10ArmourOnHelmet);
+        if (EquipmentInput(Stat.GainXWardPer10EvasionOnGloves) is not 0 and var gloveWard)
+            wardFromOtherDefences += Math.Truncate(gloves.Evasion / 10)
+                * gloveWard;
+        if (EquipmentInput(Stat.GainXWardPer10EnergyShieldOnBoots) is not 0 and var bootWard)
+            wardFromOtherDefences += (long)(boots.EnergyShield / 10)
+                * bootWard;
         int EquipmentStat(uint key) => sources.GetValueOrDefault(key);
         var converted = ConvertEquipmentEnergyShield(player, EquipmentStat, gear.EnergyShield);
         bonus = bonus with
         {
-            Armour = bonus.Armour + gear.Armour,
+            Armour = bonus.Armour + gear.Armour + extraShieldArmour,
             Evasion = bonus.Evasion + gear.Evasion,
-            Ward = bonus.Ward + gear.Ward,
+            Ward = bonus.Ward + wardFromOtherDefences,
+            EquipmentWard = gear.Ward,
+            EquipmentWardPct = EquipmentInput(Stat.WardFromArmourItemPlusPct),
             Life = (int)Math.Min(int.MaxValue, (long)bonus.Life + converted.Life),
             EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + converted.EnergyShield),
-            ShieldArmour = shieldDefence.Armour, ShieldEvasion = shieldDefence.Evasion,
+            ShieldArmour = shieldDefence.Armour + extraShieldArmour, ShieldEvasion = shieldDefence.Evasion,
             // ES-to-Life consumes the local item source before any shield/global increases can act on it.
             ShieldEnergyShield = converted.EnergyShield == 0 ? 0 : shieldDefence.EnergyShield,
             BodyArmour = body.Armour, BodyEvasion = body.Evasion,
             BodyEnergyShield = converted.EnergyShield == 0 ? 0 : body.EnergyShield,
             HelmetEnergyShield = converted.EnergyShield == 0 ? 0 : helmet.EnergyShield,
-            GlovesBootsArmour = glovesBoots.Armour, GlovesBootsEvasion = glovesBoots.Evasion,
+            GlovesBootsArmour = gloves.Armour + boots.Armour, GlovesBootsEvasion = gloves.Evasion + boots.Evasion,
+            HelmetGlovesArmour = helmet.Armour + gloves.Armour, GlovesArmour = gloves.Armour,
+            HelmetBootsEvasion = helmet.Evasion + boots.Evasion, BootsEvasion = boots.Evasion,
+            GlovesBootsEnergyShield = converted.EnergyShield == 0 ? 0 : (long)gloves.EnergyShield + boots.EnergyShield,
+            HelmetGlovesArmourPct = EquipmentInput(Stat.ArmourFromHelmetAndGlovesPlusPct),
+            HelmetBootsEvasionPct = EquipmentInput(Stat.EvasionRatingFromHelmetAndBootsPlusPct),
+            GlovesBootsEnergyShieldPct = EquipmentInput(Stat.EnergyShieldFromGlovesAndBootsPlusPct),
         };
         int HandDivisor(uint stat, Func<Player, (Item Item, ItemCatalog.BaseType? Type)?> hand)
         {
@@ -1277,6 +1326,7 @@ public static partial class Game
         {
             LifeToEnergyShieldPct = EquipmentStat(Stat.MaximumLifePctToConvertToMaximumEnergyShield),
             EvasionPerTenMaximumLife = EquipmentStat(Stat.EvasionRatingPlusPer10PlayerLife),
+            ArmourStrengthDivisor = HandDivisor(Stat.PhysicalDamageReductionRatingPlus1PctPerXStrengthWhenInOffHand, ActiveOffHand),
             ManaStrengthDivisor = HandDivisor(Stat.MaximumManaPlus1PctPerXStrengthWhenInMainHandFromFoulbornDoonCuebiyari, ActiveMainHand),
             EnergyShieldStrengthDivisor = HandDivisor(Stat.EnergyShieldPlus1PctPerXStrengthWhenInOffHandFromFoulbornDoonCuebiyari, ActiveOffHand),
         };
@@ -1377,6 +1427,7 @@ public static partial class Game
         bonus = ApplyItemUtilityFlaskBonuses(bonus, utilityStats);
         // Set on pool builds as well as RecomputePoolsAndSpeed so new area entry activates Quartz phasing at spawn.
         player.Phasing = UtilityFlasks.Phasing(utilityStats);
+        bool fixedCriticalMultiplier = EquipmentInput(Stat.CriticalStrikeMultiplierIs300) != 0;
         bool noExtraCriticalDamage = EquipmentInput(Stat.NoCriticalStrikeMultiplier) != 0
             || utilityStats.Any(row => row.Stat == Stat.NoCriticalStrikeMultiplier && row.Value != 0);
         // Final movement modifiers (a trial dart's labyrinth_arrow_movement_speed_+%_final): movement_velocity_+% is the
@@ -1387,6 +1438,9 @@ public static partial class Game
         foreach (uint finalKey in BuffRows.FinalMovementKeys)
             if (sources.GetValueOrDefault(finalKey) is int slowFinal and not 0)
                 bonus = bonus with { MovementVelocityPct = (int)Math.Round((100.0 + bonus.MovementVelocityPct) * Math.Max(0, 100 + slowFinal) / 100) - 100 };
+        int fixedMovement = EquipmentInput(Stat.MovementSpeedIsPctOfBase);
+        if (fixedMovement > 0)
+            bonus = bonus with { MovementVelocityPct = fixedMovement - 100 };
         if (Stat.NoMovementSpeed is var stopKey && sources.GetValueOrDefault(stopKey) > 0)
             bonus = bonus with { MovementVelocityPct = -100 };
         // "Movement Speed cannot be modified to below Base Value" (PoB CalcDefence: max(mod, 1)). The client bounds
@@ -1448,12 +1502,21 @@ public static partial class Game
         int perHundred = LifeReservation.EnergyShieldPerReservedStat is var reservedEsKey
             ? sources.GetValueOrDefault(reservedEsKey) : 0;
         int reservationEnergyShield = LifeReservation.EnergyShield(reservedLife.Reserved, perHundred);
-        if (reservationEnergyShield != 0)
+        int armourPer50ManaReserved = EquipmentInput(Stat.GainXPctArmourPer50ManaReserved);
+        int armourIncrease = armourPer50ManaReserved == 0 ? 0
+            : ReservedManaArmourIncrease(ReservedManaFor(player, pools), armourPer50ManaReserved);
+        if (reservationEnergyShield != 0 || armourIncrease != 0)
             pools = CharacterStats.For(classInfo, level, bonus with
             {
-                EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + reservationEnergyShield)
+                EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + reservationEnergyShield),
+                ArmourPct = ActorScale.Saturate((long)bonus.ArmourPct + armourIncrease)
             }, ResolveAccuracy);
-        pools = pools with { MapTemporalChainsActionSpeedPct = mapTemporalChains };
+        pools = pools with
+        {
+            MapTemporalChainsActionSpeedPct = mapTemporalChains,
+            ArmourPctPer50ReservedMana = armourPer50ManaReserved,
+            ArmourPctFromReservedMana = armourIncrease
+        };
         if (true)
             pools = pools with { SpellCriticalStrikeChancePct = pools.SpellCriticalStrikeChancePct
                 + MaximumPoolItemSources.Amount(EquipmentInput(MaximumPoolItemSources.SpellCriticalPerLife), pools.Life) };
@@ -1466,8 +1529,8 @@ public static partial class Game
         // the armed main hand's base and the unarmed base replaces the empty one, before the global increases.
         pools = pools with
         {
-            CriticalStrikeMultiplier = CriticalHitMultiplier(pools.CriticalStrikeMultiplier, noExtraCriticalDamage),
-            SpellCriticalStrikeMultiplier = CriticalHitMultiplier(pools.SpellCriticalStrikeMultiplier, noExtraCriticalDamage),
+            CriticalStrikeMultiplier = CriticalHitMultiplier(pools.CriticalStrikeMultiplier, noExtraCriticalDamage, fixedCriticalMultiplier),
+            SpellCriticalStrikeMultiplier = CriticalHitMultiplier(pools.SpellCriticalStrikeMultiplier, noExtraCriticalDamage, fixedCriticalMultiplier),
             AttackBlockLucky = pools.AttackBlockLucky || player.ForceAttackBlockLucky,
             SpellBlockLucky = pools.SpellBlockLucky || player.ForceSpellBlockLucky,
             SpellSuppressionLucky = pools.SpellSuppressionLucky || player.ForceSpellSuppressionLucky,
@@ -1526,6 +1589,17 @@ public static partial class Game
         // The source's condition has already been evaluated from the captured blocked history. The Replica's
         // retained value 75 is an unscalable flag, not a chance to add or a replacement for the current maximum.
         if (pools.SpellBlockAtMaximum) pools = pools with { SpellBlockChance = pools.SpellBlockChanceMax };
+        if (EquipmentInput(Stat.NeverBlock) != 0)
+            pools = pools with { BlockChance = 0, SpellBlockChance = 0 };
+        if (EquipmentInput(Stat.CriticalStrikeMultiplierPlusPer1PctBlockChance) is int perBlock and not 0)
+        {
+            long multiplier = (long)perBlock * pools.BlockChance;
+            pools = pools with
+            {
+                CriticalStrikeMultiplier = ActorScale.Saturate(pools.CriticalStrikeMultiplier + multiplier),
+                SpellCriticalStrikeMultiplier = ActorScale.Saturate(pools.SpellCriticalStrikeMultiplier + multiplier),
+            };
+        }
         if (map?.Get(Stat.MapPlayersArmourPlusPctFinal) is int armourMore and not 0)
             pools = pools with { Armour = ActorScale.Saturate((pools.Armour * Math.Max(0, 100L + armourMore) + 50) / 100) };
         player.AppliedAdrenaline = player.WardBreak.Adrenaline(AreaTime(player));
@@ -1558,6 +1632,7 @@ public static partial class Game
         return pools with
         {
             IgnoreAttributeRequirements = ignoreAttributeRequirements,
+            FixedMovementVelocity = fixedMovement > 0,
             EvasionBasedOnWard = EquipmentInput(Stat.KeystoneVoranasAdaption) != 0,
             ImpalesNearbyEnemies = EquipmentInput(Stat.KeystoneImpale) != 0,
             HalveColdAndLightningResistance = EquipmentInput(Stat.KeystoneTemperedByWar) != 0,

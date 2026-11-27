@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 using GameServer.Modding;
 
 // Unified monster kill-reward & NoRewards funnel shared across melee/AoE/DoT (Combat.cs), projectiles
@@ -9,6 +10,9 @@ public static partial class Game
     /// <see cref="SpawnedMonster.NoRewards"/> or species mod <see cref="BossMods.NoRewards"/>).</summary>
     public static bool MonsterGivesNoRewards(SpawnedMonster m) =>
         m.NoRewards || BossMods.NoRewards(m.Variety);
+
+    static bool MonsterGrantsKillFlaskCharges(SpawnedMonster monster) =>
+        !MonsterGivesNoRewards(monster) && monster.Effects[Stat.MonsterGrantsNoFlaskCharges] == 0;
 
     /// <summary>Whether a monster drops no items or gold (includes <see cref="BossMods.NoDrops"/> and the tutorial zombie).</summary>
     public static bool MonsterGivesNoItems(SpawnedMonster m) =>
@@ -119,6 +123,7 @@ public static partial class Game
         if (MonsterGivesNoItems(m)) return [];
         if (!GameEvents.AllowsLoot(player)) return [];
 
+        var lootStats = PlayerStatValues(player);
         var balance = LeagueFor(player).Rules;
         var modded = GameEvents.RunDrops(player, ModMonster(m, at));
         int iir = IncreasedItemRarity(player, m);
@@ -163,10 +168,14 @@ public static partial class Game
             // rather than monster/boss IIR/IIQ to avoid double-multiplying Act Boss gold stacks.
             if (DropsFor(player).Gold(
                 m.Level, m.Rarity, rng,
-                balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1),
+                balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)
+                    * Math.Max(0, 1 + lootStats.GetValueOrDefault(Stat.ItemFoundGoldPlusPct) / 100d),
                 increasedRarity: IncreasedItemRarity(player),
                 quantityFactor: ItemQuantityFactor(player)) is { } gold)
                 drops.Add(gold);
+            if (RandomRolls.Chance(lootStats.GetValueOrDefault(Stat.AdditionalScrollOfWisdomDropChancePct), 100, rng)
+                && ItemsFor(player).Find("Metadata/Items/Currency/CurrencyIdentification") is { Supported: true } wisdom)
+                drops.Add(new(ItemCatalog.Create(wisdom) with { StackSize = 1 }, wisdom));
             drops.AddRange(ExtraDropsFromMap(player, m.Level, m.Rarity, rng));
             drops.AddRange(Sirus.Rewards(player, m));
         }
@@ -186,6 +195,10 @@ public static partial class Game
             };
             if (corruptionChance > 0) CorruptDrops(drops, corruptionChance, rng);
         }
+        if (lootStats.GetValueOrDefault(Stat.MagicItemsDropIdentified) != 0)
+            for (int i = 0; i < drops.Count; i++)
+                if (drops[i].Item is { Rarity: ItemRarity.Magic, Identified: false } magic)
+                    drops[i] = drops[i] with { Item = magic with { Identified = true } };
         return ItemDrops.Stacked(drops);
     }
 

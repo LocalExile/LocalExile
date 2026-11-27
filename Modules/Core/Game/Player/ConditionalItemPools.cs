@@ -79,6 +79,7 @@ public static partial class Game
             ["_while_life_leeching"] = alive && leech.Life,
             ["_while_mana_leeching"] = alive && leech.Mana,
             ["_while_energy_shield_leeching"] = alive && leech.EnergyShield,
+            ["_while_leeching_energy_shield"] = alive && leech.EnergyShield,
             ["_while_es_leeching"] = alive && leech.EnergyShield,
             ["_while_leeching"] = alive && (leech.Life || leech.Mana || leech.EnergyShield),
         };
@@ -101,6 +102,10 @@ public static partial class Game
         flags["_while_bleeding"] = player.IncomingAilments.Bleeding(now);
         flags["_while_poisoned"] = player.IncomingAilments.PoisonStacks(now) > 0;
         flags["_while_on_consecrated_ground"] = player.FlaskGrounds.Consecrated;
+        bool hasWard = alive && player.Ward.Maximum > 0;
+        bool brokenWard = player.Ward.Broken && now < player.Ward.RestoresAt;
+        flags[BrokenWardItemFlag] = hasWard && brokenWard;
+        flags[UnbrokenWardItemFlag] = hasWard && !brokenWard;
         bool onslaught = HasIndependentOnslaught(player);
         flags["independent_onslaught"] = onslaught;
         // "while a Pinnacle Boss is in your Presence": the monster scan behind this flag ran on every
@@ -114,6 +119,7 @@ public static partial class Game
             flags[StatConditions.CelestialBossInPresence] = alive && CelestialBossInPresenceLocked(player, now);
         flags["_while_onslaught_is_active"] = onslaught;
         flags["_while_have_onslaught"] = onslaught;
+        flags["_during_onslaught"] = onslaught;
         flags["_while_channelling"] = player.ChannelSkill != 0;
         flags["_while_not_channelling"] = player.ChannelSkill == 0;
         flags["_while_you_have_active_physical_aegis"] = physicalAegis.Active;
@@ -231,16 +237,18 @@ public static partial class Game
         StatConditions.Blocked, StatConditions.BlockedAttack, StatConditions.BlockedSpell,
         StatConditions.SuppressedSpell, StatConditions.TakenSavageHit, StatConditions.BeenStunned,
         StatConditions.BeenFrozen,
-        StatConditions.FrozeEnemy, StatConditions.ShockedEnemy, StatConditions.IgnitedEnemy,
+        StatConditions.FrozeEnemy, StatConditions.ChilledEnemy, StatConditions.ShockedEnemy, StatConditions.IgnitedEnemy,
+        StatConditions.PlacedTrapOrMine,
         StatConditions.ShatteredEnemy, StatConditions.UsedWarcry, StatConditions.ConsumedCorpse,
         // Accepted-use, mana, flask, stance and charge recorders.
         StatConditions.SpentMana, StatConditions.UsedSkill, StatConditions.UsedMovementSkill, StatConditions.UsedDash,
-        StatConditions.UsedFireSkill, StatConditions.UsedColdSkill, StatConditions.UsedVaalSkill,
+        StatConditions.UsedFireSkill, StatConditions.UsedColdSkill, StatConditions.UsedVaalSkill, StatConditions.UsedRetaliation,
         StatConditions.UsedRubyFlask, StatConditions.UsedSapphireFlask, StatConditions.UsedTopazFlask,
         StatConditions.UsedAmethystFlask, StatConditions.ChangedStance,
         StatConditions.GainedFrenzyCharge, StatConditions.GainedPowerCharge, StatConditions.GainedEnduranceCharge,
         // Hit outcomes (RecordHit/RecordCriticalOutcome), mine detonation; the curse casts come from the constructor.
         StatConditions.NonCrit, StatConditions.Crit8Seconds, StatConditions.DetonatedMine,
+        StatConditions.OwnedMinionDied, StatConditions.SpentLife, StatConditions.CritWithHerald,
     };
     sealed class ConditionalItemPoolState
     {
@@ -341,6 +349,8 @@ public static partial class Game
         // The poison count is compared against the pools' own record (AppliedPoisonStacks), not the cached key:
         // a cache hit never refreshes the key, so the key would fail this check forever once poison is nonzero.
         if (!providersChanged && cached is not null && ReferenceEquals(state.Applied, cached)
+            && (cached.Key.Flags is not ReadFlags flags
+                || !flags.WasRead(BrokenWardItemFlag) && !flags.WasRead(UnbrokenWardItemFlag))
             && state.CheckedInventoryMutations == invMutations
             && state.CheckedPassivesCount == passivesCount
             && state.CheckedTattooRevision == tattooRevision

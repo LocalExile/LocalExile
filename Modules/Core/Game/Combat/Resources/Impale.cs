@@ -56,8 +56,11 @@ public static partial class Game
         long Get(uint id) => (long)stats.GetValueOrDefault(id) + (own?.GetValueOrDefault(id) ?? 0);
         long additionalChance = (twoHanded ? Get(Stat.AttacksWithTwoHandedWeaponsImpaleOnHitPctChance) : 0)
             + (axeOrSword ? Get(Stat.ImpaleOnHitPctChanceWithAxesSwords) : 0);
-        return ImpaleStats.From(stats, catalog, attack, own, local, critical, additionalChance);
+        return WithRingImpaleDuration(ImpaleStats.From(stats, catalog, attack, own, local, critical, additionalChance), stats);
     }
+
+    static ImpaleStats.Settings WithRingImpaleDuration(ImpaleStats.Settings settings, IReadOnlyDictionary<uint, int> stats) =>
+        settings with { Duration = settings.Duration * Math.Max(0, 1 + stats.GetValueOrDefault(Stat.LocalRingImpaledDebuffDurationPlusPctFinal) / 100d) };
 
     // The gem's nearby effect is estimated at 2.3 m. Its stat set does not export a radius.
     const int KillingBlowImpaleRadius = 23;

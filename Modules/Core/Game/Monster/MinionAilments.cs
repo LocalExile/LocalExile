@@ -76,7 +76,8 @@ public static partial class Game
             ApplyIgniteFirePenaltyLocked(target, ignite, now);
             ShowDotBuffLocked(player, id, target.Ignites, IgnitedBuffRow, now);
         }
-        if (BleedOnHitLocked(player, id, target, profile.Bleed, critical, now) is { } bleeding) packets.AddRange(bleeding);
+        if (BleedOnHitLocked(player, id, target, profile.Bleed, critical, now, reflect: false, playerOwned: false)
+            is { } bleeding) packets.AddRange(bleeding);
         if (profile.Poison.Seconds > 0 && profile.PoisonChance > 0 && RandomRolls.Chance(profile.PoisonChance, 100, AreaRng(player))
             && target.Effects[Stat.CannotBePoisoned] == 0 && !RandomRolls.Chance(target.Effects[Stat.AvoidPoisonPct], 100, AreaRng(player)))
         {

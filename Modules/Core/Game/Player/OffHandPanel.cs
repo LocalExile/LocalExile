@@ -18,7 +18,7 @@ public static partial class Game
         int mainHandAttackSpeedPct, IReadOnlyDictionary<uint, int>? own = null, int effect = -1) =>
         OffHandPanelStats(() => OffhandWeaponFor(player), () => ActiveOffHand(player), () => player.Pools,
             () => WeaponProfileFor(player, activeSet: true), ItemsFor(player), () => AttackCriticalMultiplier(player, playerStats, effect, own),
-            playerStats, mainLocal, offLocal, mainHandAttackSpeedPct, own, PlayerBlindValue(player, playerStats).Less,
+            playerStats, mainLocal, offLocal, mainHandAttackSpeedPct, own, PlayerBlindPenalty(player, playerStats),
             elusiveActive: ElusiveFactor(player) > 0,
             extraCriticalMultiplier: own is null ? 0 : NightbladeCriticalMultiplier(player, own));
 

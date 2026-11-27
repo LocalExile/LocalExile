@@ -107,6 +107,10 @@ public sealed class MonsterElementalAilments
     /// <summary>Seconds until the last active effect of <paramref name="kind"/> ends (0 when none).</summary>
     public double Remaining(Kind kind, double now) => Active(kind, now).Select(e => (e.Until - now) * expiryRate).DefaultIfEmpty().Max();
 
+    public double AppliedUntil(Kind kind, uint source, double now) => effects
+        .Where(effect => effect.Kind == kind && effect.Source == source && effect.From <= now && now < effect.Until)
+        .Select(effect => effect.Until).DefaultIfEmpty(now).Max();
+
     public void RefreshChillAndShock(double now)
     {
         for (int i = 0; i < effects.Count; i++)
@@ -238,6 +242,7 @@ public sealed class MonsterElementalAilments
         if (attacker(Stat.KeystoneElementalOverload) != 0) critical = false;
         if (attacker(Stat.KeystoneAilmentCrit) != 0 && !critical) return added;
         void Add(Effect effect) { if (Apply(effect, attacker, target) is { } e) added.Add(e); }
+        bool guaranteedByCritical = critical && attacker(Stat.CriticalStrikesDoNotAlwaysApplyNonDamagingAilments) == 0;
         double chilling = Inflicting("chill", DamageType.Cold, damage, attacker, critical);
         double freezing = Inflicting("freeze", DamageType.Cold, damage, attacker, critical);
         double shocking = Inflicting("shock", DamageType.Lightning, damage, attacker, critical);
@@ -246,7 +251,8 @@ public sealed class MonsterElementalAilments
         bool wasChilled = Magnitude(Kind.Chill, now) > 0;
         if (!CannotInflict("chill", attacker))
             Add(new(Kind.Chill, now, now + 2, Effectiveness(chilling * AsThough(Kind.Chill, attacker), threshold,
-                EffectModifier(Kind.Chill, attacker, target), ChillCap(attacker), attacker(Stat.ChillMinimumSlowPct)))
+                EffectModifier(Kind.Chill, attacker, target), ChillCap(attacker),
+                Math.Max(attacker(Stat.ChillMinimumSlowPct), attacker(Stat.ChillMinimumSlowPctFromMastery))))
             {
                 MoreTaken = attacker(Stat.EnemiesChilledByHitsTakeDamageIncreasedByChillEffect) != 0,
                 ColdTaken = coldTakenFromChill,
@@ -257,13 +263,19 @@ public sealed class MonsterElementalAilments
         int freezeChance = (int)Math.Clamp((long)attacker(Stat.ChanceToFreezePct)
             + (wasChilled ? attacker(Stat.AdditionalChanceToFreezeChilledEnemiesPct) : 0)
             + target(Stat.ChanceToBeFrozenPct), int.MinValue, int.MaxValue);
-        if (freezing > 0 && (critical || RandomRolls.Chance(freezeChance, 100, random))
+        if (freezing > 0 && (guaranteedByCritical || RandomRolls.Chance(freezeChance, 100, random))
             && !CannotInflict("freeze", attacker))
-            Add(new(Kind.Freeze, now, now + Math.Min(3, 6 * freezing * AsThough(Kind.Freeze, attacker) * freezeDamageMultiplier / threshold), 100)
+        {
+            if (wasChilled)
+                freezeDamageMultiplier *= Math.Max(0, 1 + attacker(Stat.FreezeChilledEnemiesAsThoughDealtDamagePlusPct) / 100d);
+            double duration = 6 * freezing * AsThough(Kind.Freeze, attacker) * freezeDamageMultiplier / threshold;
+            Add(new(Kind.Freeze, now, now + Math.Min(3, duration), 100)
                 { Spread = SpreadRadius(Kind.Freeze, attacker, area) });
-        int shockChance = (int)Math.Clamp((long)attacker(Stat.ChanceToShockPct) + target(Stat.ChanceToBeShockedPct),
+        }
+        int shockChance = (int)Math.Clamp((long)attacker(Stat.ChanceToShockPct) + target(Stat.ChanceToBeShockedPct)
+            + (wasChilled ? attacker(Stat.ChanceToShockChilledEnemiesPct) : 0),
             int.MinValue, int.MaxValue);
-        if (shocking > 0 && (critical || attacker(Stat.AlwaysShock) != 0
+        if (shocking > 0 && (guaranteedByCritical || attacker(Stat.AlwaysShock) != 0
                 || RandomRolls.Chance(shockChance, 100, random))
             && !CannotInflict("shock", attacker))
             Add(new(Kind.Shock, now, now + 2, Effectiveness(shocking * AsThough(Kind.Shock, attacker), threshold,

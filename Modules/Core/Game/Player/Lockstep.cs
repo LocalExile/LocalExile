@@ -732,9 +732,8 @@ public static partial class Game
             if (placed.Trap || placed.Mine)
             {
                 var stats = CharacterPlayerStats(player);
-                return Math.Max(TickSeconds, PlacedThrowSeconds(
-                    n => GolemStat(supported.Stats, n) + GolemStat(stats, n),
-                    placed.Mine, ChargesOf(player).Effective(ChargeType.Frenzy)) / PlayerActionFactor(player));
+                return PlacedThrowActionSeconds(player, supported.Effect,
+                    n => GolemStat(supported.Stats, n) + GolemStat(stats, n), placed.Mine);
             }
             if (IsTotemSkill(player, skill))
                 return Math.Max(TickSeconds, TotemPlacementSeconds(player, skill, gem.Effect));

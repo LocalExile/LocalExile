@@ -89,8 +89,10 @@ static class LegionArmy
         var chosen = ChooseFactions(data, level, areaId, stats, rng);
         int sergeantChance = Math.Clamp(SergeantRewardChance(data, level) + stats.GetValueOrDefault(Stat.MapLegionSergeantsRewardAdditionalChancePct), 0, 100);
         int general = RollGeneral(data, chosen, level, stats, rng);
+        bool bothGenerals = general >= 0 && stats.GetValueOrDefault(Stat.MapLegionGeneralsSpawnBothGenerals) != 0;
         var plans = new FactionPlan[chosen.Count];
-        for (int i = 0; i < plans.Length; i++) plans[i] = Compose(data, chosen[i], level, i == general, rng, sergeantChance);
+        for (int i = 0; i < plans.Length; i++)
+            plans[i] = Compose(data, chosen[i], level, bothGenerals || i == general, rng, sergeantChance);
         if (Campaign.ContainsKey(areaId)) for (int i = 0; i < plans.Length; i++) plans[i] = plans[i] with { Squads = [.. plans[i].Squads.Select(ScaleCampaign)] };
         return new ArmyPlan(level, plans);
     }
@@ -134,7 +136,7 @@ static class LegionArmy
         return null;
     }
 
-    /// <summary>Index of the army that brings the encounter's one general, or -1. TODO phase 4: map_legion_generals_spawn_both_generals.</summary>
+    /// <summary>Index of the army that brings the encounter's usual general, or -1 when the encounter rolled none.</summary>
     static int RollGeneral(LegionData data, List<LegionData.Faction> chosen, int level, IReadOnlyDictionary<uint, int> stats, Random rng)
     {
         if (chosen.Count == 0 || FindGroup(data, chosen[0], level) is not { } rows) return -1;

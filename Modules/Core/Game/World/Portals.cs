@@ -20,6 +20,9 @@ public static partial class Game
     public static bool RunBossKilled(MapDevice.OpenMap? run) => run is not null
         && MapRuns.Any(p => p.Value.Run == run.Run && p.Value.Completed);
 
+    public static bool CurrentMapBossesKilled(Player player) => MapRunOf(player) is not null
+        && player.Instance is { } instance && MapRuns.TryGetValue(instance, out var progress) && progress.Completed;
+
     static int[] CompletionBosses(string area)
     {
         var bosses = (Packs.For(area)?.Bosses ?? []).Select(row => Monsters.Find(row.ToString()))

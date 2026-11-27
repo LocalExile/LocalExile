@@ -30,12 +30,12 @@ public sealed class StolenMods
     public void Steal(MonsterModSet mods, ModCatalog catalog, double now, double seconds) =>
         Add(Eligible(mods, catalog), catalog, now + seconds, belt: true);
 
-    public void StealRandom(MonsterModSet mods, ModCatalog catalog, int count, double now, Random random)
+    public void StealRandom(MonsterModSet mods, ModCatalog catalog, int count, double now, Random random, double seconds = 20)
     {
         if (count <= 0) return;
         var eligible = Eligible(mods, catalog).ToArray();
         random.Shuffle(eligible);
-        Add(eligible.Take(count), catalog, now + 20, belt: false);
+        Add(eligible.Take(count), catalog, now + seconds, belt: false);
     }
 
     static IEnumerable<ItemMod> Eligible(MonsterModSet mods, ModCatalog catalog) =>

@@ -7,7 +7,8 @@ public static partial class Game
         var stats = PlayerStatValues(player);
         int Get(uint stat) => stats.GetValueOrDefault(stat);
         if (player.Immune || Get(Stat.BaseCannotBeDamaged) != 0) return;
-        if (reflectedPhysical && (Get(Stat.CannotTakeReflectedPhysicalDamage) != 0
+        if (reflectedPhysical && (Get(Stat.ImmuneToReflectedDamage) != 0
+            || Get(Stat.CannotTakeReflectedPhysicalDamage) != 0
             || Get(Stat.VirtualCannotTakeReflectedPhysicalDamage) != 0
             || Get(Stat.MapPlayersCannotTakeReflectedDamage) != 0
             || (MapModsOf(player)?.Get(Stat.MapPlayersCannotTakeReflectedDamage) ?? 0) != 0))
@@ -211,7 +212,7 @@ public static partial class Game
         int Get(uint key) => stats.GetValueOrDefault(key);
         int nonChaos = (int)Math.Min(int.MaxValue, (long)physical + other);
         int total = (int)Math.Min(int.MaxValue, (long)nonChaos + chaos);
-        player.Ward.Advance(now);
+        AdvanceWardLocked(player, now);
         bool wasBroken = player.Ward.Broken;
         int WardStat(uint key)
         {
@@ -236,6 +237,7 @@ public static partial class Game
                 player.ApplyMovementSpeed();
             }
             EndOnWardBreakLocked(player, now);
+            GrantWardBreakResourcesLocked(player, stats);
         }
         return (physical - physicalAbsorbed, Math.Max(0, other - (nonChaosAbsorbed - physicalAbsorbed)),
             Math.Max(0, chaos - (absorbed - nonChaosAbsorbed)));

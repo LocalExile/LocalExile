@@ -82,10 +82,10 @@ internal static class ArenaHazards
                     : Math.Min(Resistance(p, type) + (type == DamageType.Chaos ? Get(global::Stat.AdditionalChaosResistanceAgainstDamageOverTimePct) : 0), MaxResistance(p, type));
                 int conditional = type == DamageType.Physical && p.Walk.Moving(now) ? Get(global::Stat.PhysicalDamageOverTimeTakenPlusPctWhileMoving)
                     : type == DamageType.Chaos && p.InCausticCloud ? Get(global::Stat.ChaosDamageTakenOverTimePlusPctWhileInCausticCloud) : 0;
-                double factor = p.ElementalAilments.DamageTakenFactor(now, Get(global::Stat.BaseDamageTakenPlusPct)
+                double factor = PlayerAilmentDamageTakenFactor(p, now, Get(global::Stat.BaseDamageTakenPlusPct)
                     + Get(global::Stat.DegenEffectPlusPct) + conditional
                     + Get(global::Stat.Of(type.ToString().ToLowerInvariant() + "_damage_taken_+%")))
-                    * IncomingResourceDefences.FinalTakenFactor(p.Pools, Get);
+                    * IncomingResourceDefences.FinalOverTimeTakenFactor(p.Pools, Get);
                 double amount = (immune.Contains(type) ? 0 : raw[type].Min * Math.Max(0, 1 - resistance / 100d) * seconds * factor) + e.Carry[slot];
                 int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); e.Carry[slot] = amount - damage;
                 loss += type == DamageType.Chaos

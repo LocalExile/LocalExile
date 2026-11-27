@@ -125,7 +125,7 @@ public static partial class Game
         if (immune || unaffected || physicalImmune || player.Immune || InGracePeriod(player) || Get(Stat.BaseCannotBeDamaged) != 0)
             damage = state.Carry = 0;
         else if (damage > 0)
-            damage *= player.ElementalAilments.DamageTakenFactor(now, 0) * letheFactor;
+            damage *= PlayerAilmentDamageTakenFactor(player, now, 0) * letheFactor;
         int whole = IncomingResourceDefences.TakenOverTime(damage, Get, ref state.Carry,
             IncomingResourceDefences.LessTakenPct(player.Pools, Get),
             typedIncreasedPct: Get(Stat.PhysicalDamageTakenPlusPct)

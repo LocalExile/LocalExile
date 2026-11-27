@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 public static partial class Game
 {
@@ -8,9 +9,12 @@ public static partial class Game
     // (0x142829960) and PassiveBonus add non_curse_aura_effect_+%_while_linked (Absolution) only while it is nonzero.
     static Dictionary<uint, int> WithLinks(Player player, Dictionary<uint, int> sources)
     {
-        int count;
-        count = player.Links.Count;
+        int count = player.Links.Count;
         if (count > 0 && Stat.NumberOfActiveLinks is var key) sources[key] = sources.GetValueOrDefault(key) + count;
+        if (count >= 2 && sources.GetValueOrDefault(Stat.MovementSpeedPlusPctWhileYouHaveTwoLinkedTargets) is int movement and not 0)
+            sources[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)sources.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct) + movement);
+        if (count >= 4 && sources.GetValueOrDefault(Stat.DefencesPlusPctWhileYouHaveFourLinkedTargets) is int defences and not 0)
+            sources[Stat.GlobalDefencesPlusPct] = ActorScale.Saturate((long)sources.GetValueOrDefault(Stat.GlobalDefencesPlusPct) + defences);
         return sources;
     }
 
@@ -60,11 +64,14 @@ public static partial class Game
         link = new(target, skillId, effectId)
         {
             SkillStats = gem.Stats,
+            BreakGraceSeconds = Player(Stat.LinkGracePeriod8SecondOverride) != 0 ? 8 : LinkSkills.BreakSeconds,
             Until = now + seconds, ManaPerMinute = paysLife ? 0 : Own(Stat.ManaCostPerMinute),
             LifePerMinute = paysLife ? Own(Stat.ManaCostPerMinute) : 0, LifePaidAt = now,
             SourceBuff = player.NextBuff++, TargetBuff = player.NextBuff++, SourceRow = rows.Source, TargetRow = rows.Target,
         };
         player.Links.Add(link);
+        if (RandomRolls.Chance(Player(Stat.ChanceToStartEnergyShieldRechargePctOnLinkingTarget), 100, AreaRng(player)))
+            player.EnergyShield.StartRecharge(now, Player);
         if (effectId == "IntuitiveLink") CaptureIntuitiveLink(player, link, gem);
         player.Area.Buffs.Set(player.Id, new(rows.Source, player.Id, skillId, U68: Buff.Seconds(seconds), Tag: link.SourceBuff));
         player.Area.Buffs.Set(target, new(rows.Target, player.Id, skillId, U68: Buff.Seconds(seconds), Tag: link.TargetBuff));
@@ -100,7 +107,7 @@ public static partial class Game
 
     static LinkSkills.Link? ActiveMinionLink(Player player, GolemState.Golem fighter, double now) =>
         player.PlayerLife > 0 && player.Links.On(fighter.Id) is { } link && now < link.Until
-        && (link.AwaySince is not double away || now - away < LinkSkills.BreakSeconds) ? link : null;
+        && (link.AwaySince is not double away || now - away < link.BreakGraceSeconds) ? link : null;
 
     public static void GrantLinkedMinionRareModifiers(KillContext kill)
     {
@@ -263,7 +270,8 @@ public static partial class Game
             {
                 bool away = Dist(player.Area.Monsters[link.Target].Walk.Position(now), here) > range;
                 link.AwaySince = away ? link.AwaySince ?? now : null;
-                if (away && now - link.AwaySince >= LinkSkills.BreakSeconds) why = $"out of range ({range} cells) for 4 s";
+                if (away && now - link.AwaySince >= link.BreakGraceSeconds)
+                    why = $"out of range ({range} cells) for {link.BreakGraceSeconds:0.##} s";
             }
             if (why is null)
             {

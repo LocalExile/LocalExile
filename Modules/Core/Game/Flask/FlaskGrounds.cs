@@ -167,6 +167,8 @@ public static partial class Game
         if (player.FlaskGrounds.SetConsecrated(on, () => 1) is not { } change) return false;
         if (change.Added) player.Area.Buffs.Set(player.Id, new(FlaskGrounds.ConsecratedBuffRow, player.Id));
         else player.Area.Buffs.Clear(player.Id, FlaskGrounds.ConsecratedBuffRow, player.Id);
+        if (player.StatSourcesCache?.Key.Flags is ReadFlags flags && flags.WasRead("_while_on_consecrated_ground"))
+            MarkPlayerStats(player, PlayerStatStep.Sources);
         return true;
     }
 

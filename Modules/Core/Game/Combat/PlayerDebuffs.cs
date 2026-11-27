@@ -29,6 +29,7 @@ public static partial class Game
         public readonly List<PlayerDebuff> Active = [];
         public object? Area;
         public PlayerDebuff? TemporalChains;
+        public double HinderImmuneUntil = double.NegativeInfinity, MaimImmuneUntil = double.NegativeInfinity;
     }
 
     static readonly ConditionalWeakTable<Player, PlayerDebuffSet> DebuffsOf = new();
@@ -67,9 +68,10 @@ public static partial class Game
         double seconds, object? holder)
     {
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player) || seconds <= 0) return;
-        if (row == MaimedBuffRow && PlayerAvoidsMaim(PlayerStatValues(player).GetValueOrDefault, AreaRng(player)))
-            return;
         double now = AreaTime(player);
+        if (FlaskMovementImmune(player, row, now)
+            || row == MaimedBuffRow && PlayerAvoidsMaim(PlayerStatValues(player).GetValueOrDefault, AreaRng(player)))
+            return;
         bool curse = PlayerCurseRows.TryGetValue(row, out var definition);
         bool exposure = Array.IndexOf(ExposureBuffRows, row) >= 0;
         var defence = curse || exposure ? PlayerStatValues(player) : null;
@@ -93,11 +95,23 @@ public static partial class Game
         if (defence is not null && (exposure && defence.GetValueOrDefault(Stat.ImmuneToExposure) != 0
             || curse && (CurseImmunity(defence.GetValueOrDefault) || player.FlaskGrounds.CurseImmune || WitchbaneImmunityActive(player, now))))
             return;
+        if (exposure && defence?.GetValueOrDefault(Stat.ExposureEffectPlusPct) is int exposureEffect and not 0)
+        {
+            long scale = Math.Max(0L, 100L + exposureEffect);
+            stats = stats.ToDictionary(pair => pair.Key,
+                pair => ActorScale.Saturate((long)pair.Value * scale / 100));
+        }
         var set = DebuffsOf.GetValue(player, _ => new());
         var info = BuffRows.Of(row);
         List<PlayerDebuff> replaced = [];
         ushort instance;
-        if (!ReferenceEquals(set.Area, player.Layout)) { set.Active.Clear(); set.Area = player.Layout; set.TemporalChains = null; }
+        if (!ReferenceEquals(set.Area, player.Layout))
+        {
+            set.Active.Clear();
+            set.Area = player.Layout;
+            set.TemporalChains = null;
+            set.HinderImmuneUntil = set.MaimImmuneUntil = double.NegativeInfinity;
+        }
         if (holder is not null && set.Active.FirstOrDefault(d => ReferenceEquals(d.Holder, holder) && d.Row == row) is { } held)
         {
             if (SameStats(held.Stats, stats)) return;
@@ -168,7 +182,12 @@ public static partial class Game
             if (!areaChanged) gone.Add(d);
             set.Active.Remove(d);
         }
-        if (areaChanged) { set.Area = player.Layout; set.TemporalChains = null; }
+        if (areaChanged)
+        {
+            set.Area = player.Layout;
+            set.TemporalChains = null;
+            set.HinderImmuneUntil = set.MaimImmuneUntil = double.NegativeInfinity;
+        }
         else if (removeCurses > 0)
         {
             // Persistent sources keep their own conditions; this dispels applied, timed curses.
@@ -181,6 +200,55 @@ public static partial class Game
         player.Degens[set] = DebuffDegenLocked(player);
         if (gone.Count == 0 && !areaChanged) return;
         await EndPlayerDebuffs(player, set, gone);
+    }
+
+    static bool FlaskMovementImmune(Player player, ushort row, double now) =>
+        (row is MaimedBuffRow or HinderedBuffRow) && DebuffsOf.TryGetValue(player, out var set)
+            && ReferenceEquals(set.Area, player.Layout)
+            && now < (row == MaimedBuffRow ? set.MaimImmuneUntil : set.HinderImmuneUntil);
+
+    static void ClearFlaskMovementImmunity(Player player)
+    {
+        if (DebuffsOf.TryGetValue(player, out var set))
+            set.HinderImmuneUntil = set.MaimImmuneUntil = double.NegativeInfinity;
+    }
+
+    static void ProtectFlaskMovementDebuffsLocked(Player player, IReadOnlyDictionary<uint, int> local, double now)
+    {
+        if (!DebuffsOf.TryGetValue(player, out var set) || !ReferenceEquals(set.Area, player.Layout)) return;
+        int maim = local.GetValueOrDefault(Stat.LocalFlaskImmuneToMaimForXSecondsIfMaimed);
+        int hinder = local.GetValueOrDefault(Stat.LocalFlaskImmuneToHinderForXSecondsIfHindered);
+        bool removeMaim = maim > 0 && HasPlayerDebuff(player, MaimedBuffRow);
+        bool removeHinder = hinder > 0 && HasPlayerDebuff(player, HinderedBuffRow);
+        if (removeMaim) set.MaimImmuneUntil = Math.Max(set.MaimImmuneUntil, now + maim);
+        if (removeHinder) set.HinderImmuneUntil = Math.Max(set.HinderImmuneUntil, now + hinder);
+        if (removeMaim || removeHinder) RemoveMovementDebuffsLocked(player, set, removeMaim, removeHinder);
+    }
+
+    static void RemoveFlaskMovementDebuffsLocked(Player player, int removesMovementDebuffs)
+    {
+        if (removesMovementDebuffs != 0 && DebuffsOf.TryGetValue(player, out var set)
+            && ReferenceEquals(set.Area, player.Layout))
+            RemoveMovementDebuffsLocked(player, set, removeMaim: true, removeHinder: true);
+    }
+
+    static void RemoveMovementDebuffsLocked(Player player, PlayerDebuffSet set, bool removeMaim, bool removeHinder)
+    {
+        bool removed = false;
+        for (int i = set.Active.Count - 1; i >= 0; i--)
+        {
+            var debuff = set.Active[i];
+            if (!(removeMaim && debuff.Row == MaimedBuffRow) && !(removeHinder && debuff.Row == HinderedBuffRow)) continue;
+            set.Active.RemoveAt(i);
+            ClearPlayerDebuff(player, debuff);
+            if (debuff.Row == HinderedBuffRow && PlayerMonsterAuraExposures.TryGetValue(player, out var exposure)
+                && ReferenceEquals(debuff.Holder, exposure.HinderHolder))
+                exposure.Hindered = false;
+            removed = true;
+        }
+        if (!removed) return;
+        MarkPlayerStats(player, PlayerStatStep.Sources);
+        Automation(player).StatRevision++;
     }
 
     static void ClearPlayerDebuff(Player player, PlayerDebuff debuff)

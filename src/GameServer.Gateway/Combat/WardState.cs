@@ -32,8 +32,14 @@ public sealed class WardState
         (get(Stat.BaseWardDelayOverride) is > 0 and var delay ? delay / 1000.0 : 2)
         / Math.Max(.01, 1 + get(Stat.WardDelayRecoveryPlusPct) / 100.0);
 
-    public static uint Max(decimal flat, int increased) =>
-        (uint)Math.Clamp(decimal.Truncate(Math.Max(0, flat) * Math.Max(0L, 100L + increased) / 100), 0, int.MaxValue);
+    public static uint Max(decimal flat, int increased, decimal equipmentWard = 0, int equipmentIncreased = 0)
+    {
+        long globalFactor = Math.Max(0L, 100L + increased);
+        long equipmentFactor = Math.Max(0L, 100L + increased + equipmentIncreased);
+        decimal ward = (Math.Max(0, flat + equipmentWard) * globalFactor
+            + equipmentWard * (equipmentFactor - globalFactor)) / 100m;
+        return (uint)Math.Clamp(decimal.Truncate(ward), 0, int.MaxValue);
+    }
 
     public bool Advance(double now)
     {

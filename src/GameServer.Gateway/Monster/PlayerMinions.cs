@@ -66,7 +66,8 @@ public sealed class PlayerMinions
         RighteousFireRingReceipt? RighteousFireRing = null, uint? WorldId = null, bool CreatesObject = false, bool RemovesObject = false, byte DeathKind = 0);
     public sealed record AcceptedCharges(bool KillEvent, bool Critical, MonsterRarity Rarity, string? Effect,
         IReadOnlyDictionary<uint, int>? Skill, bool Primary, double At, bool Killed = false, bool Frozen = false);
-    public sealed record FlaskReward(MonsterRarity Rarity, IReadOnlyDictionary<uint, double>? CritGains = null);
+    public sealed record FlaskReward(MonsterRarity Rarity, IReadOnlyDictionary<uint, double>? CritGains = null,
+        int KillChargesPct = 0);
     public readonly List<Output> OutputQueue = [];
     public readonly List<FlaskReward> FlaskRewards = [];
     public readonly HashSet<SpawnedMonster> Rewarded = [];

@@ -77,6 +77,7 @@ public static class Flasks
     {
         // An accepted recipient snapshot, independent of the Game assembly that admitted the paid use.
         public bool CopyManaToLife { get; set; }
+        public int RecoverLifeAtEndPct { get; init; }
         public bool RestoresMana => ManaPerSecond > 0 || ManaAtEnd > 0;
 
         /// <summary>Whether a full pool ends it: a life effect when life is full, a mana one when mana is (a hybrid one when

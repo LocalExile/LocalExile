@@ -97,7 +97,7 @@ public static partial class Game
         int extraWithWeapon = additionalAllowed && !spell && !settings.Secondary ? settings.AdditionalWithWeapon : 0;
         if (!ApplyHitPoisonsLocked(target.Poisons, now, perSecond, seconds,
             extraOnFreshTarget, doubleChance, random, extraWithWeapon)) return false;
-        InflictedLocked(player, target, AilmentType.Poison, now + seconds);
+        InflictedLocked(player, target, AilmentType.Poison, now + seconds / target.RecipientDebuffRate);
         ReservationPoisonLocked(player, now);
         return true;
     }

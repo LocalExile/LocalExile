@@ -21,6 +21,7 @@ public static partial class Game
         {
             if (ResourceEffectsCurrent(player, owner) && effect.CopyManaToLife) copy += effect.ManaPerSecond * seconds;
         });
-        return (result.Life + copy, result.Mana, result.Ended);
+        double lifeAtEnd = result.Ended.Sum(effect => effect.RecoverLifeAtEndPct * (double)player.PlayerMaxLife / 100);
+        return (result.Life + copy + lifeAtEnd, result.Mana, result.Ended);
     }
 }

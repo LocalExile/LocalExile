@@ -94,6 +94,8 @@ public static class DamageStats
             Stat.AttackMaximumAddedLightningDamagePer10Int, Stat.Intelligence, 10),
         (DamageType.Physical, Stat.AttackMinimumAddedPhysicalDamagePerLevel,
             Stat.AttackMaximumAddedPhysicalDamagePerLevel, Stat.Level, 1),
+        (DamageType.Chaos, Stat.MinAttackAddedChaosDamagePer100Mana,
+            Stat.MaxAttackAddedChaosDamagePer100Mana, Stat.MaximumMana, 100),
     ];
 
     public static readonly (DamageType Type, uint Minimum, uint Maximum, uint Attribute, int Per)[]
@@ -105,8 +107,8 @@ public static class DamageStats
 
     public static DamageRange AttributeAdded(Func<uint, int> get, DamageType type) => AttributeAdded(get, type, spell: false);
 
-    // Raw added damage of one type from the final attributes or actor level, per complete group (PoB ModStore PerStat:
-    // floor(attribute / N)); a negative attribute grants nothing. Joins the added range before increases, as above.
+    // Raw added damage from complete groups of the final attribute, level or maximum mana.
+    // Joins the added range before increases and damage conversion.
     public static DamageRange AttributeAdded(Func<uint, int> get, DamageType type, bool spell)
     {
         double min = 0, max = 0;

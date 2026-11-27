@@ -130,7 +130,7 @@ public static partial class Game
         }
         if (now < m.BusyUntil || now < m.FlinchUntil) return;
         if (RepeatMinionActionLocked(player, g, now)) return;
-        double walkSpeed = GolemWalkSpeed(m, now, actionRate);
+        double walkSpeed = GolemWalkSpeed(g, now, actionRate);
         m.Walk.SetSpeed(walkSpeed, now);
         var here = m.Walk.Position(now); var owner = player.Walk.Position(now);
         var (aggressive, defensive) = MinionStance(g.Own, g.Player, g.Definition.IsGolem, now - g.BlockedAt is >= 0 and <= 4);
@@ -344,7 +344,7 @@ public static partial class Game
         g.Monster.Walk.Order(from.X, from.Y, now);
         if (a.Effect is 349 or 2563)
         {
-            double speed = GolemWalkSpeed(g.Monster, now, rate);
+            double speed = GolemWalkSpeed(g, now, rate);
             if (a.Effect == 2563) speed *= 1 + GolemStat(a.Stats, Stat.CycloneMovementSpeedPlusPctFinal) / 100.0;
             g.Monster.Walk.SetSpeed(speed, now);
             g.Monster.Walk.Order(pending.Aim.X, pending.Aim.Y, now);
@@ -378,11 +378,14 @@ public static partial class Game
             pending.At = timing.Clock.Deadline(timing.Duration * pending.Ability.Contact);
     }
 
-    static double GolemWalkSpeed(SpawnedMonster m, double now, double rate)
+    static double GolemWalkSpeed(GolemState.Golem minion, double now, double rate)
     {
+        var m = minion.Monster;
         var (factor, _) = MonsterWalkModifiers(m, now, rate, ToxicWalkFactor(m), BearTrapWalkFactor(m, now), EnsnaredWalkFactor(m, now));
         m.Ailments.WalkFactor = factor;
-        return m.Effects.MovementSpeed(m.Variety!.MovementSpeed) * MonsterSpeedRoll.Factor(m.SpeedRoll) * Math.Max(.01, factor);
+        double skillSpeed = Math.Max(0, 1 + GolemStat(minion.Own, Stat.ActiveSkillMinionMovementVelocityPlusPctFinal) / 100d);
+        return m.Effects.MovementSpeed(m.Variety!.MovementSpeed) * MonsterSpeedRoll.Factor(m.SpeedRoll)
+            * Math.Max(.01, factor) * skillSpeed;
     }
 
     // Skitterbots actively seek nearby enemies so their Chilling and Shocking auras reach monsters instead of orbiting
@@ -907,10 +910,15 @@ public static partial class Game
         bool critical = GolemCriticalStrike(a, g.Monster.Mods, roll,
             prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeChancePlusPctVsFocusedTarget) : 0,
             target.Curses[Stat.EnemyAdditionalCriticalStrikeChanceAgainstSelf] + BrittleCriticalChance(target, now));
-        if (critical) factor *= target.Effects.NoExtraCriticalDamage ? 1 : 1.3 +
-            (g.Monster.Mods.Effects[Stat.BaseCriticalStrikeMultiplierPlus] + g.Monster.Mods.Effects[Stat.Of("critical_strike_multiplier_+")]
-                + target.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf]
+        if (critical && !target.Effects.NoExtraCriticalDamage)
+        {
+            double witherBonus = GolemStat(currentPlayer, Stat.MinionsHavePlusPctCriticalStrikeMultiplierPerWitherOnEnemies);
+            if (witherBonus != 0) witherBonus *= ReadWithered(target, now).Count;
+            factor *= 1.3 + (g.Monster.Mods.Effects[Stat.BaseCriticalStrikeMultiplierPlus]
+                + g.Monster.Mods.Effects[Stat.Of("critical_strike_multiplier_+")]
+                + target.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf] + witherBonus
                 + (prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeMultiplierPlusVsFocusedTarget) : 0)) / 100.0;
+        }
         bool fullLife = g.Monster.Life >= g.Monster.MaxLife;
         int extraDoubleDamage = MinionDoubleDamageChanceLocked(player, g, fullLife, now);
         var rolled = GolemRollHit(a.Attack.Damage.Scale(factor), effects, a.Attack.Spell, AreaRng(player),
@@ -1031,7 +1039,7 @@ public static partial class Game
             if (g.Definition.Kind == VoidSpawnFamily
                 && RandomRolls.Chance(GolemStat(g.Own, Stat.VoidSpawnWitheredOnHitChancePct), 100, random))
                 ApplyWitherStacksLocked(target, 1, WitherDurationSeconds(
-                    GolemStat(g.Own, Stat.VoidSpawnWitheredBaseDurationMs) / 1000d, Golem), Golem, now);
+                    GolemStat(g.Own, Stat.VoidSpawnWitheredBaseDurationMs) / 1000d, Golem), Golem, now, source: null, random);
             if (RandomRolls.Chance(Golem(Stat.CoverInAshOnHitPct), 100, random))
             {
                 target.CoveredInAshUntil = Math.Max(target.CoveredInAshUntil, now + HitDebuffSeconds);

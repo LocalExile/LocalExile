@@ -109,6 +109,7 @@ public static class UtilityFlasks
         (Stat.LocalUniqueFlaskExplodeEnemiesFor10PctLifeAsRandomElementOnKillChancePctDuringFlaskEffect,
             Stat.ExplodeEnemiesFor10PctLifeAsRandomElementOnKillChancePct, 1, false),
         // Divination Distillate (a hybrid flask: RecoveryDuringEffects keeps these while its recovery runs).
+        (Stat.LocalFlaskEnergyShieldRechargeNotDelayedByDamageDuringEffect, Stat.EnergyShieldRechargeNotDelayedByDamage, 1, true),
         (Stat.LocalUniqueFlaskItemRarityPlusPctWhileHealing, Stat.BaseItemFoundRarityPlusPct, 1, false),
         (Stat.LocalUniqueFlaskItemQuantityPlusPctWhileHealing, Stat.BaseItemFoundQuantityPlusPct, 1, false),
         (Stat.LocalUniqueFlaskLightRadiusPlusPctWhileHealing, Stat.LightRadiusPlusPct, 1, false),
@@ -182,6 +183,7 @@ public static class UtilityFlasks
     /// stats (<see cref="RawStats"/>), or both.</summary>
     public static readonly IReadOnlySet<uint> Modelled = new HashSet<uint>()
     {
+        Stat.NoManaCost, Stat.EnergyShieldRechargeNotDelayedByDamage,
         Stat.BaseFireDamageResistancePct, Stat.BaseColdDamageResistancePct, Stat.BaseLightningDamageResistancePct,
         Stat.BaseChaosDamageResistancePct, Stat.BaseResistAllElementsPct,
         Stat.BaseMaximumFireDamageResistancePct, Stat.BaseMaximumColdDamageResistancePct,
@@ -394,6 +396,7 @@ public static class UtilityFlasks
     {
         public long Activation { get; set; }
         public int SelfChaosDamageLifePctPerMinute { get; set; }
+        public int SelfChaosDamageFlatPerMinute { get; set; }
         public IReadOnlyDictionary<uint, int>? LocalStats { get; init; }
         public double PeriodicThrough { get; set; } = Started;
         public double Ends { get; set; } = Ends;
@@ -439,12 +442,12 @@ public static class UtilityFlasks
 
         public bool HasSelfDamage
         {
-            get { lock (_lock) return _active.Any(a => a.SelfChaosDamageLifePctPerMinute > 0); }
+            get { lock (_lock) return _active.Any(a => a.SelfChaosDamageLifePctPerMinute > 0 || a.SelfChaosDamageFlatPerMinute > 0); }
         }
 
         public IReadOnlyList<Active> SelfDamageEffects()
         {
-            lock (_lock) return [.. _active.Where(a => a.SelfChaosDamageLifePctPerMinute > 0)];
+            lock (_lock) return [.. _active.Where(a => a.SelfChaosDamageLifePctPerMinute > 0 || a.SelfChaosDamageFlatPerMinute > 0)];
         }
 
         public void SetExpiryRate(double now, double rate)
@@ -473,12 +476,14 @@ public static class UtilityFlasks
         }
 
         /// <summary>Gives a running effect new stats and self damage rate (its buff, cell and deadline stay).</summary>
-        public void Retune(Active effect, IReadOnlyList<Source> stats, int selfChaosDamageLifePctPerMinute)
+        public void Retune(Active effect, IReadOnlyList<Source> stats, int selfChaosDamageLifePctPerMinute,
+            int selfChaosDamageFlatPerMinute = 0)
         {
             lock (_lock)
             {
                 effect.Stats = stats;
                 effect.SelfChaosDamageLifePctPerMinute = selfChaosDamageLifePctPerMinute;
+                effect.SelfChaosDamageFlatPerMinute = selfChaosDamageFlatPerMinute;
             }
         }
 

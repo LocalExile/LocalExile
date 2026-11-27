@@ -153,6 +153,7 @@ public static partial class Game
         if (!fromPlacement && !aura && Get(Stat.RefreshDurationOfShockChillIgniteOnEnemyWhenCursingEnemy) != 0)
         {
             monster.Ailments.RefreshChillAndShock(now);
+            RefreshGlacialCageChills(monster, now);
             monster.Ignites.Refresh(now);
         }
         if (newlyCursed && !fromPlacement && !aura && casterId is null)
@@ -289,7 +290,13 @@ public static partial class Game
                 if (currentSource is not { Active: true } || currentSource.Identity != source.Identity
                     || currentGem.Effect != gem.Effect || !currentGem.RequirementsMet
                     || GemSkillInstanceDisabled(player, currentGem.Effect, skill) is not null) return false;
-                RecordCompletedCurseCast(player, effect, AreaTime(player));
+                RecordCompletedCurseCast(player, effect, now);
+                if (RandomRolls.Chance(playerStats.GetValueOrDefault(Stat.RemoveElementalAilmentsOnCurseCastPct), 100, AreaRng(player)))
+                {
+                    player.ElementalAilments.RemoveOrProtectChillFreeze(now, 0);
+                    player.ElementalAilments.RemoveOrProtectIgnite(now, 0);
+                    player.ElementalAilments.RemoveOrProtectShock(now, 0);
+                }
                 var curse = CurseCatalog.All[effect];
                 if (CastingBeidatSpell(player, skill) is { ExtraAreas: > 0 } pact && !curse.Mark)
                 {
@@ -442,6 +449,8 @@ public static partial class Game
             {
                 SettleBleeding(m, now);
                 m.Ignites.SetExpiryRate(now, rate); m.Poisons.SetExpiryRate(now, rate); m.Ailments.SetExpiryRate(now, rate);
+                m.RetimeSourceMarks(InflictedKeys[(int)AilmentType.Poison], now, oldRate, rate);
+                RetimeGlacialCageChills(m, now, oldRate, rate);
                 m.Decay.SetExpiryRate(now, rate);
                 m.RuleAilments.SetExpiryRate(now, rate);
                 m.SpiderWebs.SetExpiryRate(now, rate);
@@ -450,7 +459,7 @@ public static partial class Game
                 RetimeSoulrendDamage(player.Area, id, m, now, oldRate, rate);
                 RetimeFleshrendDamage(m, now, oldRate, rate);
                 m.Ruptures.SetExpiryRate(now, rate);
-                m.Bleeds.SetExpiryRate(now, BleedingExpiryRate(m, now));
+                SetBleedingExpiryRate(m, now);
             }
             // SlowestActionFactor is <= 1, so when slow == 0 (no Temporal Chains), Max(floor, 1) is always 1.
             m.ReceivedActionFactor = slow == 0 ? 1 : Math.Max(BossMods.SlowestActionFactor(m.Variety), TemporalChainsActionFactor(slow));

@@ -35,7 +35,13 @@ static class UniqueBeltsFeature
         }
         if (stats.GetValueOrDefault(StolenMods.SourceStat) > 0)
             player.StolenMods.Steal(m.Mods, catalog, now);
-        player.StolenMods.StealRandom(m.Mods, catalog, stats.GetValueOrDefault(StolenMods.RandomSourceStat), now, AreaRng(player));
+        int randomCount = stats.GetValueOrDefault(StolenMods.RandomSourceStat);
+        var random = AreaRng(player);
+        if (RandomRolls.Chance(stats.GetValueOrDefault(Stat.Gain1RareMonsterModsOnKillFor20SecondsPct), 100, random))
+            randomCount = ActorScale.Saturate((long)randomCount + 1);
+        player.StolenMods.StealRandom(m.Mods, catalog, randomCount, now, random);
+        if (RandomRolls.Chance(stats.GetValueOrDefault(Stat.Gain1RareMonsterModOnKillFor10SecondsPctChance), 100, random))
+            player.StolenMods.StealRandom(m.Mods, catalog, 1, now, random, seconds: 10);
     }
 
     /// <summary>The character's stat sources with the modifiers it stole (CharacterStatSources).</summary>

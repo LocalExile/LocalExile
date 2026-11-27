@@ -52,7 +52,9 @@ public static partial class Game
             double dps = new SkillDamageContext(SkillHitKind.Spell, caster).Suppressed ? 0
                 : ColdGroundDps(Get, Own, spell: true, shot.FromMine, trap: shot.FromTrapOrMine && !shot.FromMine) * shot.GhorrDotMore;
             // Local starting speed for the chilling ground. The Floes gem's native movement modifier applies to it.
-            double pace = 10 * Math.Max(0, 1 + Get(Stat.ArcticBreathChillingAreaMovementVelocityPlusPct) / 100d);
+            double increase = (long)Get(Stat.ArcticBreathChillingAreaMovementVelocityPlusPct)
+                + Get(Stat.ChillingAreaMovementVelocityPlusPct);
+            double pace = 10 * Math.Max(0, 1 + increase / 100);
             int limit = Own(Stat.ArcticBreathMaximumNumberOfSkullsAllowed);
             PlaceCreepingGround(value.Position, radius, duration, dps, stats, new(shot.Effect, pace, limit));
         }

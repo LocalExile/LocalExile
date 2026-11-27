@@ -904,7 +904,10 @@ public static partial class Game
                 if (!accuracy.CannotBeEvaded && !target.AttackEvasion.Hits(hitChance, at, Player.AttackAccuracyRandom))
                     return ProjectileHitResult.Miss;
             }
-            if (MonsterBlocks(target, random, shot.Spell, at, shot.SkillStats)) return ProjectileHitResult.Blocked;
+            var attacker = !shot.Spell && target.Effects.BlockChance > 0
+                && (shot.WeaponAttack || SkillsFor(Player).IsAttack(shot.Effect))
+                ? shot.ActualCaster ?? StatSourceValues(Player) : null;
+            if (MonsterBlocks(target, random, shot.Spell, at, shot.SkillStats, attacker)) return ProjectileHitResult.Blocked;
             // Select the profile only for an accepted contact, before this hit can apply Blind or other ailments.
             TargetContact conditional = default;
             if (shot.Spider is { } spider)
@@ -1069,7 +1072,7 @@ public static partial class Game
             if (!immune && hit.Value.Life == 0 && !shot.Spell && shot.ActualCaster is null
                 && !shot.FromTrapOrMine && !shot.FromTotem && !shot.Mirage
                 && (shot.WeaponAttack || SkillsFor(Player).IsAttack(shot.Effect)))
-                CaptureAttackKillExplosionLocked(target, player);
+                CaptureAttackKillExplosionLocked(target, player, wand: shot.WeaponClass == "Wand");
             if (!immune)
             {
                 var emitterTotem = shot.FromTotem
@@ -1083,12 +1086,17 @@ public static partial class Game
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
                     attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance,
-                    areaHit: contact.IsArea, sourceEffect: shot.Effect, ownHit: ownHit);
+                    areaHit: contact.IsArea, sourceEffect: shot.Effect, ownHit: ownHit,
+                    closeRangeBowKnockback: !shot.Spell && ownHit && shot.WeaponClass == "Bow"
+                        && (player.GetValueOrDefault(Stat.UniqueChinSolCloseRangeKnockback) != 0
+                            || weaponLocal?.GetValueOrDefault(Stat.UniqueChinSolCloseRangeKnockback) > 0)
+                        && InCloseRange(Player, target, at));
             }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
             if (!immune && hit.Value.Life > 0 && !shot.Spell && shot.MaimChance > 0)
-                TryMaimOnHitLocked(target, shot.MaimChance, 0, at, contact.Projectile.ReactionRandomSource);
+                TryMaimOnHitLocked(target, shot.MaimChance, 0, at, contact.Projectile.ReactionRandomSource,
+                    player.GetValueOrDefault(Stat.EnemiesYouMaimHaveDamageTakenOverTimePlusPct));
             if (!immune && hit.Value.Life > 0 && shot.Ignite.CanIgnite(rolled))
                 IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at,
                     playerIgnite: shot.ActualCaster is null,

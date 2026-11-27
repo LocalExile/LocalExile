@@ -99,7 +99,7 @@ public static partial class Game
                     >= (uint)((long)player.PlayerMaxLife * LowLifeThresholdPct(stats) / 100),
             LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield, Moving = moving,
             IsPhasing = player.IsPhasing, MapLightRadiusPct = MapModsOf(player)?.Get(Stat.MapPlayerLightRadiusPlusPct) ?? 0,
-            BlindLess = PlayerBlindValue(player, stats).Less,
+            BlindLess = PlayerBlindPenalty(player, stats),
             BloodChargesHeld = bloodHeld, BloodChargesShown = bloodShown,
             Ailments = [], SuppressionChance = 0,
             AttackEffectId = SkillEffectId(player, SkillCatalog.FirstSkillId),

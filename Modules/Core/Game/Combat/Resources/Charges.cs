@@ -72,9 +72,10 @@ public static partial class Game
             if (curse.Mark && curse.Caster == player.Id) { marked = true; break; }
         bool selfBleeding = player.IncomingAilments.Bleeding(now);
         bool selfPoisoned = player.IncomingAilments.PoisonStacks(now) > 0;
+        bool noArmour = m.Effects.Armour(Monsters.BaseArmour(m.Variety, m.Level) ?? 0) == 0;
         ChargesOf(player).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(player).EffectId(effect) : null,
             skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: frozen, Bleeding: bleeding, Marked: marked,
-            SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned));
+            SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned, NoArmour: noArmour));
         CurseCharges(player, m, death: false, now);
         PlayerGrantsNearbyChargesLocked(player, kill: false, now);
     }
@@ -135,6 +136,9 @@ public static partial class Game
         ChargesOf(player).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons, skill));
         SpiritChargeOnKill(player, AreaTime(player));
         SelfBuffsOnKill(player);
+        var stats = PlayerStatValues(player);
+        if (RandomRolls.Chance(stats.GetValueOrDefault(Stat.EnergyShieldRechargesOnKillPct), 100, AreaRng(player)))
+            player.EnergyShield.StartRecharge(AreaTime(player), stats.GetValueOrDefault);
         CurseCharges(player, m, death: true, now);
         PlayerGrantsNearbyChargesLocked(player, kill: true, now);
     }
@@ -356,7 +360,7 @@ public static partial class Game
             + PlayerDamageTaken.Flat(type, attack, Get));
         if (type == DamageType.Physical) value = WardBreakEffects.RangedPhysical(value, ranged, Get);
         double now = AreaTime(player);
-        return (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now, increased)
+        return (int)Math.Round(value * PlayerAilmentDamageTakenFactor(player, now, increased)
             * WindDancerHitFactor(player, attack, now, stats));
     }
 

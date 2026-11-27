@@ -9,6 +9,8 @@ using DamageModel = GameServer.Core.World.DamageModel;
 
 public static partial class Game
 {
+    const string TotemPlacementCriticalEvent = "totem_placement_critical";
+
     /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
     public static void LoadTotemsRulesData()
     {
@@ -364,6 +366,7 @@ public static partial class Game
             var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura, ownStrike, grantedId, ownDevour,
                 row: variety.Row, varietyId: variety.Id, level: level, effectRow: effect)
             { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
+                PhysicalDamageReductionPct = Get(Stat.TotemAdditionalPhysicalDamageReductionPct),
                 SourceHost = SupportedSkill(player, skillId).Host, SourceItem = SupportedSkill(player, skillId).SourceGem,
                 DecoyRadius = decoy && grantedId != 0 ? TotemTargetRange(player, skillId) : 0, BodySize = Math.Max(0, bodySize),
                 PlacementGroup = placementGroup };
@@ -523,7 +526,10 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> stats)
     {
         player.RecentEvents.Record(StatConditions.SummonedTotem, now);
-        if (stats.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPctOnPlacingTotem) != 0)
+        int criticalDuration = stats.GetValueOrDefault(Stat.IncreasedCriticalStrikeChanceBuffForXMillisecondsOnPlacingATotem);
+        if (criticalDuration > 0)
+            player.RecentEvents.Record(TotemPlacementCriticalEvent, now, criticalDuration / 1000d);
+        if (criticalDuration > 0 || stats.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPctOnPlacingTotem) != 0)
         {
             MarkPlayerStats(player, PlayerStatStep.Sources);
             PresentStats(player);
@@ -536,7 +542,8 @@ public static partial class Game
             foreach (var (_, enemy) in player.Area.MonstersNear(at, hinderRadius))
                 if (enemy.Hostile && !enemy.Dead && enemy.Life > 0 && !enemy.Invulnerable
                     && Dist(enemy.Walk.Position(now), at) <= hinderRadius)
-                    ApplyHinderLocked(enemy, now, fromTotem: true);
+                    ApplyHinderLocked(enemy, now, fromTotem: true,
+                        regeneration: stats.GetValueOrDefault(Stat.EnemiesYouHinderHaveLifeRegenerationRatePlusPct));
 
         return stats.GetValueOrDefault(Stat.HasOnslaughtIfTotemSummonedRecently) != 0
             && KillOnslaughtOf(player).Gain(now, RecentlySeconds) && Marked(player, PlayerStatStep.Onslaught);
@@ -793,19 +800,27 @@ public static partial class Game
         }
         if (totem.Strike is not { } strike || now < strike.NextCast) return;
         double range = TotemTargetRange(player, totem.SkillId);
-        if (!player.Area.Monsters.Values.Any(m => TotemTargetable(m) && Dist(m.Walk.Position(now), totem.At) <= range)) return;
+        var targets = player.Area.Monsters.Values.Where(m => TotemTargetable(m) && Dist(m.Walk.Position(now), totem.At) <= range);
+        var centre = totem.At;
+        if (SupportedStats(player, totem.SkillId).GetValueOrDefault(Stat.NovaSpellsCastAtTargetLocation) != 0)
+        {
+            var target = targets.MinBy(m => Dist(m.Walk.Position(now), totem.At));
+            if (target is null) return;
+            centre = target.Walk.Position(now);
+        }
+        else if (!targets.Any()) return;
         if (TotemCastSeconds(player, totem.SkillId) is not double seconds) return;
         var session = ProjectilesFor(player);
         ushort sequence = ++totem.Sequence;
         strike.NextCast = now + seconds;
-        bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, totem.At.X, totem.At.Y,
+        bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, centre.X, centre.Y,
             strike.GrantedId, sequence, player.MonsterOrderFlags));
         var lifetime = CombatLifetime;
         session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(strike.NextCast)), () =>
         {
             if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && !player.Closed
                 && totem.Alive(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond))
-                TotemNovaLocked(player, session, totem, totem.At, strike.Radius, sequence);
+                TotemNovaLocked(player, session, totem, centre, strike.Radius, sequence);
         });
     }
 
@@ -912,7 +927,7 @@ public static partial class Game
             int directDamage = damage;
             if (spellImpale)
             {
-                var settings = ImpaleStats.From(caster, Stats, attack: false, skill.Stats, critical: crit);
+                var settings = WithRingImpaleDuration(ImpaleStats.From(caster, Stats, attack: false, skill.Stats, critical: crit), caster);
                 damage = WithImpaleHitLocked(player, m, damage, rolled, crit,
                     sourceMultiplier + FullLifeCriticalMultiplier(m, caster, skill.Stats), settings).Damage;
             }

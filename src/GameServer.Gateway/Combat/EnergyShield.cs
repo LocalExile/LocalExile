@@ -130,13 +130,15 @@ public sealed class EnergyShield
 
     public static double BaseRechargePerMinute(uint max, Func<uint, int> get) =>
         max * 20.0 * Math.Max(0, 1 + get(Stat.EnergyShieldRechargeRatePlusPct) / 100.0)
+        * GameEvents.StatMultiplier(GameEvents.EnergyShieldRechargeMore, get)
         // Wicked Ward: "40% less Energy Shield Recharge Rate".
         * (get(Stat.KeystoneWickedWard) != 0 ? 0.6 : 1)
         // Eldritch Battery: "50% less Energy Shield Recharge Rate".
         * (get(Stat.KeystoneEldritchBattery) != 0 ? 0.5 : 1);
     public static double RegenPerMinute(uint max, Func<uint, int> get) =>
         get(Stat.MapPlayersNoRegenerationIncludingEs) != 0 || get(Stat.NoEnergyShieldRechargeOrRegeneration) != 0 ? 0 :
-        Math.Max(0, get(Stat.BaseEnergyShieldRegenerationRatePerMinute) + max * get(Stat.BaseEnergyShieldRegenerationRatePerMinutePct) / 100.0)
+        Math.Max(0, get(Stat.BaseEnergyShieldRegenerationRatePerMinute)
+            + 60d * get(Stat.EnergyShieldRegenerationRatePerSecond) + max * get(Stat.BaseEnergyShieldRegenerationRatePerMinutePct) / 100.0)
         * Math.Max(0, 1 + get(Stat.EnergyShieldRegenerationRatePlusPct) / 100.0)
         * Math.Max(0, 1 + get(Stat.EnergyShieldRecoveryRatePlusPct) / 100.0) * PanelStats.MapRecoveryMultiplier(get);
 

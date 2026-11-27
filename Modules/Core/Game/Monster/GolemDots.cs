@@ -59,13 +59,14 @@ public static partial class Game
         double chaosFactor = ignoresDots ? 0 : MonsterDotTaken(m, DamageType.Chaos, to) * supportReduction * linkDamageTaken;
         int poison = m.Poisons.Advance(to, chaosFactor, out double? poisonAt);
         int whispers = MinionWhispersDamageLocked(player, golem, from, to, chaosFactor);
+        int spiritSelfDamage = RagingSpiritSelfDamage(golem, to - from, chaosFactor);
         if (ignoresDots) fire = bleed = poison = 0;
 
         double? lastDamageAt = null;
         foreach (double? at in new[] { fireAt, bleedAt, poisonAt })
             if (at is double value && (lastDamageAt is not double last || value > last))
                 lastDamageAt = value;
-        if (legion > 0 || blessing > 0 || whispers > 0) lastDamageAt = to;
+        if (legion > 0 || blessing > 0 || whispers > 0 || spiritSelfDamage > 0) lastDamageAt = to;
         if (lastDamageAt is double endpoint) golem.ShieldPool.Interrupt(endpoint);
 
         long lifeDamage = 0;
@@ -73,8 +74,8 @@ public static partial class Game
         if (legion > 0) lifeDamage += golem.ShieldPool.Damage(legion, bypass: false, to);
         if (blessing > 0) lifeDamage += golem.ShieldPool.Damage(blessing, bypass: false, to);
         if (bleed > 0) lifeDamage += golem.ShieldPool.Damage(bleed, bypass: false, lastDamageAt!.Value);
-        if (poison > 0 || whispers > 0)
-            lifeDamage += golem.ShieldPool.Damage(ActorScale.Saturate((long)poison + whispers),
+        if (poison > 0 || whispers > 0 || spiritSelfDamage > 0)
+            lifeDamage += golem.ShieldPool.Damage(ActorScale.Saturate((long)poison + whispers + spiritSelfDamage),
                 m.Mods.Effects[Stat.ChaosDamageDoesNotBypassEnergyShield] == 0, lastDamageAt!.Value);
 
         if (lifeDamage > 0)
@@ -91,6 +92,18 @@ public static partial class Game
         if (MinionInstabilityLocked(player, golem, to)) return;
         if (lifeDamage > 0) ShatteringIceGolemBurstLocked(player, golem, to);
         UpdateGolemDotBuffsLocked(player, golem, to);
+    }
+
+    static int RagingSpiritSelfDamage(GolemState.Golem spirit, double seconds, double factor)
+    {
+        if (spirit.Definition.Kind != "RagingSpirit") return 0;
+        int periodic = GolemStat(spirit.Player, Stat.MinionRagingSpiritPctOfMaximumLifeTakenPerMinuteAsChaosDamage);
+        if (periodic <= 0) { spirit.RagingSpiritSelfDamageCarry = 0; return 0; }
+        if (factor <= 0) return 0;
+        double exact = spirit.RagingSpiritSelfDamageCarry + spirit.Monster.MaxLife * (periodic / 6000d) * seconds * factor;
+        double whole = Math.Floor(exact);
+        spirit.RagingSpiritSelfDamageCarry = exact - whole;
+        return (int)Math.Min(int.MaxValue, whole);
     }
 
     static void UpdateGolemDotBuffsLocked(Player player, GolemState.Golem golem, double now)

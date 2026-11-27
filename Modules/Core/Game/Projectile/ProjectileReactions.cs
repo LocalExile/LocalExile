@@ -216,9 +216,13 @@ public static partial class Game
                 session.Enqueue(async () => { await SynchronizeAccountLevel(player); });
             }
         }
-        if (!MonsterGivesNoRewards(monster))
+        if (MonsterGrantsKillFlaskCharges(monster))
+        {
+            int flaskChargesPct = ActorScale.Saturate((long)(tinctureKill?.FlaskChargesPct ?? 0)
+                + BleedingKillFlaskChargesPct(player, AilmentInflictedBy(monster, player.Id, AilmentType.Bleed, now)));
             CommitProjectileFlaskGain(session, (_, _) => FlaskCharges.FullShortcut ? int.MaxValue
-                : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(player).Mods, tinctureKill?.FlaskChargesPct ?? 0));
+                : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(player).Mods, flaskChargesPct));
+        }
         // The map overlay's "X monsters remain" (S→C 0x1a0): coalesced once per batch instead of once per kill.
         session.QueueRemainingMonsters();
         // Loot rolling is catalogue work (ItemDrops.Roll); doing it under the projectile runtime's Monsters lock held
@@ -302,7 +306,7 @@ public static partial class Game
         foreach (var (flask, local, charges, amount) in gaining)
         {
             if (!CanGainFlaskCharges(player, flask, local, stats)) continue;
-            int whole = player.FlaskChargeCarry.Take(flask.Id, amount * FlaskCharges.GainMultiplier(local, Get, areaIncrease));
+            int whole = player.FlaskChargeCarry.Take(flask.Id, amount * FlaskGainMultiplier(player, flask.Id, local, Get, areaIncrease));
             if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, value => Flasks.Gain(value, charges, whole)) is { } item)
                 changed.Add(item);
         }

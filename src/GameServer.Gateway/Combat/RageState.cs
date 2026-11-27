@@ -11,6 +11,7 @@ public sealed class RageState
         int LossRatePercent = 0, int RegenerationPerMinute = 0)
     {
         public double NonDelayingRegenerationPerMinute { get; init; }
+        public int AdditionalLossPerMinute { get; init; }
 
         public int Maximum
         {
@@ -46,11 +47,12 @@ public sealed class RageState
         double RegenProgress = 0)
     {
         public double NonDelayingRegenProgress { get; init; }
+        public double AdditionalLossProgress { get; init; }
     }
 
     int current;
     double? advancedAt, activityAt, hitGainAt;
-    double lossProgress;
+    double lossProgress, additionalLossProgress;
     double regenProgress;
     double nonDelayingRegenProgress;
     Inputs previous;
@@ -66,6 +68,11 @@ public sealed class RageState
         double? next = null;
         if (!previous.NoInherentLoss && current > 0 && previous.LossPerSecond > 0)
             next = LossStarts(last) + Math.Max(0, 1 - lossProgress) / previous.LossPerSecond;
+        if (current > 0 && previous.AdditionalLossPerMinute > 0)
+        {
+            double loss = last + Math.Max(0, 1 - additionalLossProgress) * 60 / previous.AdditionalLossPerMinute;
+            next = next is double n ? Math.Min(n, loss) : loss;
+        }
         if (previous.RegenerationPerMinute > 0 && !previous.CannotGain && current < previous.Maximum)
         {
             double regen = last + Math.Max(0, 1 - regenProgress) * 60 / previous.RegenerationPerMinute;
@@ -181,6 +188,14 @@ public sealed class RageState
                     lossProgress = current > 0 ? units - lost : 0;
                 }
             }
+            if (current > 0 && previous.AdditionalLossPerMinute > 0)
+            {
+                double units = additionalLossProgress + (now - last) * previous.AdditionalLossPerMinute / 60d;
+                int lost = (int)Math.Min(current, Math.Floor(units + 1e-9));
+                current -= lost;
+                additionalLossProgress = units - lost;
+            }
+            if (current == 0 || inputs.AdditionalLossPerMinute <= 0) additionalLossProgress = 0;
             // Rage regeneration per minute (Akoya's Leadership) is a continuous gain, independent of the loss delay:
             // it fills toward the maximum while the stat lasts, at the rate the inputs had for this interval (like the
             // loss above). "Cannot gain Rage" blocks it; a soul-gain prevention window is not part of Inputs, so this
@@ -218,7 +233,7 @@ public sealed class RageState
         bool had = current != 0 || activityAt is not null;
         current = 0;
         advancedAt = activityAt = hitGainAt = null;
-        lossProgress = 0;
+        lossProgress = additionalLossProgress = 0;
         regenProgress = nonDelayingRegenProgress = 0;
         previous = default;
         if (had) Changed?.Invoke();
@@ -229,7 +244,7 @@ public sealed class RageState
         now = Advance(now, inputs);
         var carried = new Carried(current, activityAt is double activity ? now - activity : null,
             hitGainAt is double hit ? now - hit : null, lossProgress, previous, regenProgress)
-        { NonDelayingRegenProgress = nonDelayingRegenProgress };
+        { NonDelayingRegenProgress = nonDelayingRegenProgress, AdditionalLossProgress = additionalLossProgress };
         Clear();
         return carried;
     }
@@ -243,6 +258,7 @@ public sealed class RageState
         lossProgress = carried.LossProgress;
         regenProgress = carried.RegenProgress;
         nonDelayingRegenProgress = carried.NonDelayingRegenProgress;
+        additionalLossProgress = carried.AdditionalLossProgress;
         previous = carried.Previous;
         advancedAt = now;
         Changed?.Invoke();

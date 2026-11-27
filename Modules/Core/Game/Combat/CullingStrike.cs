@@ -112,6 +112,10 @@ public static partial class Game
             int Get(uint k) => cullStats.GetValueOrDefault(k);
             int lifeGained = Get(Stat.LifeGainedOnCull);
             int manaGained = Get(Stat.ManaGainedOnCull);
+            if (m.Hostile && player.PlayerLife > 0
+                && Get(Stat.OnslaughtBuffDurationOnCullingStrikeMs) is > 0 and var onslaughtMs
+                && KillOnslaughtOf(player).Gain(AreaTime(player), onslaughtMs / 1000d))
+                Marked(player, PlayerStatStep.Onslaught);
             if (!cannotRecoverLife && lifeGained > 0 && player.PlayerLife > 0)
             {
                 // The same capped recovery the other instant Life sources use: reserved Life and Petrified Blood apply.

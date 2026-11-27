@@ -62,6 +62,7 @@ public sealed class TotemState
         public (int X, int Y) At { get; private set; } = at;
         public void Relocate((int X, int Y) destination) => At = destination;
         public uint MaxLife { get; } = maxLife;
+        public int PhysicalDamageReductionPct { get; init; }
         public double Until { get; set; } = until;
         public Aura? Aura => aura;
         /// <summary>Its nova; null for every other totem (an aura, Devouring Totem, an adopted projectile spell).</summary>
