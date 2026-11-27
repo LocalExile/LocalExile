@@ -2579,10 +2579,9 @@ public static partial class Game
     // A channelled skill's hits (Cyclone): one sweep around the player every attack time (SupportedAttackSeconds: the
     // skill's own speed, its supports and the player's attack speed, as the tooltip shows) for as long as the channel
     // runs. The hits used to wait for the client's position updates (C→S 0x197), which do not come at that rate, so a
-    // short channel landed one late sweep. The channel ends with C→S 0x199, any other action, mana, death or travel, or
-    // when the client's 0x197 updates stop for ChannelSilenceSeconds (so a lost 0x199 cannot keep a channel spinning on
-    // its own). A held Winter Orb is the exception: its client sends 0x198 only when the aimed cell changes, so a still
-    // cursor leaves none, and the orb must keep charging the stages the bar is counting (ChannelCurrent).
+    // short channel landed one late sweep. The channel ends with C→S 0x199, a replacement action, insufficient mana,
+    // death or travel. A moving channel also stops if its periodic 0x197 updates go silent. For a stationary channel,
+    // 0x198 reports a change of aim, and an unchanged cursor can stay silent for the whole hold.
     public static double FocusedChannelMore(double seconds, int perSecond) =>
         1 + Math.Clamp(Math.Floor(seconds) * perSecond, 0, 60) / 100d;
 
@@ -2841,8 +2840,10 @@ public static partial class Game
     // Cyclone moves while it is channelled: its final movement modifier (cyclone_movement_speed_+%_final, from the gem's
     // stats with its supports); null for a channel that stands (Blade Flurry …).
     public static int? ChannelWalkPercent(Player player, ushort skillId, int effect) =>
-        SkillArea.IsCyclone(SkillsFor(player).EffectId(effect))
+        IsMovingChannel(player, effect)
             ? GolemStat(SupportedSkill(player, skillId).Stats, Stat.CycloneMovementSpeedPlusPctFinal) : null;
+
+    static bool IsMovingChannel(Player player, int effect) => SkillArea.IsCyclone(SkillsFor(player).EffectId(effect));
 
     // C→S 0x197: the point the held channel is aimed at now (the cursor's cell), not the player's cell: it can be the
     // whole screen away the moment the channel starts. The client walks Cyclone's player toward it at the movement speed
@@ -2969,9 +2970,7 @@ public static partial class Game
     {
         return !player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0
             && player.ChannelSkill == skill && player.ActionCount == action && player.ChannelGeneration == generation
-            // Winter Orb's channel is held by the button, not by the aim: a still cursor keeps the aimed cell and the
-            // client sends no 0x198, so the aim silence must not release an orb the player is still charging. Before
-            // this a still hold released at five stages while the bar kept counting (live 2026-11-10).
+            // Stationary skills (including Winter Orb) hold the last aim until the button is released.
             && (player.OrbRuntime is { Channelling: true } orb && orb.SkillId == skill
                 // Lockstep records the held button and its release. A stationary aim can be silent for the whole hold.
                 || player.Connection.LockstepClient && player.LockstepSkill.Held && player.LockstepSkill.Skill == skill
@@ -2980,9 +2979,9 @@ public static partial class Game
                 || IsScourgeChannelling(player, skill, generation, action)
                 || IsBladeFlurryChannelling(player, skill, generation, action)
                 || CurrentChargedDash(player) is not null
-                || player.PaidChannel is { } paid && paid.Skill == skill
-                    && (SkillsFor(player).EffectId(paid.Effect) is "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale"
-                        || IsDivineIre(player, paid.Effect) || IsStormbind(player, paid.Effect))
+                || !player.Connection.LockstepClient && player.PaidChannel is { } paid
+                    && paid.Skill == skill && paid.Action == action && paid.Generation == generation
+                    && !IsMovingChannel(player, paid.Effect)
                 || AreaTime(player) - player.LastChannelUpdateAt <= ChannelSilenceSeconds);
     }
 
