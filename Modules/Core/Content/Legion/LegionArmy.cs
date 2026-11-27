@@ -243,8 +243,9 @@ static class LegionArmy
         if (chosen.Count == 0 || FindGroup(data, chosen[0], level) is not { } rows) return result;
         int basePct = rows.Values.FirstOrDefault(r => r.Col0 == 3)?.Col7 ?? 0;
         long pct = (long)basePct * Math.Max(0, 100 + stats.GetValueOrDefault(Stat.MapLegionGeneralChancePlusPct)) / 100;
-        bool spawned = stats.GetValueOrDefault(Stat.MapLegionLeagueForceGeneral) > 0 || rng.Next(100) < pct;
-        if (!spawned) return result;
+        bool forceGeneral = stats.GetValueOrDefault(Stat.MapLegionLeagueForceGeneral) > 0;
+        if (forceGeneral) { Array.Fill(result, true); return result; }
+        if (rng.Next(100) >= pct) return result;
         if (stats.GetValueOrDefault(Stat.MapLegionGeneralsSpawnBothGenerals) > 0)
             Array.Fill(result, true);
         else

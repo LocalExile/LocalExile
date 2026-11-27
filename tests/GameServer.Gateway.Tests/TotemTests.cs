@@ -35,6 +35,9 @@ public sealed class TotemTests
             var items = Game.ItemsOf(conn);
             items.Remove(PlayerInventories.Weapon1, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
             items.Add(PlayerInventories.Weapon1, 0, 0, host);
+            // Prepare the area and its stat stores before the cast queues asynchronous stat refreshes.
+            _ = conn.Area;
+            _ = Game.CharacterPlayerStats(conn);
             var source = Assert.Single(Game.GemSkillEffects(conn));
 
             uint mana = conn.PlayerMana;

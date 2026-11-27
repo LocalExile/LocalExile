@@ -314,7 +314,7 @@ public static partial class Game
         int mapSpeed = MapSkillActionSpeedPerUse(player);
         if (mapSpeed != 0) extra += (double)mapSpeed * player.RecentEvents.Amount(StatConditions.UsedSkill, now);
         double factor = player.ElementalAilments.TotalActionFactor(now, get(Stat.ActionSpeedMinusPct) - extra)
-            * Math.Max(.01, 1 + get(Stat.TemporalChainsActionSpeedPlusPctFinal) / 100d);
+            * TemporalChainsActionFactor(get(Stat.TemporalChainsActionSpeedPlusPctFinal));
         if (get(Stat.ActionSpeedCannotBeReducedBelowBase) != 0) factor = Math.Max(1, factor);
         // Rakiata's Leadership: action speed cannot be modified below 100% + this value (the level 1 spirit's 10 is
         // the wiki's "at least 110% of base value").
@@ -323,4 +323,7 @@ public static partial class Game
         if (minimum != 0 && factor > 0) factor = Math.Max(factor, 1 + minimum / 100.0);
         return factor;
     }
+
+    // The client clamps the curse's own action-speed modifier at -75 before multiplying other slow effects.
+    static double TemporalChainsActionFactor(double modifier) => 1 + Math.Max(-75, modifier) / 100;
 }

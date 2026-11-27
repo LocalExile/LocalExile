@@ -232,6 +232,7 @@ public static partial class Game
     {
         public readonly List<ActiveBrand> Brands = [];
         public readonly List<PendingMeteor> Meteors = [];
+        public readonly List<FoulgraspHand> FoulgraspHands = [];
         public readonly List<(uint ObjectId, double RemoveAt)> TempObjects = [];
         public readonly Dictionary<uint, MonsterBrandVisuals> MonsterVisuals = [];
         public readonly Dictionary<uint, WintertideEndDot> WintertideEnds = [];
@@ -466,6 +467,7 @@ public static partial class Game
         if (removed > 0) Interlocked.Add(ref _globalActiveBrandCount, -removed);
         state.Brands.Clear();
         state.Meteors.Clear();
+        state.FoulgraspHands.Clear();
         state.TempObjects.Clear();
         state.MonsterVisuals.Clear();
         state.WintertideEnds.Clear();
@@ -558,6 +560,7 @@ public static partial class Game
     {
         bool recalled = false;
         bool paid = false;
+        bool foulgraspTriggered = false;
         uint extraLifeSpent = 0;
         await SendWorldBatch(player, [], admission =>
         {
@@ -580,6 +583,7 @@ public static partial class Game
             var bytes = new WorldRecordBuilder(player, admission);
             var session = ProjectilesFor(player);
             var recalledFamilies = new HashSet<BrandFamily>();
+            Dictionary<ushort, int>? foulgrasp = null;
 
             foreach (var brand in state.Brands.ToArray())
             {
@@ -601,6 +605,11 @@ public static partial class Game
 
                 recalledFamilies.Add(brand.Family);
                 recalled = true;
+                if (FoulgraspForRecallLocked(player, brand) is ushort foulgraspSkill)
+                {
+                    foulgrasp ??= [];
+                    foulgrasp[foulgraspSkill] = foulgrasp.GetValueOrDefault(foulgraspSkill) + 1;
+                }
 
                 // Reattach near player with Brand Recall search range bonus
                 if (!TryAttachBrandLocked(player, session, state, brand, playerStats, now, bytes,
@@ -624,6 +633,16 @@ public static partial class Game
                 }
             }
 
+            if (foulgrasp is not null)
+                foreach (var (skill, count) in foulgrasp)
+                    if (TryReleaseFoulgraspLocked(player, state, skill, count, here, now, playerStats, bytes,
+                        out uint mana, out uint life))
+                    {
+                        foulgraspTriggered = true;
+                        paid |= mana > 0 || life > 0;
+                        extraLifeSpent += life;
+                    }
+
             // Spawn recall circle art at player
             foreach (var fam in recalledFamilies)
                 SpawnTempEffectLocked(player, state, here, PresentationOf(fam).RecallCircleAo, now + 0.6, bytes);
@@ -633,6 +652,7 @@ public static partial class Game
         });
 
         if (paid) await SendSkillCost(player, extraLifeSpent, "Brand Recall activation");
+        if (foulgraspTriggered) await SendNativeCooldownRefresh(player);
         if (recalled) await PublishMinionOutcomes(player);
         return true;
     }
@@ -703,7 +723,7 @@ public static partial class Game
             if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused) return null;
             if (!BrandStates.TryGetValue(player, out var live) || !ReferenceEquals(live, state)) return null;
             if (state.Brands.Count == 0 && state.Meteors.Count == 0 && state.TempObjects.Count == 0
-                && state.MonsterVisuals.Count == 0 && state.WintertideEnds.Count == 0)
+                && state.MonsterVisuals.Count == 0 && state.WintertideEnds.Count == 0 && state.FoulgraspHands.Count == 0)
                 return null;
 
             double dt = double.IsNaN(state.LastTickAt) ? 0.1 : Math.Clamp(now - state.LastTickAt, 0, 0.5);
@@ -719,6 +739,8 @@ public static partial class Game
                 foreach (var m in state.Meteors)
                     if (m.VisualId != 0) bytes.Remove(m.VisualId);
                 state.Meteors.Clear();
+                foreach (var hand in state.FoulgraspHands) bytes.Remove(hand.Object);
+                state.FoulgraspHands.Clear();
                 foreach (var t in state.TempObjects) bytes.Remove(t.ObjectId);
                 state.TempObjects.Clear();
                 ClearAllBrandVisualsLocked(state, bytes);
@@ -819,6 +841,7 @@ public static partial class Game
 
             // 3. Step Wintertide Brand Cold DoTs (primary attached + secondary Wintertide's End)
             TickWintertideDotsLocked(player, state, now, dt, bytes);
+            TickFoulgraspHandsLocked(player, state, now, playerStats, bytes);
 
             // 4. Clean up expired temporary effects/beams
             for (int i = state.TempObjects.Count - 1; i >= 0; i--)
@@ -1600,7 +1623,7 @@ public static partial class Game
             BrandFamily.Magma => BrandStat(playerStats, "penance_brand_damage_+%"),
             _ => 0,
         };
-        if (BrandMonsterMarks.TryGetValue(m, out var bm) && bm.AttachedCount > 0)
+        if (SkillsFor(player).IsBrand(gem.Effect) && BrandMonsterMarks.TryGetValue(m, out var bm) && bm.AttachedCount > 0)
             brandSpecific += BrandStat(playerStats, "sigil_attached_target_damage_+%");
         var hit = SupportedHitFrom(inputs, suppress: true, additionalIncreased: vsBlinded + brandSpecific);
         if (hitMore != 1.0) hit = hit.Scale(hitMore);

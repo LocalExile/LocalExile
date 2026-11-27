@@ -346,8 +346,8 @@ static class LegionGenerals
         if (mount.Stats is { } stats) fighter.EncounterStats = stats;   // Eternal Conflict's extra damage
         if (entry is not null)
         {
-            LegionStasis.AddFighter(player, id, entry);
-            if (entry.BreakOutCount > 1) player.Area.Buffs.Set(id, new Buff(LegionStasis.EnhancedBuff, Tag: 1));
+            LegionStasis.AddFighter(player, id, entry with { Variety = foot.Id, X = mount.X, Y = mount.Y, OriginalId = id });
+            if (entry.RewardFactor > 1.0) player.Area.Buffs.Set(id, new Buff(LegionStasis.EnhancedBuff, Tag: 1));
             LegionStasis.ShowRewards(player, id, rewards, false);
         }
         LegionMonolith.Replace(player, mount.Id, id);

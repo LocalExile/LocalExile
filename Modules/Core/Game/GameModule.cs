@@ -51,6 +51,7 @@ public sealed class GameModule : IModule, IDisposable
     {
         // The catalogs the others read first. The HardMode data set waits for its first player (Rules.LoadHardModeData).
         Rules.LoadSettingsData();
+        ItemEffectRules.Validate(GameData.Current);
         // The catalogs the rules share (Settings.cs and the systems' own files), each after the ones it reads.
         Rules.Monsters = new();
         Rules.Packs = new();
@@ -120,6 +121,7 @@ public sealed class GameModule : IModule, IDisposable
         global::MapScarabBosses.LoadGameData();
         global::MapScarabContent.LoadGameData();
         global::MapScarabPacks.LoadGameData();
+        global::MapInfluence.LoadGameData();
         global::StrongboxCatalog.LoadGameData();
         global::StrongboxMods.LoadGameData();
         global::MapStrongboxes.LoadGameData();
@@ -143,6 +145,7 @@ public sealed class GameModule : IModule, IDisposable
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        GameData.Validating.Add(module.Manifest.Id, ItemEffectRules.Validate);
         LoadData();
         Rules.CombatLifetime = module.Lifetime;
         // The game's systems in each area's own world (GameArea).
@@ -176,6 +179,8 @@ public sealed class GameModule : IModule, IDisposable
         InstanceEvents.AreaDisplayStats.Add(module.Manifest.Id, Rules.MapAreaDisplayStats);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabContent.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabPacks.Opening);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapInfluence.Opening);
+        GameEvents.Drops.Add(module.Manifest.Id, MapInfluence.Drops);
         GameEvents.Drops.Add(module.Manifest.Id, MapScarabPacks.Drops);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapStrongboxes.Opening);
         GameEvents.PlayerEntered.Add(module.Manifest.Id, MapStrongboxes.Enter);

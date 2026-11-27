@@ -95,6 +95,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// check 0x142479880 returns false then). Payload derives bit 5 from GemVariant, as the native copy does.</summary>
     public byte GemFlags { get; init; }
 
+    /// <summary>The server's persistent skill bar identity for a gem the player explicitly bound.</summary>
+    public Guid? SkillBarGemId { get; init; }
+
     public ItemRarity Rarity { get; init; }
 
     /// <summary>Unidentified items carry no <see cref="ModSection.Explicit"/> list (the client does not read it).</summary>
@@ -388,6 +391,26 @@ public sealed record VisibleItem(byte Slot, ushort VisualIdentity, byte Stance =
 /// </summary>
 public sealed record WorldItemObject(int GridX, int GridY, Item Item)
 {
+    Item contents = Item;
+    public Item Item { get => System.Threading.Volatile.Read(ref contents); init => contents = value; }
+    readonly object preparationGate = new();
+    bool prepared;
+
+    public bool Equals(WorldItemObject? other) => ReferenceEquals(this, other)
+        || other is not null && GridX == other.GridX && GridY == other.GridY && Item == other.Item && PlayerDropped == other.PlayerDropped;
+    public override int GetHashCode() => HashCode.Combine(GridX, GridY, Item, PlayerDropped);
+
+    /// <summary>Finalizes a newly generated drop before it is published; recovery and stack remainders keep it.</summary>
+    public void Prepare(Func<Item, Item> transform)
+    {
+        lock (preparationGate)
+        {
+            if (prepared) return;
+            System.Threading.Volatile.Write(ref contents, transform(contents));
+            prepared = true;
+        }
+    }
+
     public const string MetadataPath = "Metadata/MiscellaneousObjects/WorldItem";
 
     /// <summary>The player placed this item on the ground, rather than a monster or script drop.</summary>

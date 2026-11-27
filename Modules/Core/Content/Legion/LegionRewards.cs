@@ -329,22 +329,23 @@ static class LegionRewards
         int level = Math.Clamp(drop.Monster.Level, 1, 100);
         int bonusRarity = fighter.Tier == 2 ? Math.Max(0, fighter.SergeantRarityPct) : 0;
         if (bonusRarity > 0) drop.Rarity *= 1.0 + bonusRarity / 100.0;
-        // Eternal Conflict (ScarabLegionNew5): each extra break-out increases reward drops by 30% (patch 3.27.0c+).
-        double breakoutMult = 1.0 + Math.Max(0, fighter.BreakOutCount - 1) * 0.30;
+        // Eternal Conflict (ScarabLegionNew5): repeated break-outs scale both drop quantity and Legion reward/splinter rolls.
+        double rewardFactor = Math.Max(1.0, fighter.RewardFactor);
+        drop.Quantity *= rewardFactor;
         foreach (int row in fighter.Rewards)
         {
-            int count = ScaleCount(ItemsPerReward, rules.ItemDropMultiplier * breakoutMult, rng);
+            int count = ScaleCount(ItemsPerReward, rules.ItemDropMultiplier * rewardFactor, rng);
             if (count > 0) RollReward(player, drop.Made, drop.Stacks, row, level, count, rng, bonusRarity);
         }
         // Splinters: sergeants and the general only (the chests: LegionRewards.Chest).
         if (fighter.Tier == 2 && rng.Next(100) < SergeantSplinterChance)
         {
-            int splinters = ScaleCount(rng.Next(SergeantSplinterMin, SergeantSplinterMax + 1), rules.ItemDropMultiplier * breakoutMult, rng);
+            int splinters = ScaleCount(rng.Next(SergeantSplinterMin, SergeantSplinterMax + 1), rules.ItemDropMultiplier * rewardFactor, rng);
             if (splinters > 0) AddSplinters(drop.Stacks, fighter.FactionId, splinters, stats, isChest: false, isGeneral: false, rng);
         }
         else if (fighter.Tier == 3)
         {
-            int splinters = ScaleCount(rng.Next(GeneralSplinterMin, GeneralSplinterMax + 1), rules.ItemDropMultiplier * breakoutMult, rng, minimum: 1);
+            int splinters = ScaleCount(rng.Next(GeneralSplinterMin, GeneralSplinterMax + 1), rules.ItemDropMultiplier * rewardFactor, rng, minimum: 1);
             AddSplinters(drop.Stacks, fighter.FactionId, splinters, stats, isChest: false, isGeneral: true, rng);
             if (Factions.TryGetValue(fighter.FactionId == "Faridun" ? "Maraketh" : fighter.FactionId, out var f))
             {

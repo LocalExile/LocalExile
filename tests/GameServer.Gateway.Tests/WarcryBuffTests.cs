@@ -130,6 +130,78 @@ public sealed class WarcryBuffTests
     }
 
     [Fact]
+    public void Enduring_Cry_grants_charges_to_nearby_players_and_regeneration_to_allies()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        ushort skill = Assert.Single(fixture.Equip(("Enduring Cry", 1)));
+        var gem = Game.SupportedSkill(player, skill);
+        var clock = new Clock();
+
+        Player Ally(uint id, int offset)
+        {
+            var ally = new Player(new(1, "enduring-cry", 1000, 1000, 100, 100, null, []), id, 1)
+            {
+                Character = { Name = $"CryAlly{Guid.NewGuid():N}", Experience = CharacterStats.ExperienceFor(100) },
+                PlayerLife = 1000,
+                PlayerMana = 100,
+                Instance = player.Instance,
+                Connection = { PlayerSent = true },
+                Pools = new(100, 1000, 100, 0, 0),
+                LeagueModule = player.LeagueModule
+            };
+            ally.Walk.Teleport(100 + offset, 100, clock.Time);
+            player.Instance.AddPlayer(ally);
+            return ally;
+        }
+
+        var near = Ally(2, 9);
+        var far = Ally(3, 80);
+        player.Walk.Teleport(100, 100, clock.Time);
+        var body = new SpawnedMonster("ally", new(107, 100, 0), 0, 0, 1000) { Life = 1000, Hostile = false };
+        player.Area.Monsters[901] = body;
+        var minion = new GolemState.Golem(901, body, Game.GolemData.Find("SummonStoneGolem")!, 1);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            var source = new Dictionary<uint, int> { [Stat.WarcriesHaveInfinitePower] = 1, [Stat.KeystoneCallToArms] = 1 };
+            source[Stat.WarcriesDoNotApplyBuffsToSelfOrAllies] = 1;
+            Game.ApplyWarcryBuffLocked(player, "EnduringCry", gem.Stats, source, (100, 100), 60, clock.Time, 5, 1);
+            Assert.False(Game.ChargesOf(near).Pending);
+            Assert.False(player.Area.Buffs.Has(near.Id, Game.EnduringCryBuffRow, player.Id));
+
+            source.Remove(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies);
+            Game.ApplyWarcryBuffLocked(player, "EnduringCry", gem.Stats, source, (100, 100), 60, clock.Time, 5, 1);
+            Assert.False(Game.ChargesOf(player).Pending);
+            Assert.True(Game.ChargesOf(near).Pending);
+            Assert.False(Game.ChargesOf(far).Pending);
+            Assert.False(player.Area.Buffs.Has(player.Id, Game.EnduringCryBuffRow, player.Id));
+            Assert.True(player.Area.Buffs.Has(near.Id, Game.EnduringCryBuffRow, player.Id));
+            Assert.False(player.Area.Buffs.Has(far.Id, Game.EnduringCryBuffRow, player.Id));
+
+            var regen = Stat.LifeRegenerationRatePerMinutePct;
+            Assert.Equal(600, Game.CharacterPlayerStats(near).GetValueOrDefault(regen));
+            Assert.Equal(600, Game.MinionAuraStats(player, minion).GetValueOrDefault(regen));
+            Assert.Equal(0, Game.CharacterPlayerStats(far).GetValueOrDefault(regen));
+
+            clock.Time += 5;
+            Game.ExpireWarcryBuffs(near);
+            Assert.Equal(0, Game.CharacterPlayerStats(near).GetValueOrDefault(regen));
+            Assert.Equal(0, Game.MinionAuraStats(player, minion).GetValueOrDefault(regen));
+        }
+        finally
+        {
+            Game.AreaUpdateContext.Value = previous;
+            foreach (var ally in new[] { near, far })
+            {
+                player.Instance.Presence.RemovePlayer(ally.Id);
+                PlayerInventories.Forget(ally.Character.Name!);
+            }
+        }
+    }
+
+    [Fact]
     public void Generals_Cry_grants_no_buff()
     {
         using var f = new TriggeredSummonTests.Fixture();
