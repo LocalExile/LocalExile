@@ -490,6 +490,7 @@ public static partial class Game
         PresentCrabLocked(player);
         PresentSelfVulnerabilityLocked(player);
         PresentMadnessLocked(player);
+        PresentCooldownTriggersLocked(player);
         // Reconciliation changes Cat phase and earned charges after the caller's validation/pricing scope was built.
         // Publish every following 1b3/Actor payload from a fresh post-change snapshot, then restore that outer scope.
         using var publicationStats = new PlayerStatScope(player, fresh: true);

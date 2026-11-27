@@ -918,6 +918,7 @@ public static partial class Game
             CarryRampage(player, r.Ticket);
             CarryResourceEffects(player, r.Ticket);
             CarryWardBreak(player, r.Ticket);
+            CarryCooldownTriggers(player, r.Ticket);
             CarryRage(player, r.Ticket);
             CarryVaalSouls(player, r.Ticket);
             player.Retire();

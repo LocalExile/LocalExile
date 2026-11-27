@@ -1882,6 +1882,7 @@ public static partial class Game
         RestoreResourceEffects(player);
         RestoreVaalSouls(player);
         RestoreWardBreak(player);
+        RestoreCooldownTriggers(player);
         player.Ward.SetMaximum(player.Pools.Ward);
         pools = player.Pools;
         var stats = CharacterPlayerStatsSnapshot(player, out _, out var panelSources, capturePanelSources: true);
@@ -2058,6 +2059,7 @@ public static partial class Game
                         // A new player object has no buffs: every system's are written again.
                         player.Area.Buffs.Removed(player.Id);
                         PresentCarriedEnduringCry(player);
+                        PresentCooldownTriggersLocked(player);
                         player.LeechDisplay.Clear();
                         player.PetrifiedBlood.PresentedLossBuff = 0;
                         player.PetrifiedBlood.SentLossPerMinute = 0;
