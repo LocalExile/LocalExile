@@ -321,6 +321,7 @@ public static partial class Game
     static async Task PresentImmortalCallCast(Player player)
     {
         if (player.Closed || player.LeavingArea) return;
+        int epoch = player.ProjectileEpoch;
         var at = player.Walk.Position(AreaTime(player));
         uint id = player.TakeObjectId();
         var art = new EffectObject(at.X, at.Y, ImmortalCallCastAo)
@@ -328,16 +329,17 @@ public static partial class Game
             AnimatedFlags = 9,
             Parent = player.Id,
         };
-        await Send(player,
-            [.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob()),
-             .. InstanceProtocol.EnterWakeZone(id)],
-            "Immortal Call cast art");
-        int epoch = player.ProjectileEpoch;
+        if (!await SendWorldCreate(player, id,
+            () => !player.Closed && !player.LeavingArea && player.ProjectileActive(epoch)
+                ? InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob())
+                : null,
+            "Immortal Call cast art", wake: true, awaitBirth: false))
+            return;
         SendAfter(player, 2, async () =>
         {
             // The object belongs to the area it was made in: a transition to another area must not remove its id there.
             if (player.Closed || player.LeavingArea || !player.ProjectileActive(epoch)) return;
-            await Send(player, InstanceProtocol.RemoveObject(id), null);
+            await SendWorldRemoval(player, id, null);
         });
     }
 
