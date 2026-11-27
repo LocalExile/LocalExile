@@ -118,6 +118,14 @@ public static partial class Game
             if (effect == "ShatteringSteelAltX" && spent == cost) AddSteelWard(context, state);
         }
         var profile = use.Profile;
+        if (spent == 0 && context.Own(Stat.AlreadySplitIfNoSteelShards) != 0
+            && profile.SplitForm is { Metadata: { } shardMetadata } shard)
+            profile = profile with
+            {
+                Id = shardMetadata, Speed = profile.Speed * shard.SpeedMultiplier,
+                ContactCells = shard.ContactCells ?? profile.ContactCells,
+                CannotSplit = true, Split = 0, EndsAtAim = false, EndArea = shard.EndArea, SplitForm = null,
+            };
         if (effect is "LancingSteel" or "LancingSteelAltX"
             && context.Own(Stat.LancingSteelDamagePlusPctFinalAfterFirstHitOnTarget) is not 0 and var repeatPct)
             shot = shot with { LancingSteelHits = new(Math.Max(0, 1 + repeatPct / 100d)) };

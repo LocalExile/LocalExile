@@ -154,7 +154,7 @@ public static partial class Game
                 int Get(uint id) => areaStats.GetValueOrDefault(id);
                 use = use with { Profile = GatewayProjectileSkillProfiles.ScaleAreas(use.Profile, effect, Get,
                     !Skills.IsAttack(context.Gem.Effect)) };
-                if (effect is "LancingSteel" or "LancingSteelAltX" or "ShatteringSteelAltX")
+                if (effect is "LancingSteel" or "LancingSteelAltX" or "ShatteringSteelAltX" or "SplittingSteelAltX")
                     return PrepareSteelRelease(context, use, effect);
                 if (IsGalvanicArrow(effect)) return GalvanicArrowRelease(context, use, effect, areaStats);
                 if (IsIceSpear(effect)) return IceSpearRelease(context, use);

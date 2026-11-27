@@ -26,6 +26,12 @@ public static class GatewayProjectileSkillProfiles
     static readonly IReadOnlySet<ProjectileEndReason> NonContactStops = new HashSet<ProjectileEndReason>
         { ProjectileEndReason.Distance, ProjectileEndReason.Returned };
 
+    const string SplittingSteelShard = "Metadata/Projectiles/ImpactingSteelProjectileSecondary";
+    static readonly IReadOnlySet<ProjectileEndReason> SplittingSteelStops = new HashSet<ProjectileEndReason>
+        { ProjectileEndReason.Split, ProjectileEndReason.Enemy, ProjectileEndReason.Terrain, ProjectileEndReason.Distance };
+
+    internal static bool IsSplittingSteel(string? effect) => effect is "SplittingSteel" or "SplittingSteelAltX" or "SplittingSteelAltY";
+
     public static bool IsKineticBlast(string effect) => effect is "KineticBlast" or "KineticBlastAltX" or "KineticBlastAltY";
     public static bool IsKineticBolt(string effect) => effect is "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY";
     internal static bool UnearthEffect(string? effect) => effect is "Unearth" or "UnearthRoyale";
@@ -188,6 +194,20 @@ public static class GatewayProjectileSkillProfiles
             {
                 ContactArea = new("caustic-arrow-explosion", 0) { ExcludeContactTarget = true },
                 EndAreaReasons = NonContactStops,
+            };
+
+        else if (IsSplittingSteel(effect))
+            p = p with
+            {
+                EndsAtAim = true, CannotReturn = true, SplitWithoutTargets = true,
+                EndArea = new("splitting-steel-split", 0) { ExcludeContactTarget = true },
+                EndAreaReasons = SplittingSteelStops,
+                // Projectiles.dat's split shard has 3000 speed and 2 contact cells, versus 5000 and 3 for the initial bolt.
+                SplitForm = new(.6, Pierce: 0)
+                {
+                    Metadata = SplittingSteelShard, ContactCells = 2, PreservePierce = true,
+                    EndArea = new("splitting-steel-shard", 0) { ExcludeContactTarget = true },
+                },
             };
 
         else if (IsShatteringSteel(effect))
@@ -499,6 +519,16 @@ public static class GatewayProjectileSkillProfiles
         }
         if (Game.IsPyroclastMine(effect) && p.EndArea is { } pyroclast)
             return p with { EndArea = pyroclast with { Radius = SkillArea.Radius(12, get, spell) } };
+        if (IsSplittingSteel(effect) && p.EndArea is { } splitArea && p.SplitForm is { EndArea: { } shardArea } splitForm)
+        {
+            int basis = SkillArea.BaseRadius(effect, get);
+            double shardMore = Math.Max(0, 1 + get(Stat.SplittingSteelAreaPlusPctFinalAfterSplitting) / 100d);
+            return p with
+            {
+                EndArea = splitArea with { Radius = SkillArea.Radius(basis, get, spell) },
+                SplitForm = splitForm with { EndArea = shardArea with { Radius = SkillArea.Radius(basis, get, spell, shardMore) } },
+            };
+        }
         if (p.EndArea is { } terminal)
         {
             int basis = SkillArea.BaseRadius(effect, get);

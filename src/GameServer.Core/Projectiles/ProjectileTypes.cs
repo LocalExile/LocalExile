@@ -94,7 +94,13 @@ public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radi
 }
 public sealed record ProjectileFormRecipe(double Distance, double SpeedMultiplier, int Pierce,
     double DamageMultiplier = 1);
-public sealed record ProjectileSplitFormRecipe(double SpeedMultiplier, int Pierce);
+public sealed record ProjectileSplitFormRecipe(double SpeedMultiplier, int Pierce)
+{
+    public string? Metadata { get; init; }
+    public bool PreservePierce { get; init; }
+    public int? ContactCells { get; init; }
+    public ProjectileAreaRecipe? EndArea { get; init; }
+}
 public sealed record ProjectileTargetedRecipe(string Stage, int Count, double Radius);
 
 /// <summary>The client's volley (0x141bb3e30 with 0x141bb39b0's stats). A nova (0x141bbbf90) puts projectile i at
@@ -288,6 +294,8 @@ public sealed record ProjectileProfile(string Id)
     public ProjectileCountConsumer CountConsumer { get; init; }
     public ProjectileFormRecipe? FormChange { get; init; }
     public ProjectileSplitFormRecipe? SplitForm { get; init; }
+    /// <summary>End the initial flight at its aim when within range. Split and fork children get their own range.</summary>
+    public bool EndsAtAim { get; init; }
     public bool SplitOnTerrain { get; init; }
     public bool SplitAtEndOfRange { get; init; }
     /// <summary>Fill this skill's split count even when there are fewer available target actors.</summary>
