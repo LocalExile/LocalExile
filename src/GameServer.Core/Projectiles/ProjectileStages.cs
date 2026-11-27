@@ -157,6 +157,15 @@ public sealed partial class ProjectileRuntime
     public void Impact(ProjectileUse use, ProjectileVector centre, ProjectileAreaRecipe area)
         { Area(ImpactEntity(use, centre), area); removals++; }
 
+    /// <summary>Resolve area hits within halfWidth of the segment. Distance modifiers use the path to its start.</summary>
+    public void ImpactAlong(ProjectileUse use, ProjectileVector start, ProjectileVector end, double halfWidth, string stage)
+    {
+        var halfSegment = (end - start) * .5;
+        var impact = ImpactEntity(use, start);
+        ResolveArea(impact, new(stage, halfWidth), start + halfSegment, null, impact.Id, halfSegment);
+        removals++;
+    }
+
     /// <summary>Resolve a staged contact against one selected target without a horizontal flight.</summary>
     public ProjectileHitResult ImpactTarget(ProjectileUse use, ProjectileActor target, string stage)
     {
@@ -268,12 +277,15 @@ public sealed partial class ProjectileRuntime
     }
 
     void ResolveArea(ProjectileEntity p, ProjectileAreaRecipe recipe, ProjectileVector centre,
-        ProjectileActorKey? victim, long areaId)
+        ProjectileActorKey? victim, long areaId, ProjectileVector halfSegment = default)
     {
         double radius = recipe.RadiusForTravel?.Invoke(p.Distance)
             ?? recipe.RadiusForGroundBounce?.Invoke(p.GroundBounces) ?? recipe.Radius;
         world.Publish(new(ProjectileEventKind.Area, p, Now, centre, Radius: radius, Stage: recipe.Stage));
-        var targets = ActorsInOrder(world.ActorsNear(centre, radius + 2, Now), generations: true, out int listed);
+        double lengthSquared = halfSegment.Dot(halfSegment);
+        double halfLength = lengthSquared > 0 ? Math.Sqrt(lengthSquared) : 0;
+        double inverseLengthSquared = lengthSquared > 0 ? 1 / lengthSquared : 0;
+        var targets = ActorsInOrder(world.ActorsNear(centre, radius + halfLength + 2, Now), generations: true, out int listed);
         double coneEdge = recipe.ConeHalfAngle > 0 ? Math.Cos(recipe.ConeHalfAngle) : -1;
         try
         {
@@ -283,6 +295,8 @@ public sealed partial class ProjectileRuntime
                 if (target.Team == p.Use.Team || target.Key == p.Use.Owner
                     || (recipe.ExcludeContactTarget && target.Key == victim)) continue;
                 var delta = target.Position(Now) - centre;
+                if (inverseLengthSquared > 0)
+                    delta -= halfSegment * Math.Clamp(delta.Dot(halfSegment) * inverseLengthSquared, -1, 1);
                 double limit = radius + target.Radius;
                 if (Math.Abs(delta.X) <= limit && Math.Abs(delta.Y) <= limit
                     && delta.X * delta.X + delta.Y * delta.Y <= limit * limit

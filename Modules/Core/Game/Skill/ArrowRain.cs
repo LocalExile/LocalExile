@@ -11,7 +11,7 @@ public static partial class Game
     static bool IsRainOfArrowsVariant(string? id) => id is RainOfArrowsArtillery or RainOfArrowsSaturation;
 
     static bool ArrowRain(string? id) => id is "RainOfArrows" or "BlastRain" or TrarthusBlastRain
-        || IsRainOfArrowsVariant(id) || IsToxicRain(id) || IsKineticRain(id);
+        || IsRainOfArrowsVariant(id) || IsToxicRain(id) || IsKineticRain(id) || IsStormRain(id);
 
     static bool IsToxicRain(string? id) => id is "ToxicRain" or "ToxicRainAltX" or "ToxicRainAltY";
 
@@ -190,6 +190,11 @@ public static partial class Game
         use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true,
             FromTrapOrMine = shot.FromTrapOrMine || from is not null,
             FromMine = shot.FromMine || placedKind.Mine } };
+        if (IsStormRain(id))
+        {
+            ReleaseStormRain(session, use, id, skill, gem.Effect, own, playerStats, actionStart);
+            return;
+        }
         if (IsKineticRain(id))
         {
             ReleaseKineticRain(session, use, gem, id, aim, own, playerStats, critical, sequence);

@@ -484,7 +484,7 @@ public static partial class Game
             // These melee and projectile actions select their native behaviour through this stat.
             if (IsLeapSlam(player, effect) || gatheringLightning || skills.ActionHash(effect) is HolyHammersAction or EarthshatterFissures.Action
                 || effectId is "VolcanicFissureAltX" or "SparkAltY" or "BallLightningAltX"
-                || IsTrarthusChainHook(effectId) || IsRainOfArrowsVariant(effectId)
+                || IsTrarthusChainHook(effectId) || IsRainOfArrowsVariant(effectId) || IsStormRain(effectId)
                 || IsChargedDash(player, effect) || IsIceSpear(effectId) || IsWaveOfConviction(effectId))
                 stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
             if (LacerateEffect(effectId))
@@ -831,8 +831,14 @@ public static partial class Game
                 stats[Stat.ProjectileSpeedPlusPct] = OrbitingBallLightningSpeedPercent(playerStats.GetValueOrDefault, OwnPanel);
             ApplyProjectilePanelStats(effect, stats);
             // Network skill records need the final fall speed used by the expanding and linear rain actions.
-            if (IsRainOfArrowsVariant(effectId) || effectId == TrarthusBlastRain)
+            if (IsRainOfArrowsVariant(effectId) || effectId == TrarthusBlastRain || IsStormRain(effectId))
                 stats[Stat.ArrowRainFallSpeedPlusPct] = RainOfArrowsFallSpeed(player, id, characterInputs, supported.Stats);
+            if (IsStormRain(effectId))
+            {
+                int count = GroundArrow.Parameters.Resolve(stats.GetValueOrDefault, 1, true).Count;
+                stats[Stat.TotalNumberOfArrowsToFire] = StormRainArrowCount(stats.GetValueOrDefault, count);
+                stats[Stat.PrismaticRainBeamFrequencyMs] = StormRainBeamInterval(stats.GetValueOrDefault);
+            }
             if (SkillsFor(player).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalRageCost(player, id, stats);
             else if (ChainbreakerRageCost(Get) is > 0 and var rageCost)

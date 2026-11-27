@@ -346,6 +346,7 @@ public static partial class Game
             ClearPlacedVolatileOrbs();
             ClearCremationGeysers();
             ClearEnsnares();
+            ClearStormRain();
             ClearExplosiveFuses();
             RetireBannerLocked(Player);
             ClearDivineBlastOrbs();
