@@ -1,3 +1,6 @@
+using System.Runtime.InteropServices;
+using GameServer.Data.Terrain;
+
 /// <summary>
 /// Where the area's walkers stand, by grid cell: what is near a point is the entities of the few cells its radius
 /// overlaps, not a pass over all of them. The movement phase sets every living walker each frame (Set, then
@@ -13,13 +16,14 @@ public sealed class AreaGrid
     readonly Dictionary<long, List<EntityId>> buckets = [];
     readonly Dictionary<EntityId, Entry> entries = [];
     int pass;
+    long clientTileArrival;
 
     struct Entry
     {
         public (int X, int Y) At;
         public int Body;
-        public long Bucket;
         public int Pass;
+        public long ClientTileArrival;
     }
 
     public int Count => entries.Count;
@@ -27,25 +31,34 @@ public sealed class AreaGrid
     public int MaxBody { get; private set; }
 
     static long BucketOf((int X, int Y) at) => (long)(at.X >> Shift) << 32 | (uint)(at.Y >> Shift);
+    static (int Y, int X) ClientTileOf((int X, int Y) at) =>
+        (at.Y / TilePlacement.CellsPerTile, at.X / TilePlacement.CellsPerTile);
 
     /// <summary>Where the entity stands; true when it is new or changed cell.</summary>
     public bool Set(EntityId id, (int X, int Y) at, int body = 0)
     {
-        long bucket = BucketOf(at);
         if (body > MaxBody) MaxBody = body;
-        if (entries.TryGetValue(id, out var entry))
+        ref var entry = ref CollectionsMarshal.GetValueRefOrAddDefault(entries, id, out bool exists);
+        if (exists)
         {
             bool moved = entry.At != at;
-            if (entry.Bucket != bucket)
+            if (moved)
             {
-                Unlist(id, entry.Bucket);
-                List(id, bucket);
+                long oldBucket = BucketOf(entry.At), bucket = BucketOf(at);
+                if (oldBucket != bucket)
+                {
+                    Unlist(id, oldBucket);
+                    List(id, bucket);
+                }
+                if (ClientTileOf(entry.At) != ClientTileOf(at)) entry.ClientTileArrival = ++clientTileArrival;
+                entry.At = at;
             }
-            entries[id] = new Entry { At = at, Body = body, Bucket = bucket, Pass = pass };
+            entry.Body = body;
+            entry.Pass = pass;
             return moved;
         }
-        List(id, bucket);
-        entries[id] = new Entry { At = at, Body = body, Bucket = bucket, Pass = pass };
+        List(id, BucketOf(at));
+        entry = new Entry { At = at, Body = body, Pass = pass, ClientTileArrival = ++clientTileArrival };
         return true;
     }
 
@@ -64,8 +77,18 @@ public sealed class AreaGrid
     public bool Remove(EntityId id)
     {
         if (!entries.Remove(id, out var entry)) return false;
-        Unlist(id, entry.Bucket);
+        Unlist(id, BucketOf(entry.At));
         return true;
+    }
+
+    /// <summary>The client's tile scan order: row, column, then order of entry to that tile. A position ahead of
+    /// the last grid pass ranks after walkers that have already arrived there.</summary>
+    public (int Y, int X, long Arrival, EntityId Id) ClientTileScanOrder(EntityId id, (int X, int Y) at)
+    {
+        var tile = ClientTileOf(at);
+        long arrival = entries.TryGetValue(id, out var entry) && ClientTileOf(entry.At) == tile
+            ? entry.ClientTileArrival : long.MaxValue;
+        return (tile.Y, tile.X, arrival, id);
     }
 
     public bool TryGet(EntityId id, out (int X, int Y) at, out int body)

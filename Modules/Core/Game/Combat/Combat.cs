@@ -3083,6 +3083,10 @@ public static partial class Game
         ushort? areaAction = SkillsFor(player).ActionHash(gem.Effect);
         var effectId = SkillsFor(player).EffectId(gem.Effect);
         bool bladestorm = !spell && IsBladestorm(effectId);
+        bool swordstorm = !spell && IsSwordstorm(effectId);
+        bool crushingFist = areaAction == CrushingFistAction && retainedAttack is null;
+        double? fistStartedAt = crushingFist ? swingAt ?? AreaTime(player) : null;
+        double fistPlacementDelay = 0;
         double? stormPeriod = bladestorm && retainedAttack is null
             ? strikeSeconds ?? SupportedAttackSeconds(player, skillId, hand) : null;
         bool ownSlam = !spell && (triggeredCurrent is null || IsLeapSlam(player, gem.Effect)
@@ -3100,6 +3104,11 @@ public static partial class Game
             contactClip = lacerate.Clip;
             contactFraction = lacerate.Fraction;
             delay = lacerate.DueAt - (swingAt ?? AreaTime(player));
+        }
+        else if (crushingFist)
+        {
+            delay = CrushingFistContactDelay(player, hand, strikeSeconds ?? SupportedAttackSeconds(player, skillId, hand),
+                out fistPlacementDelay, out contactClip, out contactFraction) + repeatDelay;
         }
         else delay = retainedAttack is not null ? 0 : spell
             ? castDuration.Value / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject)) + repeatDelay
@@ -3166,7 +3175,7 @@ public static partial class Game
         // around the caster.
         var centre = shieldWaves is { } shieldArea ? shieldArea.Origin
             : katabasisStrike || contactTargets is not null || infernalBlast is not null
-                || IsSmite(gem.Effect) && singleStrikeTarget is null ? to
+                || swordstorm && retainedAttack is not null || IsSmite(gem.Effect) && singleStrikeTarget is null ? to
             : wave || vaalSlam || bladestorm || effectId == "VaalSweep" ? from
             : spell ? SpellCentre(player, gem.Effect, from, to)
             : MeleeAreaCentre.Of(SkillsFor(player).ActionHash(gem.Effect), from, to, radius + MeleeSkillReach(player, weapon, gem.Effect, skillStats));
@@ -3212,10 +3221,22 @@ public static partial class Game
         }
         // A channel's hits (Cyclone, C→S 0x197) land at once, where the player is. A swing that began before now
         // (swingAt) lands its contact after its start.
-        if (swingAt is { } swung) delay -= AreaTime(player) - swung;
+        if (fistStartedAt is { } fistStart)
+        {
+            if (!immediate)
+            {
+                double remaining = fistStart + repeatDelay + fistPlacementDelay - AreaTime(player);
+                if (remaining > 0) await AreaDelay(player, remaining);
+                await WhilePaused(player);
+                if (Replaced() || player.Closed || !Current()) return;
+            }
+            using (ProjectileMutation(player, advance: scheduledSession is null))
+                centre = PlaceCrushingFist(player, gem.Effect, weapon, skillStats, to, targetId);
+        }
+        if ((swingAt ?? fistStartedAt) is { } swung) delay -= AreaTime(player) - swung;
         if (!immediate)
         {
-            await AreaDelay(player, Math.Max(0.05, delay));
+            if (!crushingFist || delay > 0) await AreaDelay(player, crushingFist ? delay : Math.Max(0.05, delay));
             await WhilePaused(player);
             if (Replaced() || player.Closed || !Current()) return;
         }
@@ -3288,6 +3309,32 @@ public static partial class Game
             if (stormPeriod is double interval && strikeIndex == 0)
                 CreateBladestormLocked(player, gem, admittedGem, hand, weapon, offCritical, from, to, interval,
                     sequence, now, radiusMore, damageMore, ruthless, repeat, cryExerted);
+            if (swordstorm && retainedAttack is null)
+            {
+                ScheduleSwordstormLocked(player, gem, admittedGem, weapon, criticalRoll, to, sequence, now, radius, damageMore, ruthless);
+                return;
+            }
+            if (areaAction == GlacialShieldSwipeAction && retainedAttack is null)
+            {
+                ScheduleGlacialShieldSwipeLocked(player, gem, admittedGem, criticalRoll, to, sequence, now, radius, damageMore, ruthless);
+                return;
+            }
+            if (areaAction == EviscerateAction && retainedAttack is null)
+            {
+                int width = (int)Math.Round(SkillSecondaryRadius(player, areaStats, spell: false, gem.Effect)
+                    * radiusMore * chargeRadius);
+                ScheduleEviscerateLocked(player, gem, admittedGem, weapon, criticalRoll, to, sequence, now,
+                    radius, width, damageMore, ruthless);
+                return;
+            }
+            if (areaAction == ShieldOfLightAction && retainedAttack is null)
+            {
+                int allyRadius = (int)Math.Round(SkillSecondaryRadius(player, areaStats, spell: false, gem.Effect)
+                    * radiusMore * chargeRadius);
+                ScheduleShieldOfLightLocked(player, gem, admittedGem, criticalRoll, to, sequence, now,
+                    radius, allyRadius, damageMore, ruthless);
+                return;
+            }
             if (retainedAttack is null && strikeIndex == 0 && areaAction == HolyHammersAction)
             {
                 ScheduleHolyHammersLocked(player, gem, admittedGem, from, to, sequence, repeat, hand, weapon, offCritical,
@@ -3395,7 +3442,7 @@ public static partial class Game
                 }
             }
             bool shapeUsesNearby = boneshatter is not null || lacerate is not null
-                || cleave is not null || reaveArc is not null || nearbyOnly;
+                || cleave is not null || reaveArc is not null || crushingFist || nearbyOnly;
             IEnumerable<(uint Key, SpawnedMonster Value, (int X, int Y) At, double Distance)> TargetsAt((int X, int Y) c) =>
                 (contactTargets is null
                     ? (shapeUsesNearby ? player.Area.MonstersNear(c, radius) : player.Area.Monsters)
@@ -3405,8 +3452,10 @@ public static partial class Game
                 .Select(e => (e.Key, e.Value, e.At, Distance: Dist(e.At, c)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
                     && (singleStrikeTarget is null || e.Key == singleStrikeTarget)
-                    && (e.Distance <= reachLimit || contactTargets is not null || shieldWaves is not null
+                    && (e.Distance <= reachLimit + (crushingFist ? LivingCollision.Size(e.Value) : 0)
+                        || contactTargets is not null || shieldWaves is not null
                         || lacerate is not null || cleave is not null || reaveArc is not null)
+                    && (!crushingFist || !e.Value.WorldHidden && MeleeArcSight(player, c, e.At))
                     && (lacerate is null || !e.Value.WorldHidden && lacerate.Waves.Covers(lacerate.Phase, e.At, LivingCollision.Size(e.Value))
                         && MeleeArcSight(player, from, e.At))
                     && (cleave is not { } arc || !e.Value.WorldHidden

@@ -28,7 +28,7 @@ public static partial class Game
         if (blocked)
         {
             player.RecentEvents.Record(StatConditions.Blocked, now);
-            OpenRetaliationWindow(player, DivineRetributionEffect, DivineRetributionOpportunity, DivineRetributionReadyBuff, now);
+            OpenRetaliationWindows(player, blocked: true, now);
             player.RecentEvents.Record(spell ? StatConditions.BlockedSpell : StatConditions.BlockedAttack, now);
             QueueFlaskTrigger(player, FlaskEnchantments.Trigger.Block);
             if (ItemEffectRules.Enabled) CastSocketedSpellOnBlock(player, now, attacker);
@@ -37,7 +37,7 @@ public static partial class Game
         if (lifeDamage > 0 && lifeDamage * 100 >= (long)player.PlayerMaxLife * 15)
         {
             player.RecentEvents.Record(StatConditions.TakenSavageHit, now);
-            OpenRetaliationWindow(player, VengefulCryEffect, VengefulCryOpportunity, VengefulCryReadyBuff, now);
+            OpenRetaliationWindows(player, blocked: false, now);
             QueueFlaskTrigger(player, FlaskEnchantments.Trigger.SavageHit);
         }
         ChargesWhenHit(player, blocked, spell, critical);
