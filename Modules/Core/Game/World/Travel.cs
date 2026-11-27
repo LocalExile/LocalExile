@@ -450,7 +450,7 @@ public static partial class Game
         bool enteringArena = IsEnteringArena(player, transition, departure, arrival);
         var preferred = enteringArena ? departure : arrival;
         var fallback = enteringArena ? (transition.GridX, transition.GridY) : (transition.TeleportTo ?? arrival);
-        if (VerifiedWalkableCheckpointCell(layout, preferred, fallback) is { } cell)
+        if (VerifiedWalkableCheckpointCell(layout, preferred, fallback, player.Barrier) is { } cell)
             LocalGateCheckpoints.GetOrCreateValue(instance).Set(player, cell);
     }
 
@@ -461,7 +461,7 @@ public static partial class Game
             || !LocalGateCheckpoints.TryGetValue(instance, out var table)
             || table.Get(player) is not { } point)
             return null;
-        return VerifiedWalkableCheckpointCell(player.Layout, point, point);
+        return VerifiedWalkableCheckpointCell(player.Layout, point, point, player.Barrier);
     }
 
     /// <summary>Clears the player's in-instance intra-area gate checkpoint (used on non-portal arrival and when newly
@@ -490,10 +490,11 @@ public static partial class Game
     {
         var layout = player.Layout;
 
-        // ExtraTerrainFeatures links (Sacred Grove, Betrayal Lab): entering the sub-area keeps checkpoint outside its portal;
-        // returning to the main area lands outside its portal.
+        // ExtraTerrainFeatures links (Sacred Grove, Betrayal Lab, Expedition side areas): entering the sub-area keeps
+        // checkpoint outside its portal; returning to the main area lands outside its portal.
         if (transition.Feature is not null)
-            return transition.DestinationHash16 != layout.Hash;
+            return transition.DestinationHash16 != layout.Hash
+                || (InFeatureSubArea(layout, arrival) && !InFeatureSubArea(layout, departure));
 
         // Explicit return / exit objects always land on the exterior side.
         if (transition.SourceType is
@@ -532,20 +533,29 @@ public static partial class Game
                 or "UnholySubBossDomainMaligaro"
                 or "UnholySubBossDomainShavronne")
                 return false;
-
-            if (DestinationIsSafeRoomOrReturn(layout, departure, arrival, labelKey))
-                return false;
-
-            if (labelKey.Contains("Arena", StringComparison.OrdinalIgnoreCase)
-                || labelKey is "AreaTransitionCankerousSoreEntrance" or "PrivateBathEntrance" or "ObjectDisplayTextSanctumLibrary")
-                return true;
         }
+
+        if (DestinationIsSafeRoomOrReturn(layout, departure, arrival, labelKey))
+            return false;
+
+        if (labelKey is not null && (labelKey.Contains("Arena", StringComparison.OrdinalIgnoreCase)
+            || labelKey is "AreaTransitionCankerousSoreEntrance" or "PrivateBathEntrance" or "ObjectDisplayTextSanctumLibrary"))
+            return true;
 
         // Unlabelled or generic gates: treat as entering a boss room if the destination holds an active unique/campaign boss.
         return DestinationHasActiveBoss(player, departure, arrival);
     }
 
-    static bool DestinationIsSafeRoomOrReturn(AreaLayout layout, (int X, int Y) departure, (int X, int Y) arrival, string labelKey)
+    static bool InFeatureSubArea(AreaLayout layout, (int X, int Y) at)
+    {
+        if (layout.Level is not { } level) return false;
+        foreach (var record in level.Records)
+            if (record.FeatureRow is not null && record.Rooms.Any(room => RoomContains(room, at)))
+                return true;
+        return false;
+    }
+
+    static bool DestinationIsSafeRoomOrReturn(AreaLayout layout, (int X, int Y) departure, (int X, int Y) arrival, string? labelKey)
     {
         // Act 9 The Rotting Core (2_9_10_2): "The Black Core" (MalachaiArenaName1) is the safe Sin/Lilly hub room.
         if (labelKey == "MalachaiArenaName1" && layout.Id == DepravedTrinity.Area)
@@ -621,13 +631,15 @@ public static partial class Game
         at.X >= room.X * 23 && at.X < (room.X + room.Width) * 23
         && at.Y >= room.Y * 23 && at.Y < (room.Y + room.Height) * 23;
 
-    static (int X, int Y)? VerifiedWalkableCheckpointCell(AreaLayout layout, (int X, int Y) preferred, (int X, int Y) fallbackOrigin)
+    static (int X, int Y)? VerifiedWalkableCheckpointCell(AreaLayout layout, (int X, int Y) preferred, (int X, int Y) fallbackOrigin,
+        IReadOnlySet<(int X, int Y)>? barrier = null)
     {
         bool Valid(int x, int y) =>
             x >= 0 && y >= 0
             && (layout.GridW <= 0 || x < layout.GridW)
             && (layout.GridH <= 0 || y < layout.GridH)
-            && layout.WalkableFor(x, y, 1);
+            && layout.WalkableFor(x, y, 1)
+            && barrier?.Contains((x, y)) != true;
 
         if (Valid(preferred.X, preferred.Y)) return preferred;
         // Prefer an adjacent walkable cell on the same side of any thin arena wall before wider radial search.

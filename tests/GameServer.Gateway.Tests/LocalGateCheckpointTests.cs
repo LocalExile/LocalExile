@@ -200,6 +200,15 @@ public sealed class LocalGateCheckpointTests
         Game.RememberLocalGateCheckpoint(generic, unlabelledBossDoor, (118, 122), (400, 400));
         Assert.Equal((118, 122), Game.LocalGateCheckpointOf(generic));
 
+        // Active dynamic door barrier covering the saved cell steps clear onto an adjacent walkable cell.
+        generic.DoorBarriers[1] = new HashSet<(int X, int Y)> { (118, 122) };
+        generic.UpdateBarrier();
+        var cleared = Game.LocalGateCheckpointOf(generic);
+        Assert.NotNull(cleared);
+        Assert.NotEqual((118, 122), cleared!.Value);
+        generic.DoorBarriers.Clear();
+        generic.UpdateBarrier();
+
         // Towns and cross-area exits do not record local gate checkpoints; maps still exit to their device origin.
         var town = MakePlayer("1_1_town", AreaLayouts.LioneyesWatch, "TownTester");
         Game.RememberLocalGateCheckpoint(town, new AreaTransitionObject(50, 50, town.Layout.Hash, null) { TeleportTo = (80, 80) }, (48, 50), (80, 80));
