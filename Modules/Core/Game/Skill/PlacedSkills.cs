@@ -11,6 +11,21 @@ public static partial class Game
     const string TriggeredTrapEvent = "triggered_trap";
     static readonly RuleTable<PlacedSkills.Placed, SpectralTrapHand> SpectralTrapHands = new();
 
+    static Penetration.PerType WithMinePenetration(Penetration.PerType hit, IReadOnlyDictionary<uint, int> caster,
+        IReadOnlyDictionary<uint, int> skill)
+    {
+        if (caster.GetValueOrDefault(Penetration.ElementalProhibition) != 0
+            || skill.GetValueOrDefault(Penetration.ElementalProhibition) != 0) return hit;
+        long mine = (long)caster.GetValueOrDefault(Stat.MineDamagePenetratesPctElementalResistance)
+            + skill.GetValueOrDefault(Stat.MineDamagePenetratesPctElementalResistance);
+        return mine == 0 ? hit : hit with
+        {
+            Fire = ActorScale.Saturate(hit.Fire + mine),
+            Cold = ActorScale.Saturate(hit.Cold + mine),
+            Lightning = ActorScale.Saturate(hit.Lightning + mine),
+        };
+    }
+
     /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
     public static void LoadPlacedSkillsData()
     {
@@ -982,7 +997,7 @@ public static partial class Game
                 // The rig's flight clip is what shows art that has no default animation (Spark's sparks).
                 var offense = ((ProjectileOffense)use.Payload!).ScaleDamage(releaseMore);
                 return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true, FromMine = placed.Mine,
-                    Penetration = placed.Mine ? Penetration.WithMine(offense.Penetration,
+                    Penetration = placed.Mine ? WithMinePenetration(offense.Penetration,
                         offense.ActualCaster ?? CharacterPlayerStats(player), offense.SkillStats) : offense.Penetration,
                     Presentation = WithProjectileClips(offense.Presentation, SkillsFor(player).Clips(use.Profile.Id),
                         use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
@@ -1043,7 +1058,7 @@ public static partial class Game
         bool targetedSpell = spatialSpell || hexblast || arcSplit is not null || shockNova is not null || cascade is not null || ruinSession is not null;
         var mods = targetedSpell ? HitResistMods(playerStats, placed.Own) : default;
         var penetration = targetedSpell ? Penetration.Of(playerStats, Stats, attack, placed.Own) : default;
-        if (placed.Mine) penetration = Penetration.WithMine(penetration, playerStats, placed.Own);
+        if (placed.Mine) penetration = WithMinePenetration(penetration, playerStats, placed.Own);
         int arcRolls = arcSplit is null ? 0 : ArcExtraRolls(player, ArcSurgingEffect, playerStats);
         bool hexblastSplash = false;
         var nearby = player.Area.MonstersNear(centre, radius).ToArray();

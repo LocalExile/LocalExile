@@ -998,6 +998,7 @@ public static partial class Game
                 && (shot.ProjectileAttack ?? (shot.Effect < 0 || SkillsFor(Player).IsProjectile(shot.Effect)));
             int additionalTaken = projectileAttack ? EnsnaredProjectileAttackTaken(target, at) : 0;
             bool ownHit = shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.FromTotem && !shot.Mirage;
+            bool playerAilmentOwned = !shot.Mirage && (shot.ActualCaster is null || shot.FromTrapOrMine || shot.FromTotem);
             int witheredElemental = ownHit ? WitheredElementalHitTaken(target, Player.Id, at, player) : 0;
             var (damage, _, mitigated, takenRules) = ResolveMonsterHit(target, rolled, critical, !shot.Spell, at, resonance.Mods,
                 resonance.Penetration, hitRolls.InvertsResistance(random, shot.SkillResistanceInversionChance),
@@ -1086,7 +1087,7 @@ public static partial class Game
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
                     attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance,
-                    areaHit: contact.IsArea, sourceEffect: shot.Effect, ownHit: ownHit,
+                    areaHit: contact.IsArea, sourceEffect: shot.Effect, ownHit: ownHit, playerAilmentOwned: playerAilmentOwned,
                     closeRangeBowKnockback: !shot.Spell && ownHit && shot.WeaponClass == "Bow"
                         && (player.GetValueOrDefault(Stat.UniqueChinSolCloseRangeKnockback) != 0
                             || weaponLocal?.GetValueOrDefault(Stat.UniqueChinSolCloseRangeKnockback) > 0)
@@ -1103,7 +1104,7 @@ public static partial class Game
                     attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell));
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0)
                 BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at,
-                    BleedReflected(shot.ActualCaster is null ? player : CharacterPlayerStats(Player)));
+                    BleedReflected(shot.ActualCaster is null ? player : CharacterPlayerStats(Player)), playerAilmentOwned);
             if (shot.ActualCaster is null)
                 RageOnHitWithWeaponLocked(Player, attack: !shot.Spell, melee: false, critical,
                     shot.FromTrapOrMine || shot.FromTotem ? null : shot.WeaponClass, shot.SkillStats,

@@ -44,6 +44,48 @@ public static partial class Game
     public const ushort CoveredInAshBuffRow = 807;
     public const int CoveredInAshFireTakenPct = 20;
 
+    sealed class TimedEnemyModifier
+    {
+        readonly List<(double From, double Until, int Percent)> effects = [];
+
+        public void Add(double from, double until, int percent)
+        {
+            if (until <= from || percent <= 0) return;
+            int i = effects.FindIndex(effect => effect.Percent == percent && effect.Until >= from);
+            if (i < 0) effects.Add((from, until, percent));
+            else effects[i] = (Math.Min(effects[i].From, from), Math.Max(effects[i].Until, until), percent);
+        }
+
+        public int Strongest(double at)
+        {
+            int percent = 0;
+            foreach (var effect in effects)
+                if (effect.From <= at && at < effect.Until) percent = Math.Max(percent, effect.Percent);
+            return percent;
+        }
+
+        public double ReducedTime(double from, double until, Func<double, double, double> time)
+        {
+            if (until <= from) return 0;
+            if (effects.Count == 0) return time(from, until);
+            var cuts = effects.SelectMany(effect => new[] { effect.From, effect.Until })
+                .Where(cut => from < cut && cut < until).Append(from).Append(until).Distinct().Order().ToArray();
+            double total = 0;
+            for (int i = 1; i < cuts.Length; i++)
+                total += time(cuts[i - 1], cuts[i]) * (1 - Math.Clamp(Strongest((cuts[i - 1] + cuts[i]) / 2), 0, 100) / 100d);
+            return total;
+        }
+
+        public void ForgetEnded(double now) => effects.RemoveAll(effect => effect.Until <= now);
+    }
+
+    static readonly RuleTable<SpawnedMonster, TimedEnemyModifier> IntimidateStunDurations = new();
+    static readonly RuleTable<SpawnedMonster, TimedEnemyModifier> MaimDotTaken = new();
+    static readonly RuleTable<SpawnedMonster, TimedEnemyModifier> HinderRegeneration = new();
+
+    internal static int IntimidateStunDuration(SpawnedMonster monster, double now) =>
+        IntimidateStunDurations.TryGetValue(monster, out var modifiers) ? modifiers.Strongest(now) : 0;
+
     /// <summary>Whether a hit intimidates and unnerves: chance_to_intimidate_on_hit_% (and attacks_intimidate_on_hit_%
     /// for an attack), chance_to_unnerve_on_hit_% (and chance_to_unnerve_on_hit_with_spells_% for a spell), and Grattus
     /// Signet's crits: spells_inflict_intimidate_on_crit, attacks_inflict_unnerve_on_crit.</summary>
@@ -114,13 +156,9 @@ public static partial class Game
         monster.IntimidatedUntil = Math.Max(monster.IntimidatedUntil, until);
         if (stunDurationPct > 0)
         {
-            if (now >= monster.IntimidateStunDurationUntil || stunDurationPct > monster.IntimidateStunDurationPct)
-            {
-                monster.IntimidateStunDurationPct = stunDurationPct;
-                monster.IntimidateStunDurationUntil = until;
-            }
-            else if (stunDurationPct == monster.IntimidateStunDurationPct)
-                monster.IntimidateStunDurationUntil = Math.Max(monster.IntimidateStunDurationUntil, until);
+            var modifiers = IntimidateStunDurations.GetOrCreateValue(monster);
+            modifiers.ForgetEnded(now);
+            modifiers.Add(now, until, stunDurationPct);
         }
         monster.PresentationChanged?.Invoke();
     }
@@ -130,19 +168,18 @@ public static partial class Game
         if (monster.Effects[Stat.YouCannotBeHindered] != 0 || monster.Effects[Stat.ImmuneToHinder] != 0) return;
         if (fromTotem) monster.TotemHinderedUntil = Math.Max(monster.TotemHinderedUntil, now + HinderSeconds);
         else monster.HinderedUntil = Math.Max(monster.HinderedUntil, now + HinderSeconds);
-        if (regeneration < 0 && (regeneration <= monster.HinderedRegenPct || now >= monster.HinderedRegenUntil))
-        {
-            if (now >= monster.HinderedRegenUntil || regeneration != monster.HinderedRegenPct) monster.HinderedRegenFrom = now;
-            monster.HinderedRegenUntil = now + HinderSeconds;
-            monster.HinderedRegenPct = regeneration;
-        }
+        if (regeneration < 0)
+            HinderRegeneration.GetOrCreateValue(monster).Add(now, now + HinderSeconds, 0 - Math.Max(-100, regeneration));
         monster.PresentationChanged?.Invoke();
     }
 
     /// <summary>The shared Maim application for a surviving hostile hit. RandomRolls.Chance returns false without drawing
     /// when the chance is at most zero, and true without drawing when it is at least the scale.</summary>
+    public static bool TryMaimOnHitLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random) =>
+        TryMaimOnHitLocked(m, chance, physicalTaken, now, random, 0);
+
     public static bool TryMaimOnHitLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random,
-        int dotTaken = 0) => m.Hostile && TryApplyMaimLocked(m, chance, physicalTaken, now, random, dotTaken);
+        int dotTaken) => m.Hostile && TryApplyMaimLocked(m, chance, physicalTaken, now, random, dotTaken);
 
     /// <summary>Whether the player avoids an incoming Maim (immune_to_maim or Garukhan's avoid_maim_%_chance).</summary>
     public static bool PlayerAvoidsMaim(Func<uint, int> get, Random random) =>
@@ -156,10 +193,11 @@ public static partial class Game
         if (!RandomRolls.Chance(chance, 100, random)) return false;
         // Settle elapsed bleed damage at its Rupture deadlines using the target's previous Maim.
         if ((physicalTaken > 0 || dotTaken > 0) && m.Bleeds.Burning) SettleBleeding(m, now);
-        if (dotTaken > 0 && (dotTaken >= m.MaimedDotTakenPct || now >= m.MaimedDotTakenUntil))
+        if (dotTaken > 0)
         {
-            m.MaimedDotTakenPct = dotTaken;
-            m.MaimedDotTakenUntil = now + MaimSeconds;
+            var modifiers = MaimDotTaken.GetOrCreateValue(m);
+            modifiers.ForgetEnded(now);
+            modifiers.Add(now, now + MaimSeconds, dotTaken);
         }
         m.MaimedUntil = Math.Max(m.MaimedUntil, now + MaimSeconds);
         m.PresentationChanged?.Invoke();

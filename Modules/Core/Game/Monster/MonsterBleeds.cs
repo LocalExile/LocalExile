@@ -183,7 +183,11 @@ public static partial class Game
 
     public static void BleedOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now, bool reflect = false) =>
-        QueueDotBuff(session, BleedOnHitLocked(session.Player, id, target, settings, critical, now, reflect),
+        BleedOnHitLocked(session, id, target, settings, critical, now, reflect, playerOwned: true);
+
+    static void BleedOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
+        MonsterIgnites.Settings settings, bool critical, double now, bool reflect, bool playerOwned) =>
+        QueueDotBuff(session, BleedOnHitLocked(session.Player, id, target, settings, critical, now, reflect, playerOwned),
             BleedingLog(id, target, critical, now));
 
     /// <summary>A bleeding monster's mitigation: its physical damage over time taken (resistance, damage taken, Pride;

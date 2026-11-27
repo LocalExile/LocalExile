@@ -101,7 +101,7 @@ public static partial class Game
             FromTrapOrMine = shot.FromTrapOrMine || from is not null,
             FromMine = shot.FromMine || placedKind.Mine,
             Penetration = placedKind.Mine && !shot.FromMine
-                ? Penetration.WithMine(shot.Penetration, shot.ActualCaster ?? playerStats, own) : shot.Penetration } };
+                ? WithMinePenetration(shot.Penetration, shot.ActualCaster ?? playerStats, own) : shot.Penetration } };
         if (IsKineticRain(id))
         {
             ReleaseKineticRain(session, use, gem, id, aim, own, playerStats, critical, sequence);

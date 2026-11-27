@@ -261,6 +261,7 @@ public static partial class Game
                 uint payment = Lifetap.PayOngoingLife(player.PlayerLife, link.LifePerMinute * seconds / 60,
                     ref link.LifeCarry, out bool exhausted);
                 player.PlayerLife -= payment;
+                if (payment > 0) player.RecentEvents.Record(StatConditions.SpentLife, now);
                 lifePaid += payment;
                 link.LifePaidAt = now;
                 if (exhausted) why = "not enough life";

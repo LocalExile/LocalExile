@@ -50,7 +50,7 @@ public static class HitReaction
 
     // Character.ot's object_inherent_melee_hit_stun_duration_+%_final is 50.
     static double Seconds(StunHit hit, SpawnedMonster m, double now) => (hit.BaseSeconds > 0 ? hit.BaseSeconds : BaseSeconds)
-        * Math.Max(0, 1 + (hit.DurationPct + (now < m.IntimidateStunDurationUntil ? (long)m.IntimidateStunDurationPct : 0)) / 100.0)
+        * Math.Max(0, 1 + (hit.DurationPct + (long)Game.IntimidateStunDuration(m, now)) / 100.0)
         * Math.Max(0, 1 + hit.FinalDurationPct / 100.0)
         * (hit.Melee ? 1.5 : 1) / Math.Max(.01, 1 + m.Mods.Effects[Stat.BaseStunRecoveryPlusPct] / 100.0);
 

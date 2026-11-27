@@ -653,10 +653,6 @@ public static class GameEvents
     /// built from: a module returns it changed. A hit is built without a connection, so this runs for every player's attacks:
     /// a subscriber acts only on a stat of its own.</summary>
     public static readonly GameEvent<Func<DamagePacket, Func<uint, int>, DamagePacket>> AttackHit = new();
-    /// <summary>Independent module-supplied more/less percentages for incoming damage over time only.</summary>
-    public static readonly GameEvent<Func<Func<uint, int>, int>> DamageOverTimeTakenMore = new();
-    /// <summary>Independent module-supplied more/less percentages for the recharge rate.</summary>
-    public static readonly GameEvent<Func<Func<uint, int>, int>> EnergyShieldRechargeMore = new();
     /// <summary>More cast speed for this cast in percent, from the stats the cast reads; 0 for none. Each answer multiplies.</summary>
     public static readonly GameEvent<Func<Player, Func<uint, int>, int>> CastSpeedMore = new();
     /// <summary>A module's own final percent on the radius within which Beyond portals merge, from the stats the area
@@ -779,14 +775,6 @@ public static class GameEvents
     {
         foreach (var subscriber in AttackHit.Snapshot) hit = subscriber.Run(hit, get);
         return hit;
-    }
-
-    internal static double StatMultiplier(GameEvent<Func<Func<uint, int>, int>> modifiers, Func<uint, int> get)
-    {
-        double factor = 1;
-        foreach (var subscriber in modifiers.Snapshot)
-            factor *= Math.Max(0, 1 + subscriber.Run(get) / 100d);
-        return factor;
     }
 
     public static DamagePacket WithOutgoingDamage(Player player, IReadOnlyDictionary<uint, int> playerStats, SpawnedMonster monster, DamagePacket rolled)

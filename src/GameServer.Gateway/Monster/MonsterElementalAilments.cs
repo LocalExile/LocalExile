@@ -108,7 +108,8 @@ public sealed class MonsterElementalAilments
     public double Remaining(Kind kind, double now) => Active(kind, now).Select(e => (e.Until - now) * expiryRate).DefaultIfEmpty().Max();
 
     public double AppliedUntil(Kind kind, uint source, double now) => effects
-        .Where(effect => effect.Kind == kind && effect.Source == source && effect.From <= now && now < effect.Until)
+        .Where(effect => effect.Kind == kind && effect.AuraSource is null && effect.Source == source
+            && effect.From <= now && now < effect.Until)
         .Select(effect => effect.Until).DefaultIfEmpty(now).Max();
 
     public void RefreshChillAndShock(double now)
@@ -397,11 +398,16 @@ public sealed class MonsterElementalAilments
         int? stated = null) => ApplyAura(kind, source, seconds, now, attacker, target, stated, coldTakenFromChill: false);
 
     public void ApplyAura(Kind kind, ulong source, double seconds, double now, Func<uint, int> attacker, Func<uint, int> target,
-        int? stated, bool coldTakenFromChill)
+        int? stated, bool coldTakenFromChill) =>
+        ApplyAuraEffect(kind, source, seconds, now, attacker, target, stated, coldTakenFromChill, 0);
+
+    public Effect? ApplyAuraEffect(Kind kind, ulong source, double seconds, double now, Func<uint, int> attacker,
+        Func<uint, int> target, int? stated, bool coldTakenFromChill, uint owner)
     {
-        if (Apply(new(kind, now, now + seconds, BaseWithoutDamage(kind, attacker, target, stated))
-            { AuraSource = source, ColdTaken = kind == Kind.Chill && coldTakenFromChill }, attacker, target) is null)
-            RemoveAura(kind, source);
+        var effect = Apply(new(kind, now, now + seconds, BaseWithoutDamage(kind, attacker, target, stated))
+            { AuraSource = source, Source = owner, ColdTaken = kind == Kind.Chill && coldTakenFromChill }, attacker, target);
+        if (effect is null) RemoveAura(kind, source);
+        return effect;
     }
 
     /// <summary>Keep a permanent aura at its current magnitude while its source covers the target.</summary>

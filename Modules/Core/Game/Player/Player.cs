@@ -1314,7 +1314,8 @@ public static partial class Game
                         IncomingStat(IncomingResourceDefences.BypassStat), now, ref player.NonChaosDotBypassCarry);
                     RecordRechargeLifeDamage(player, Math.Max(lifeBurn, lifeTrap), now, recoveryStats);
                     double lifeRecharge = AdvanceKeystoneRecovery(player, recoveryFrom, now, lifeBefore < lifeCap, RecoveryStat);
-                    uint esCeiling = EnergyShieldRecoveryCeiling(player, RecoveryStat);
+                    int recoveryCeilingPct = PetrifiedBlood.RecoveryCeilingPct(RecoveryStat);
+                    uint esCeiling = EnergyShieldRecoveryCeiling(player, recoveryCeilingPct);
                     player.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
                     double periodicLife = periodicRegenStart is double start ? periodicRegenPerSecond
                         * (PeriodicRegenSeconds(now - start) - PeriodicRegenSeconds(recoveryFrom - start)) : 0;
@@ -1362,6 +1363,7 @@ public static partial class Game
                         uint payment = Lifetap.PayOngoingLife(lifeAfter, blades.CostPerMinute * seconds / 60,
                             ref blades.LifeCostCarry, out blades.OutOfLife);
                         player.PlayerLife = lifeAfter -= payment;
+                        if (payment > 0) player.RecentEvents.Record(StatConditions.SpentLife, now);
                     }
                     // Trap degeneration can kill; keep the same current-owner recovery and death publication gates.
                     if (lifeTrap > 0 && !HardcoreProgressBlocked(player))

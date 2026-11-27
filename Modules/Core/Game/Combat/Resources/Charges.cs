@@ -412,11 +412,12 @@ public static partial class Game
             int radius = SkillRadius(player, WarcryRadius, own, spell: false, effect);
             double now = AreaTime(player);
             var here = player.Walk.Position(now);
-            int taunted = TauntLocked(player, here, radius, now, taunt);
+            bool intimidating = effectId == "IntimidatingCry";
+            int taunted = intimidating
+                ? ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now, !suppressBuffs, radius)
+                : TauntLocked(player, here, radius, now, taunt);
             Console.WriteLine($"[gateway] {effectId}: taunts {taunted} monster(s) within {radius} cells for {taunt:0.##} s");
-            if (effectId == "IntimidatingCry")
-                ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now, applyMovementBuff: !suppressBuffs);
-            else if (!suppressBuffs)
+            if (!intimidating && !suppressBuffs)
                 ApplyWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
             if (effectId == "SeismicCry")
                 GrantSeismicCryExertsLocked(player, own, playerStats);

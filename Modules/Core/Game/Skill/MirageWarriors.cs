@@ -628,14 +628,14 @@ public static partial class Game
                     {
                         AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, ailmentStats, now,
                             AreaRng(player), sourceEffect: gem.Effect, poison: damageMore == 1 ? poison : RepeatAilment(poison, damageMore),
-                            sourceSkill: skillId, ownHit: false);
+                            sourceSkill: skillId, ownHit: false, playerAilmentOwned: false);
                         if (applied.Life > 0 && ignite.CanIgnite(rolled)
                             && IgniteOnHitLocked(player, id, m, damageMore == 1 ? ignite : RepeatAilment(ignite, damageMore),
                                 critical, now, playerIgnite: false) is { } ign)
                             dotPackets.AddRange(ign);
                         if (applied.Life > 0 && rolled[DamageType.Physical].Max > 0
                             && BleedOnHitLocked(player, id, m, damageMore == 1 ? bleed : RepeatAilment(bleed, damageMore),
-                                critical, now) is { } bld)
+                                critical, now, reflect: false, playerOwned: false) is { } bld)
                             dotPackets.AddRange(bld);
                     }
                     if (meleeExcludedId == 0 && IsLightningStrike(gem.Effect)) meleeExcludedId = id;

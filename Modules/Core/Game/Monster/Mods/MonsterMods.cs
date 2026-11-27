@@ -572,7 +572,13 @@ public static partial class Game
         if (periodic > 0) m.PeriodicLifeRegenStarted ??= now;
         else m.PeriodicLifeRegenStarted = null;
         // Not while EntranceGrace or a non-lethal encounter floor holds it out of the fight: it does not regain life.
-        if (m.Dead || m.EntranceGrace || m.OnNonLethalZero is not null || m.Life == 0 || m.Life >= m.MaxLife) { m.Regen = 0; return; }
+        HinderRegeneration.TryGetValue(m, out var hinder);
+        if (m.Dead || m.EntranceGrace || m.OnNonLethalZero is not null || m.Life == 0 || m.Life >= m.MaxLife)
+        {
+            m.Regen = 0;
+            hinder?.ForgetEnded(now);
+            return;
+        }
         double perSecond = m.Effects.LifeRegenPerSecond(m.MaxLife);
         if (onHitPct != 0 && seconds > 0)
         {
@@ -582,11 +588,8 @@ public static partial class Game
         if (perSecond > 0 && seconds > 0)
         {
             double from = now - seconds;
-            if (m.HinderedRegenPct < 0)
-            {
-                double overlap = Math.Max(0, Math.Min(now, m.HinderedRegenUntil) - Math.Max(from, m.HinderedRegenFrom));
-                perSecond *= 1 - overlap / seconds * Math.Clamp(-m.HinderedRegenPct / 100d, 0, 1);
-            }
+            if (hinder is not null)
+                perSecond *= hinder.ReducedTime(from, now, static (first, last) => last - first) / seconds;
             perSecond *= FrostBombRegenerationFactor(m, from, now);
         }
         double periodicRecovery = 0;
@@ -598,15 +601,15 @@ public static partial class Game
             double AfterRecentHit(double first, double last) => Window(first, last)
                 + Window(Math.Max(first, m.PlayerHitAt), Math.Min(last, m.PlayerHitAt + RecentlySeconds))
                     * (Math.Max(0, 1 + onHitPct / 100d) - 1);
-            double AfterHinder(double first, double last) => AfterRecentHit(first, last)
-                - AfterRecentHit(Math.Max(first, m.HinderedRegenFrom), Math.Min(last, m.HinderedRegenUntil))
-                    * Math.Clamp(-m.HinderedRegenPct / 100d, 0, 1);
+            double AfterHinder(double first, double last) => hinder?.ReducedTime(first, last, AfterRecentHit)
+                ?? AfterRecentHit(first, last);
             double active = AfterHinder(from, now);
             if (active > 0 && FrostBombDebuffs.TryGetValue(m, out var frostBomb))
                 active -= AfterHinder(Math.Max(from, frostBomb.Started), Math.Min(now, frostBomb.Until))
                     * Math.Clamp(-frostBomb.Regeneration / 100d, 0, 1);
             periodicRecovery = Math.Max(0, active) * (double)m.MaxLife * periodic / 6000;
         }
+        hinder?.ForgetEnded(now);
         if (perSecond <= 0 && spreadRecovery <= 0 && periodicRecovery <= 0) return;
         double total = m.Regen + Math.Max(0, perSecond) * seconds + spreadRecovery + periodicRecovery;
         uint whole = (uint)Math.Truncate(total);

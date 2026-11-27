@@ -57,21 +57,6 @@ public static class Penetration
         };
     }
 
-    public static PerType WithMine(PerType hit, IReadOnlyDictionary<uint, int> caster, IReadOnlyDictionary<uint, int> skill)
-    {
-        if (caster.GetValueOrDefault(ElementalProhibition) != 0 || skill.GetValueOrDefault(ElementalProhibition) != 0)
-            return hit;
-        long mine = (long)caster.GetValueOrDefault(Stat.MineDamagePenetratesPctElementalResistance)
-            + skill.GetValueOrDefault(Stat.MineDamagePenetratesPctElementalResistance);
-        if (mine == 0) return hit;
-        return hit with
-        {
-            Fire = (int)Math.Clamp(hit.Fire + mine, int.MinValue, int.MaxValue),
-            Cold = (int)Math.Clamp(hit.Cold + mine, int.MinValue, int.MaxValue),
-            Lightning = (int)Math.Clamp(hit.Lightning + mine, int.MinValue, int.MaxValue),
-        };
-    }
-
     /// <summary>The penetration of one hit: the general stats on every hit, the attack-only ones added for an attack.
     /// The player's and skill's contributions to the same raw penetration stat add, without overwriting either source.</summary>
     public static PerType Of(IReadOnlyDictionary<uint, int> stats, StatCatalog catalog, bool attack,

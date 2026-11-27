@@ -476,8 +476,11 @@ public static class UtilityFlasks
         }
 
         /// <summary>Gives a running effect new stats and self damage rate (its buff, cell and deadline stay).</summary>
+        public void Retune(Active effect, IReadOnlyList<Source> stats, int selfChaosDamageLifePctPerMinute) =>
+            Retune(effect, stats, selfChaosDamageLifePctPerMinute, effect.SelfChaosDamageFlatPerMinute);
+
         public void Retune(Active effect, IReadOnlyList<Source> stats, int selfChaosDamageLifePctPerMinute,
-            int selfChaosDamageFlatPerMinute = 0)
+            int selfChaosDamageFlatPerMinute)
         {
             lock (_lock)
             {

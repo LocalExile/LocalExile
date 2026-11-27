@@ -238,8 +238,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapBeyond.PlayerStats);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapBeyond.Describe);
         module.Lifetime.Own(IncomingResourceDefences.HandOverFinalTaken([MapBeyond.BossLessDamageStat]));
-        GameEvents.DamageOverTimeTakenMore.Add(module.Manifest.Id, get => get(Stat.PassiveMasteryDamageTakenOverTimePlusPctFinal));
-        GameEvents.EnergyShieldRechargeMore.Add(module.Manifest.Id, get => get(Stat.UniqueSoullessEleganceEnergyShieldRechargeRatePlusPctFinal));
+        module.Lifetime.Own(IncomingResourceDefences.HandOverOverTimeMoreStat(Stat.PassiveMasteryDamageTakenOverTimePlusPctFinal));
+        module.Lifetime.Own(EnergyShield.HandOverRechargeMoreStat(Stat.UniqueSoullessEleganceEnergyShieldRechargeRatePlusPctFinal));
         module.Lifetime.Own(MonsterModEffects.HandOverMore(Rules.AtlasMoreLife, Rules.AtlasMoreDamage));
         module.Lifetime.Own(MonsterModEffects.HandOverMore([MapTorment.LifeStat, MapBeyond.LifeStat], [], [MapTorment.TaperStat]));
         // Secrets of Suffering's "Cannot Ignite, Chill, Freeze or Shock" and Stormblood's Sap and Brittle

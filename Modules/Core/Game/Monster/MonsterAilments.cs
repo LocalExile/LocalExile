@@ -40,7 +40,7 @@ public static partial class Game
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental + m.Effects[Stat.ElementalDamageTakenPlusPct] : 0)
             + (overTime ? m.Effects[Stat.DegenEffectPlusPct] : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
             + GlacialCageTakenPct(m, now)
-            + (overTime && m.MaimedDotTakenUntil > now ? m.MaimedDotTakenPct : 0)
+            + (overTime && MaimDotTaken.TryGetValue(m, out var maim) ? maim.Strongest(now) : 0)
             + m.SpiderWebs.Taken(now)
             + (chaos ? WitheredTaken(m, now) : 0)
             + m.Ignites.DamageTaken(now)
@@ -137,9 +137,25 @@ public static partial class Game
         }
     }
 
-    sealed record GlacialCageChill(double Earned, double From, double Until, int PerSecond)
+    sealed class GlacialCageChill(double from, int perSecond)
     {
-        public double Taken(double now) => Math.Min(10, Earned + Math.Max(0, Math.Min(now, Until) - From) * PerSecond);
+        double earned, since = from;
+        public int PerSecond = perSecond;
+        public double DirectUntil = from;
+        public readonly Dictionary<uint, double> Grounds = [];
+
+        public double Taken(double now)
+        {
+            double until = DirectUntil;
+            foreach (double end in Grounds.Values) until = Math.Max(until, end);
+            return Math.Min(10, earned + Math.Max(0, Math.Min(now, until) - since) * PerSecond);
+        }
+
+        public void Settle(double now)
+        {
+            earned = Taken(now);
+            since = now;
+        }
     }
 
     static readonly RuleTable<SpawnedMonster, Dictionary<uint, GlacialCageChill>> GlacialCageChills = new();
@@ -148,10 +164,32 @@ public static partial class Game
     {
         int perSecond = PlayerStat(player, Stat.PermanentDamagePlusPctPerSecondOfChill);
         if (perSecond <= 0 || until <= from) return;
+        var state = GlacialCageChillFor(monster, player.Id, from, perSecond);
+        state.DirectUntil = Math.Max(state.DirectUntil, until);
+    }
+
+    static GlacialCageChill GlacialCageChillFor(SpawnedMonster monster, uint owner, double now, int perSecond)
+    {
         var sources = GlacialCageChills.GetOrCreateValue(monster);
-        var previous = sources.GetValueOrDefault(player.Id);
-        double earned = previous?.Taken(from) ?? 0;
-        sources[player.Id] = new(earned, from, Math.Max(until, previous?.Until ?? until), perSecond);
+        if (!sources.TryGetValue(owner, out var state)) sources.Add(owner, state = new(now, perSecond));
+        state.Settle(now);
+        state.PerSecond = perSecond;
+        return state;
+    }
+
+    static void RecordGlacialCageGroundChill(SpawnedMonster monster, uint owner, uint ground, double now, double until,
+        int perSecond)
+    {
+        if (perSecond > 0 && until > now)
+            GlacialCageChillFor(monster, owner, now, perSecond).Grounds[ground] = until;
+    }
+
+    static void EndGlacialCageGroundChill(SpawnedMonster monster, uint owner, uint ground, double now)
+    {
+        if (!GlacialCageChills.TryGetValue(monster, out var sources) || !sources.TryGetValue(owner, out var state)
+            || !state.Grounds.ContainsKey(ground)) return;
+        state.Settle(now);
+        state.Grounds.Remove(ground);
     }
 
     static int GlacialCageTakenPct(SpawnedMonster monster, double now)
@@ -165,27 +203,34 @@ public static partial class Game
     static void RetimeGlacialCageChills(SpawnedMonster monster, double now, double previousRate, double newRate)
     {
         if (!GlacialCageChills.TryGetValue(monster, out var sources)) return;
-        foreach (var (source, state) in sources.ToArray())
-            if (state.Until > now)
-                sources[source] = new(state.Taken(now), now,
-                    RecipientEffectTime.RetimedDeadline(state.Until, now, previousRate, newRate), state.PerSecond);
+        foreach (var state in sources.Values)
+        {
+            state.Settle(now);
+            state.DirectUntil = RecipientEffectTime.RetimedDeadline(state.DirectUntil, now, previousRate, newRate);
+            foreach (uint ground in state.Grounds.Keys.ToArray())
+                state.Grounds[ground] = RecipientEffectTime.RetimedDeadline(state.Grounds[ground], now, previousRate, newRate);
+        }
     }
 
     static void EndGlacialCageChills(SpawnedMonster monster, double now)
     {
         if (!GlacialCageChills.TryGetValue(monster, out var sources)) return;
-        foreach (var (source, state) in sources.ToArray())
-            if (state.Until > now) sources[source] = new(state.Taken(now), now, now, state.PerSecond);
+        foreach (var state in sources.Values)
+        {
+            state.Settle(now);
+            state.DirectUntil = now;
+            state.Grounds.Clear();
+        }
     }
 
     static void RefreshGlacialCageChills(SpawnedMonster monster, double now)
     {
         if (!GlacialCageChills.TryGetValue(monster, out var sources)) return;
-        foreach (var (source, state) in sources.ToArray())
-            if (state.Until > now)
+        foreach (var (source, state) in sources)
+            if (state.DirectUntil > now)
             {
-                double until = monster.Ailments.AppliedUntil(Kind.Chill, source, now);
-                sources[source] = new(state.Taken(now), now, until, state.PerSecond);
+                state.Settle(now);
+                state.DirectUntil = monster.Ailments.AppliedUntil(Kind.Chill, source, now);
             }
     }
 
@@ -397,10 +442,10 @@ public static partial class Game
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
-        bool? ownHit = null) =>
+        bool? ownHit = null, bool playerAilmentOwned = true) =>
         AilmentsOnHitLocked(player, targetId, m, mitigated, spell, critical, criticalMultiplier, playerStats, skill,
             now, random, attackGains, false, 0, reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
-            attackerSize, attackerHasReversedStat, sourceEffect: sourceEffect, ownHit: ownHit);
+            attackerSize, attackerHasReversedStat, sourceEffect: sourceEffect, ownHit: ownHit, playerAilmentOwned: playerAilmentOwned);
 
     static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
@@ -409,7 +454,7 @@ public static partial class Game
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
         bool areaHit = false, int glacialFreezeMore = 0, int sourceEffect = -1, bool? ownHit = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
-        bool meleeAttack = false, bool closeRangeBowKnockback = false)
+        bool meleeAttack = false, bool closeRangeBowKnockback = false, bool playerAilmentOwned = true)
     {
         const uint nativeExposure = Stat.PurgeExposeResistPctMatchingHighestElementDamage;
         int? dominantExposure = (long)playerStats.GetValueOrDefault(nativeExposure) + (skill?.GetValueOrDefault(nativeExposure) ?? 0) < 0
@@ -525,7 +570,7 @@ public static partial class Game
         var alternate = AlternateAilmentsOnHitLocked(m, taken, critical, now, Attacker, random);
         foreach (var effect in added)
         {
-            InflictedLocked(player, m, effect);
+            if (playerAilmentOwned) InflictedLocked(player, m, effect);
             if (playerHit && effect.Kind == Kind.Freeze)
             {
                 player.RecentEvents.Record(StatConditions.FrozeEnemy, now);
@@ -597,7 +642,7 @@ public static partial class Game
         int poisonStacksBefore = m.Poisons.Stacks(now);
         double poisonUntilBefore = m.Poisons.Until;
         if (TryPoisonOnHitLocked(player, m, mitigated, spell, critical, playerStats, skill, poison, now, random,
-                out double poisonDps, out double poisonSeconds))
+                out double poisonDps, out double poisonSeconds, playerAilmentOwned))
         {
             player.Area.ActivePoisonMonsters.Add(targetId);
             if (m.Poisons.Stacks(now) > poisonStacksBefore || m.Poisons.Until > poisonUntilBefore)

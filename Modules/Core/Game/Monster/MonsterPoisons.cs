@@ -57,7 +57,13 @@ public static partial class Game
 
     public static bool TryPoisonOnHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated,
         bool spell, bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
-        MonsterPoisons.Settings settings, double now, Random random, out double perSecond, out double seconds)
+        MonsterPoisons.Settings settings, double now, Random random, out double perSecond, out double seconds) =>
+        TryPoisonOnHitLocked(player, target, mitigated, spell, critical, playerStats, skill, settings, now, random,
+            out perSecond, out seconds, playerOwned: true);
+
+    static bool TryPoisonOnHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated,
+        bool spell, bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
+        MonsterPoisons.Settings settings, double now, Random random, out double perSecond, out double seconds, bool playerOwned)
     {
         perSecond = seconds = 0;
         if (target.Dead || target.Life == 0 || settings.Seconds <= 0) return false;
@@ -97,7 +103,7 @@ public static partial class Game
         int extraWithWeapon = additionalAllowed && !spell && !settings.Secondary ? settings.AdditionalWithWeapon : 0;
         if (!ApplyHitPoisonsLocked(target.Poisons, now, perSecond, seconds,
             extraOnFreshTarget, doubleChance, random, extraWithWeapon)) return false;
-        InflictedLocked(player, target, AilmentType.Poison, now + seconds / target.RecipientDebuffRate);
+        if (playerOwned) InflictedLocked(player, target, AilmentType.Poison, now + seconds / target.RecipientDebuffRate);
         ReservationPoisonLocked(player, now);
         return true;
     }

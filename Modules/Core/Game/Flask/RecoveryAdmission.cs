@@ -8,7 +8,10 @@ public static partial class Game
         && get(Stat.CannotRecoverEnergyShield) == 0 && get(Stat.NoEnergyShieldRecovery) == 0;
 
     static uint EnergyShieldRecoveryCeiling(Player player, Func<uint, int> get) =>
-        (uint)((long)player.EnergyShield.Maximum * PetrifiedBlood.RecoveryCeilingPct(get) / 100);
+        EnergyShieldRecoveryCeiling(player, PetrifiedBlood.RecoveryCeilingPct(get));
+
+    static uint EnergyShieldRecoveryCeiling(Player player, int percent) =>
+        (uint)((long)player.EnergyShield.Maximum * percent / 100);
 
     static bool CanRecoverFlaskEnergyShield(Player player, Func<uint, int> get) =>
         RecoveryFlasksRestoreEnergyShield(get) && player.EnergyShield.Current < EnergyShieldRecoveryCeiling(player, get);

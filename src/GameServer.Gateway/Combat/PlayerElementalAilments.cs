@@ -167,7 +167,9 @@ public sealed class PlayerElementalAilments
     public double ActionFactor(double now) => TotalActionFactor(now, 0);
     // Unaffected by Shock (PoB SelfShockEffect 100% less): the shock stays on the player and in is_shocked, with no effect.
     // increasedPct: the hit's other increased damage taken (from a Blinded enemy), additive with the shock's.
-    public double DamageTakenFactor(double now, int increasedPct = 0, bool suppressShock = false) =>
+    public double DamageTakenFactor(double now, int increasedPct = 0) => DamageTakenFactor(now, increasedPct, false);
+
+    public double DamageTakenFactor(double now, int increasedPct, bool suppressShock) =>
         Math.Max(0, 1 + ((unaffectedByShock || suppressShock ? 0 : Magnitude(Kind.Shock, now)) + increasedPct) / 100);
 
     static string Name(Kind kind) => kind.ToString().ToLowerInvariant();
@@ -278,7 +280,11 @@ public sealed class PlayerElementalAilments
     // Unaffected by Ignite (PoB SelfIgniteEffect 100% less): the ignite stays on the player and in is_ignited, dealing nothing.
     // takenFrom: the increased damage taken from the strongest ignite's source monster (a Blinded one), with the shock's.
     public int Advance(double from, double until, Func<uint, int> get, int fireResistance, int maxFireResistance,
-        bool fireImmune, Func<uint, int>? takenFrom = null, double dotTakenFactor = 1, bool suppressShock = false)
+        bool fireImmune, Func<uint, int>? takenFrom = null, double dotTakenFactor = 1) =>
+        Advance(from, until, get, fireResistance, maxFireResistance, fireImmune, takenFrom, dotTakenFactor, false);
+
+    public int Advance(double from, double until, Func<uint, int> get, int fireResistance, int maxFireResistance,
+        bool fireImmune, Func<uint, int>? takenFrom, double dotTakenFactor, bool suppressShock)
     {
         lock (effects)
         {

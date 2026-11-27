@@ -585,8 +585,6 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double IntimidatedUntil = double.NegativeInfinity, IntimidateShownUntil, UnnervedUntil = double.NegativeInfinity,
         UnnerveShownUntil;
     public ushort IntimidateBuff, UnnerveBuff;
-    public double IntimidateStunDurationUntil;
-    public int IntimidateStunDurationPct;
     // Crushed by his hits (Awakened Brutality) until when, shown with its own crushed buff; Crush lowers its physical
     // damage reduction (Game.CrushReduction).
     public double CrushedUntil = double.NegativeInfinity, CrushShownUntil;
@@ -603,8 +601,6 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double MaimedPhysicalTakenUntil = double.NegativeInfinity;
     public ushort MaimBuff;
     public int MaimedPhysicalTakenPct;
-    public double MaimedDotTakenUntil;
-    public int MaimedDotTakenPct;
     public int MaimedMovementShownPct;
     public bool MaimedMovementShown;
     public double WalkSpeedAtZeroFactor;
@@ -612,8 +608,6 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // hindered enemies have 30% reduced movement speed (Game.HinderSeconds and the walk factor).
     public double HinderedUntil = double.NegativeInfinity, HinderShownUntil;
     public double TotemHinderedUntil = double.NegativeInfinity;
-    public double HinderedRegenFrom, HinderedRegenUntil;
-    public int HinderedRegenPct;
     public ushort HinderBuff;
     // Knocked back by a hit (Game.KnockbackOnHitLocked): the cell the AI tick presents with a Teleport, null when none.
     public (int X, int Y)? KnockbackPending;

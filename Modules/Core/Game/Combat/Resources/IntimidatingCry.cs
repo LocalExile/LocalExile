@@ -113,19 +113,20 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> playerStats, double now) =>
         ApplyIntimidatingCryLocked(player, own, playerStats, now, applyMovementBuff: true);
 
-    static void ApplyIntimidatingCryLocked(Player player, IReadOnlyDictionary<uint, int> own,
-        IReadOnlyDictionary<uint, int> playerStats, double now, bool applyMovementBuff)
+    static int ApplyIntimidatingCryLocked(Player player, IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> playerStats, double now, bool applyMovementBuff, int? radiusOverride = null)
     {
         int Own(uint n) => GolemStat(own, n);
         int Player(uint n) => GolemStat(playerStats, n);
         var at = player.Walk.Position(now);
-        int radius = SkillArea.Radius(WarcryRadius, n => ActorScale.Saturate((long)Player(n) + Own(n)), spell: false);
+        int radius = radiusOverride ?? SkillArea.Radius(WarcryRadius,
+            n => ActorScale.Saturate((long)Player(n) + Own(n)), spell: false);
         var enemies = player.Area.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0
             && Dist(m.Walk.Position(now), at) <= radius).ToArray();
         int power = Player(Stat.WarcriesHaveInfinitePower) != 0 ? InfiniteWarcryPower
             : enemies.Sum(m => WarcryPower(m.Rarity));
         double taunt = TauntSeconds(Player);
-        TauntLocked(player, at, radius, now, taunt, Own(Stat.EnemiesTauntedByYourWarciesAreIntimidated) != 0,
+        int taunted = TauntLocked(player, at, radius, now, taunt, Own(Stat.EnemiesTauntedByYourWarciesAreIntimidated) != 0,
             Player(Stat.EnemiesYouIntimidateHaveStunDurationOnSelfPlusPct));
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own)
             * SkillDurationModifiers.CallToArmsMore(Player);
@@ -159,8 +160,9 @@ public static partial class Game
             ? ActorScale.Saturate(2L * attacks) : attacks;
         player.RecentEvents.Record(StatConditions.UsedWarcry, now);
         player.AuraStatsDirty = true;
-        Console.WriteLine($"[gateway] Intimidating Cry: power={power} taunted={enemies.Length} movement={movement} "
+        Console.WriteLine($"[gateway] Intimidating Cry: power={power} taunted={taunted} movement={movement} "
             + $"duration={duration:0.###} exerts={CryOf(player).Exerts}");
+        return taunted;
     }
 
     public static int IntimidatingCryMovement(Player player)

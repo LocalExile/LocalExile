@@ -2,6 +2,11 @@
 /// Character.ot supplies 2000%/minute recharge (one third of maximum per second). Caller supplies game time.</summary>
 public sealed class EnergyShield
 {
+    static readonly FinalStatMultipliers RechargeMultipliers = new();
+
+    /// <summary>Registers a stat that applies a final multiplier to the recharge rate.</summary>
+    public static IDisposable HandOverRechargeMoreStat(uint stat) => RechargeMultipliers.Register(stat);
+
     public readonly record struct Snapshot(uint Current, double Fraction, double? InterruptedSecondsAgo);
 
     public uint Current { get => current; private set { bool was = Full; if (current != value) { current = value; Changed?.Invoke(); } if (Full != was) ConditionsChanged?.Invoke(); } }
@@ -130,7 +135,7 @@ public sealed class EnergyShield
 
     public static double BaseRechargePerMinute(uint max, Func<uint, int> get) =>
         max * 20.0 * Math.Max(0, 1 + get(Stat.EnergyShieldRechargeRatePlusPct) / 100.0)
-        * GameEvents.StatMultiplier(GameEvents.EnergyShieldRechargeMore, get)
+        * RechargeMultipliers.Factor(get)
         // Wicked Ward: "40% less Energy Shield Recharge Rate".
         * (get(Stat.KeystoneWickedWard) != 0 ? 0.6 : 1)
         // Eldritch Battery: "50% less Energy Shield Recharge Rate".

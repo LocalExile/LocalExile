@@ -14,6 +14,10 @@ public static class IncomingResourceDefences
     // Final more/less damage-taken stats modules handed over, in the order they were handed over.
     static volatile uint[] _finalTaken = [];
     static readonly object FinalTakenLock = new();
+    static readonly FinalStatMultipliers OverTimeMultipliers = new();
+
+    /// <summary>Registers a stat that applies a final multiplier to incoming damage over time only.</summary>
+    public static IDisposable HandOverOverTimeMoreStat(uint stat) => OverTimeMultipliers.Register(stat);
 
     /// <summary>A hand-over for modules: each stat in <paramref name="stats"/> multiplies incoming hit and
     /// over-time damage by max(0, 1 + value / 100), a "more" or "less" damage-taken modifier. The framework names
@@ -96,7 +100,7 @@ public static class IncomingResourceDefences
         FinalOverTimeTakenFactor(get, LessTakenPct(pools, get));
 
     static double FinalOverTimeTakenFactor(Func<uint, int> get, int lessPct) =>
-        FinalTakenFactor(get, lessPct) * GameEvents.StatMultiplier(GameEvents.DamageOverTimeTakenMore, get);
+        FinalTakenFactor(get, lessPct) * OverTimeMultipliers.Factor(get);
 
     public static int TakenOverTime(double damage, Func<uint, int> get, ref double carry, int lessPct = 0,
         int typedIncreasedPct = 0, int reductionPct = 0, int finalTakenPct = 0)
