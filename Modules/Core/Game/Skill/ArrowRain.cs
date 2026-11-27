@@ -173,7 +173,8 @@ public static partial class Game
         var player = session.Player;
         string id = SkillsFor(player).EffectId(gem.Effect)!;
         // from: where the volley leaves when it is not the player or a totem (a trap or mine).
-        var use = CaptureGemProjectile(player, session, skill, gem, aim, critical, sequence, from: from, totem: totem);
+        var use = CaptureGemProjectile(player, session, skill, gem, aim, critical, sequence, from: from, totem: totem,
+            fromMirage: mirage);
         var shot = (ProjectileOffense)use.Payload!;
         var supported = SupportedSkill(player, skill);
         var own = supported.Stats;

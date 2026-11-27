@@ -186,6 +186,18 @@ public static partial class Game
         player.Area.Buffs.Clear(player.Id, SteelwormBuff, player.Id);
     }
 
+    internal static void ClearSteelworm(Player player)
+    {
+        if (!SteelStates.TryGetValue(player, out var state)) return;
+        using var mutation = ProjectileMutation(player, advance: false);
+        ClearSteelwormLocked(player, state);
+    }
+
+    internal static void ClearAllSteelworms()
+    {
+        foreach (var (player, _) in SteelStates) ClearSteelworm(player);
+    }
+
     static ProjectileUse PrepareSteelRelease(ProjectileReleaseContext context, ProjectileUse use, string effect)
     {
         var shot = (ProjectileOffense)use.Payload!;

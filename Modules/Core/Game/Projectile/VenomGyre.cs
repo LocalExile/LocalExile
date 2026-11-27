@@ -124,7 +124,7 @@ public static partial class Game
             {
                 Id = Art.Projectile(VenomGyreReleased, blade.Capture.Art), Count = 1,
                 Returns = false, CannotReturn = true, ReturnChancePercent = 0, ReturnRolls = null,
-                NativeVolley = null, SequentialDelay = 0
+                ParallelOrigins = null, NativeVolley = null, SequentialDelay = 0
             };
             ReleaseNow(blade.Use with
             {

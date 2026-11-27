@@ -2668,6 +2668,7 @@ public static partial class Game
                         lock (LevelUpdatesFor(player).Gate)
                         {
                             if (!OwnsChannel()) return;
+                            SnipeReleasedByInput(player, now);
                             _ = ReleaseBladeFlurry(player, now);
                             player.ChannelSkill = 0;
                             player.ChannelGeneration++;

@@ -38,10 +38,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [20](../docs/protocol/20-damage.md) Â§2c.
 - Behemoth Steel Willed: attack damage per 450 final armour. Docs: [20](../docs/protocol/20-damage.md) Â§2d.
 - Steel Willed incoming-hit armour. Docs: [Steel Willed armour](../docs/game/steel-willed-armour.md).
-- Shattering Steel erupts on impact or after a 140 ms flight. Call of Steel removes Impales and reloads Steel Shards, and the Shattering Steel of Ammunition ward expires on the area clock.
-- Splitting Steel bursts at the aim, a target or terrain, then its shards burst at their own endpoints. The Ammunition variant consumes up to two Steel Shards and fires an already-split shard when empty.
-- Shrapnel Ballista of Steel consumes an owner Steel Shard at each volley and fires a single native shrapnel projectile when empty.
-- Steelworm spends an extra Steel Shard on player projectile attacks. Spending eight while equipped grants additional projectiles for four seconds, ending early when the quiver leaves the active set.
+- Shattering Steel erupts on impact or after a 140 ms flight. Call of Steel removes Impales and reloads Steel Shards,
+  and the Shattering Steel of Ammunition ward expires on the area clock.
+- Splitting Steel bursts at the aim, a target or terrain, then its shards burst at their own endpoints. The Ammunition
+  variant consumes up to two Steel Shards and fires an already-split shard when empty.
+- Shrapnel Ballista of Steel consumes an owner Steel Shard at each volley and fires a single native shrapnel
+  projectile when empty.
+- Steelworm spends an extra Steel Shard on player projectile attacks. Spending eight while equipped grants additional
+  projectiles for four seconds, ending early when the quiver leaves the active set.
 - Accuracy, the Accuracy Mastery's target conditions, Deadeye's Avidity and attack evasion.
   Docs: [11](../docs/protocol/11-skills.md) Â§4â€“5, [20](../docs/protocol/20-damage.md) Â§2h.
 - Armour, Evasion and Energy Shield from passives and equipment, Iron Reflexes and Chaos Inoculation.
@@ -205,8 +209,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Grace Period on area entry. Docs: [11](../docs/protocol/11-skills.md), "Grace Period on combat-area entry".
 - Ice Spear uses a distance-based second form, and Splitting's children enter it at contact. Trarthus Spectral Throw
   returns to its trap site.
-- Spectral Helix uses the client's stepped spiral and reverses at terrain. Trarthus starts each spiral at its triggering trap.
-- Elemental Hit of the Spectrum bursts around a successful projectile hit and counts ailments on each victim. Prismatic clones burst with their own radius and rolled element.
+- Spectral Helix uses the client's stepped spiral and reverses at terrain. Trarthus starts each spiral at its
+  triggering trap.
+- Elemental Hit of the Spectrum bursts around a successful projectile hit and counts ailments on each victim.
+  Prismatic clones burst with their own radius and rolled element.
 - Venom Gyre catches returning blades, releases them with Whirling Blades and replenishes them during the Vaal buff.
 - Vaal souls (#308), Vaal Ground Slam's radial wave, Vaal Fireball, Vaal Spark and Vaal Discipline (allied recharge).
   Docs: [27](../docs/protocol/27-vaal-souls.md),
@@ -325,12 +331,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Storm Rain and its transfigured gems leave arrows that fire periodic area hits between their endpoints.
 - Conflagration leaves arrows that detonate near the caster, setting off adjacent arrows and applying a burning debuff.
 - Kinetic Rain variants land delayed area hits. See [projectile skills](../docs/game/projectile-skills.md).
-- Explosive and Poisonous Concoction land area hits and spend charges for their attack bonuses. Bouncing chains along the ground.
+- Explosive and Poisonous Concoction land area hits and spend charges for their attack bonuses. Bouncing chains along
+  the ground.
 - Thunderstorm blinds inside the storm, grows while occupied, and releases Thunderburst on a timely full-stage exit.
-- Kinetic Fusillade and Detonation refresh their capped hover queues and discharge in sequence. See [projectile skills](../docs/game/projectile-skills.md).
+- Kinetic Fusillade and Detonation refresh their capped hover queues and discharge in sequence.
+  See [projectile skills](../docs/game/projectile-skills.md).
 - Scourge Arrow and its Royale variant plant pods on release based on channel stages; Scourge Arrow of Menace plants
   a pod per arrow. See [projectile skills](../docs/game/projectile-skills.md).
-- Somatic Shell absorbs other hits and transfers on depletion. Its own skill damage bypasses existing shells. See [projectile skills](../docs/game/projectile-skills.md).
+- Somatic Shell absorbs other hits and transfers on depletion. Its own skill damage bypasses existing shells.
+  See [projectile skills](../docs/game/projectile-skills.md).
 - Caustic Arrow stops at the aimed point and leaves caustic ground: chaos damage over time that does not stack.
   The ground is the art's pieces laid over the radius, for the worn skill effect; the layout is the server's own.
   Only the default, Celestial and Tentacles grounds fade in and out.
@@ -357,7 +366,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   its item-local Assassin's Mark level for qualifying hits by the wearer, and
   Mask of the Stitched Demon uses full maximum Energy Shield for Life regeneration.
 - Blink Arrow and Mirror Arrow create their clones at arrow contact, with the native attack and projectile timing.
-  Blink Arrow, including the Royale gem in an existing save, moves the player in the same update and leaves its clone at departure.
+  Blink Arrow, including the Royale gem in an existing save, moves the player in the same update and leaves its clone
+  at departure.
   Clones use arrows, arrow rain or elemental shots.
   Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns (a guard skill cast from the bar as well as one a trigger releases),
@@ -463,13 +473,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   and unique enemies are immune.
 - Bear Trap's single secondary hit immobilises the target, then applies a decaying slow and trap/mine hit vulnerability.
   Skewers impales with its secondary hit and shares the killing-blow reflection.
-- Blade Trap and its variants sweep with two blades, with their own rotation count or duration and a shared per-target hit interval.
+- Blade Trap and its variants sweep with two blades, with their own rotation count or duration and a shared
+  per-target hit interval.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing. Eligible placements can summon
   two totems. Skill bars without a saved attack-in-place mask use each bound skill's default.
-- Retained Royale Artillery Ballista gems place a bow totem whose mortar volley uses the gem's own arrow count and range.
-- Siege Ballista of Trarthus places a formation within the active totem limit. Each totem fires once at the placement aim and then expires.
+- Retained Royale Artillery Ballista gems place a bow totem whose mortar volley uses the gem's own arrow count and
+  range.
+- Siege Ballista of Trarthus places a formation within the active totem limit. Each totem fires once at the placement
+  aim and then expires.
 - Shockwave Totem of Authority centres each nova on its owner's position when the cast releases.
   A lockstep non-spell totem placement's hold takes the client's own Move, as GGG's servers do.
   two totems.
@@ -541,7 +554,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Prismatic Burst triggers on a supported player attack hit and rolls one element using squared attributes and Combat Focus.
 - Enemy hits trigger Avenging Flame on supported totems, scaling fire damage with the totem's maximum life.
 - Sacred Wisps take their lifetime from the linked summon skill and preserve their shared limit when switching attacks.
-- Snipe (`channelled_snipe` gem and Assailum) charges stages and fires on release. Interrupting the channel clears the stages.
+- Snipe (`channelled_snipe` gem and Assailum) charges stages and fires on release. Interrupting the channel clears the
+  stages.
   General's Cry (`generals_cry` + variants) selects corpses for non-blocking Mirage Warrior melee execution
   (not checked live). Docs: [11](../docs/protocol/11-skills.md).
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) Â§9a.

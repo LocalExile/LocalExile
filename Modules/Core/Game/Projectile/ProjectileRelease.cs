@@ -699,7 +699,8 @@ public static partial class Game
             Payload = shot, ReturnAnchor = new(emitter, epoch), Sequence = sequence, RepeatsLeft = repeatsLeft,
             RadialLaunchOffset = radialRelease && totem is null && from is null ? ahead : 0,
         };
-        bool ownerAttack = !spell && totem is null && from is null && !fromMirage;
+        bool ownerAttack = !spell && totem is null && from is null && !fromMirage
+            && !SkillsFor(player).HasType(gem.Effect, "InbuiltTrigger");
         int steelCost = ownerAttack ? Own(Stat.SteelAmmoConsumedPerUse)
             : totem is not null ? Own(Stat.SteelAmmoConsumedPerUseByTotem) : 0;
         int extraSteelCost = ownerAttack && Get(Stat.ProjectilesAreNotFired) == 0
