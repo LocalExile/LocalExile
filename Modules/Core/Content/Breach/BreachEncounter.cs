@@ -105,6 +105,16 @@ public sealed class BreachWorldHost
         {
             Unstable.OnExperience(gain);
         });
+        // C->S 0x02ca for Rulesets#165 (EstablishedBrequelEncounterRules): BrequelActivateEncounterSkill
+        // (payload: u8 0x00, u32 LE skillObjectEntityId — sent both by clicking the floating widget and hotkey #44).
+        if (EstablishedRulesetRow is { } estRow)
+        {
+            Client.OnRuleset(id, estRow, async (channel, payload) =>
+            {
+                if (!BreachRulesets.TryReadActivateSkillAction(payload.Span, out uint entityId)) return false;
+                return await OnActivateEncounterSkill(channel.Player, entityId);
+            });
+        }
     }
 }
 

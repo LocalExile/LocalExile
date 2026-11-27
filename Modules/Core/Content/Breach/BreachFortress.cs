@@ -269,7 +269,12 @@ public sealed class BreachFortress
         await state.Gate.WaitAsync();
         try
         {
+            if (EstablishedRulesetRow is { } est)
+                await Send(player, InstanceProtocol.AddRuleset(est), $"0x001f ruleset EstablishedBrequelEncounterRules (row {est})");
+            if (BarrierRulesetRow is { } bar)
+                await Send(player, InstanceProtocol.AddRuleset(bar), $"0x001f ruleset BrequelBarrierRules (row {bar})");
             if (!state.ObjectsCreated) await PresentObjects(player, state);
+            await SendFortressRulesetUpdate([player], state);
             if (state.Phase == PhaseEscaping)
             {
                 double rem = Math.Max(1.0, state.EscapeEndsAt - AreaTime(player));
@@ -425,6 +430,7 @@ public sealed class BreachFortress
             await SetObjectStates(player, pad.Id, SkillObjectType,
                 ("activated", 0), ("brequel_skill_row_index_plus_one", pad.SkillRow + 1), ("ready", 1));
         }
+        await SendFortressRulesetUpdate(members, state);
         foreach (var m in members)
             await PlayerOf(m).Tell($"Defend Ailith in the Hive Fortress Core! Wave 1/{state.TotalWaves}");
         Console.WriteLine($"[breach] Hive Fortress core defense started ({state.TotalWaves} waves)");
@@ -474,6 +480,7 @@ public sealed class BreachFortress
                 {
                     state.ShieldUntil = 0;
                     if (state.AilithId != 0) await SetMonsterStates(runner, state.AilithId, ("shielded", 0));
+                    await SendFortressRulesetUpdate(members, state);
                     dirty = true;
                 }
                 if (now >= state.NextSpawnAt)
@@ -493,15 +500,15 @@ public sealed class BreachFortress
                         {
                             state.HitsTaken += Math.Min(2, near);
                             if (state.AilithId != 0) await SetMonsterStates(runner, state.AilithId, ("number_of_hits", state.HitsTaken));
-                            dirty = true;
                             if (state.HitsTaken >= state.MaxHits)
                             {
                                 state.Phase = PhaseFailed;
                                 await SetObjectStates(runner, state.StabiliserId, StabiliserType, ("bomb_defence", 3));
                                 if (state.AilithId != 0) await SetMonsterStates(runner, state.AilithId, ("bomb_defence", 3));
                                 foreach (var m in members) await PlayerOf(m).Tell("Failed to Defend Ailith in the Hive Fortress.");
-                                dirty = true;
                             }
+                            await SendFortressRulesetUpdate(members, state);
+                            dirty = true;
                         }
                     }
                 }
@@ -512,6 +519,7 @@ public sealed class BreachFortress
                     {
                         state.Wave++;
                         state.WaveStartedAt = now;
+                        await SendFortressRulesetUpdate(members, state);
                         foreach (var m in members) await PlayerOf(m).Tell($"Hive Fortress Wave {state.Wave}/{state.TotalWaves}");
                         // Final wave spawns Vruun or enraged champion pack!
                         if (state.Wave == state.TotalWaves && !atlas.NoBosses)
@@ -542,6 +550,7 @@ public sealed class BreachFortress
                 if (!anyoneInside || now >= state.EscapeEndsAt)
                 {
                     state.Phase = PhaseComplete;
+                    await SendFortressRulesetUpdate(members, state);
                     await Broadcast(members, InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Brequel),
                         "0x0163 Hive Fortress escape timer cleared");
                     if (state.EnvironmentOn)
@@ -587,7 +596,8 @@ public sealed class BreachFortress
             await SetObjectStates(runner, pad.Id, SkillObjectType, ("ready", 0));
         }
 
-        // Start 45s Brequel MissionTimer HUD countdown for the fortress escape sequence!
+        // Start 45s Brequel MissionTimer HUD countdown + native EstablishedBrequelEncounterRules state=2 (Escape the Hive Fortress)!
+        await SendFortressRulesetUpdate(members, state);
         await Broadcast(members, InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Brequel, EscapeSeconds),
             $"0x0163 Hive Fortress escape timer ({EscapeSeconds}s)");
 
@@ -679,10 +689,12 @@ public sealed class BreachFortress
             case 4: // Heal Ailith
                 state.HitsTaken = Math.Max(0, state.HitsTaken - 7);
                 if (state.AilithId != 0) await SetMonsterStates(player, state.AilithId, ("number_of_hits", state.HitsTaken));
+                await SendFortressRulesetUpdate(Members(player), state);
                 break;
             case 5: // Shield Ailith
                 state.ShieldUntil = now + 10.0;
                 if (state.AilithId != 0) await SetMonsterStates(player, state.AilithId, ("shielded", 1));
+                await SendFortressRulesetUpdate(Members(player), state);
                 break;
             case 8: // Wall Destruction
                 foreach (var w in state.Walls.Where(w => !w.Destroyed))
@@ -757,5 +769,39 @@ public sealed class BreachFortress
             Save(instance, state);
         }
         finally { state.Gate.Release(); }
+    }
+
+    static async Task SendFortressRulesetUpdate(List<Player> members, FortressState state)
+    {
+        uint wireState = state.Phase switch
+        {
+            PhaseDefense => BreachRulesets.EstablishedActive,
+            PhaseEscaping => BreachRulesets.EstablishedFortressEscape,
+            PhaseComplete => BreachRulesets.EstablishedSucceeded,
+            PhaseFailed => BreachRulesets.EstablishedFailed,
+            _ => BreachRulesets.EstablishedInactive,
+        };
+        if (BreachRulesets.EstablishedState(wireState, state.CoreX, state.CoreY, isSkyFortress: true) is { } st)
+            await Broadcast(members, st, $"0x02c9 EstablishedBrequelEncounterRules (Fortress) state={wireState}");
+        if (BreachRulesets.EstablishedWave(state.Phase == PhaseDefense ? state.Wave : 0, state.Phase == PhaseDefense ? state.TotalWaves : 0) is { } wv)
+            await Broadcast(members, wv, null);
+        int remaining = Math.Max(0, state.MaxHits - state.HitsTaken);
+        bool shielded = members.Count > 0 && state.ShieldUntil > AreaTime(members[0]);
+        if (BreachRulesets.EstablishedHealth(remaining, state.MaxHits, shielded) is { } hp)
+            await Broadcast(members, hp, null);
+        if (BreachRulesets.EstablishedOverlay(state.Phase is PhaseDefense or PhaseEscaping) is { } ov)
+            await Broadcast(members, ov, null);
+        if (state.Phase == PhaseDefense)
+        {
+            if (BreachRulesets.BarrierRadius(state.CoreX, state.CoreY, 70f, 70f, 1f, 1f) is { } br)
+                await Broadcast(members, br, null);
+            if (BreachRulesets.BarrierActive(true) is { } ba)
+                await Broadcast(members, ba, null);
+        }
+        else if (state.Phase is PhaseEscaping or PhaseComplete or PhaseFailed)
+        {
+            if (BreachRulesets.BarrierActive(false) is { } ba)
+                await Broadcast(members, ba, null);
+        }
     }
 }

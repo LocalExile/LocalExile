@@ -1,24 +1,26 @@
 using System.Buffers.Binary;
+using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Modules.Breach;
 
 /// <summary>
-/// Breach ("Brequel") S-&gt;C <c>0x02c9</c> ruleset payloads:
+/// Binary-verified Breach ("Brequel") S-&gt;C <c>0x02c9</c> ruleset payloads (3.29.3c/d):
 /// <list type="bullet">
-/// <item><c>ExpandingBrequelEncounterRules</c> (Rulesets#164): Unstable Breach arena ring, kill-driven progress, timer, and state.</item>
-/// <item><c>EstablishedBrequelEncounterRules</c> (Rulesets#165): In-map Established Hive &amp; Hive Fortress wave/defense state.</item>
-/// <item><c>BrequelBarrierRules</c> (Rulesets#166): Hive barrier / wall burn state.</item>
+/// <item><c>ExpandingBrequelEncounterRules</c> (Rulesets#164 / <c>0xa4</c>, reader <c>0x141686ef0</c>): 44B Unstable Breach ring, progress, and state.</item>
+/// <item><c>EstablishedBrequelEncounterRules</c> (Rulesets#165 / <c>0xa5</c>, reader <c>0x141686140</c>): 4 sub-opcodes driving the native Hive &amp; Hive Fortress HUD (state, wave counter, Ailith defense/shield bar, overlay blend).</item>
+/// <item><c>BrequelBarrierRules</c> (Rulesets#166 / <c>0xa6</c>, reader <c>0x14167e790</c>): 2 sub-opcodes driving the Hive barrier radius &amp; fade.</item>
 /// </list>
+/// Also decodes <c>C-&gt;S 0x02ca</c> ruleset <c>0xa5</c> (<c>BrequelActivateEncounterSkill</c>, 5B payload: <c>u8 0x00, u32 LE skillObjectEntityId</c>).
 /// </summary>
 public static class BreachRulesets
 {
     /// <summary>The ExpandingBrequelEncounterRules body length: 44 bytes (reader 0x141686ef0).</summary>
     public const int Length = 44;
 
-    /// <summary>How many lines the ramp has: 172 (measured: 172 and 173 state-1 lines on the two touched official Breaches).</summary>
+    /// <summary>How many lines the ramp has: 172.</summary>
     public const int Steps = 172;
 
-    /// <summary>The arena's radius (cells) at the touch and at the full: 39 -&gt; 150.</summary>
+    /// <summary>The arena's radius (cells) at the touch and at full: 39 -&gt; 150.</summary>
     public const float StartRadius = 39, FullRadius = 150;
 
     /// <summary>Baseline count per ramp step when no kill feed is supplied.</summary>
@@ -29,13 +31,20 @@ public static class BreachRulesets
 
     const float Rate = 0.033f;
 
-    /// <summary>
-    /// The progress (f32[0]) for the Breach's kill/count score: 20 n / (n + 190) + 0.086 n.
-    /// Reaches ~100 at n ~= 965 (or scaled kill score).
-    /// </summary>
+    /// <summary>Wire states for <c>EstablishedBrequelEncounterRules</c> (#165) subOp 0.</summary>
+    public const uint EstablishedInactive = 0;
+    public const uint EstablishedActive = 1;
+    public const uint EstablishedFortressEscape = 2;
+    public const uint EstablishedSucceeded = 3;
+    public const uint EstablishedSilentEnd = 4;
+    public const uint EstablishedFailed = 5;
+
+    // ---- ExpandingBrequelEncounterRules (#164 = 0xa4) ----------------------------------------------------------------
+
+    /// <summary>The progress (f32[0]) for the Breach's kill/count score: 20 n / (n + 190) + 0.086 n.</summary>
     public static double Progress(double count) => count <= 0 ? 0 : 20 * count / (count + 190) + 0.086 * count;
 
-    /// <summary>Original step-based 44-byte ExpandingBrequelEncounterRules body (kept for backward compatibility).</summary>
+    /// <summary>Original step-based 44-byte ExpandingBrequelEncounterRules body.</summary>
     public static byte[] Body(byte index, int x, int y, int state, int step)
     {
         var (progress, radius, value) = state switch
@@ -48,14 +57,13 @@ public static class BreachRulesets
     }
 
     /// <summary>Kill-driven 44-byte ExpandingBrequelEncounterRules body (reader 0x141686ef0):
-    /// u8 opcode (0), u8 index, i32 x, i32 y, u8 encounter_state, 7 x f32 (progress, radius, value, second, 0, -0.033, 0),
-    /// u8 0, f32 maxRadius.</summary>
+    /// u8 0, u8 breachIndex, i32 LE x, i32 LE y, u8 state, ExpandingRadius (29B), f32 LE maxRadius.</summary>
     public static byte[] Body(byte index, int x, int y, int state, float progress, float radius, float timerValue, float maxRadius = FullRadius)
     {
         if (state is < BreachTables.Inactive or > BreachTables.Closing)
             throw new ArgumentOutOfRangeException(nameof(state), state, "an encounter_state 0 .. 4");
         byte[] body = new byte[Length];
-        body[0] = 0; // update opcode
+        body[0] = 0;
         body[1] = index;
         BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(2), x);
         BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(6), y);
@@ -74,9 +82,6 @@ public static class BreachRulesets
         return body;
     }
 
-    /// <summary>Computes kill-driven ExpandingBrequelEncounterRules metrics:
-    /// <paramref name="growth"/> in [0, 1] is the arena's radial growth; <paramref name="killCount"/> is the weighted
-    /// kill score plus baseline ramp contribution.</summary>
     public static (float Progress, float Radius, float Value) KillDrivenMetrics(double growth, double killCount, float maxRadius = FullRadius)
     {
         double g = Math.Clamp(growth, 0.0, 1.0);
@@ -97,36 +102,98 @@ public static class BreachRulesets
         return ((float)Progress(count), radius, value);
     }
 
-    // ---- EstablishedBrequelEncounterRules (#165) & BrequelBarrierRules (#166) ----------------------------------------
-    // Guarded builders: only send 0x02c9 payloads when binary-verified wire format is enabled via VerifiedEstablishedWire /
-    // VerifiedBarrierWire (updated immediately when @re-protocol Drop 2 lands) so we never send unverified bytes that
-    // could desync the client's 0x02c9 reader!
+    // ---- Shared 29-byte ExpandingRadius struct (0x141fbe050) ---------------------------------------------------------
 
-    /// <summary>True once @re-protocol Drop 2 confirms exact 0x02c9 wire layout for Rulesets#165.</summary>
-    public static bool EstablishedWireVerified { get; set; }
-
-    /// <summary>True once @re-protocol Drop 2 confirms exact 0x02c9 wire layout for Rulesets#166.</summary>
-    public static bool BarrierWireVerified { get; set; }
-
-    /// <summary>Optional custom encoder hook for EstablishedBrequelEncounterRules (#165) once verified.</summary>
-    public static Func<int, int, int, int, int, byte[]?>? BuildEstablishedPayload { get; set; }
-
-    /// <summary>Optional custom encoder hook for BrequelBarrierRules (#166) once verified.</summary>
-    public static Func<int, int, int, byte[]?>? BuildBarrierPayload { get; set; }
-
-    /// <summary>Encodes an EstablishedBrequelEncounterRules (#165) 0x02c9 message when wire format is verified; returns null otherwise.</summary>
-    public static byte[]? EstablishedMessage(int state, int wave, int totalWaves, int hitsTaken, int maxHits)
+    /// <summary>Writes the 29-byte <c>ExpandingRadius</c> struct (<c>0x141fbe050</c>):
+    /// <c>f32 startRadius, f32 targetRadius, f32 duration, f32 elapsed, i32 LE speedPercent, f32 holdTimer, f32 param14, u8 flag</c>.</summary>
+    public static void WriteExpandingRadius(Span<byte> dest, float startRadius, float targetRadius, float duration,
+        float elapsed, int speedPercent = 0, float holdTimer = 0f, float param14 = 0f, byte flag = 0)
     {
-        if (!EstablishedWireVerified || BreachTables.EstablishedRulesetRow is not { } row) return null;
-        if (BuildEstablishedPayload?.Invoke(state, wave, totalWaves, hitsTaken, maxHits) is not { } body) return null;
-        return GameServer.Core.Protocol.Instance.InstanceRulesets.Data(row, body);
+        BinaryPrimitives.WriteSingleLittleEndian(dest[0..4], startRadius);
+        BinaryPrimitives.WriteSingleLittleEndian(dest[4..8], targetRadius);
+        BinaryPrimitives.WriteSingleLittleEndian(dest[8..12], duration);
+        BinaryPrimitives.WriteSingleLittleEndian(dest[12..16], elapsed);
+        BinaryPrimitives.WriteInt32LittleEndian(dest[16..20], speedPercent);
+        BinaryPrimitives.WriteSingleLittleEndian(dest[20..24], holdTimer);
+        BinaryPrimitives.WriteSingleLittleEndian(dest[24..28], param14);
+        dest[28] = flag;
     }
 
-    /// <summary>Encodes a BrequelBarrierRules (#166) 0x02c9 message when wire format is verified; returns null otherwise.</summary>
-    public static byte[]? BarrierMessage(int state, int x, int y)
+    // ---- EstablishedBrequelEncounterRules (#165 = 0xa5, reader 0x141686140) ------------------------------------------
+
+    /// <summary>Sub-opcode 0 (14B): encounter state (0=Inactive, 1=Active, 2=FortressEscape, 3=Succeeded, 4=SilentEnd,
+    /// 5=Failed), arena centre (HUD shown within 210 grid units), and <paramref name="isSkyFortress"/>.</summary>
+    public static byte[]? EstablishedState(uint encounterState, int centerX, int centerY, bool isSkyFortress)
     {
-        if (!BarrierWireVerified || BreachTables.BarrierRulesetRow is not { } row) return null;
-        if (BuildBarrierPayload?.Invoke(state, x, y) is not { } body) return null;
-        return GameServer.Core.Protocol.Instance.InstanceRulesets.Data(row, body);
+        if (BreachTables.EstablishedRulesetRow is not { } row) return null;
+        byte[] body = new byte[14];
+        body[0] = 0;
+        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(1, 4), encounterState);
+        BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(5, 4), centerX);
+        BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(9, 4), centerY);
+        body[13] = isSkyFortress ? (byte)1 : (byte)0;
+        return InstanceRulesets.Data(row, body);
+    }
+
+    /// <summary>Sub-opcode 1 (3B): wave counter (<c>Wave {currentWave}/{totalWaves}</c>; hidden when totalWaves == 0).</summary>
+    public static byte[]? EstablishedWave(int currentWave, int totalWaves)
+    {
+        if (BreachTables.EstablishedRulesetRow is not { } row) return null;
+        byte[] body = [1, (byte)Math.Clamp(currentWave, 0, 255), (byte)Math.Clamp(totalWaves, 0, 255)];
+        return InstanceRulesets.Data(row, body);
+    }
+
+    /// <summary>Sub-opcode 2 (10B): Ailith defense bar (<c>clamp(remainingHits / maxHits, 0, 1)</c>) and shield state.</summary>
+    public static byte[]? EstablishedHealth(int remainingHits, int maxHits, bool isShielded)
+    {
+        if (BreachTables.EstablishedRulesetRow is not { } row) return null;
+        byte[] body = new byte[10];
+        body[0] = 2;
+        BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(1, 4), Math.Max(0, remainingHits));
+        BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(5, 4), Math.Max(1, maxHits));
+        body[9] = isShielded ? (byte)1 : (byte)0;
+        return InstanceRulesets.Data(row, body);
+    }
+
+    /// <summary>Sub-opcode 3 (2B): Hive environment overlay blend (1 = active, 0 = clear).</summary>
+    public static byte[]? EstablishedOverlay(bool active)
+    {
+        if (BreachTables.EstablishedRulesetRow is not { } row) return null;
+        return InstanceRulesets.Data(row, [3, active ? (byte)1 : (byte)0]);
+    }
+
+    /// <summary>Decodes <c>C-&gt;S 0x02ca</c> ruleset <c>0xa5</c> (<c>BrequelActivateEncounterSkill</c>):
+    /// 5B payload <c>u8 0x00, u32 LE skillObjectEntityId</c>.</summary>
+    public static bool TryReadActivateSkillAction(ReadOnlySpan<byte> payload, out uint skillObjectEntityId)
+    {
+        if (payload.Length >= 5 && payload[0] == 0x00)
+        {
+            skillObjectEntityId = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(1, 4));
+            return true;
+        }
+        skillObjectEntityId = 0;
+        return false;
+    }
+
+    // ---- BrequelBarrierRules (#166 = 0xa6, reader 0x14167e790) -------------------------------------------------------
+
+    /// <summary>Sub-opcode 0 (38B): barrier centre and 29B <c>ExpandingRadius</c>.</summary>
+    public static byte[]? BarrierRadius(int centerX, int centerY, float startRadius, float targetRadius,
+        float duration = 1.0f, float elapsed = 0f, int speedPercent = 0)
+    {
+        if (BreachTables.BarrierRulesetRow is not { } row) return null;
+        byte[] body = new byte[38];
+        body[0] = 0;
+        BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(1, 4), centerX);
+        BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(5, 4), centerY);
+        WriteExpandingRadius(body.AsSpan(9, 29), startRadius, targetRadius, duration, elapsed, speedPercent);
+        return InstanceRulesets.Data(row, body);
+    }
+
+    /// <summary>Sub-opcode 1 (2B): barrier fade float active toggle (1 = visible, 0 = fade out).</summary>
+    public static byte[]? BarrierActive(bool active)
+    {
+        if (BreachTables.BarrierRulesetRow is not { } row) return null;
+        return InstanceRulesets.Data(row, [1, active ? (byte)1 : (byte)0]);
     }
 }

@@ -501,6 +501,7 @@ public sealed class BreachHive
                 {
                     hive.ShieldUntil = 0;
                     if (hive.AilithId != 0) await SetMonsterStates(runner, hive.AilithId, ("shielded", 0));
+                    await SendHiveRulesetUpdate(members, hive);
                     dirty = true;
                 }
 
@@ -682,11 +683,13 @@ public sealed class BreachHive
             case 4: // ChayulaAilithHealDaemon: Heal Ailith
                 hive.HitsTaken = Math.Max(0, hive.HitsTaken - 6);
                 if (hive.AilithId != 0) await SetMonsterStates(player, hive.AilithId, ("number_of_hits", hive.HitsTaken));
+                await SendHiveRulesetUpdate(Members(player), hive);
                 await PlayerOf(player).Tell("Ailith restores her vitality!");
                 break;
             case 5: // ChayulaAilithShieldDaemon: Grant Ailith a Shield
                 hive.ShieldUntil = now + 10.0;
                 if (hive.AilithId != 0) await SetMonsterStates(player, hive.AilithId, ("shielded", 1));
+                await SendHiveRulesetUpdate(Members(player), hive);
                 await PlayerOf(player).Tell("Ailith raises a protective shield!");
                 break;
             case 6: // ChayulaEnhancedFlameAuraDaemon: Gain an Enhanced Flame
@@ -735,8 +738,6 @@ public sealed class BreachHive
         wall.Destroyed = true;
         await SetObjectStates(player, wall.Id, BlockerType, ("destroyed", 1), ("breakable_by_players", 0));
         await SetObjectBlocked(player, wall.Id, BlockerType, blocked: false);
-        if (BreachRulesets.BarrierMessage(1, wall.X, wall.Y) is { } msg)
-            await Broadcast(Members(player), msg, "0x02c9 BrequelBarrierRules wall destroyed");
     }
 
     async Task SucceedDefense(Player runner, List<Player> members, HiveState hive, BreachAtlas atlas)
@@ -902,7 +903,34 @@ public sealed class BreachHive
 
     static async Task SendHiveRulesetUpdate(List<Player> members, HiveState hive)
     {
-        if (BreachRulesets.EstablishedMessage(hive.Phase, hive.Wave, hive.TotalWaves, hive.HitsTaken, hive.MaxHits) is { } msg)
-            await Broadcast(members, msg, $"0x02c9 EstablishedBrequelEncounterRules phase={hive.Phase} wave={hive.Wave}/{hive.TotalWaves}");
+        uint wireState = hive.Phase switch
+        {
+            PhaseRunning => BreachRulesets.EstablishedActive,
+            PhaseSucceeded => BreachRulesets.EstablishedSucceeded,
+            PhaseFailed => BreachRulesets.EstablishedFailed,
+            _ => BreachRulesets.EstablishedInactive,
+        };
+        if (BreachRulesets.EstablishedState(wireState, hive.CentreX, hive.CentreY, isSkyFortress: false) is { } st)
+            await Broadcast(members, st, $"0x02c9 EstablishedBrequelEncounterRules state={wireState}");
+        if (BreachRulesets.EstablishedWave(hive.Phase == PhaseRunning ? hive.Wave : 0, hive.Phase == PhaseRunning ? hive.TotalWaves : 0) is { } wv)
+            await Broadcast(members, wv, null);
+        int remaining = Math.Max(0, hive.MaxHits - hive.HitsTaken);
+        bool shielded = members.Count > 0 && hive.ShieldUntil > AreaTime(members[0]);
+        if (BreachRulesets.EstablishedHealth(remaining, hive.MaxHits, shielded) is { } hp)
+            await Broadcast(members, hp, null);
+        if (BreachRulesets.EstablishedOverlay(hive.Phase == PhaseRunning) is { } ov)
+            await Broadcast(members, ov, null);
+        if (hive.Phase == PhaseRunning)
+        {
+            if (BreachRulesets.BarrierRadius(hive.CentreX, hive.CentreY, 60f, 60f, 1f, 1f) is { } br)
+                await Broadcast(members, br, null);
+            if (BreachRulesets.BarrierActive(true) is { } ba)
+                await Broadcast(members, ba, null);
+        }
+        else if (hive.Phase is PhaseSucceeded or PhaseFailed)
+        {
+            if (BreachRulesets.BarrierActive(false) is { } ba)
+                await Broadcast(members, ba, null);
+        }
     }
 }
