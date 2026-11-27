@@ -830,8 +830,10 @@ public static partial class Game
             if (SkillsFor(player).EffectId(effect) == "BallLightningAltX")
                 stats[Stat.ProjectileSpeedPlusPct] = OrbitingBallLightningSpeedPercent(playerStats.GetValueOrDefault, OwnPanel);
             ApplyProjectilePanelStats(effect, stats);
-            // Network skill records need the final fall speed used by the expanding and linear rain actions.
-            if (IsRainOfArrowsVariant(effectId) || effectId is TrarthusBlastRain or ConflagrationEffect || IsStormRain(effectId))
+            // These native actions read the derived fall speed directly from the network skill record.
+            var summon = SummonData.Find(effectId);
+            if (IsRainOfArrowsVariant(effectId) || effectId is TrarthusBlastRain or ConflagrationEffect
+                || IsStormRain(effectId) || summon is { Family: "Clone" })
                 stats[Stat.ArrowRainFallSpeedPlusPct] = RainOfArrowsFallSpeed(player, id, characterInputs, supported.Stats);
             if (effectId == ConflagrationEffect)
                 stats[Stat.TotalNumberOfArrowsToFire] = ConflagrationArrowCount(stats.GetValueOrDefault);
@@ -894,7 +896,7 @@ public static partial class Game
             if (Get(Stat.BladefallBaseVolleyFrequencyMs) is int volleyMs and > 0)
                 Publish(Stat.BladefallVolleyFrequencyMs, BladefallVolleys.FrequencyMs(volleyMs,
                     Get(Stat.BladefallVolleyFrequencyPlusPctPer100MaximumMana), player.Pools.Mana));
-            if (SummonData.Find(SkillsFor(player).EffectId(effect)) is { LimitStat: > 0 } summon)
+            if (summon is { LimitStat: > 0 })
             {
                 int limit = SummonLimit(player, summon, supported);
                 Publish(summon.FinalLimitStat, limit);

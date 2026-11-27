@@ -346,7 +346,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Equipment modifiers scale from final attributes, Oskarm uses final Accuracy for attack critical chance and
   its item-local Assassin's Mark level for qualifying hits by the wearer, and
   Mask of the Stitched Demon uses full maximum Energy Shield for Life regeneration.
-- Blink Arrow and its variants leave clones at departure; clones use arrows, arrow rain or elemental shots.
+- Blink Arrow and Mirror Arrow create their clones at arrow contact, with the native attack and projectile timing.
+  Blink Arrow moves the player in the same update and leaves its clone at departure. Clones use arrows, arrow rain or elemental shots.
   Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns (a guard skill cast from the bar as well as one a trigger releases),
   opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear

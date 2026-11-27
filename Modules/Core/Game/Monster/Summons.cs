@@ -459,7 +459,7 @@ public static partial class Game
             }
             if (released) SaveSummons(player);
             return released;
-        });
+        }, firstReleaseDelay: !triggered && definition.Family == "Clone" ? CloneArrowLandingDelay(player, source) : null);
 
     public static Task<uint> SummonFighter(Player player,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,

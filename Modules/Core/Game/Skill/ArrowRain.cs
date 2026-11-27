@@ -349,13 +349,17 @@ public static partial class Game
         }
     }
 
+    static int RainOfArrowsFallSpeed(Player player, ushort skill, IReadOnlyDictionary<uint, int> playerStats,
+        IReadOnlyDictionary<uint, int> own, bool proxy = false) =>
+        ArrowRainTiming(player, skill, playerStats, own, proxy).FallSpeed;
+
     // The client's derived fall speed applies attack speed, half the combined arrow speed increase and
     // half the final projectile speed percent. Action speed only affects the release animation.
-    static int RainOfArrowsFallSpeed(Player player, ushort skill, IReadOnlyDictionary<uint, int> playerStats,
-        IReadOnlyDictionary<uint, int> own, bool proxy = false)
+    static (int FallSpeed, double AttackSeconds) ArrowRainTiming(Player player, ushort skill,
+        IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int> own, bool proxy = false)
     {
         int Get(uint stat) => playerStats.GetValueOrDefault(stat) + own.GetValueOrDefault(stat);
-        var (_, attackIncrease, attackMore) = SupportedAttackTiming(player, skill, null, clampToTick: true, proxy);
+        var (attackSeconds, attackIncrease, attackMore) = SupportedAttackTiming(player, skill, null, clampToTick: false, proxy);
         int arrowIncrease = playerStats.GetValueOrDefault(Stat.ProjectileSpeedPlusPct)
             + own.GetValueOrDefault(Stat.BaseProjectileSpeedPlusPct) + Get(Stat.BaseArrowSpeedPlusPct);
         float projectileMore =
@@ -366,8 +370,9 @@ public static partial class Game
             * Math.Max(0, 1 + Get(Stat.PassiveMasteryLessProjectileSpeedPlusPctFinal) / 100f);
         int projectileMorePct = (int)MathF.Round(100 * projectileMore - 100, MidpointRounding.AwayFromZero);
         double localAttackMore = Math.Max(0, 1 + WeaponProfileFor(player, activeSet: true).LocalAttackSpeedPct / 100d);
-        return SkillAttackTiming.FinalSpeedPercent(attackIncrease + arrowIncrease / 2,
+        int fallSpeed = SkillAttackTiming.FinalSpeedPercent(attackIncrease + arrowIncrease / 2,
             attackMore * localAttackMore * Math.Max(0, 1 + projectileMorePct / 2 / 100d));
+        return (fallSpeed, attackSeconds);
     }
 
     static readonly uint[] ChaosGroundMoreStats =
