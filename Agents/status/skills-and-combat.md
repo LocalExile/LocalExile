@@ -287,6 +287,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md).
 - Equipment-granted Bear Trap, Wintertide Brand, Decoy Totem, Smite, Frostblink, Summon Stone Golem, Convocation,
   Enduring Cry and Intimidating Cry use their existing skill actions. A restored golem retains its equipment source.
+- Bloodbond's Blood Offering consumes up to four corpses and grants minion damage and life regeneration based on life sacrificed.
 - Doryani's Touch uses the gloves' unarmed lightning damage and requires both hands to have no weapon.
 - Lightpoacher can earn Spirit Charges on kills with an equipped Abyss Jewel. An accepted skill use can spend a
   live charge to launch Spirit Burst.

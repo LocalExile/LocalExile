@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 static partial class Game
 {
     internal static bool MinionUtility(string? effect) => effect is "ConvocationOld" or "Convocation"
-        or "FleshOffering" or "BoneOffering" or "SpiritOffering" or "SignalPrey";
+        or "FleshOffering" or "BoneOffering" or "SpiritOffering" or "BloodOffering" or "SignalPrey";
 
     static IEnumerable<GolemState.Golem> UtilityFighters(Player player) =>
         player.Golems.All.Values.Concat(player.Summons.Fighters.Values).Concat(player.Reservations.Fighters.Values)
@@ -97,12 +97,26 @@ static partial class Game
         if (first is null || !Usable(first)) first = player.Area.Monsters.Values.Where(Usable)
             .Where(m => Dist(m.Walk.Position(now), aim) <= 15).MinBy(m => Dist(m.Walk.Position(now), aim));
         if (first is null && GolemStat(playerStats, Stat.OfferingSkillsDoNotRequireCorpses) == 0) return false;
+        bool blood = effect == "BloodOffering";
         var centre = first?.Walk.Position(now) ?? aim;
         var corpses = player.Area.Monsters.Where(p => Usable(p.Value) && Dist(p.Value.Walk.Position(now), centre) <= 15)
-            .OrderBy(p => ReferenceEquals(p.Value, first) ? 0 : 1).ThenBy(p => Dist(p.Value.Walk.Position(now), centre)).Take(5).ToArray();
-        string dir = effect == "FleshOffering" ? "offering_offensive" : effect == "BoneOffering" ? "offering_defensive" : "offering_spirit";
-        string burstAo = $"Metadata/Effects/Spells/{dir}/goresplosion.ao";
-        string castAo = $"Metadata/Effects/Spells/{dir}/offering_offensive_souls.ao";
+            .OrderBy(p => ReferenceEquals(p.Value, first) ? 0 : 1).ThenBy(p => Dist(p.Value.Walk.Position(now), centre))
+            .Take(blood ? 4 : 5).ToArray();
+        string kind = effect switch
+        {
+            "FleshOffering" => "flesh",
+            "BoneOffering" => "bone",
+            "BloodOffering" => "blood",
+            _ => "spirit",
+        };
+        string dir = kind switch
+        {
+            "flesh" => "offering_offensive",
+            "bone" => "offering_defensive",
+            _ => "offering_" + kind,
+        };
+        string burstAo = $"Metadata/Effects/Spells/{dir}/{(blood ? "Goresplosion" : "goresplosion")}.ao";
+        string castAo = $"Metadata/Effects/Spells/{dir}/{(blood ? "rig_base" : "offering_offensive_souls")}.ao";
         string auraAo = effect == "FleshOffering"
             ? $"Metadata/Effects/Spells/{dir}/offering_offensive_effect.ao"
             : $"Metadata/Effects/Spells/{dir}/rig.ao";
@@ -124,7 +138,6 @@ static partial class Game
         QueueUtilityEffect(player, centre, castAo, 1.5, "Offering souls effect");
         QueueUtilityEffect(player, centre, auraAo, 1.5, "Offering area effect");
         int extra = Math.Max(0, corpses.Length - 1);
-        string kind = effect == "FleshOffering" ? "flesh" : effect == "BoneOffering" ? "bone" : "spirit";
         double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, Stat.BaseSkillEffectDuration)
                 + extra * GolemStat(gem.Stats, Stat.OfferingSkillEffectDurationPerCorpse),
             n => GolemStat(playerStats, n) + (n == Stat.SkillEffectDurationPlusPct ? GolemStat(playerStats, Stat.OfferingDurationPlusPct)
@@ -151,6 +164,18 @@ static partial class Game
             Add(Stat.MonsterBaseBlockPct, Stat.MonsterBaseBlockPct, GolemStat(playerStats, Stat.BoneOfferingBlockChancePlusPct));
             Add(Stat.BaseSpellBlockPct, Stat.BaseSpellBlockPct);
             Add(Stat.LifeRegenerationRatePerMinutePctIfBlockedRecently, Stat.MinionLifeRegenerationRatePerMinutePctIfBlockedRecently);
+        }
+        else if (blood)
+        {
+            buff = 850;
+            int percent = GolemStat(gem.Stats, Stat.BloodOfferingPctOfLifeToLose);
+            long sacrificed = Math.Min(Math.Max(0L, (long)player.PlayerLife - 1), (long)player.PlayerLife * percent / 100);
+            player.PlayerLife -= (uint)sacrificed;
+            double regenPerMinute = sacrificed * GolemStat(gem.Stats, Stat.BloodOfferingPctOfLostLifeToRegenerateAsLifePerSecond)
+                * .6 * (1 + corpses.Length * GolemStat(gem.Stats, Stat.BloodOfferingLifeRegeneratedPlusPctFinalPerCorpse) / 100d);
+            Add(Stat.BaseLifeRegenerationRatePerMinute, Stat.BaseLifeRegenerationRatePerMinute,
+                ActorScale.Saturate((long)Math.Floor(regenPerMinute)));
+            Add(Stat.DamagePlusPct, Stat.DamagePlusPct);
         }
         else
         {
