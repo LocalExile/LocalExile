@@ -84,6 +84,7 @@ public static class AuraCatalog
         ["BloodAndSand"] = FleshAndStoneBloodRow,
         ["ArcticArmour"] = 427,
         ["TempestShield"] = 112,
+        ["ManaInfusedStaff"] = 2792,
         ["HeraldOfAsh"] = 344,
         ["HeraldOfIce"] = 345,
         ["HeraldOfThunder"] = 346,

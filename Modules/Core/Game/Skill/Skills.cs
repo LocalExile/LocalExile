@@ -688,7 +688,8 @@ public static partial class Game
                 double seconds = SkillsFor(player).IsAttack(effect)
                     ? shieldSpeed?.Seconds ?? SupportedAttackSeconds(player, id)
                     : Math.Max(.001, (CastMs(player, effect, id) ?? 0) / 1000.0);
-                var finalPlan = SkillHitPlan.ForSkill(SkillsFor(player), effect, supported.Level, supported.Quality);
+                var finalPlan = ManaStaffHitPlan(player,
+                    SkillHitPlan.ForSkill(SkillsFor(player), effect, supported.Level, supported.Quality), own);
                 int criticalChance = SupportedCriticalChance(player, id);
                 int criticalMultiplier = SupportedCriticalMultiplier(player, id);
                 var accuracy = SkillsFor(player).IsAttack(effect) ? SupportedAccuracy(player, id) : default;
@@ -1439,6 +1440,8 @@ public static partial class Game
         if (triggered && SkillsFor(player).EffectId(effect) == ThunderstormEffect)
             return "Thunderstorm must be used directly";
         if (!triggered && TriggerOnlyReason(gem) is { } trigger) return trigger;
+        if (SkillsFor(player).EffectId(effect) == ManaInfusedStaffEffect && player.Pools.Mana == 0)
+            return "Mana-Infused Staff requires mana to reserve";
         if ((ActorSkillInstanceDisabled(player, effect, skillId) ?? WeaponRestricted(player, effect)
                 ?? GemRequirementsUnmet(player, gem.SourceGem)) is { } disabled)
             return disabled;

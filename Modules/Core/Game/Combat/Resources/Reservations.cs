@@ -38,6 +38,7 @@ public static partial class Game
         IReadOnlyDictionary<uint, int>? playerStats)
     {
         var gem = SupportedSkill(player, skill);
+        if (SkillsFor(player).EffectId(gem.Effect) == ManaInfusedStaffEffect) return (false, 0);
         playerStats ??= StatSourceValues(player);
         int Own(uint n) => GolemStat(gem.Stats, n);
         int Get(uint n) => Own(n) + (n is var key

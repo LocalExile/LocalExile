@@ -951,7 +951,7 @@ public static partial class Game
             if (projectile) { types.Remove(19); types.Add(2); }
             else { types.Remove(2); types.Remove(7); }
         }
-        var plan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
+        var plan = ManaStaffHitPlan(player, SkillHitPlan.ForSkill(skills, gem.Effect, gem.Level, gem.Quality), gem.Stats);
         if (totem && projectileTotemLife is uint totemLife && plan.Kind == SkillHitKind.Spell
             && gem.Stats.GetValueOrDefault(Stat.InfernalBoltBaseFireDamagePctMaximumLife) is > 0 and var firePercent)
         {
@@ -1287,6 +1287,9 @@ public static partial class Game
                 && curseSources.GetValueOrDefault(free) != 0) return new(0, 0, 0, 0);
         }
         if (sourceReservation is not { } reservation) return null;
+        if (effectId == ManaInfusedStaffEffect && gem.Stats.GetValueOrDefault(
+                Stat.ActiveSkillAlwaysReservesUnmodifiableXPctOfMana) is > 0 and var fixedMana)
+            return new(0, fixedMana * 100, 0, 0) { FixedMana = true };
         if (gem.Stats.GetValueOrDefault(Stat.BaseSkillNoReservation) != 0
             || gem.Stats.GetValueOrDefault(Stat.AuraSkillNoReservation) != 0)
             return new(0, 0, 0, 0);

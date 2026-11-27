@@ -200,6 +200,12 @@ public static partial class Game
         {
             List<AuraCatalog.Aura> auras;
             auras = AffectingAuras(player);
+            if (ManaStaffAura(player) is { } staff && WeaponRestricted(player, staff.Effect) is null)
+            {
+                var (manaCost, block) = ManaStaffGrants(staff);
+                AddTo(stats, Stat.SkillManaCostPlusPctFinalFromManaInfusedStaff, manaCost);
+                AddTo(stats, Stat.BlockChancePlusPctFinalFromManaInfusedStaff, block);
+            }
             if (OwnEternalBlessingActive(player)) stats[Stat.NonBlessingSkillsWithManaReservationAreDisabled] = 1;
             // "X% increased Effect of Herald Buffs on you" (passives, gear and tattoos) scales the heralds' buff stats.
             int heraldEffectPct = GetIn(stats, Stat.HeraldEffectOnSelfPlusPct);

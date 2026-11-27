@@ -31,6 +31,7 @@ public static partial class Game
             OpenRetaliationWindows(player, blocked: true, now);
             player.RecentEvents.Record(spell ? StatConditions.BlockedSpell : StatConditions.BlockedAttack, now);
             QueueFlaskTrigger(player, FlaskEnchantments.Trigger.Block);
+            if (enemy) TryQueueManaStaffWave(player, now);
             if (ItemEffectRules.Enabled) CastSocketedSpellOnBlock(player, now, attacker);
         }
         if (suppressed) player.RecentEvents.Record(StatConditions.SuppressedSpell, now);

@@ -2156,6 +2156,8 @@ public static partial class Game
         }
         // Both stance gems have one atomic source/cooldown/action admission. A direct generic toggle would bypass it.
         if (StanceCatalog.IsSource(effectId)) return false;
+        if (effectId == ManaInfusedStaffEffect && (player.Pools.Mana == 0 || WeaponRestricted(player, effect) is not null))
+            return false;
         AuraCatalog.Aura? ended = null;
         AuraCatalog.Aura? started = null;
         // Locked commit backstop: a source may have changed after dispatch/cooldown preflight.
@@ -2256,7 +2258,7 @@ public static partial class Game
         if (seconds is not double duration)
         {
             foreach (var buff in AuraCatalog.Buffs(aura, id, Skills.ActionHash(aura.Effect), aura.AffectsSelf ? null : (byte?)0, tag))
-                yield return buff;
+                yield return aura.EffectId == ManaInfusedStaffEffect ? WithManaStaffBuffValues(buff, aura) : buff;
             yield break;
         }
         if (aura.SourceBuff is not null)
@@ -3191,6 +3193,7 @@ public static partial class Game
             chargeAttackMore = Math.Max(0, 1 + perChargeDamage * (double)charges / 100);
             chargeRadius = SkillArea.RadiusMultiplier(ActorScale.Saturate((long)perChargeArea * charges));
         }
+        hitPlan = ManaStaffHitPlan(player, hitPlan, skillStats);
         if (!hitPlan.CanHit)
         {
             if (IsBane(player, gem.Effect))
