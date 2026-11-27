@@ -485,7 +485,7 @@ public static partial class Game
             if (IsLeapSlam(player, effect) || gatheringLightning || skills.ActionHash(effect) is HolyHammersAction or EarthshatterFissures.Action
                 || effectId is "VolcanicFissureAltX" or "SparkAltY" or "BallLightningAltX"
                 || IsTrarthusChainHook(effectId) || IsRainOfArrowsVariant(effectId) || IsStormRain(effectId)
-                || IsChargedDash(player, effect) || IsIceSpear(effectId) || IsWaveOfConviction(effectId))
+                || IsChargedDash(player, effect) || IsIceSpear(effectId) || IsWaveOfConviction(effectId) || IsSpectralHelix(effectId))
                 stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
             if (LacerateEffect(effectId))
             {
@@ -936,7 +936,7 @@ public static partial class Game
                 int frenzy = ChargesOf(player).Effective(ChargeType.Frenzy);
                 // Read the same additive inputs as placement, before final cast speed is projected into the skill stats.
                 int ThrowStat(uint key) => GolemStat(supported.Stats, key) + GolemStat(playerStats, key);
-                int throwSpeed = PlacedThrowIncrease(ThrowStat, placed.Mine, frenzy);
+                int throwSpeed = PlacedThrowIncrease(ThrowStat, placed.Mine, frenzy, PlacedWeaponThrowSpeed(player, ThrowStat, placed.Mine));
                 Publish(placed.Mine ? Stat.VirtualMineThrowingSpeedPlusPct : Stat.VirtualTrapThrowingSpeedPlusPct, throwSpeed);
                 if (Get(Stat.TrapTriggerRadiusPlusPct) is int triggerPct and not 0)
                     Publish(Stat.VirtualTrapTriggerRadiusPlusPct, triggerPct);

@@ -261,6 +261,7 @@ public static class GatewayProjectileSkillProfiles
         if (nova && get(Stat.SupportParallelProjectileNumberOfPointsPerSide) == 0)
             p = p with { NativeVolley = new() { Nova = true } };
         p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
+        if (Game.IsSpectralHelix(effect)) p = Game.SpectralHelixProfile(p, get);
         if (effect == "SoulrendAltY") p = SoulrendSpiral(p, get);
         if (Game.MovingBallLightning(effect)) p = Game.BallLightningPulses(effect, p, get);
         if (Game.IsIceSpear(effect)) p = Game.IceSpearForms(effect, p, get);

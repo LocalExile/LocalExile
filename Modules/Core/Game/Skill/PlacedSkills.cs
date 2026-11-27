@@ -172,7 +172,15 @@ public static partial class Game
             if (player.Pools.Intelligence >= 800) count += GolemStat(playerStats, Stat.NumberOfAdditionalMinesToPlaceWithAtLeast500Int);
             if (player.Pools.Dexterity >= 800) count += GolemStat(playerStats, Stat.NumberOfAdditionalMinesToPlaceWithAtLeast500Dex);
         }
+        else if (GolemStat(gem.Stats, Stat.ThrowXAdditionalTrapsIfDualWielding) is int extra and not 0
+            && HandsFit(player, gem.Effect, gem.Stats) is (true, true)) count += extra;
         return (int)Math.Clamp(count, 1, 200);
+    }
+
+    static int PlacedWeaponThrowSpeed(Player player, Func<uint, int> get, bool mine)
+    {
+        int bonus = mine ? 0 : get(Stat.TrapThrowingSpeedPlusPctWhileWielding2hand);
+        return bonus != 0 && IsTwoHandMeleeClass(ActiveMainHand(player)?.Type?.Class) ? bonus : 0;
     }
 
     // Throwing takes its own time, not the supported spell's cast time: 0.5 s for a trap (3.29.3c ThrowTrap::Start
@@ -182,18 +190,21 @@ public static partial class Game
         [Stat.SupportTrapAndMineDamageTrapThrowingSpeedPlusPctFinal, Stat.ActiveSkillTrapThrowingSpeedPlusPctFinal];
     static readonly uint[] MineThrowFinal =
         [Stat.SupportTrapAndMineDamageMineThrowingSpeedPlusPctFinal, Stat.SupportMinefieldMineThrowingSpeedPlusPctFinal];
-    public static double PlacedThrowSeconds(Func<uint, int> get, bool mine, int frenzyCharges = 0)
+    public static double PlacedThrowSeconds(Func<uint, int> get, bool mine, int frenzyCharges = 0) =>
+        PlacedThrowSeconds(get, mine, frenzyCharges, 0);
+
+    static double PlacedThrowSeconds(Func<uint, int> get, bool mine, int frenzyCharges, int weaponSpeed)
     {
-        double speed = Math.Max(0, 1 + PlacedThrowIncrease(get, mine, frenzyCharges) / 100d);
+        double speed = Math.Max(0, 1 + PlacedThrowIncrease(get, mine, frenzyCharges, weaponSpeed) / 100d);
         foreach (uint stat in mine ? MineThrowFinal : TrapThrowFinal) speed *= Math.Max(0, 1 + get(stat) / 100d);
         return (mine ? .3 : .5) / Math.Max(.01, speed);
     }
 
-    static int PlacedThrowIncrease(Func<uint, int> get, bool mine, int frenzyCharges)
+    static int PlacedThrowIncrease(Func<uint, int> get, bool mine, int frenzyCharges, int weaponSpeed)
     {
         // Charged Traps and Charged Mines add increased throwing speed per Frenzy Charge.
         long increased = (long)get(mine ? Stat.MineLayingSpeedPlusPct : Stat.TrapThrowingSpeedPlusPct)
-            + get(Stat.TrapAndMineThrowingSpeedPlusPct) + (long)frenzyCharges
+            + get(Stat.TrapAndMineThrowingSpeedPlusPct) + weaponSpeed + (long)frenzyCharges
                 * get(mine ? Stat.MineThrowingSpeedPlusPctPerFrenzyCharge : Stat.TrapThrowingSpeedPlusPctPerFrenzyCharge);
         if (!mine && get(Stat.AdditiveCastSpeedModifiersApplyToTrapThrowingSpeed) != 0)
             increased += get(Stat.CastSpeedPlusPct);
@@ -341,7 +352,8 @@ public static partial class Game
             // Decided once per use: Swift Assembly's chance of more traps or mines.
             swiftExtra = SwiftAssemblyExtra(Get, AreaRng(player));
             seconds = Math.Max(TickSeconds, PlacedThrowSeconds(Get, admission.Mine,
-                ChargesOf(player).Effective(ChargeType.Frenzy)) / PlayerActionFactor(player));
+                ChargesOf(player).Effective(ChargeType.Frenzy), PlacedWeaponThrowSpeed(player, Get, admission.Mine))
+                / PlayerActionFactor(player));
         }
         // The oldest traps or mines over the limit go when the throw starts, in a packet of their own. Removed in the
         // packet that created the new one, the client showed the old object moving to the new place (live 2026-11-17).
@@ -437,6 +449,8 @@ public static partial class Game
                 var areaStats = SkillAreaStats(player, gem.Stats, gem.Effect, playerStats);
                 int AreaGet(uint key) => areaStats.GetValueOrDefault(key);
                 var effectId = SkillsFor(player).EffectId(gem.Effect);
+                if (IsSpectralHelix(effectId))
+                    payload[Stat.SkillBehaviourVariation] = SkillsFor(player).BehaviourVariation(gem.Effect);
                 int baseRadius = SkillArea.BaseRadius(effectId, Get);
                 // Manabond's action adds its built-in 18-cell radius to the transmitted base stat.
                 payload[Stat.ActiveSkillBaseAreaOfEffectRadius] = effectId == ManabondEffect
@@ -454,7 +468,7 @@ public static partial class Game
                 var bytes = new WorldRecordBuilder(player, worldAdmission);
                 bool committed = false;
                 bool spectralTrap = !admission.Mine
-                    && GatewayProjectileSkillProfiles.IsSpectralThrowTrap(SkillsFor(player).EffectId(gem.Effect));
+                    && (GatewayProjectileSkillProfiles.IsSpectralThrowTrap(effectId) || effectId == SpectralHelixTrapEffect);
                 var spectralHands = spectralTrap ? HandsFit(player, gem.Effect, gem.Stats) : default;
                 for (int i = 0; i < count; i++)
                 {
@@ -945,7 +959,7 @@ public static partial class Game
             var at = placed.At;
             var shot = aim;
             bool spectralTrap = !placed.Mine && GatewayProjectileSkillProfiles.IsSpectralThrowTrap(effect);
-            AttackHand? trapHand = spectralTrap && SpectralTrapHands.TryGetValue(placed, out var choice) ? choice.Hand : null;
+            AttackHand? trapHand = SpectralTrapHands.TryGetValue(placed, out var choice) ? choice.Hand : null;
             session.Schedule(session.Runtime.Now, () => session.Active && ReferenceEquals(lifetime, CombatLifetime), () =>
             {
                 var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, trapHand, (ushort)placed.Id, from: at);

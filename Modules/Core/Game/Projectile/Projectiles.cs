@@ -962,6 +962,8 @@ public static partial class Game
                 };
             if (shot.DamageMorePerGroundBounce != 0 && contact.Projectile.GroundBounces > 0)
                 shot = shot.ScaleDamage(Math.Max(0, 1 + shot.DamageMorePerGroundBounce * (double)contact.Projectile.GroundBounces / 100));
+            if (shot.DamageMoreAfterPierce != 0 && contact.Projectile.EnemiesPierced > 0)
+                shot = shot.ScaleDamage(Math.Max(0, 1 + shot.DamageMoreAfterPierce / 100d));
             double more = contact.Multiplier * (contact.Phase > 0 ? shot.ReturnMultiplier : 1);
             if (ReferenceEquals(shot.BrandedTarget, target))
                 more *= Math.Max(0, 1 + GolemStat(shot.SkillStats, Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);

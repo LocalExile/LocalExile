@@ -40,6 +40,10 @@ public static partial class Game
         definitions[AvengingFlameEffect] = SkillProjectileDefinition(AvengingFlameEffect, InfernalBoltProjectile,
             SkillProjectileParameters(AvengingFlameEffect, InfernalBoltProjectile));
         RegisterSpectralShieldThrows(definitions);
+        const string spectralWeaponProjectile = "Metadata/Projectiles/ThrownWeapon";
+        foreach (string effect in new[] { SpectralHelixEffect, SpectralHelixTrapEffect })
+            definitions[effect] = SkillProjectileDefinition(effect, spectralWeaponProjectile,
+                SkillProjectileParameters(effect, spectralWeaponProjectile));
         RegisterEyeOfWinter(definitions);
         const string boneLance = "Metadata/Projectiles/BoneLance";
         foreach (string effect in new[] { "Unearth", "UnearthRoyale" })
@@ -143,6 +147,7 @@ public static partial class Game
                 if (GatewayProjectileSkillProfiles.IsKineticBlast(effect) && profile.ContactArea is { } area
                     && Stat.VirtualKinecticBlastNumberOfClusters is var key)
                     stats[key] = area.Count;
+                if (IsSpectralHelix(effect)) stats[Stat.SpectralSpiralWeaponNumberOfBounces] = profile.TerrainBounces;
             }
         };
 
@@ -163,6 +168,7 @@ public static partial class Game
                 if (IsGalvanicArrow(effect)) return GalvanicArrowRelease(context, use, effect, areaStats);
                 if (IsIceSpear(effect)) return IceSpearRelease(context, use);
                 if (effect == "BallLightningAltX") return ReleaseOrbitingBallLightning(context, use);
+                if (IsSpectralHelix(effect)) return ReleaseSpectralHelix(context, use);
                 if (GatewayProjectileSkillProfiles.IsBlazingSalvo(effect)) return BlazingSalvoRelease(use, Get);
                 if (effect == "SpectralShieldThrowAltY") return StationaryShieldRelease(context, use);
                 if (effect is "IcicleMine" or "IcicleMineAltX" or "IcicleMineAltY")

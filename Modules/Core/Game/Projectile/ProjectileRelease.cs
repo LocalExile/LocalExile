@@ -129,7 +129,8 @@ public static partial class Game
         // From the swing's start when it began before now (a lockstep walk-up's goal frame, CastGemSkill's swingAt).
         double acceptedAt = swingAt ?? AreaTime(player);
         // A Spectral Throw's own weapon leaves on the client's swing (SpectralThrowRelease), without the server-object lead.
-        double? thrown = attack && GatewayProjectileSkillProfiles.IsSelfThrownSpectralWeapon(SkillsFor(player).EffectId(gem.Effect))
+        var effect = SkillsFor(player).EffectId(gem.Effect);
+        double? thrown = attack && (GatewayProjectileSkillProfiles.IsSelfThrownSpectralWeapon(effect) || IsSpectralHelix(effect))
             ? SpectralThrowRelease.Delay(player, Environment.GetEnvironmentVariable("Game_PLAYER_AO")
                 ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject, AnimationWeaponProfileFor(player),
                 SupportedAttackSeconds(player, skillId, sequence))
@@ -422,7 +423,8 @@ public static partial class Game
         var definition = ResolveProjectileDefinition(gem.Effect) ?? (ArrowRain(SkillsFor(player).EffectId(gem.Effect)) ? GroundArrow : null)
             ?? throw new InvalidOperationException("No projectile definition at release.");
         string metadata = definition.Metadata;
-        int baseSpeed = SkillsFor(player).Projectile(metadata)?.Speed ?? 1000;
+        string? effect = SkillsFor(player).EffectId(gem.Effect);
+        int baseSpeed = IsSpectralHelix(effect) ? 1500 : SkillsFor(player).Projectile(metadata)?.Speed ?? 1000;
         string? speedOverride = Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED");
         double speed = SkillsFor(player).EffectId(gem.Effect) == "BallLightningAltX"
             ? ProjectileSpeed.SpeedOverride(speedOverride)
@@ -529,6 +531,7 @@ public static partial class Game
             CompletedChainDamagePercent = Own(Stat.SkillDamagePlusPctFinalPerChainFromSkillSpecificStat),
             DamageIncreasePerChain = damagePerChain,
             DamageIncreasePerPierce = damagePerPierce,
+            DamageMoreAfterPierce = Get(Stat.ProjectileDamagePlusPctFinalIfPiercedEnemy),
             Spider = hitInputs is null ? null : CaptureSpiderDamage(player, hitInputs,
                 AddedEffectiveness(player, gem.Effect, gem.Level), context: false, local: local,
                 bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off,
@@ -585,6 +588,7 @@ public static partial class Game
             // Molten Strike's action spawns its local chunks on melee hit (0x141a6a4b0 -> 0x141ba7c30); server objects would duplicate them.
             ClientPredicted = totem is not null || spell
                 || GatewayProjectileSkillProfiles.IsSelfThrownSpectralWeapon(SkillsFor(player).EffectId(gem.Effect))
+                || effect == SpectralHelixEffect && from is null
                 || SkillsFor(player).EffectId(gem.Effect) is "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY" || IsLightningStrike(gem.Effect)
                 || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)),
             // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).
