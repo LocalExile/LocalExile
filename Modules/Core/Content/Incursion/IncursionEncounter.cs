@@ -619,6 +619,8 @@ public sealed class IncursionEncounter
             * Math.Max(0L, 100L + (mods?.Get(Stat.MapIncursionPackSizePlusPct) ?? 0)) / 100, 0, 5000);
         int cultists = (int)Math.Round(total * IncursionTables.CultistShare);
         var packSpots = live.Room is { PackSpots.Count: > 0 } r ? r.PackSpots.Select(p => IncursionRoom.At(centre, p)).ToList() : [centre];
+        packSpots = packSpots.Where(Reaches).ToList();
+        if (packSpots.Count == 0) packSpots.Add(live.Landing);
         int next = 0;
         var families = IncursionTables.Families(new Random(run.Seed ^ 0x46414d));
         foreach (var (family, count) in (ReadOnlySpan<(string, int)>)[(families.Cultist, cultists), (families.Other, total - cultists)])
@@ -631,7 +633,7 @@ public sealed class IncursionEncounter
                 var from = packSpots[next++ % packSpots.Count];
                 double angle = rng.NextDouble() * Math.Tau, radius = rng.NextDouble() * IncursionTables.PackSpread;
                 var cell = layout.Near(((int)Math.Round(from.X + radius * Math.Cos(angle)), (int)Math.Round(from.Y + radius * Math.Sin(angle))));
-                if (!Reaches(cell)) continue;
+                if (!Reaches(cell)) cell = from;
                 double roll = rng.NextDouble();
                 var rarity = roll < IncursionTables.RareChance ? MonsterRarity.Rare
                     : roll < IncursionTables.RareChance + IncursionTables.MagicChance ? MonsterRarity.Magic : MonsterRarity.Normal;
