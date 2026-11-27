@@ -75,13 +75,13 @@ public sealed partial class MercenaryModule
         }
         else
         {
-            // Retail 3.29 campaign spawning: Act 3 onward when playerLevel <= areaLevel + 10; guaranteed in 5 key zones.
+            // Campaign: the area's own WorldAreaLeagueChances column (Act 3 16%, later acts less, 100 in five zones, 0 in
+            // Acts 1-2, labyrinth rooms, side areas and Ruthless), while playerLevel <= areaLevel + 10.
             var meta = MercenaryTables.AreaOf(layout.Id);
-            allowed = meta is { IsTown: false, IsHideout: false, Act: >= 3 }
+            allowed = meta is { IsTown: false, IsHideout: false }
                 && player.Pools.Level <= area.Level + 10;
-            bool guaranteed = allowed && MercenaryTables.GuaranteedCampaignAreas.Contains(layout.Id);
-            chance = guaranteed ? 100 : allowed ? 15 : 0;
-            force |= guaranteed;
+            chance = allowed ? ChanceOf(layout.Id, LeagueFor(player).HardMode, stats) : 0;
+            force |= chance >= 100;
         }
 
         // Allow Phase 2 mods (e.g. 3.26 Mercenaries mod) to enable encounters from Mud Flats onward and scale level

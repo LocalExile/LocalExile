@@ -77,12 +77,6 @@ public static class MercenaryTables
     static HashSet<string> DisabledUniquesData = new(StringComparer.OrdinalIgnoreCase);
     static Dictionary<string, AreaMeta> AreasById = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Retail 3.29 guaranteed campaign mercenary zones (Act 3 Sceptre of God, Act 4 Grand Arena, Act 6 Ridge, Act 8 Hidden Underbelly, Act 10 Control Blocks).</summary>
-    public static readonly HashSet<string> GuaranteedCampaignAreas = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "1_3_18_1", "1_4_5_2", "2_6_6", "2_8_14", "2_10_7",
-    };
-
     public static AreaMeta? AreaOf(string areaId) => AreasById.TryGetValue(areaId, out var meta) ? meta : null;
     public static bool IsTownOrHideout(string areaId) => AreaOf(areaId) is { } m && (m.IsTown || m.IsHideout);
 
