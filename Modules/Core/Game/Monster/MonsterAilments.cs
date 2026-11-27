@@ -838,7 +838,8 @@ public static partial class Game
             }
         }
         double action = MonsterActionFactor(m, now, freeze: false);
-        var (walk, movementPct) = MonsterWalkModifiers(m, now, action, vines, trap, snare);
+        var (walk, increasedMovementPct) = MonsterWalkModifiers(m, now, action, vines, trap, snare);
+        int movementPct = MonsterClientMovementPct(m.Effects, increasedMovementPct);
         if (walk != a.WalkFactor)
         {
             // PlayerWalk cannot represent zero. Keep the last recoverable speed so thawing or an expiry can restore

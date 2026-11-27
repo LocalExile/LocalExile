@@ -85,6 +85,15 @@ public static partial class Game
         }
     }
 
+    static void BannerRecipientChanged(Player recipient, PlacedBanner banner)
+    {
+        // Resistance is read from the character's pools, so it must follow entering and leaving the banner.
+        if (banner.Stats.ContainsKey(Stat.BaseResistAllElementsPct) && !recipient.Closed && !recipient.LeavingArea)
+            PlayerStatBuffsChanged(recipient);
+        else
+            MarkPlayerStats(recipient, PlayerStatStep.Sources);
+    }
+
     static void StepBannerAuraLocked(Player owner, PlacedBanner banner, double now)
     {
         void For(Player recipient)
@@ -92,7 +101,7 @@ public static partial class Game
             if (!BannerReaches(recipient, banner, now) || ReferenceEquals(owner, recipient) && !banner.AffectsOwner) return;
             if (!banner.Recipients.Add(recipient)) return;
             owner.Area.Buffs.Set(recipient.Id, BuffRows.Spec(banner.Row, banner.Object, banner.Stats));
-            MarkPlayerStats(recipient, PlayerStatStep.Sources);
+            BannerRecipientChanged(recipient, banner);
         }
 
         foreach (var recipient in banner.Recipients.ToArray())
@@ -100,7 +109,7 @@ public static partial class Game
             {
                 owner.Area.Buffs.Clear(recipient.Id, banner.Row, banner.Object);
                 banner.Recipients.Remove(recipient);
-                MarkPlayerStats(recipient, PlayerStatStep.Sources);
+                BannerRecipientChanged(recipient, banner);
             }
         For(owner);
         foreach (var ally in owner.Instance.PlayersExcept(owner.Id)) For(ally);
@@ -116,7 +125,7 @@ public static partial class Game
         foreach (var recipient in banner.Recipients)
         {
             player.Area.Buffs.Clear(recipient.Id, banner.Row, banner.Object);
-            MarkPlayerStats(recipient, PlayerStatStep.Sources);
+            BannerRecipientChanged(recipient, banner);
         }
         banner.Recipients.Clear();
         player.ProjectileObjects.Remove(banner.Object);

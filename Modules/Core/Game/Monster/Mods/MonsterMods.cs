@@ -108,10 +108,21 @@ public static partial class Game
         if (e[MonsterModCatalog.RarityTableLifeStat] is int table and not 0 && MonsterModCatalog.RarityTableLifeStat is var tk)
             yield return (tk, table);
         if (maxLife != baseLife) yield return (Stat.MaximumLife, (int)maxLife);
-        if (e.MovementPct != 0) yield return (Stat.MovementVelocityPlusPct, e.MovementPct);
+        if (MonsterClientMovementPct(e, e.MovementPct) is int move and not 0)
+            yield return (Stat.MovementVelocityPlusPct, move);
         if (e.ActorScalePct != 0 && Stat.ActorScalePlusPct is var scale) yield return (scale, e.ActorScalePct);
         if (e[Stat.LifeRegenerationRatePerMinutePct] is int regen and not 0 && Stat.LifeRegenerationRatePerMinutePct is var rk)
             yield return (rk, regen);
+    }
+
+    // The client walks the entity from one published modifier. Keep the skill's more multiplier
+    // separate from increased movement in the simulation and combine them only at publication.
+    static int MonsterClientMovementPct(MonsterModEffects effects, int increased)
+    {
+        int more = effects[Stat.ActiveSkillMinionMovementVelocityPlusPctFinal];
+        if (more == 0) return increased;
+        double combined = (100d + increased) * Math.Max(0, 1 + more / 100d) - 100;
+        return ActorScale.Saturate((long)Math.Round(combined, MidpointRounding.AwayFromZero));
     }
 
     /// <summary>The monster's own part of its hit on the player, after the roll and before the player's defences: its

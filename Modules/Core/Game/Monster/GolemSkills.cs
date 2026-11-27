@@ -906,7 +906,9 @@ public static partial class Game
             golem.Skills = GolemNativeSkills(player, m.Level, golem.Abilities);
             player.Minions.OutputQueue.Add(new(InstanceEntities.PlayerSkillsChange(golem.Id, golem.Skills, []), "golem abilities updated", golem.Id, m, WorldId: golem.Id));
         }
-        SetStats(player, golem.Id, [(Stat.MovementVelocityPlusPct, m.Mods.Effects.MovementPct)]);
+        if (!m.MaimedMovementShown || m.Mods.Effects[Stat.ActiveSkillMinionMovementVelocityPlusPctFinal] == 0)
+            SetStats(player, golem.Id, [(Stat.MovementVelocityPlusPct,
+                MonsterClientMovementPct(m.Mods.Effects, m.Mods.Effects.MovementPct))]);
         if (player.MinionOrigins.TryGetValue(golem.Id, out origin))
             player.MinionOrigins[golem.Id] = origin with { Object = origin.Object with { Skills = golem.Skills } };
     }
