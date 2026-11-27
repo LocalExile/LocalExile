@@ -3421,6 +3421,13 @@ public static partial class Game
                 TriggerSlamSupportLocked(player, skillId, admittedGem, hand, weapon, offCritical, fissureAt, now,
                     global::Stat.SupportFissureTriggerFissureOnSlamSkillImpactChancePct, "TriggeredSupportFissure");
             }
+            if (!spell && strikeIndex == 0 && retainedAttack is null
+                && player.ProjectileRuntime is { HasBonespires: true } bonespires
+                && (!immediate || IsLeapSlam(player, gem.Effect)) && SkillsFor(player).HasType(gem.Effect, "Slam"))
+            {
+                double spikeRange = wave ? SkillRadius(player, 37, areaStats, spell: false, gem.Effect) * radiusMore : radius;
+                bonespires.DetonateBonespires(centre, spikeRange, now);
+            }
             if (!spell && retainedAttack is null && areaAction == EarthshatterFissures.Action)
             {
                 ScheduleEarthshatterLocked(player, skillId, gem, admittedGem, from, to, sequence, repeat, hand, weapon,

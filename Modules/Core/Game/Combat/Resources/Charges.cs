@@ -393,6 +393,8 @@ public static partial class Game
         double castSeconds = WarcryCastSeconds(player, effect, playerStats, own);
         double until = AreaTime(player) + castSeconds;
         int epoch = player.ProjectileEpoch;
+        var bonespire = !triggered && skillId != 0 && Own(Stat.SupportTriggerSeizeTheFleshOnWarcryChancePct) > 0
+            ? SupportedSkill(player, skillId) : null;
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own, DurationKinds(player, effect))
             * SkillDurationModifiers.CallToArmsMore(Player);
         bool suppressBuffs = Own(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
@@ -428,6 +430,8 @@ public static partial class Game
             }
             else if (effectId == "BattlemagesCry")
                 GrantBattlemagesCryExertsLocked(player, skillId, own, playerStats);
+            if (bonespire is not null)
+                TriggerBonespireLocked(player, skillId, bonespire, here, now);
             var warriors = skillId != 0 && IsGeneralsCry(player, effect)
                 ? GeneralsCryReleased(player, skillId, here, radius, epoch)
                 : Task.CompletedTask;

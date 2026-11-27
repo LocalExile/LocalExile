@@ -225,6 +225,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Cadence uses the swinging hand's radius and requires two compatible weapons.
 - Consecrated Path and its Endurance variant select a target near the aim, land at contact, and create timed ground.
 - Earthshatter and both variants resolve travelling fissures and spikes triggered by slams, warcries or the timer.
+- Bonespire Support raises bone spires on supported self-used warcries. The player's slams detonate the spires and inflict bleeding.
 - Perforate resolves repeated Blood spikes and single-hit Sand rays.
   Duality adds spikes for four seconds after a stance change.
   Bloodshed always uses its slower, wider Blood sequence.
