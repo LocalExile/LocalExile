@@ -688,11 +688,13 @@ public static class MonsterCombos
 
         if (dispatch == MonsterComboDispatch.Projectile)
         {
+            // No 0x1ce goes out for a projectile step, so the client draws nothing of its own: a variation shot (a mortar
+            // the client would draw from the action) must be the server's object (Variation 0), as in MonsterKits.
             var shaped = BossKits.Shaped(player, variety, level, childEffect, raw);
-            if (shaped is { Projectile: not null }) return shaped;
-            if (raw.Projectile is not null) return raw;
+            if (shaped is { Projectile: { } shapedShot }) return shaped with { Projectile = shapedShot with { Variation = 0 } };
+            if (raw.Projectile is { } rawShot) return raw with { Projectile = rawShot with { Variation = 0 } };
             if (BossKits.ArtShot(catalog, childEffect, level) is { } shot)
-                return raw with { Projectile = shot, ReleaseEffect = childEffect };
+                return raw with { Projectile = shot with { Variation = 0 }, ReleaseEffect = childEffect };
             // Fallback: if a projectile child has damage but no resolved Projectile row, still fire as area/ranged hit.
             return !raw.Damage.IsZero ? raw with { AreaRadius = Math.Max(raw.AreaRadius, 14) } : null;
         }
