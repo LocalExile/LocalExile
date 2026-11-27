@@ -174,7 +174,7 @@ public sealed class NpcCatalog
         [StashCatalog.SanctumHub] = [new("Metadata/NPC/League/Sanctum/SanctumNPCTown", 136, 158, 4.0f)],
     };
 
-    sealed record RegisteredNpcOverlay(long Id, string Owner, Npc Npc);
+    sealed record RegisteredNpcOverlay(long Id, string Owner, Npc Npc, int SyntheticRow);
     sealed record RegisteredTalkOverlay(long Id, string Owner, Talk Talk);
 
     sealed record CatalogSnapshot(
@@ -189,6 +189,7 @@ public sealed class NpcCatalog
     static ImmutableArray<RegisteredTalkOverlay> _sharedTalkOverlays = [];
     static long _sharedNextId;
     static long _sharedRevision;
+    static int _nextSyntheticNpcRow = 50_000;
 
     ImmutableArray<RegisteredNpcOverlay> _localNpcOverlays = [];
     ImmutableArray<RegisteredTalkOverlay> _localTalkOverlays = [];
@@ -213,7 +214,8 @@ public sealed class NpcCatalog
         ArgumentException.ThrowIfNullOrWhiteSpace(owner);
         ValidateNpc(npc);
         long id = Interlocked.Increment(ref _sharedNextId);
-        ImmutableInterlocked.Update(ref _sharedNpcOverlays, list => list.Add(new(id, owner, npc)));
+        int syntheticRow = npc.Row < 0 ? Interlocked.Increment(ref _nextSyntheticNpcRow) : npc.Row;
+        ImmutableInterlocked.Update(ref _sharedNpcOverlays, list => list.Add(new(id, owner, npc, syntheticRow)));
         Interlocked.Increment(ref _sharedRevision);
         return GameEventOwners.Own(owner, new Undo(() =>
         {
@@ -228,7 +230,8 @@ public sealed class NpcCatalog
         ArgumentException.ThrowIfNullOrWhiteSpace(owner);
         ValidateNpc(npc);
         long id = Interlocked.Increment(ref _localNextId);
-        ImmutableInterlocked.Update(ref _localNpcOverlays, list => list.Add(new(id, owner, npc)));
+        int syntheticRow = npc.Row < 0 ? Interlocked.Increment(ref _nextSyntheticNpcRow) : npc.Row;
+        ImmutableInterlocked.Update(ref _localNpcOverlays, list => list.Add(new(id, owner, npc, syntheticRow)));
         Interlocked.Increment(ref _localRevision);
         return GameEventOwners.Own(owner, new Undo(() =>
         {
@@ -339,16 +342,40 @@ public sealed class NpcCatalog
             byId.TryAdd(r.Id, r);
             rowPos[r.Row] = i;
         }
-        int nextSyntheticRow = stockRows.Count;
         void ApplyNpcs(ImmutableArray<RegisteredNpcOverlay> entries)
         {
             for (int i = 0; i < entries.Length; i++)
             {
-                var n = entries[i].Npc;
+                var entry = entries[i];
+                var n = entry.Npc;
                 if (n.Row < 0)
                 {
-                    while (byRow.ContainsKey(nextSyntheticRow)) nextSyntheticRow++;
-                    n = n with { Row = nextSyntheticRow++ };
+                    if (byId.TryGetValue(n.Id, out var existingById))
+                        n = n with { Row = existingById.Row };
+                    else
+                    {
+                        int assigned = entry.SyntheticRow;
+                        while (byRow.ContainsKey(assigned)) assigned++;
+                        n = n with { Row = assigned };
+                    }
+                }
+                if (byRow.TryGetValue(n.Row, out var replacedRow)
+                    && byId.TryGetValue(replacedRow.Id, out var curId) && ReferenceEquals(curId, replacedRow))
+                    byId.Remove(replacedRow.Id);
+                if (byId.TryGetValue(n.Id, out var replacedId) && replacedId.Row != n.Row)
+                {
+                    byRow.Remove(replacedId.Row);
+                    if (rowPos.Remove(replacedId.Row, out int oldPos))
+                    {
+                        int lastIdx = rows.Count - 1;
+                        if (oldPos < lastIdx)
+                        {
+                            var moved = rows[lastIdx];
+                            rows[oldPos] = moved;
+                            rowPos[moved.Row] = oldPos;
+                        }
+                        rows.RemoveAt(lastIdx);
+                    }
                 }
                 if (rowPos.TryGetValue(n.Row, out int pos))
                     rows[pos] = n;

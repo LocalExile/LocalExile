@@ -240,6 +240,18 @@ public sealed class ModCatalog
                     {
                         if (byHash.TryGetValue(replacedById.Hash, out var curHash) && ReferenceEquals(curHash, replacedById))
                             byHash.Remove(replacedById.Hash);
+                        byRow.Remove(replacedById.Row);
+                        if (rowIndexInList.Remove(replacedById.Row, out int oldPos))
+                        {
+                            int lastIdx = rows.Count - 1;
+                            if (oldPos < lastIdx)
+                            {
+                                var moved = rows[lastIdx];
+                                rows[oldPos] = moved;
+                                rowIndexInList[moved.Row] = oldPos;
+                            }
+                            rows.RemoveAt(lastIdx);
+                        }
                     }
                     if (rowIndexInList.TryGetValue(mod.Row, out int pos))
                         rows[pos] = mod;

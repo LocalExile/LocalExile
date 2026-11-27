@@ -350,6 +350,19 @@ public sealed class ItemCatalog
                     {
                         if (byHash.TryGetValue(replacedId.Hash, out var curHash) && ReferenceEquals(curHash, replacedId))
                             byHash.Remove(replacedId.Hash);
+                        byRow.Remove(replacedId.Row);
+                        questTypes.RemoveAll(q => q.Row == replacedId.Row);
+                        if (rowPos.Remove(replacedId.Row, out int oldPos))
+                        {
+                            int lastIdx = rows.Count - 1;
+                            if (oldPos < lastIdx)
+                            {
+                                var moved = rows[lastIdx];
+                                rows[oldPos] = moved;
+                                rowPos[moved.Row] = oldPos;
+                            }
+                            rows.RemoveAt(lastIdx);
+                        }
                     }
 
                     if (rowPos.TryGetValue(type.Row, out int pos))
@@ -363,7 +376,8 @@ public sealed class ItemCatalog
                     byRow[type.Row] = type;
                     byHash[type.Hash] = type;
                     byId[type.Id] = type;
-                    if (type.Quest is not null && !questTypes.Any(q => q.Row == type.Row))
+                    questTypes.RemoveAll(q => q.Row == type.Row);
+                    if (type.Quest is not null)
                         questTypes.Add(type);
                     if (type.VisualIdentity != 0)
                         visualHashes.Add(type.VisualIdentity);

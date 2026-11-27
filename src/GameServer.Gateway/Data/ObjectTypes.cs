@@ -40,6 +40,7 @@ public static class ObjectTypes
         ArgumentNullException.ThrowIfNull(overlay);
         if (string.IsNullOrWhiteSpace(overlay.Type))
             throw new ArgumentException("ObjectTypes.TypeOverlay.Type must be non-empty.", nameof(overlay));
+        ArgumentNullException.ThrowIfNull(overlay.Components);
         long id = Interlocked.Increment(ref _nextId);
         ImmutableInterlocked.Update(ref _overlays, list => list.Add(new(id, owner, overlay)));
         Interlocked.Increment(ref _revision);

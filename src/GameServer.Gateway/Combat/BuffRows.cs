@@ -50,6 +50,7 @@ public static class BuffRows
         ArgumentNullException.ThrowIfNull(row);
         if (string.IsNullOrWhiteSpace(row.Id))
             throw new ArgumentException("BuffRows.Row.Id must be non-empty.", nameof(row));
+        ArgumentNullException.ThrowIfNull(row.GrantedStats);
         long id = Interlocked.Increment(ref _sharedNextId);
         ImmutableInterlocked.Update(ref _sharedOverlays, list => list.Add(new(id, owner, row)));
         Interlocked.Increment(ref _sharedRevision);
@@ -107,6 +108,12 @@ public static class BuffRows
             for (int i = 0; i < overlays.Length; i++)
             {
                 var r = overlays[i].Row;
+                if (byIndex.TryGetValue(r.Index, out var prevByIndex)
+                    && !string.Equals(prevByIndex.Id, r.Id, StringComparison.Ordinal)
+                    && byId.TryGetValue(prevByIndex.Id, out ushort mappedIdx) && mappedIdx == r.Index)
+                    byId.Remove(prevByIndex.Id);
+                if (byId.TryGetValue(r.Id, out ushort prevIdx) && prevIdx != r.Index)
+                    byIndex.Remove(prevIdx);
                 byIndex[r.Index] = r;
                 byId[r.Id] = r.Index;
                 if (Program.Stats is not null)

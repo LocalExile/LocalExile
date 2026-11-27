@@ -594,8 +594,31 @@ public sealed class MonsterCatalog
                 var v = entries[i].Variety;
                 if (v.Row < 0)
                 {
-                    while (byRow.ContainsKey(nextSyntheticRow)) nextSyntheticRow++;
-                    v = v with { Row = nextSyntheticRow++ };
+                    if (byId.TryGetValue(v.Id, out var existingById))
+                        v = v with { Row = existingById.Row };
+                    else
+                    {
+                        while (byRow.ContainsKey(nextSyntheticRow)) nextSyntheticRow++;
+                        v = v with { Row = nextSyntheticRow++ };
+                    }
+                }
+                if (byRow.TryGetValue(v.Row, out var replacedRow)
+                    && byId.TryGetValue(replacedRow.Id, out var curId) && ReferenceEquals(curId, replacedRow))
+                    byId.Remove(replacedRow.Id);
+                if (byId.TryGetValue(v.Id, out var replacedId) && replacedId.Row != v.Row)
+                {
+                    byRow.Remove(replacedId.Row);
+                    if (rowPos.Remove(replacedId.Row, out int oldPos))
+                    {
+                        int lastIdx = rows.Count - 1;
+                        if (oldPos < lastIdx)
+                        {
+                            var moved = rows[lastIdx];
+                            rows[oldPos] = moved;
+                            rowPos[moved.Row] = oldPos;
+                        }
+                        rows.RemoveAt(lastIdx);
+                    }
                 }
                 if (rowPos.TryGetValue(v.Row, out int pos))
                     rows[pos] = v;

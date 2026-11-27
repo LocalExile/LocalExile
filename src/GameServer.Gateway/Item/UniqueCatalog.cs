@@ -37,7 +37,7 @@ public sealed partial class UniqueCatalog
     {
         this.items = items;
         this.folder = folder;
-        _names = LoadNames(folder);
+        (_names, _uniqueWords) = LoadNames(folder);
     }
 
     /// <summary>Advances whenever shared runtime unique overlays change.</summary>
@@ -89,6 +89,7 @@ public sealed partial class UniqueCatalog
             throw new ArgumentException("Unique definition Name must be non-empty.", nameof(definition));
         if (string.IsNullOrWhiteSpace(definition.BaseTypeId))
             throw new ArgumentException("Unique definition BaseTypeId must be non-empty.", nameof(definition));
+        ArgumentNullException.ThrowIfNull(definition.Mods);
     }
 
     sealed class Undo(Action undo) : IDisposable
@@ -170,6 +171,7 @@ public sealed partial class UniqueCatalog
     };
 
     readonly Dictionary<string, UniqueName> _names;
+    readonly Dictionary<string, uint> _uniqueWords;
 
     UniqueSnapshot CurrentSnapshot()
     {
@@ -323,7 +325,8 @@ public sealed partial class UniqueCatalog
             Corrupted = definition.Corrupted, Mirrored = definition.Mirrored, Influences = definition.Influences,
             FracturedCount = definition.Fractured,
             NameWords = [unique.Word], VisualIdentity = unique.VisualIdentity,
-            CustomName = string.IsNullOrEmpty(definition.CustomName) ? null : definition.CustomName,
+            CustomName = !string.IsNullOrEmpty(definition.CustomName) ? definition.CustomName
+                : unique.SyntheticWord ? definition.Name : null,
         };
         if (definition.BaseTypeId == TimelessJewelCatalog.BaseId)
         {
@@ -490,13 +493,14 @@ public sealed partial class UniqueCatalog
         } : null;
     }
 
-    sealed record UniqueName(uint Word, ushort VisualIdentity);
+    sealed record UniqueName(uint Word, ushort VisualIdentity, bool SyntheticWord = false);
 
-    static Dictionary<string, UniqueName> LoadNames(string folder)
+    static (Dictionary<string, UniqueName> Names, Dictionary<string, uint> Words) LoadNames(string folder)
     {
         var result = new Dictionary<string, UniqueName>(StringComparer.OrdinalIgnoreCase);
+        var uniqueWords = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
         if (!ClientTables.Has("Words") || !ClientTables.Has("UniqueStashLayout") || !ClientTables.Has("ItemVisualIdentity"))
-            return result;
+            return (result, uniqueWords);
         var words = ClientTables.Table("Words");
         var layout = ClientTables.Table("UniqueStashLayout");
         var visuals = ClientTables.Table("ItemVisualIdentity");
@@ -507,7 +511,10 @@ public sealed partial class UniqueCatalog
         for (int i = 0; i < words.Count; i++)
             if (words[i].Int("Wordlist") == 6
                 && words[i].Text("Text") is { Length: > 0 } text)
+            {
                 byWord[i] = text;
+                uniqueWords.TryAdd(NameKey(text), words[i].UInt("HASH32"));
+            }
         foreach (var r in layout)
         {
             int wordsKey = r.Int("WordsKey"), visualKey = r.Int("ItemVisualIdentityKey");
@@ -519,6 +526,6 @@ public sealed partial class UniqueCatalog
             result[name] = new(words[wordsKey].UInt("HASH32"),
                 (ushort)visuals[visualKey].Int("HASH16"));
         }
-        return result;
+        return (result, uniqueWords);
     }
 }

@@ -134,6 +134,50 @@ public sealed class LeagueApiExtensionsTests
             Assert.Null(Game.Npcs.Find(npcId));
             Assert.Null(ObjectTypes.FindOverlay(objectId));
             Assert.Null(QuestObjectTypes.Find(objectId));
+
+            // Runtime ModCatalog overlay rolls via existing ItemRolls, MonsterCatalog Row=-1 overrides existing Id in place,
+            // NpcCatalog synthetic rows stay stable when a sibling mod unloads, and overlay uniques without CustomName fall
+            // back to CustomName = Name so the wire never sends an unknown synthetic Words hash.
+            var boots = Program.Items.Find("Iron Greaves")!;
+            var stockMod = Program.Items.Mods.All.First(m => m.GenerationType == ItemRolls.Prefix && m.Domain == boots.ModDomain && m.WeightFor(boots.Tags) > 0);
+            _ = Program.Rolls.Pool(boots, 86); // prime pool cache before overlay
+            using (ModCatalog.RegisterOverlay(owner, stockMod with { Row = -1, Id = "TestRuntimeOverlayPrefix1", Hash = 0xFD11, Level = 1 }))
+            {
+                Assert.Contains(Program.Rolls.Pool(boots, 86), entry => entry.Mod.Id == "TestRuntimeOverlayPrefix1");
+            }
+            Assert.DoesNotContain(Program.Rolls.Pool(boots, 86), entry => entry.Mod.Id == "TestRuntimeOverlayPrefix1");
+
+            var stockMonster = Game.Monsters.All[0];
+            using (MonsterCatalog.RegisterOverlay(owner, stockMonster with { Row = -1, Name = "Overridden Stock Monster" }))
+            {
+                Assert.Equal("Overridden Stock Monster", Game.Monsters.Find(stockMonster.Id)!.Name);
+                Assert.Equal(stockMonster.Row, Game.Monsters.Find(stockMonster.Id)!.Row);
+                Assert.Equal(1, Game.Monsters.All.Count(m => m.Id == stockMonster.Id));
+            }
+
+            const string siblingOwner = "test-runtime-catalog-sibling";
+            try
+            {
+                NpcCatalog.RegisterOverlay(siblingOwner, new NpcCatalog.Npc(-1, "Metadata/NPC/TestOverlay/SiblingA", "Sibling A", NpcObject.BaseComponents, null, 0));
+                NpcCatalog.RegisterOverlay(owner, new NpcCatalog.Npc(-1, "Metadata/NPC/TestOverlay/SiblingB", "Sibling B", NpcObject.BaseComponents, null, 0));
+                int siblingBRow = Game.Npcs.Find("Metadata/NPC/TestOverlay/SiblingB")!.Row;
+                NpcCatalog.RegisterTalkOverlay(owner, new NpcCatalog.Talk(59502, siblingBRow, 7, "Still Works", "Gossip", "", []));
+                GameEventOwners.Release(siblingOwner, GameEventOwners.ModuleRank);
+                var siblingBAfter = Game.Npcs.Find("Metadata/NPC/TestOverlay/SiblingB")!;
+                Assert.Equal(siblingBRow, siblingBAfter.Row);
+                Assert.Equal("Still Works", Game.Npcs.TalkOf(siblingBAfter, 7)?.Option);
+            }
+            finally
+            {
+                GameEventOwners.Release(siblingOwner, GameEventOwners.ModuleRank);
+            }
+
+            using (UniqueCatalog.RegisterOverlay(owner, new UniqueCatalog.Definition("Test Unnamed Overlay Unique", boots.Id, [stockMod.Id])))
+            {
+                var created = Game.Uniques.Create(Game.Uniques.Find("Test Unnamed Overlay Unique")!, new Random(1));
+                Assert.NotNull(created);
+                Assert.Equal("Test Unnamed Overlay Unique", created!.CustomName);
+            }
         }
         finally
         {
