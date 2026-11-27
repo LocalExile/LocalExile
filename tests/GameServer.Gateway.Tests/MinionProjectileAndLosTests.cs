@@ -179,4 +179,191 @@ public sealed class MinionProjectileAndLosTests
         Assert.True(profile.Returns);
         Assert.True(profile.PierceAllOnReturn);
     }
+
+    [Fact]
+    public async Task Minion_projectile_crosses_uphill_and_downhill_terrain_steps()
+    {
+        var clock = new Clock { Time = 1 };
+        using var f = new TriggeredSummonTests.Fixture(clock);
+        var outer = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+        string areaId = $"minion-cliff-{Guid.NewGuid():N}";
+        using var walkability = new CliffWalkability(areaId, f.Player.Seed, 200, 200, (x, _) => (short)(x >= 110 ? 30 : 0));
+        try
+        {
+            f.Player.Use(new AreaLayout(1, areaId, 200, 200, 100, 100,
+                (x, y) => x >= 10 && x < 190 && y >= 10 && y < 190, [])
+            {
+                Sight = (_, _) => 1,
+            });
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.Time));
+            var zombie = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie"));
+            var uphillTarget = new SpawnedMonster("UphillTarget", new(120, 100, 20), 60, 2, 5000)
+            {
+                Hostile = true,
+                Variety = zombie,
+                Level = 70,
+                Walk = f.Player.NewMonsterWalk(6101, 120, 100, 20, 2, false),
+            };
+            f.Player.Area.Monsters[6101] = uphillTarget;
+
+            var hits = new List<uint>();
+            var profile = new ProjectileProfile("Metadata/Projectiles/IceElementalProjectile")
+                { Speed = 40, Radius = 2, Range = 30 };
+            var owner = new ProjectileActorKey(7001);
+            var offense = new ObjectProjectileOffense("minion-cliff-test", (_, contact) =>
+            {
+                hits.Add(contact.Target.Id);
+                return ProjectileHitResult.Hit;
+            }) { Quiet = true };
+
+            // Uphill: height 0 (x=100) -> 30-step cliff at x=110 -> target at (120, 100).
+            f.Session.Runtime.Release(new ProjectileUse(profile, owner, owner, 1, new(100, 100), new(120, 100)) { Payload = offense });
+            clock.Time += 0.4;
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.Time));
+            // Halfway across x=110 (at x=116) before reaching x=120: still in flight, not stopped by Terrain.
+            Assert.Contains(f.Session.Runtime.Projectiles, p => p.Position.X > 110);
+            clock.Time += 0.4;
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.Time));
+            Assert.Equal([6101u], hits);
+
+            // Downhill: height 30 (x=120) -> drop at x=110 -> target at (100, 100).
+            f.Player.Area.Monsters.Remove(6101);
+            f.Player.Area.Monsters[6102] = new SpawnedMonster("DownhillTarget", new(100, 100, 20), 60, 2, 5000)
+            {
+                Hostile = true,
+                Variety = zombie,
+                Level = 70,
+                Walk = f.Player.NewMonsterWalk(6102, 100, 100, 20, 2, false),
+            };
+            f.Session.Runtime.Release(new ProjectileUse(profile, owner, owner, 1, new(120, 100), new(100, 100)) { Payload = offense });
+            clock.Time += 0.8;
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.Time));
+            Assert.Equal([6101u, 6102u], hits);
+        }
+        finally
+        {
+            Game.AreaUpdateContext.Value = outer;
+        }
+    }
+
+    [Fact]
+    public async Task Minion_projectile_glide_adjusts_end_height_for_terrain_elevation()
+    {
+        var clock = new Clock { Time = 1 };
+        using var f = new TriggeredSummonTests.Fixture(clock);
+        var player = f.Player;
+        player.Connection.LockstepClient = false;
+        player.Connection.PlayerSent = player.Connection.PlayerObjectCreated = true;
+        player.ProjectileRuntimeState = f.Session;
+        string areaId = $"minion-glide-{Guid.NewGuid():N}";
+        using var walkability = new CliffWalkability(areaId, player.Seed, 200, 200, (x, _) => (short)(x >= 110 ? 30 : 0));
+        var packets = new List<byte[]>();
+        var outgoing = Program.Outgoing;
+        Program.Outgoing = (p, bytes) => { if (ReferenceEquals(p, player)) lock (packets) packets.Add(bytes.ToArray()); };
+        try
+        {
+            player.Use(new AreaLayout(1, areaId, 200, 200, 100, 100,
+                (x, y) => x >= 10 && x < 190 && y >= 10 && y < 190, [])
+            {
+                Sight = (_, _) => 1,
+            });
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.Time));
+
+            async Task Flush()
+            {
+                var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                f.Session.Enqueue(() => { drained.TrySetResult(); return Task.CompletedTask; });
+                await drained.Task;
+            }
+
+            static (int X, int Y, int Marker) SingleMoveTo(List<byte[]> sent)
+            {
+                lock (sent)
+                {
+                    uint objectId = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(
+                        sent.First(b => b.Length >= 6 && b[0] == 0x02 && b[1] == 0xbb).AsSpan(2, 4));
+                    Span<byte> prefix = [0x01, 0xba, (byte)(objectId >> 24), (byte)(objectId >> 16), (byte)(objectId >> 8), (byte)objectId];
+                    foreach (var pkt in sent)
+                        for (int idx = 0; idx + 29 <= pkt.Length; idx++)
+                            if (pkt.AsSpan(idx, 6).SequenceEqual(prefix))
+                                return (
+                                    System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(pkt.AsSpan(idx + 12, 4)),
+                                    System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(pkt.AsSpan(idx + 16, 4)),
+                                    System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(pkt.AsSpan(idx + 20, 4)));
+                }
+                throw new InvalidOperationException("No 0x01ba MoveTo packet found.");
+            }
+
+            var profile = new ProjectileProfile("Metadata/Projectiles/IceElementalProjectile")
+                { Speed = 40, Radius = 2, Range = 20 };
+            var owner = new ProjectileActorKey(7002);
+            var offense = new ObjectProjectileOffense("minion-glide-test", (_, _) => ProjectileHitResult.Miss)
+            {
+                Quiet = true,
+                Presentation = new() { LaunchHeight = 9 },
+            };
+
+            // Uphill glide: start ground 0 -> end ground 30 (+9 launch height = 39).
+            f.Session.Runtime.Release(new ProjectileUse(profile, owner, owner, 1, new(100, 100), new(120, 100)) { Payload = offense });
+            await Flush();
+            Assert.Equal((120, 100, 39), SingleMoveTo(packets));
+            clock.Time += 1.0;
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.Time));
+            await Flush();
+
+            // Downhill glide: start ground 30 -> end ground 0 (+9 launch height = 9).
+            lock (packets) packets.Clear();
+            f.Session.Runtime.Release(new ProjectileUse(profile, owner, owner, 1, new(120, 100), new(100, 100)) { Payload = offense });
+            await Flush();
+            Assert.Equal((100, 100, 9), SingleMoveTo(packets));
+            clock.Time += 1.0;
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.Time));
+            await Flush();
+        }
+        finally
+        {
+            Program.Outgoing = outgoing;
+        }
+    }
+
+    sealed class CliffWalkability : IDisposable
+    {
+        readonly string areaId;
+        readonly uint seed;
+        readonly string[] files;
+
+        public CliffWalkability(string areaId, uint seed, int w, int h, Func<int, int, short> heightAt)
+        {
+            this.areaId = areaId;
+            this.seed = seed;
+            const string folder = "data/walkability";
+            Directory.CreateDirectory(folder);
+            string stem = Path.Combine(folder, $"{areaId}_seed{seed}");
+            string meta = $"{{\"w\":{w},\"h\":{h}}}";
+            var heights = new short[w * h];
+            var projectile = new byte[w * h];
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    int idx = y * w + x;
+                    heights[idx] = heightAt(x, y);
+                    projectile[idx] = (byte)(x >= 10 && x < w - 10 && y >= 10 && y < h - 10 ? 1 : 0);
+                }
+            var heightBytes = new byte[heights.Length * 2];
+            Buffer.BlockCopy(heights, 0, heightBytes, 0, heightBytes.Length);
+            files = [stem + ".heights.bin", stem + ".heights.json", stem + ".projectile.bin", stem + ".json"];
+            File.WriteAllBytes(files[0], heightBytes);
+            File.WriteAllText(files[1], meta);
+            File.WriteAllBytes(files[2], projectile);
+            File.WriteAllText(files[3], meta);
+        }
+
+        public void Dispose()
+        {
+            TerrainHeights.Forget(areaId, seed);
+            foreach (var file in files)
+                if (File.Exists(file)) File.Delete(file);
+        }
+    }
 }

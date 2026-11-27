@@ -838,11 +838,13 @@ public static partial class Game
                     : ProjectileHeight.DefaultSteps);
 
         // 1:1 3.29.3c sloped 3D height ray for explicit-height player projectiles (outbound primary + return/redirect
-        // legs). Lobbed arcs, ground-crawling skills, continuation children and monster shots keep the plain grid.
+        // legs). Lobbed arcs, ground-crawling skills, continuation children, monster shots and minion shots keep the plain grid.
         ProjectileAimHeight.Ray? FlightRayFor(ProjectileEntity p)
         {
             if (flightRays.TryGetValue(p.Id, out var existing)) return existing;
-            if (p.ParentId != 0 || p.Phase > 0 || p.Use.Team != 1 || p.Profile.Lobbed || IsTerrainFollowingProjectile(p))
+            if (p.ParentId != 0 || p.Phase > 0 || p.Use.Team != 1 || p.Profile.Lobbed
+                || IsTerrainFollowingProjectile(p)
+                || p.Use.Payload is ObjectProjectileOffense or MinionProjectileOffense)
                 return null;
             var origin = p.Use.Origin;
             ProjectileAimHeight.Ray? primary = p.Profile.TerrainSteps is { } steps
@@ -1152,6 +1154,12 @@ public static partial class Game
             return ProjectileHitResult.Hit;
         }
 
+        int? TerrainHeightAt(ProjectileVector at) =>
+            TerrainHeights.At(Player.Layout.Id, Player.Seed, (int)Math.Round(at.X), (int)Math.Round(at.Y));
+
+        static ProjectileHeight FlightHeightAt(int? ground, ProjectilePresentation presentation) =>
+            ProjectileHeight.Flight(ground, Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), presentation.LaunchHeight);
+
         public void Publish(ProjectileEvent value)
         {
             var p = value.Projectile;
@@ -1251,8 +1259,7 @@ public static partial class Game
                     ? spawnRay.MarkerAt(value.Position)
                     : IsTerrainFollowingProjectile(p)
                         ? ProjectileHeight.Terrain
-                        : ProjectileHeight.Flight(TerrainHeights.At(Player.Layout.Id, Player.Seed, x, y),
-                            Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), presentation.LaunchHeight);
+                        : FlightHeightAt(TerrainHeights.At(Player.Layout.Id, Player.Seed, x, y), presentation);
                 var visual = new Visual(id, height) { SpawnedAt = value.Position };
                 visuals[p.Id] = visual; Player.TrackProjectileObject(id);
                 if (p.Profile.Lobbed) BeginArc(p, visual);
@@ -1313,7 +1320,9 @@ public static partial class Game
                     || presentation.StayAtEndOfRange && value.Reason is ProjectileEndReason.Distance or ProjectileEndReason.Terrain;
                 var height = end.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance))
                     : endRay is { } ray ? ray.MarkerAt(value.Position)
-                    : end.Height;
+                    : end.Height != ProjectileHeight.Terrain && TerrainHeightAt(value.Position) is int stopGround
+                        ? FlightHeightAt(stopGround, presentation)
+                        : end.Height;
                 if (end.StaysAfterEnd)
                 {
                     // The stop ends the glide and the object stays for ImpactLifetime of game time: for the rig's own impact
@@ -1461,8 +1470,7 @@ public static partial class Game
                 return;
             }
             int start = p.GroundBounces == 0
-                ? ProjectileHeight.Flight(startGround, Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"),
-                    PresentationFor(p).LaunchHeight).Marker
+                ? FlightHeightAt(startGround, PresentationFor(p)).Marker
                 : startGround;
             var arc = new ProjectileArc(p.Distance, p.Remaining, start, endGround, p.Profile.ArcHeight);
             visual.Arc = arc;
@@ -1535,10 +1543,24 @@ public static partial class Game
             // first stop at the simulated position. A move replaced before it was projected was never the first.
             bool first = !visual.Glided;
             var start = first ? visual.SpawnedAt : p.Position;
-            if (visual.Arc is null && flightRays.TryGetValue(p.Id, out var glideRay))
+            if (visual.Arc is null)
             {
-                startHeight = glideRay.MarkerAt(start);
-                endHeight = glideRay.MarkerAt(end);
+                if (flightRays.TryGetValue(p.Id, out var glideRay))
+                {
+                    startHeight = glideRay.MarkerAt(start);
+                    endHeight = glideRay.MarkerAt(end);
+                }
+                else if (visual.Height != ProjectileHeight.Terrain)
+                {
+                    var presentation = PresentationFor(p);
+                    if (!first && TerrainHeightAt(start) is int startGround)
+                    {
+                        startHeight = FlightHeightAt(startGround, presentation);
+                        endHeight = startHeight;
+                    }
+                    if (TerrainHeightAt(end) is int endGround)
+                        endHeight = FlightHeightAt(endGround, presentation);
+                }
             }
             float duration = (float)Math.Max(.001, (end - start).Length / p.Speed);
             byte[] move = endHeight.MoveTo(visual.Id, (int)Math.Round(end.X), (int)Math.Round(end.Y), duration);

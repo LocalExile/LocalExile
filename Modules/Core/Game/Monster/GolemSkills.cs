@@ -623,8 +623,14 @@ public static partial class Game
             radius *= (1 + Raw(Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal) / 100.0)
                 * Math.Sqrt(Math.Max(0, 1 + (mods[Stat.BaseSkillAreaOfEffectPlusPct] + Raw(Stat.BaseSkillAreaOfEffectPlusPct)) / 100.0));
             ushort skill = (ushort)(0x4000 + index);
-            var attack = new MonsterAttack(skill, seconds, range, damage) { Spell = spell, Ranged = spell || variety.RangedWeapon || golem.Weapon is { Melee: false }, Scripted = true };
             var contact = projectile is null ? null : MonsterReleaseFor(player, variety, effect, level, projectile);
+            var attack = new MonsterAttack(skill, seconds, range, damage)
+            {
+                Spell = spell,
+                Ranged = spell || variety.RangedWeapon || golem.Weapon is { Melee: false },
+                Scripted = true,
+                Release = contact,
+            };
             double cd = catalog.CooldownMs(effect, skillLevel) / 1000.0 / Math.Max(.01, 1 +
                 (GolemStat(playerStats, Stat.MinionCooldownRecoveryPlusPct) + (golem.Definition.IsGolem ? GolemStat(playerStats, Stat.GolemCooldownRecoveryPlusPct) : 0) + Own(Stat.MinionCooldownRecoveryPlusPct)) / 100.0);
             var ability = new GolemState.Ability(effect, skill, id, attack, raw, radius, cd, Math.Max(1, catalog.CooldownUses(effect, skillLevel)),
