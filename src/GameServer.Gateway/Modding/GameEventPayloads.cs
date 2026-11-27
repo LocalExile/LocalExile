@@ -382,6 +382,8 @@ public sealed class VendorRecipeContext
     public void AddReward(GameServer.Core.Protocol.Instance.Item item, string recipeName)
     {
         ArgumentNullException.ThrowIfNull(item);
+        if (item.StackSize == 0)
+            throw new ArgumentOutOfRangeException(nameof(item), "Vendor recipe reward StackSize must be positive.");
         _rewards.Add(item);
         if (!string.IsNullOrWhiteSpace(recipeName)) _recipes.Add(recipeName);
     }
@@ -393,6 +395,9 @@ public sealed class VendorRecipeContext
         bool any = false;
         foreach (var item in items)
         {
+            ArgumentNullException.ThrowIfNull(item);
+            if (item.StackSize == 0)
+                throw new ArgumentOutOfRangeException(nameof(items), "Vendor recipe reward StackSize must be positive.");
             _rewards.Add(item);
             any = true;
         }

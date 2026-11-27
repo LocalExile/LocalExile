@@ -231,14 +231,22 @@ public sealed class LeagueApiExtensionsTests
             Assert.Contains(inst1, closedInstances);
             Assert.True(reenteredLock);
 
-            // 3. GameEvents.VendorRecipe runs before built-in pricing and leaves unconsumed items to built-in rules.
+            // 3. GameEvents.VendorRecipe runs before built-in pricing and returns partially consumed currency as change.
             var quote = GameEvents.QuoteVendor(player1, [new InventoryItem(10, 0, 0, ItemCatalog.Create(customKeyType) with { StackSize = 4 })]);
             Assert.NotNull(quote);
             Assert.Null(quote!.Error);
             Assert.Contains("three wisdoms to chaos", quote.Recipes);
             Assert.Contains(quote.Rewards, r => r.TypeHash == chaosType.Hash);
-            // 1 leftover Scroll of Wisdom falls through to normal Scroll Fragment pricing.
-            Assert.True(quote.Rewards.Count >= 2);
+            // 1 leftover Scroll of Wisdom is returned as currency change (matching built-in currency recipes).
+            Assert.Contains(quote.Rewards, r => r.TypeHash == customKeyType.Hash && r.StackSize == 1);
+            // Ruthless (basic-sale multiplier) also returns partially consumed currency change instead of throwing.
+            var ruthlessRules = new VendorRecipes(Program.Items, Program.Rolls);
+            var ruthlessQuote = ruthlessRules.Evaluate([new InventoryItem(11, 0, 0, ItemCatalog.Create(customKeyType) with { StackSize = 4 })],
+                new Random(1), basicSaleMultiplier: 0.5, player: player1);
+            Assert.Contains(ruthlessQuote.Rewards, r => r.TypeHash == chaosType.Hash);
+            Assert.Contains(ruthlessQuote.Rewards, r => r.TypeHash == customKeyType.Hash && r.StackSize == 1);
+            var badCtx = new VendorRecipeContext(player1, [], Program.Items, new Random(1));
+            Assert.Throws<ArgumentOutOfRangeException>(() => badCtx.AddReward(ItemCatalog.Create(chaosType) with { StackSize = 0 }, "bad"));
 
             // 4. GameEvents.MapDeviceAcceptsItem extends MapDevice.AcceptsItem and PlayerInventories.AcceptsItem with league isolation.
             Assert.True(MapDevice.AcceptsItem(customKeyType.Hash, customKeyType.Class, player1));
