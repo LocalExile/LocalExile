@@ -167,5 +167,83 @@ class AnimationEventTests(unittest.TestCase):
         self.assertIsNone(ot.first_contact(clips[1]["events"]))
 
 
+class StateMetaTests(unittest.TestCase):
+    """Per-shared-state metadata (object_type_state_meta, object-types v14): listeners, client GEAL writers,
+    default-hidden DisableRendering() detection, server {} exclusion, and Heist comment-in-string parity."""
+
+    def merged(self, *texts):
+        files = {f"Type{i}": ot.parse(text) for i, text in enumerate(texts)}
+        return ot.merge(f"Type{len(texts) - 1}", files, {})
+
+    def test_listener_writer_and_default_hidden_flags(self):
+        result = self.merged('''StateMachine {
+            define_shared_state = "visible = 0; arrow_visible = 1; holy_blast = 0; quiet = 0;"
+        }
+        client {
+            StateMachine {
+                create_state_visible_0 = { DisableRendering(); }
+                on_state_visible_1 = { EnableRendering(); }
+                on_state_holy_blast_1 = { PlayAnimation("cast"); }
+                on_state_arrow_visible_0 = { HideBone("arrow"); }
+            }
+            Animated {
+                on_event = {
+                    SetStateTo("arrow_visible", 0);
+                    other.SetStateTo("holy_blast", 1);
+                }
+            }
+        }
+        server {
+            StateMachine {
+                create_state_quiet_0 = { DisableRendering(); }
+                on_state_quiet_1 = { SetStateTo("quiet", 1); EnableRendering(); }
+            }
+        }''')
+        meta = {row[0]: (row[1], row[2]) for row in result["state_meta"]}
+        self.assertEqual((ot.STATE_FLAG_CLIENT_LISTENER | ot.STATE_FLAG_DISABLES_RENDERING_DEFAULT, 1), meta["visible"])
+        self.assertEqual((ot.STATE_FLAG_CLIENT_LISTENER | ot.STATE_FLAG_CLIENT_WRITER, None), meta["arrow_visible"])
+        # other.SetStateTo("holy_blast", 1) is a cross-entity write, NOT a self-writer.
+        self.assertEqual((ot.STATE_FLAG_CLIENT_LISTENER, None), meta["holy_blast"])
+        # server {} block is ignored completely.
+        self.assertNotIn("quiet", meta)
+
+    def test_non_boolean_enable_values_and_conditional_disable_ignored(self):
+        result = self.merged('''StateMachine {
+            define_shared_state = "render = 1; norendering = 1; maybe_hide = 0;"
+            on_or_create_state_render_1 = { DisableRendering(); }
+            on_state_render_2 = { EnableRendering(); }
+            create_state_norendering_1 = { DisableRendering(); }
+            on_state_norendering_0 = { EnableRendering(); }
+            create_state_maybe_hide_0 = { if (IsLocalPlayer()) { DisableRendering(); } }
+            on_state_maybe_hide_1 = { EnableRendering(); }
+        }''')
+        meta = {row[0]: (row[1], row[2]) for row in result["state_meta"]}
+        self.assertEqual((ot.STATE_FLAG_CLIENT_LISTENER | ot.STATE_FLAG_DISABLES_RENDERING_DEFAULT, 2), meta["render"])
+        self.assertEqual((ot.STATE_FLAG_CLIENT_LISTENER | ot.STATE_FLAG_DISABLES_RENDERING_DEFAULT, 0), meta["norendering"])
+        # Conditional DisableRendering() at depth > 0 must NOT trigger default-hidden flag.
+        self.assertEqual((ot.STATE_FLAG_CLIENT_LISTENER, None), meta["maybe_hide"])
+
+    def test_inheritance_merges_handlers_and_uses_child_default(self):
+        parent = '''StateMachine {
+            define_shared_state = "visible = 0;"
+            create_state_visible_0 = { DisableRendering(); }
+            on_state_visible_1 = { EnableRendering(); }
+        }'''
+        child_visible = '''extends "Type0"
+        StateMachine { define_shared_state = "visible = 1;" }'''
+        r_child = self.merged(parent, child_visible)
+        meta = {row[0]: (row[1], row[2]) for row in r_child["state_meta"]}
+        # Child overrode default to 1, so default value 1 does NOT run create_state_visible_0!
+        self.assertEqual((ot.STATE_FLAG_CLIENT_LISTENER, None), meta["visible"])
+
+    def test_heist_comment_in_shared_state_string_preserved(self):
+        result = self.merged('''StateMachine {
+            define_shared_state = "alert = 0; /*Most monsters can kill themselves*/"
+        }''')
+        self.assertEqual(2, len(result["shared_states"]))
+        self.assertEqual("alert", result["shared_states"][0][0])
+        self.assertTrue(result["shared_states"][1][0].startswith("/*Most monsters"))
+
+
 if __name__ == "__main__":
     unittest.main()
