@@ -509,7 +509,7 @@ public static class OperationsData
             if (r.IntOrNull("UniqueName") is not int wordRow || wordRow < 0 || wordRow >= words.Count) continue;
             var word = words[wordRow];
             string text = word.TextOrNull("Text") ?? "";
-            uint hash = (uint)(word.IntOrNull("HASH32") ?? 0);
+            uint hash = word.UIntOrNull("HASH32") ?? 0;
             float val = (float)(r.RealOrNull("Value") ?? 1.0);
             float ruthless = (float)(r.RealOrNull("RuthlessValue") ?? val);
             var entry = new UniqueDisenchant(text, hash, val, ruthless);
@@ -552,7 +552,7 @@ public static class OperationsData
             string name = r.TextOrNull("Name") ?? "";
             if (!id.Contains("Runegraft", StringComparison.OrdinalIgnoreCase)) continue;
             if (name.Contains("[DNT", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(name)) continue;
-            uint hash = (uint)(r.IntOrNull("HASH32") ?? 0);
+            uint hash = r.UIntOrNull("HASH32") ?? 0;
             if (hash == 0) hash = ItemCatalog.ComputeHash32(id);
             list.Add(new RunegraftEntry(row, id, name, hash));
         }

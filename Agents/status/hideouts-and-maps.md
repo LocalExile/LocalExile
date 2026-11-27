@@ -130,6 +130,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- **Settlers of Kalguur / Kingsmarch (`Modules/Core/Content/Settlers`):** Karui Shores Johan/Faustus, native
+  `kingsmarch.arm` `0x02bb` hub, ruleset `0x9b` town/workers/production/shipping/mapping/disenchanting/recombinator,
+  all 6 map ore/dust encounters, Lost Shipments, Scarabs, Refiner's Bargain, Astrolabe, 3 boss arenas, SQLite
+  persistence, and Waypoint tunables (`settings.json`) are implemented (live Xvfb verification pending);
+  see [30](../docs/protocol/30-settlers-kingsmarch.md).
 - Hideout template export and import (`0x0213`) save and restore doodads and music per account; live check pending.
 - Crafting bench close (`0x02b1`) and Horticrafting quick-move (`0x00f8`) update bench balance and slot state.
 - Guild hideouts (`0x7b` `0x22` arg 1, `0x1f2`/`0x1f5` guild bit, `0x254` bit 15, `Hideout2`): offline verified.

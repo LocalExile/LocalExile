@@ -804,12 +804,6 @@ public static class GameEvents
     /// <summary>A player inventory row was modified by a client pickup, placement, or merge (post-mutation notification).</summary>
     public static readonly GameEvent<Func<Player, byte, Task>> InventoryChanged = new();
 
-    /// <summary>A map resource deposit or drop was claimed by a player; return true when converted/intercepted so the default credit is skipped.</summary>
-    public static readonly GameEvent<Func<MapResourceClaim, Task<bool>>> MapResourceClaimed = new();
-
-    /// <summary>A rolled monster drop item is about to be placed on the ground; return true when converted/consumed so it is not dropped.</summary>
-    public static readonly GameEvent<Func<MonsterDropConversion, bool>> MonsterDropItemConverted = new();
-
     public static async Task<bool> AnyNpcTalk(Player player, uint id, SpawnedNpc npc)
     {
         foreach (var run in NpcTalk.For(player)) if (await run(player, id, npc)) return true;
@@ -1254,29 +1248,5 @@ public static class GameEvents
         if (!InventoryChanged.Any) return;
         foreach (var (owner, run) in InventoryChanged.Subscribers(player))
             await GameEventOwners.Guard(owner, nameof(InventoryChanged), () => run(player, row));
-    }
-
-    public static async Task<bool> AnyMapResourceClaimed(MapResourceClaim claim)
-    {
-        if (!MapResourceClaimed.Any) return false;
-        foreach (var (owner, run) in MapResourceClaimed.Subscribers(claim.Player))
-        {
-            bool converted = false;
-            if (await GameEventOwners.Guard(owner, nameof(MapResourceClaimed), async () => converted = await run(claim)) && converted)
-                return true;
-        }
-        return false;
-    }
-
-    public static bool AnyMonsterDropItemConverted(MonsterDropConversion conversion)
-    {
-        if (!MonsterDropItemConverted.Any) return false;
-        foreach (var (owner, run) in MonsterDropItemConverted.Subscribers(conversion.Player))
-        {
-            bool converted = false;
-            if (GameEventOwners.Guard(owner, nameof(MonsterDropItemConverted), () => converted = run(conversion)) && converted)
-                return true;
-        }
-        return false;
     }
 }

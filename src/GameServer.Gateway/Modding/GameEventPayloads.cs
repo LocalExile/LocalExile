@@ -404,26 +404,3 @@ public sealed class VendorRecipeContext
         if (any && !string.IsNullOrWhiteSpace(recipeName)) _recipes.Add(recipeName);
     }
 }
-
-/// <summary>A map resource deposit or drop claim (<see cref="GameEvents.MapResourceClaimed"/>) that a module may convert
-/// into another resource instead of applying its default credit (e.g. Voltaxic Sulphite deposits or Harvest Lifeforce).</summary>
-/// <param name="Player">The player receiving the resource.</param>
-/// <param name="ResourceKind">Generic resource identifier (e.g. <c>"sulphite"</c>, <c>"lifeforce"</c>).</param>
-/// <param name="Amount">The base resource amount that would be granted.</param>
-/// <param name="AreaLevel">The current area level.</param>
-/// <param name="At">The world grid cell of the resource source.</param>
-public sealed record MapResourceClaim(Player Player, string ResourceKind, int Amount, int AreaLevel, (int X, int Y) At)
-{
-    public IPlayer ModPlayer => Program.PlayerOf(Player);
-}
-
-/// <summary>A monster drop item evaluated by <see cref="GameEvents.MonsterDropItemConverted"/> before ground placement:
-/// return true to convert/consume the item instead of dropping it on the ground.</summary>
-/// <param name="Player">The player credited with the kill.</param>
-/// <param name="Item">The rolled item about to drop.</param>
-/// <param name="Type">The item's base type.</param>
-/// <param name="SourceTag">Generic tag identifying the drop source (e.g. <c>"torment_possessed"</c>).</param>
-public sealed record MonsterDropConversion(Player Player, GameServer.Core.Protocol.Instance.Item Item, ItemCatalog.BaseType Type, string SourceTag)
-{
-    public IPlayer ModPlayer => Program.PlayerOf(Player);
-}

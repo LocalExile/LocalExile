@@ -612,12 +612,50 @@ public sealed class VillageTownState
     public InstanceVillage.VillageStateSnapshot ToWireSnapshot(ulong serverNowSeconds)
     {
         var shipTimers = new InstanceVillage.TimerState[VillageData.ShipCount];
+        byte shipKidnapSlot = ShipKidnapSlot1Based;
+        byte shipKidnapFlag = ShipKidnapFlag;
         for (int i = 0; i < VillageData.ShipCount; i++)
-            shipTimers[i] = new(Ships[i].TimerElapsed, Ships[i].TimerTotal);
+        {
+            var s = Ships[i];
+            if (s.State == 1 && s.ArrivalUtc > s.DepartedUtc)
+            {
+                uint total = (uint)Math.Clamp(s.ArrivalUtc - s.DepartedUtc, 1, uint.MaxValue);
+                uint elapsed = (uint)Math.Clamp((long)serverNowSeconds - s.DepartedUtc, 0, total);
+                shipTimers[i] = new(elapsed, total);
+            }
+            else
+            {
+                shipTimers[i] = new(s.TimerElapsed, s.TimerTotal);
+            }
+            if (shipKidnapSlot == 0 && (s.BossPending || s.State == 3))
+            {
+                shipKidnapSlot = (byte)(i + 1);
+                shipKidnapFlag = 1;
+            }
+        }
 
         var mapStates = new InstanceVillage.MapDeviceState[VillageData.MapDeviceCount];
+        byte mapKidnapSlot = MapKidnapSlot1Based;
+        byte mapKidnapFlag = MapKidnapFlag;
         for (int i = 0; i < VillageData.MapDeviceCount; i++)
-            mapStates[i] = MapDevices[i].ToWire();
+        {
+            var d = MapDevices[i];
+            mapStates[i] = d.ToWire();
+            if (mapKidnapSlot == 0 && (d.BossAmbushPending || d.State == 3))
+            {
+                mapKidnapSlot = (byte)(i + 1);
+                mapKidnapFlag = 1;
+            }
+        }
+
+        uint disElapsed = DisenchantElapsed;
+        uint disTotal = DisenchantTotal;
+        if (DisenchantQueue.Count > 0)
+        {
+            var first = DisenchantQueue[0];
+            disElapsed = (uint)Math.Clamp((long)Math.Floor(first.ElapsedSeconds), 0, uint.MaxValue);
+            disTotal = (uint)Math.Clamp((long)Math.Ceiling(first.DurationSeconds), 0, uint.MaxValue);
+        }
 
         ulong stateTs = LastSimulatedUtc > 0 ? (ulong)LastSimulatedUtc : serverNowSeconds;
         return new InstanceVillage.VillageStateSnapshot(
@@ -628,14 +666,14 @@ public sealed class VillageTownState
             FarmPlotCropResource: [.. FarmPlotCropResource],
             ShipTimers: shipTimers,
             MapDevices: mapStates,
-            DisenchantTimer: new(DisenchantElapsed, DisenchantTotal),
+            DisenchantTimer: new(disElapsed, disTotal),
             NibbleLo: NibbleLo,
             NibbleHi: NibbleHi,
             StateTimestamp: stateTs,
-            ShipKidnapSlot1Based: ShipKidnapSlot1Based,
-            ShipKidnapFlag: ShipKidnapFlag,
-            MapKidnapSlot1Based: MapKidnapSlot1Based,
-            MapKidnapFlag: MapKidnapFlag,
+            ShipKidnapSlot1Based: shipKidnapSlot,
+            ShipKidnapFlag: shipKidnapFlag,
+            MapKidnapSlot1Based: mapKidnapSlot,
+            MapKidnapFlag: mapKidnapFlag,
             ServerNowSeconds: serverNowSeconds);
     }
 
@@ -922,6 +960,96 @@ public sealed class VillageTownState
         state.RewardItems.AddRange(snap.RewardItems);
         state.DisenchantQueue.AddRange(snap.DisenchantQueue);
         return state;
+    }
+
+    /// <summary>
+    /// Applies a mutated <see cref="VillageStore.TownSnapshot"/> in place into this authoritative instance
+    /// (caller must hold <see cref="Gate"/>) so sibling Operations mutations never replace the cached state or lock.
+    /// </summary>
+    public void ApplyFromStoreSnapshot(VillageStore.TownSnapshot snap)
+    {
+        var parsed = FromStoreSnapshot(snap);
+        TreasuryGold = parsed.TreasuryGold;
+        GoldBurnRemainder = parsed.GoldBurnRemainder;
+        LastSimulatedUtc = parsed.LastSimulatedUtc;
+        LastRerollUtc = parsed.LastRerollUtc;
+        RerollCostGold = parsed.RerollCostGold;
+        SuperRerollCostGold = parsed.SuperRerollCostGold;
+        ShippingSeed = parsed.ShippingSeed;
+        NextWorkerId = parsed.NextWorkerId;
+        NextShipmentId = parsed.NextShipmentId;
+        NextMapRunId = parsed.NextMapRunId;
+        TutorialFlags = parsed.TutorialFlags;
+
+        Array.Copy(parsed.Resources, Resources, Resources.Length);
+        Array.Copy(parsed.ProductionProgress, ProductionProgress, ProductionProgress.Length);
+        Array.Copy(parsed.FarmPlotCropResource, FarmPlotCropResource, FarmPlotCropResource.Length);
+
+        Workers.Clear();
+        Workers.AddRange(parsed.Workers);
+        Recruits.Clear();
+        Recruits.AddRange(parsed.Recruits);
+        RecruitPoolFlag = parsed.RecruitPoolFlag;
+
+        for (int i = 0; i < Ships.Length; i++)
+        {
+            Ships[i] = parsed.Ships[i];
+            if (Ships[i].State == 1 && Ships[i].ArrivalUtc > Ships[i].DepartedUtc)
+            {
+                uint total = (uint)Math.Clamp(Ships[i].ArrivalUtc - Ships[i].DepartedUtc, 1, uint.MaxValue);
+                Ships[i].TimerTotal = total;
+            }
+        }
+        for (int p = 0; p < PortQuotas.Length; p++)
+            for (int q = 0; q < PortQuotas[p].Length; q++)
+                PortQuotas[p][q] = parsed.PortQuotas[p][q];
+
+        for (int i = 0; i < MapDevices.Length; i++)
+            MapDevices[i] = parsed.MapDevices[i];
+
+        RewardItems.Clear();
+        RewardItems.AddRange(parsed.RewardItems);
+        DisenchantQueue.Clear();
+        DisenchantQueue.AddRange(parsed.DisenchantQueue);
+
+        if (DisenchantQueue.Count > 0)
+        {
+            DisenchantElapsed = (uint)Math.Clamp((long)Math.Floor(DisenchantQueue[0].ElapsedSeconds), 0, uint.MaxValue);
+            DisenchantTotal = (uint)Math.Clamp((long)Math.Ceiling(DisenchantQueue[0].DurationSeconds), 0, uint.MaxValue);
+        }
+        else
+        {
+            DisenchantElapsed = 0;
+            DisenchantTotal = 0;
+        }
+
+        NibbleLo = parsed.NibbleLo;
+        NibbleHi = parsed.NibbleHi;
+        ActiveRewardNotice = parsed.ActiveRewardNotice;
+
+        ShipKidnapSlot1Based = 0;
+        ShipKidnapFlag = 0;
+        for (int i = 0; i < Ships.Length; i++)
+        {
+            if (Ships[i].BossPending || Ships[i].State == 3)
+            {
+                ShipKidnapSlot1Based = (byte)(i + 1);
+                ShipKidnapFlag = 1;
+                break;
+            }
+        }
+
+        MapKidnapSlot1Based = 0;
+        MapKidnapFlag = 0;
+        for (int i = 0; i < MapDevices.Length; i++)
+        {
+            if (MapDevices[i].BossAmbushPending || MapDevices[i].State == 3)
+            {
+                MapKidnapSlot1Based = (byte)(i + 1);
+                MapKidnapFlag = 1;
+                break;
+            }
+        }
     }
 
     static (uint FirstKey, uint LastKey, List<InstanceVillage.WorkerSkill> Skills) ParseSkillsBlob(string json)
