@@ -146,3 +146,46 @@ the panel's duel choice (a 0x2ca action of ruleset 161) starts a countdown of 54
 hostile one of its variety, and its death leaves the `*Allied` mercenary. The rulesets 161 and 162 are added by 0x1f when the
 mercenary is placed or a player enters. Not built: the hire following and fighting for the player,
 the duel opponent's drops, and the header listing of the two rulesets.
+
+## Delirium scarabs
+
+The five current scarabs use the existing map Mirror encounter and composed instance stats. Only the base scarab
+guarantees a mirror. Mania scales reward-counter points and monster depth (capped at 100%); Paranoia adds two initial
+types. Neuroses places Omniphobia and Kosis through the ordinary monster path and adds a distinct reward type per
+boss killed. Their ids, spawn and reward flags survive module reload and reentry; repeated boss callbacks pay once.
+
+Delusions prepares newly generated map drops before ground publication, including containers and encounter rewards.
+The ground hook has no game rules. Player drops and restored ground objects bypass it; duplicate references to the same
+generated item share its result. Unique maps and maps already carrying Delirium layers keep their original modifiers.
+The enchant uses `AfflictionMapDeliriumStacks` and `AfflictionRewardMapMods`, with the reward formatter's one-based values.
+It applies independently of whether the map contains a mirror.
+
+Fidelity limits: the existing Mirror's fog, population, depth scaling and reward rates remain calibrated estimates.
+Neuroses uses the existing boss kits and places both bosses in the first spawned group. Found maps draw 1–5 layers and
+reward types uniformly; the client tables supply their identities and 20% layer size, not the retail distribution.
+Permanent Delirium-map gameplay is a separate engine from this scarab's found-item enchant.
+
+## Influence, Legion, Abyss and Mercenary scarabs
+
+The twelve Shaper/Elder/current Influence inputs use the client fragment flags, pack lists and monster drop mods.
+Interference places one supported standalone guardian beside a map boss. Influenced equipment retains its influence
+and rarity; additional rare drops receive independent item rolls. Base influence density is calibrated at ten packs;
+the retail pack total and spatial distribution are not published by the client.
+
+The nine Legion inputs compose monolith counts, generals, war hoards, sergeants, Maraketh, repeated breakouts and
+spreading Emblematic rewards. Frozen and released actors retain their encounter identity through restoration.
+Life/damage increase by 50% per repeated breakout and 100% for spreading; these difficulty values are calibration.
+The existing army population and chest/drop weights remain estimates.
+
+The nine Abyss inputs retain independent pit plans and reward claims through reload and reentry. They compose
+extra pits, pack size, guaranteed Spires, Depths entrances, Consorts and non-final pits' Abyssal Crystals. Depths has
+a return to the parent instance and uses the existing generated Lich areas, matched to its monster family. The removed
+non-Lich Depths areas cannot generate in this client. The new inputs reuse the captured crack/pit lifecycle.
+Extra-pit placement, rare-monster distribution and crystal reward count are local models; the base encounter's
+recorded capture evidence does not establish retail parity for them.
+
+The four Trarthan inputs select Infamous builds, unique equipment, wild companions and their quantity/difficulty
+modifiers. Wild mercenaries pay actual carried items through ordinary ground publication once. The ordinary hire
+panel and duel remain the base module's route. Carried item selection is uniform without replacement; build/equipment
+weights and the difficulty curve remain calibration. Following, party AI and all league gameplay beyond these scarab
+effects remain separate work.
