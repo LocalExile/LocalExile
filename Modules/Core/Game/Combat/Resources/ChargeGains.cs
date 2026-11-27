@@ -91,6 +91,9 @@ public static class ChargeGains
         new(Stat.AddFrenzyChargeOnKillPctChanceWhileDualWielding, ChargeType.Frenzy, (e, w) => e is ChargeEvent.Kill && w.DualWield),
         new(Stat.ChanceToGainPowerChargeOnKillingFrozenEnemyPct, ChargeType.Power, (e, _) => e is ChargeEvent.Kill { Frozen: true }),
         new(Stat.ChanceToGainFrenzyChargeOnKillingFrozenEnemyPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill { Frozen: true }),
+        // On kill, by the poisons on the enemy (Maligaro's Cruelty)
+        new(Stat.GainFrenzyChargeOnKillVsEnemiesWith5PlusPoisonsPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill { Poisons: >= 5 }),
+        new(Stat.GainPowerChargeOnKillVsEnemiesWithLessThan5PoisonsPct, ChargeType.Power, (e, _) => e is ChargeEvent.Kill { Poisons: < 5 }),
     ];
 
     internal static readonly IReadOnlyList<Rule> OtherRules =
@@ -148,9 +151,6 @@ public static class ChargeGains
         // "Lose all Power Charges on Critical Strike" (Romira's Banquet)
         new(Stat.UniqueLoseAllPowerChargesOnCrit, ChargeType.Power, (e, _) => e is ChargeEvent.Hit { Critical: true }, Flag: true,
             Does: Outcome.LoseAll),
-        // On kill, by the poisons on the enemy (Maligaro's Cruelty)
-        new(Stat.GainFrenzyChargeOnKillVsEnemiesWith5PlusPoisonsPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill { Poisons: >= 5 }),
-        new(Stat.GainPowerChargeOnKillVsEnemiesWithLessThan5PoisonsPct, ChargeType.Power, (e, _) => e is ChargeEvent.Kill { Poisons: < 5 }),
         // On stun: any hit, or a melee one; Endurance Charge on Melee Stun's flag is the support's own (Stun.Skill)
         new(Stat.ChanceToGainPowerChargeOnStunPct, ChargeType.Power, (e, _) => e is ChargeEvent.Stun),
         new(Stat.ChanceToGainFrenzyChargeOnStunPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Stun),
