@@ -115,11 +115,7 @@ public sealed class ExpeditionEncounter : IDisposable
     {
         if (state.Plan is null) return;
         SavedBody[] bodies;
-        if (state.PendingBodies is { } pending)
-        {
-            bodies = pending;
-        }
-        else
+        lock (state)
         {
             var live = new List<SavedBody>();
             foreach (var (id, reward) in state.Rewards)
@@ -128,6 +124,7 @@ public sealed class ExpeditionEncounter : IDisposable
                     var at = body.Walk.Position(AreaTime(player));
                     live.Add(new(id, variety.Row, at.X, at.Y, reward));
                 }
+            if (state.PendingBodies is { } pending) live.AddRange(pending);
             bodies = [.. live];
         }
         player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(new Saved(state.Owner, state.Plan, state.Stage,
@@ -144,16 +141,24 @@ public sealed class ExpeditionEncounter : IDisposable
         lock (state)
         {
             if (state.PendingBodies is not { } pending) return;
-            var used = new HashSet<uint>();
+            var used = new HashSet<uint>(state.Rewards.Keys);
+            var held = HeldBackLocked(player);
+            var remaining = new List<SavedBody>();
             foreach (var body in pending)
             {
                 var match = player.Area.Monsters.FirstOrDefault(p => !used.Contains(p.Key) && !p.Value.Dead
                     && p.Value.Variety?.Row == body.Variety && (p.Key == body.Id
                         || Distance(p.Value.Walk.Position(AreaTime(player)), (body.X, body.Y)) <= 4));
-                if (match.Value is null) continue;
-                used.Add(match.Key); state.Monsters[match.Key] = match.Value; state.Rewards[match.Key] = body.Reward;
+                if (match.Value is not null)
+                {
+                    used.Add(match.Key); state.Monsters[match.Key] = match.Value; state.Rewards[match.Key] = body.Reward;
+                }
+                else if (held.Any(h => h.Variety == body.Variety && Distance((h.X, h.Y), (body.X, body.Y)) <= 4))
+                {
+                    remaining.Add(body);
+                }
             }
-            state.PendingBodies = null;
+            state.PendingBodies = remaining.Count > 0 ? [.. remaining] : null;
         }
     }
 
@@ -701,7 +706,7 @@ public sealed class ExpeditionEncounter : IDisposable
                     if (body.Dead || body.Life == 0) state.Monsters.TryRemove(id, out _);
             // Every blast went off, none of the dug monsters lives and nothing is still queued (a chest that is not ready yet,
             // an effect not removed yet): Over stops the clock.
-            if (state.Stage == Stage.Fight && state.Blasts >= state.Explosives.Count && state.Monsters.IsEmpty && state.Queue.Count == 0)
+            if (state.Stage == Stage.Fight && state.Blasts >= state.Explosives.Count && state.Monsters.IsEmpty && state.PendingBodies is null && state.Queue.Count == 0)
             {
                 state.Stage = Stage.Over;
                 await UpdateDetonator(player, state);

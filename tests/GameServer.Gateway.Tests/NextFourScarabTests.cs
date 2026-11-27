@@ -115,6 +115,42 @@ public sealed class NextFourScarabTests
         await using var betrayalWire = await ScarabEncounterTests.Wire.Open(betrayalInstance,
             new AreaLayout(beach.Hash16, beach.Id, 600, 600, 10, 10, (_, _) => true, []), 505);
         Assert.True(new BetrayalEncounter().IsActivePause(betrayalWire.Player));
+
+        // Expedition portal re-entry >120 cells from the site holds unearthed monsters in HeldBackMonsters:
+        // BindBodies must keep PendingBodies until RevealHeldBack materializes them, preserving Stage.Fight and runic drops.
+        const string expArea = "MapWorldsForbiddenWoods";
+        uint expSeed = ServerLevels.PlayableSeed(expArea, 1304805886, 0, null, LeagueCategory.None, [((ushort)0x086a, [0x04, 0x00])]);
+        ushort expHash = (ushort)ClientTables.Table("WorldAreas").First(r => r.TextOrNull("Id") == expArea).Int("HASH16");
+        var expLayout = AreaLayouts.For(expHash, expSeed);
+        var expInstance = new InstanceState();
+        int runicRow = ExpeditionTables.VarietiesOf("Faction2")[0];
+        var runicVariety = Game.Monsters.Find(runicRow.ToString())!;
+        await using var expWire = await ScarabEncounterTests.Wire.Open(expInstance, expLayout, expSeed);
+        var expPlan = ExpeditionEncounter.MakePlan(expWire.Player, 83)!;
+        expInstance.ContentState["Expedition.encounter.v1"] = JsonSerializer.Serialize(new
+        {
+            Owner = expWire.Player.Character.Name, Plan = expPlan, Stage = ExpeditionEncounter.Stage.Fight,
+            Revealed = true, Detonator = 100u, Pieces = Array.Empty<object>(),
+            Explosives = new[] { expPlan.Detonator }, ExplosiveIds = new[] { 101u }, Chains = new[] { new List<uint>() },
+            Left = 0, Clock = 10.0, Queue = Array.Empty<object>(), Dug = Array.Empty<int>(), Broken = Array.Empty<int>(),
+            Chests = new Dictionary<uint, object>(), Blasts = 1,
+            Bodies = new[] { new { Id = 9001u, Variety = runicVariety.Row, X = expPlan.Detonator.X, Y = expPlan.Detonator.Y, Reward = new ExpeditionEncounter.Reward(true, 500) } },
+        }, json);
+        var held = new SavedMonster(runicVariety.Row, 83, MonsterRarity.Rare, Hostile: true, expPlan.Detonator.X, expPlan.Detonator.Y, 100);
+        expInstance.World.HeldBackMonsters.Add(held);
+        using var expEncounter = new ExpeditionEncounter();
+        await expEncounter.OnPlayerEntered(_ => { }, expWire.Player);
+        await expEncounter.TickFor(expWire.Player)!(expWire.Player, 0.05);
+        Assert.True(expEncounter.IsActivePause(expWire.Player));
+        expInstance.World.HeldBackMonsters.Remove(held);
+        var materialized = new SpawnedMonster(runicVariety.Name, new(expPlan.Detonator.X, expPlan.Detonator.Y, 0), 0, 0, 100)
+        {
+            Variety = runicVariety, Level = 83, Rarity = MonsterRarity.Rare, Hostile = true, ObjectId = 9055u,
+        };
+        expWire.Player.Area.Monsters[9055u] = materialized;
+        var dropRoll = new DropRoll(expWire.Player, new MonsterInfo(runicVariety.Id, runicVariety.Name, 83, MonsterRarity.Rare, expPlan.Detonator.X, expPlan.Detonator.Y) { ObjectId = 9055u });
+        expEncounter.Drops(dropRoll);
+        Assert.Contains(dropRoll.Made, i => Program.Items.ByHash(i.TypeHash)?.Id == ExpeditionLogbooks.Type);
     }
 
     [GameFilesFact]
