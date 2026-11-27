@@ -214,6 +214,7 @@ public static partial class Game
                 {
                     AimChargedDash(player, channelAimAtRelease, at);
                     AimBladeFlurry(player, channelAimAtRelease);
+                    AimPulseChannel(player, channelAimAtRelease);
                 }
                 ended = channel;
                 player.LockstepChannelAimPending = false;

@@ -19,6 +19,7 @@ public static partial class Game
     public static int BeginPaidChannel(Player player, ushort skill, int effect, int action, ushort sequence)
     {
         EndCycloneStages(player, player.ChannelGeneration, AreaTime(player));
+        RetireIncinerateLocked(player, player.ChannelGeneration);
         int generation = ++player.ChannelGeneration;
         player.ChannelSkill = skill;
         player.ChannelSkillSequence = sequence;
@@ -40,6 +41,7 @@ public static partial class Game
             RetireChargedDashLocked(player, started);
             RetireBladeFlurry(player, started);
             RetireFlameblastLocked(player, started);
+            RetireIncinerateLocked(player, started);
             if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill)
             {
                 var (x, y) = player.Walk.Position(at);
@@ -1625,8 +1627,12 @@ public static partial class Game
                         channelGeneration = BeginPaidChannel(player, skillId, gem.Effect, action, sequence);
                         if (SkillsFor(player).EffectId(gem.Effect) == WitherEffect)
                             WitherChannels.AddOrUpdate(player, new(skillId, channelGeneration.Value, to));
-                        if (IsAimedPulseEffect(SkillsFor(player).EffectId(gem.Effect)))
-                            AimedPulseChannels.AddOrUpdate(player, new(skillId, channelGeneration.Value, to));
+                        string? aimedEffect = SkillsFor(player).EffectId(gem.Effect);
+                        if (IsAimedPulseEffect(aimedEffect))
+                            AimedPulseChannels.AddOrUpdate(player, new(skillId, channelGeneration.Value, to)
+                            {
+                                Incinerate = IsIncinerate(aimedEffect) ? BeginIncinerate(player, paymentGem, action) : null,
+                            });
                         if (IsFlameblast(SkillsFor(player).EffectId(gem.Effect)))
                             BeginFlameblast(player, paymentGem, skillId, action, channelGeneration.Value, sequence, to);
                         if (IsBladeFlurry(player, gem.Effect))
@@ -1717,7 +1723,9 @@ public static partial class Game
             if (!Current()) { AbortStartedChannel(player, channelGeneration); return false; }
             if (SupportedChannelSeconds(player, skillId) is not double interval)
             { AbortStartedChannel(player, channelGeneration); return false; }
-            player.NextChannelHitAt = AreaTime(player) + (IsSnipe(gem.Effect) ? interval / 2 : interval);
+            double firstInterval = IsSnipe(gem.Effect) ? interval / 2 : IsIncinerate(SkillsFor(player).EffectId(gem.Effect))
+                ? interval * IncinerateFirstStageFraction : interval;
+            player.NextChannelHitAt = AreaTime(player) + firstInterval;
             _ = RunChannel(player, skillId, gem, action, to, initialCostPaid: true);
             if (IsFlameblast(SkillsFor(player).EffectId(gem.Effect))
                 || IsAimedPulseEffect(SkillsFor(player).EffectId(gem.Effect))) return CompleteSupportedUse(true);
@@ -2609,11 +2617,12 @@ public static partial class Game
         bool blight = aimedPulse is not null && IsBlightChannel(SkillsFor(player).EffectId(gem.Effect));
         bool scorchingRay = aimedPulse is not null && IsScorchingRay(SkillsFor(player).EffectId(gem.Effect));
         int rayInterruption = player.ActionInterruptionGeneration;
-        bool firstStagePaid = snipe || initialCostPaid && (flameblast is not null || scorchingRay);
+        var incinerate = aimedPulse?.Incinerate;
+        bool firstStagePaid = snipe || initialCostPaid && (flameblast is not null || scorchingRay || incinerate is not null);
         ChargedDashChannel? dash;
         lock (LevelUpdatesFor(player).Gate) dash = CurrentChargedDash(player);
         bool OwnsChannel() => player.ChannelGeneration == generation && player.ChannelSkill == skillId && player.ActionCount == action;
-        async Task EndPaidDash(double now)
+        async Task EndPaidChannel(double now)
         {
             (int X, int Y)? dashLanding;
             lock (LevelUpdatesFor(player).Gate)
@@ -2625,7 +2634,7 @@ public static partial class Game
                 player.LockstepSkill.Clear();
             }
             await SendWorldRecord(player, player.Id, ChannelFinishedRecord(player, channelSequence, dashLanding),
-                $"0x01ae Charged Dash 0x{channelSequence:x4} ended");
+                $"0x01ae {gem.Name} 0x{channelSequence:x4} ended");
         }
         bool divineIre = IsDivineIre(player, gem.Effect);
         int divineIreMaxStages = divineIre && SkillsFor(player).EffectId(gem.Effect) == "DivineIreRoyale" ? 20 : 10;
@@ -2641,7 +2650,7 @@ public static partial class Game
 
         try
         {
-            if (initialCostPaid && aimedPulse is not null && !scorchingRay)
+            if (initialCostPaid && aimedPulse is not null && !scorchingRay && incinerate is null)
                 await AimedPulse(aimedPulse, 0);
             if (dash is not null) StartChargedDashWave(player, dash, channelStarted);
             if (IsWinterOrb(gem.Effect))
@@ -2686,11 +2695,12 @@ public static partial class Game
                 bool blocked = PlayerActionBlocked(player, now, now);
                 if (dash is not null && (blocked || dash.Interruption != player.ActionInterruptionGeneration))
                 {
-                    await EndPaidDash(now);
+                    await EndPaidChannel(now);
                     return;
                 }
                 if (flameblast is not null && (blocked || flameblast.Interruption != player.ActionInterruptionGeneration)
-                    || scorchingRay && (blocked || rayInterruption != player.ActionInterruptionGeneration))
+                    || scorchingRay && (blocked || rayInterruption != player.ActionInterruptionGeneration)
+                    || incinerate is not null && (blocked || incinerate.Interruption != player.ActionInterruptionGeneration))
                 {
                     AbortStartedChannel(player, generation);
                     return;
@@ -2720,7 +2730,7 @@ public static partial class Game
                 }
                 else if (!PayMana(player, skillId, out cost, out lifeCost, 100, useSpell: false))
                 {
-                    if (dash is not null) await EndPaidDash(now);
+                    if (dash is not null || incinerate is not null) await EndPaidChannel(now);
                     else
                     {
                         lock (LevelUpdatesFor(player).Gate)
@@ -2797,6 +2807,8 @@ public static partial class Game
                     if (scorchingRay)
                         PayScorchingRayPulse(player, aimedPulse, gem.Effect, action, interval, now - channelStarted,
                             lycia?.Pact.DamageMore ?? 1);
+                    else if (incinerate is not null)
+                        await PulseIncinerate(player, aimedPulse, incinerate, gem, lycia?.Pact.DamageMore ?? 1);
                     else await AimedPulse(aimedPulse, now - channelStarted);
                     continue;
                 }
@@ -2835,7 +2847,11 @@ public static partial class Game
                     WitherChannels.Remove(player);
                 if (flameblast is not null) RetireFlameblastLocked(player, generation);
                 if (aimedPulse is not null && AimedPulseChannels.TryGetValue(player, out var currentPulse)
-                    && ReferenceEquals(aimedPulse, currentPulse)) AimedPulseChannels.Remove(player);
+                    && ReferenceEquals(aimedPulse, currentPulse))
+                {
+                    if (incinerate is not null) RetireIncinerateLocked(player, generation);
+                    else AimedPulseChannels.Remove(player);
+                }
             }
             EndCycloneStages(player, generation, AreaTime(player));
             RetireBladeFlurry(player, generation);
@@ -2969,6 +2985,7 @@ public static partial class Game
         {
             var landing = ReleaseChargedDashLocked(player, at);
             ReleaseFlameblastLocked(player, at, lycia);
+            ReleaseIncinerateLocked(player, at, lycia);
             SnipeReleasedByInput(player, at);
             ReleaseScourgeChannel(player, at);
             _ = ReleaseBladeFlurry(player, at);
@@ -3119,7 +3136,7 @@ public static partial class Game
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false, bool seismicExerted = false, int ancestralTargets = 0,
         int? rallyingDamage = null, RetainedAreaAttack? retainedAttack = null, IReadOnlyList<uint>? contactTargets = null,
-        double spellMore = 1, double ailmentMore = 1, bool forceCritical = false) =>
+        double spellMore = 1, double ailmentMore = 1, bool forceCritical = false, IncinerateWave? incinerateWave = null) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
@@ -3131,7 +3148,7 @@ public static partial class Game
             extraShockChance: extraShockChance, cascadeBurst: cascadeBurst,
             flurryRelease: flurryRelease, nearbyOnly: nearbyOnly, seismicExerted: seismicExerted, ancestralTargets: ancestralTargets,
             rallyingDamage: rallyingDamage, contactTargets: contactTargets, spellMore: spellMore, ailmentMore: ailmentMore,
-            forceCritical: forceCritical);
+            forceCritical: forceCritical, incinerateWave: incinerateWave);
 
     private static async Task AreaSkillHitStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -3152,7 +3169,7 @@ public static partial class Game
         IReadOnlyList<uint>? contactTargets = null, BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false,
         LacerateUse? lacerate = null, SupportedGem? triggeredSpellSource = null, bool seismicExerted = false,
         int ancestralTargets = 0, int? rallyingDamage = null, double spellMore = 1, double ailmentMore = 1,
-        bool forceCritical = false)
+        bool forceCritical = false, IncinerateWave? incinerateWave = null)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
@@ -3457,9 +3474,9 @@ public static partial class Game
         // Melee Splash victims and their damage multiplier (see MeleeSplash).
         var splashMore = new Dictionary<uint, double>();
         // Ice Nova's ring reaches each victim in turn (IceNovaRing) and Ground Slam's wave does the same by distance
-        // (GroundSlamWave); a channel's sweep lands at once.
+        // (GroundSlamWave). Incinerate sweeps immediately while held and travels on release.
         bool ring = !immediate && SkillsFor(player).ActionHash(gem.Effect) == IceNovaRing.Action;
-        bool travellingSweep = ring || wave || vaalWave || fissure;
+        bool travellingSweep = ring || wave || vaalWave || fissure || incinerateWave is not null;
         TectonicFissureUse? tectonic = null;
         int frostboltCap = ring ? Stat(global::Stat.IceNovaNumberOfFrostBoltsToCastOn) : 0;
         double frostboltMore = 1;
@@ -3803,7 +3820,9 @@ public static partial class Game
                     ? [.. found.Select(f => GroundSlamWave.VaalAdvanceSeconds(f.Distance, radius))]
                     : wave
                         ? [.. found.Select(f => GroundSlamWave.AdvanceSeconds(f.Distance))]
-                        : [.. found.Select(f => IceNovaRing.Reach(f.Distance, radius, artVariation))];
+                        : incinerateWave is { } fireWave
+                            ? [.. found.Select(f => f.Distance / fireWave.Speed)]
+                            : [.. found.Select(f => IceNovaRing.Reach(f.Distance, radius, artVariation))];
             }
             if (fissure)
             {
@@ -4022,6 +4041,8 @@ public static partial class Game
                                 && triggeredCurrent is null && !PlayerActionCurrent(player, action))) break;
                     if (m.Dead || m.Life == 0 || !m.Hostile
                         || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
+                    if (incinerateWave is not null && targetFilter is not null
+                        && !targetFilter(id, m.Walk.Position(AreaTime(player)))) continue;
                     bool freshPlayer = playerStats is null;
                     if (playerStats is null)
                     {
@@ -4190,6 +4211,12 @@ public static partial class Game
                         double profileAilment = profileMore * ailmentMore;
                         profile = new(profile.Hit.Scale(profileMore * spellMore), RepeatAilment(profile.Ignite, profileAilment),
                             RepeatAilment(profile.Bleed, profileAilment), RepeatAilment(profile.Poison, profileAilment));
+                    }
+                    if (incinerateWave is { } fireWave)
+                    {
+                        var ignite = RepeatAilment(profile.Ignite, fireWave.IgniteMore);
+                        if (fireWave.AlwaysIgnites) ignite = ignite with { Chance = 100 };
+                        profile = profile with { Ignite = ignite };
                     }
                     if (!spell && repeat > 0 && retainedAttack is null)
                     {

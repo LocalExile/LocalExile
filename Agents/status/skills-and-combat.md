@@ -557,6 +557,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Atrophy reduces life regeneration during Hinder, and Contagion carries active Blight of Contagion layers.
 - Player-cast Scorching Ray steers while held and refreshes burn stages on targets it touches. The ordinary ray applies
   Fire Exposure at its stage limit.
+- Player-cast Incinerate builds paid stages, widens and lengthens while held, and releases an igniting wave.
+  Expanse releases a wider-ranging, slower wave. Venting sustains a longer cone without a release wave.
 - Wither pulses follow the channel aim. Players and spell totems apply Hinder and separately expiring Withered stacks.
 - Channel-dependent item modifiers follow the player's active channel through release, interruption and skill removal.
   The normal gem moves to a legal landing; the Projection variant stays in place.

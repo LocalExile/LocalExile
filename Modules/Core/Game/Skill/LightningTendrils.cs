@@ -7,6 +7,7 @@ public static partial class Game
         public (int X, int Y) Aim = aim;
         public (long X, long Y) Direction = (1, 0);
         public int Pulses;
+        public IncinerateChannel? Incinerate;
 
         public (long X, long Y) DirectionFrom((int X, int Y) origin)
         {
@@ -24,7 +25,8 @@ public static partial class Game
     static bool IsLightningTendrils(string? effect) => effect is
         "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale";
 
-    static bool IsAimedPulseEffect(string? effect) => IsLightningTendrils(effect) || IsBlightChannel(effect) || IsScorchingRay(effect);
+    static bool IsAimedPulseEffect(string? effect) => IsLightningTendrils(effect) || IsBlightChannel(effect)
+        || IsScorchingRay(effect) || IsIncinerate(effect);
 
     static AimedPulseChannel? ActiveAimedPulseChannel(Player player) =>
         AimedPulseChannels.TryGetValue(player, out var channel) && channel.Skill == player.ChannelSkill
