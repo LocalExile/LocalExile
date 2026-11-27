@@ -109,7 +109,7 @@ public static partial class Game
     static async Task ProbeLockstepLatency(Player player)
     {
         double now = AreaTime(player);
-        if (!player.Connection.LockstepClient || now < player.Connection.LockstepNextProbeAt) return;
+        if (!player.Connection.LockstepConfirmed || now < player.Connection.LockstepNextProbeAt) return;
         player.Connection.LockstepNextProbeAt = now + (player.Connection.LockstepLatency.Settled ? 2 : .07)
             + AreaRng(player).NextDouble() * .05;
         long sent = Interlocked.Exchange(ref player.Connection.LockstepProbeSentAt, 0);
@@ -127,7 +127,7 @@ public static partial class Game
     public static void AnswerLockstepProbe(Player player, long readAt)
     {
         long sent = Interlocked.Exchange(ref player.Connection.LockstepProbeSentAt, 0);
-        if (sent != 0) player.Connection.LockstepLatency.Add(Stopwatch.GetElapsedTime(sent, readAt).TotalMilliseconds);
+        if (sent != 0 && readAt >= sent) player.Connection.LockstepLatency.Add(Stopwatch.GetElapsedTime(sent, readAt).TotalMilliseconds);
     }
 
     // Differs from GGG: a monster that gives up its pursuit (PlanMonsterAi, "gives up") gets no order and goes on with its

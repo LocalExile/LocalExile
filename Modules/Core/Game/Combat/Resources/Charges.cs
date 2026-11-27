@@ -410,14 +410,24 @@ public static partial class Game
             var here = player.Walk.Position(now);
             int taunted = TauntLocked(player, here, radius, now, taunt);
             Console.WriteLine($"[gateway] {effectId}: taunts {taunted} monster(s) within {radius} cells for {taunt:0.##} s");
+            int affectedAllies = 0;
             if (effectId == "IntimidatingCry")
                 ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now, applyMovementBuff: !suppressBuffs);
             else if (!suppressBuffs)
-                ApplyWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
+                affectedAllies = GrantWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
             if (effectId == "SeismicCry")
                 GrantSeismicCryExertsLocked(player, own, playerStats);
             else if (effectId == "AncestralCry")
                 GrantAncestralCryExertsLocked(player, own, playerStats);
+            else if (effectId == "RallyingCry")
+                GrantRallyingCryExertsLocked(player, own, playerStats, affectedAllies);
+            else if (effectId == "InfernalCry")
+            {
+                GrantInfernalCryExertsLocked(player, skillId, own, playerStats);
+                ApplyInfernalCryDebuffLocked(player, skillId, effect, own, here, radius, now);
+            }
+            else if (effectId == "BattlemagesCry")
+                GrantBattlemagesCryExertsLocked(player, skillId, own, playerStats);
             var warriors = skillId != 0 && IsGeneralsCry(player, effect)
                 ? GeneralsCryReleased(player, skillId, here, radius, epoch)
                 : Task.CompletedTask;

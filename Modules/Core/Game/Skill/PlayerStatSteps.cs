@@ -54,6 +54,13 @@ public enum PlayerStatChange : byte
 
 public static partial class Game
 {
+    static int CorpsePactSpeed(Player player, IReadOnlyDictionary<uint, int> stats, double now)
+    {
+        int perCorpse = stats.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPctPerCorpseConsumedRecently);
+        if (perCorpse <= 0) return 0;
+        return (int)Math.Min(200L, Math.Min(player.RecentEvents.Amount(StatConditions.ConsumedCorpse, now), 200L) * perCorpse);
+    }
+
     /// <summary>What a step hands on that is not a stat: the recovery baseline (the Recovery step's).</summary>
     public sealed class PlayerStepOutputs
     {
@@ -79,9 +86,13 @@ public static partial class Game
             var sources = CharacterStatSources(player, nodes).Stats;
             outputs.Sources = sources;
             foreach (var (k, v) in sources) stats[k] = v;
+            double now = AreaTime(player);
+            if (GetIn(stats, Stat.MinionDamagePlusPctIfEnemyHitRecently) is int minionHitDamage and not 0
+                && player.RecentEvents.Happened(OwnedEnemyHitRecently, now))
+                AddTo(stats, Stat.MinionDamagePlusPct, minionHitDamage);
             int minionDamageShare = PlayerMinionDamageShare(sources);
             if (minionDamageShare > 0)
-                AddTo(stats, Stat.DamagePlusPct, (long)sources.GetValueOrDefault(Stat.MinionDamagePlusPct) * minionDamageShare / 100);
+                AddTo(stats, Stat.DamagePlusPct, (long)GetIn(stats, Stat.MinionDamagePlusPct) * minionDamageShare / 100);
             if (MapModsOf(player) is { } map)
             {
                 AddTo(stats, Stat.MapPlayersNoRegenerationIncludingEs, map.Get(Stat.MapPlayersNoRegenerationIncludingEs));
@@ -94,12 +105,64 @@ public static partial class Game
                     MarkLaterStep(player, PlayerStatStep.TailCritical);
             }
             // Their "recently" conditions change by themselves when an event ages out of its window.
-            double now = AreaTime(player);
+            if (GetIn(stats, Stat.DamagePlusPctIfUsedTravelSkillRecently) is int travelDamage and not 0
+                && player.RecentEvents.Happened(UsedTravelSkillRecently, now))
+                AddTo(stats, Stat.DamagePlusPct, travelDamage);
+            if (GetIn(stats, Stat.ChaosDamagePlusPctPer100MaxManaUpTo80) is int chaosPerMana and not 0)
+                AddTo(stats, Stat.ChaosDamagePlusPct, Math.Min(80L, (player.Pools.Mana / 100L) * chaosPerMana));
+            if (GetIn(stats, Stat.AdditiveArmourModifiersApplyToEnergyShieldRechargeRateAtPctValue) is int rechargeShare and not 0)
+                AddTo(stats, Stat.EnergyShieldRechargeRatePlusPct, (long)player.Pools.ArmourPct * rechargeShare / 100);
+            int daggerSpeed = GetIn(stats, Stat.ProjectileSpeedPlusPctWithDaggers);
+            int poisonMultiplier = GetIn(stats, Stat.PosionDamageOverTimeMultiplierPlusPctWhileWieldingClawsDaggers);
+            if (daggerSpeed != 0 || poisonMultiplier != 0)
+            {
+                var weapons = WeaponProfileFor(player, activeSet: true);
+                if (weapons.Dagger && daggerSpeed != 0) AddTo(stats, Stat.ProjectileSpeedPlusPct, daggerSpeed);
+                if ((weapons.Dagger || weapons.Claw) && poisonMultiplier != 0)
+                    AddTo(stats, Stat.PoisonDotMultiplierPlus, poisonMultiplier);
+            }
+            if (GetIn(stats, Stat.AdditiveLifeModifiersApplyToAttackDamageAt30PctValue) != 0)
+                AddTo(stats, Stat.AttackDamagePlusPct, GetIn(stats, Stat.MaximumLifePlusPct) * 30L / 100);
+            if (GetIn(stats, Stat.AttackDamagePlusPctPer75ArmourOrEvasionOnShield) is int shieldDamage and not 0
+                && ActiveShieldDefences(player) is { } shield)
+                AddTo(stats, Stat.AttackDamagePlusPct, (long)((shield.Armour + shield.Evasion) / 75) * shieldDamage);
+            if (GetIn(stats, Stat.AdditiveEnergyShieldModifiersApplyToSpellDamageAt30PctValue) != 0)
+                AddTo(stats, Stat.SpellDamagePlusPct, GetIn(stats, Stat.MaximumEnergyShieldPlusPct) * 30L / 100);
+            if (GetIn(stats, Stat.EsRegenerationPerMinutePctWhileStationary) is int stationaryRegen and not 0
+                && !player.Walk.Moving(now))
+                AddTo(stats, Stat.BaseEnergyShieldRegenerationRatePerMinutePct, stationaryRegen);
+            if (GetIn(stats, Stat.EnergyShieldRegenerationPctPerMinuteIfEnemyCursedRecently) is int cursedRegen and not 0
+                && player.RecentEvents.Happened(CursedEnemyRecently, now))
+                AddTo(stats, Stat.BaseEnergyShieldRegenerationRatePerMinutePct, cursedRegen);
+            if (GetIn(stats, Stat.EssenceDisplayElementalDamageTakenWhileNotMovingPlusPct) is int stationaryElemental and not 0
+                && !player.Walk.Moving(now))
+                AddTo(stats, Stat.ElementalDamageTakenPlusPct, stationaryElemental);
+            if (GetIn(stats, Stat.AreaOfEffectPlusPctForYouAndMinionsIfConsumedCorpseRecently) is int corpseArea and not 0
+                && player.RecentEvents.Happened(StatConditions.ConsumedCorpse, now))
+                AddTo(stats, SkillArea.BaseIncreased, corpseArea);
+            if (GetIn(stats, Stat.AttackAndCastSpeedPlusPctPerCorpseConsumedRecently) > 0)
+            {
+                AddTo(stats, Stat.CastSpeedPlusPct, CorpsePactSpeed(player, stats, now));
+                MarkLaterStep(player, PlayerStatStep.Rage);
+            }
             int totemSpeed = GetIn(stats, Stat.AttackAndCastSpeedPlusPctOnPlacingTotem);
             if (totemSpeed != 0 && player.RecentEvents.Happened(StatConditions.SummonedTotem, now))
             {
                 AddTo(stats, Stat.AttackSpeedPlusPct, totemSpeed);
                 AddTo(stats, Stat.CastSpeedPlusPct, totemSpeed);
+            }
+            int castSpeedPerSpell = GetIn(stats, Stat.CastSpeedPlusPctPerNumUniqueSpellsCastRecently);
+            int attackMorePerCast = GetIn(stats, Stat.InquisitorAttackDamagePlusPctFinalPerNonInstantSpellCastIn8SecondsMax30Pct);
+            if (castSpeedPerSpell != 0 || attackMorePerCast != 0)
+            {
+                var casts = player.RecentEvents.CountIndexed(NonInstantCastHistory, now,
+                    castSpeedPerSpell != 0 ? RecentEvents.WindowSeconds : 0,
+                    attackMorePerCast != 0 ? RecentEvents.EightSecondWindow : 0);
+                if (castSpeedPerSpell != 0)
+                    AddTo(stats, Stat.BaseCastSpeedPlusPct, (long)castSpeedPerSpell * casts.Distinct);
+                if (attackMorePerCast != 0)
+                    stats[NonInstantAttackMore] = (int)Math.Clamp((long)attackMorePerCast * casts.Total, -100, 30);
+                if (casts.Expiry is double pastCast) StatsChangeIn(pastCast - now);
             }
             if (player.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
             if (player.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
@@ -144,10 +207,20 @@ public static partial class Game
             int auraPerHerald = GetIn(stats, Stat.AuraEffectOnSelfFromSkillsPlusPctPerHeraldEffectingYou);
             int heralds = damagePerHerald == 0 && auraPerHerald == 0 ? 0 : ActiveHeraldCount(auras);
             if (damagePerHerald != 0 && heralds != 0) AddTo(stats, Stat.DamagePlusPct, (long)damagePerHerald * heralds);
+            if (GetIn(stats, Stat.DamagePlusPctPerYourAuraOrHeraldSkillAffectingYou) is int damagePerAura and not 0)
+            {
+                var skills = SkillsFor(player);
+                int count = auras.Where(a => a.AffectsSelf && a.ExternalEffectPct is null
+                    && (a.IsHerald || skills.IsAura(a.Effect))).Select(a => a.EffectId).Distinct(StringComparer.Ordinal).Count();
+                AddTo(stats, Stat.DamagePlusPct, (long)damagePerAura * count);
+            }
             var minionAuras = SelectMinionAuras(player, player.Id, auras, player.Pools.AuraEffectPct);
             var personalAuras = WithHeraldScaledOwnAuras(auras.Where(a => a.AffectsSelf), SkillsFor(player), auraPerHerald, heralds);
+            int thunderEffect = GetIn(stats, Stat.HeraldOfThunderBuffEffectPlusPct);
+            Func<AuraCatalog.Aura, int>? effectForAura = thunderEffect == 0 ? null
+                : aura => aura is { IsHerald: true, EffectId: "HeraldOfThunder" } ? thunderEffect : 0;
             foreach (var (k, v) in AuraCatalog.RawStats(personalAuras, player.Pools.AuraEffectPct, SkillsFor(player), Stats,
-                         heraldEffectPct).Concat(minionAuras.SelectMany(a => a.Stats)).ToList())
+                         heraldEffectPct, effectForAura).Concat(minionAuras.SelectMany(a => a.Stats)).ToList())
                 AddTo(stats, k, v);
             // Commander of Darkness ("You and nearby Allies deal 30% increased Damage"): applies to the caster even
             // with zero active auras, deduplicated against any Commander damage already counted by AuraCatalog.
@@ -231,8 +304,13 @@ public static partial class Game
         // The passives' conditional attack speed is already one final value in Pools. main_hand_attack_speed_+% is the
         // total the client swings with, so Unarmed reads only it.
         Step(PlayerStatStep.AttackSpeed, (player, stats, _) =>
-            stats[Stat.MainHandAttackSpeedPlusPct] = player.Pools.AttackSpeedPct
+        {
+            stats[Stat.MainHandAttackSpeedPlusPct] = ActorScale.Saturate((long)player.Pools.AttackSpeedPct
                 + SoulEaterAttackSpeed(player, stats) + LeechingAttackSpeed(player, stats));
+            var storm = BladestormBonuses(player);
+            if (storm.Blood) stats[Stat.AffectedByBloodstorm] = 1;
+            if (storm.MoveIncreased > 0) stats[Stat.AffectedBySandstorm] = 1;
+        });
         // The utility flasks' plain stats (UtilityFlasks.RawStats: maximum resistances, crit, damage, cast speed), with
         // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
         Step(PlayerStatStep.UtilityFlasks, (player, stats, _) =>
@@ -269,6 +347,8 @@ public static partial class Game
         {
             int Get(uint name) => GetIn(stats, name);
             double statsAt = AreaTime(player);
+            if (Get(Stat.ManaRegenerationRatePlusPctPer1PctSpellBlockChance) is int regenPerBlock and not 0)
+                AddTo(stats, Stat.ManaRegenerationRatePlusPct, (long)regenPerBlock * player.Pools.SpellBlockChance);
             if (Get(Stat.LifeAndEnergyShieldRecoveryRatePlusPctIfStoppedTakingDamageOverTimeRecently) is int stoppedDotRec and not 0
                 && statsAt - player.LastStoppedTakingDotAt <= RecentEvents.WindowSeconds)
             {
@@ -382,6 +462,8 @@ public static partial class Game
     public static Dictionary<uint, int> CharacterPlayerStatsSnapshot(Player player, out double baselineLifePerSecond,
         out PanelSourceSnapshot? panelSources, bool capturePanelSources = false)
     {
+        // Snapshots made inside a graph step belong to the outer measurement.
+        long statProbe = StatGraph.InRule ? 0 : ConnectionPerformance.ProbeStart();
         var stats = new PlainStatMap();
         var outputs = new PlayerStepOutputs();
         panelSources = null;
@@ -392,6 +474,7 @@ public static partial class Game
             PlayerSteps[i](player, stats, outputs);
         }
         baselineLifePerSecond = outputs.BaselineLifePerSecond;
+        if (statProbe != 0) player.Connection.Performance.StatBuild(statProbe);
         return stats.Stats;
     }
 

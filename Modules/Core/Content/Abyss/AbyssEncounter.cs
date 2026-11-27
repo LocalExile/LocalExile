@@ -116,6 +116,25 @@ public sealed partial class AbyssEncounter
 
     public State? Of(Player player) => AllOf(player).FirstOrDefault();
 
+    public bool IsActivePause(Player player)
+    {
+        if (player.Instance is not { } instance || !_states.TryGetValue(instance, out var states)) return false;
+        lock (states)
+        {
+            for (int i = 0; i < states.Count; i++)
+            {
+                var s = states[i];
+                if (s.Stage == Stage.Wave) return true;
+                if (s.Stage == Stage.Arms)
+                {
+                    for (int j = 0; j < s.Arms.Count; j++)
+                        if (s.Arms[j].StartedAt is not null) return true;
+                }
+            }
+        }
+        return false;
+    }
+
     void Save(Player player)
     {
         foreach (var state in AllOf(player)) Save(player, state);

@@ -41,8 +41,12 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
     public Func<int, double>? RadiusForGroundBounce { get; init; }
     /// <summary>Radius sampled with the projectile's total travelled distance in cells at the impact.</summary>
     public Func<double, double>? RadiusForTravel { get; init; }
-    /// <summary>Angular limit from the direction of travel. Zero keeps radial coverage.</summary>
+    /// <summary>Angular limit from the cone axis. Zero keeps radial coverage.</summary>
     public double ConeHalfAngle { get; init; }
+    public double ConeAxisRotation { get; init; }
+    public double ConeAxisStep { get; init; }
+    /// <summary>Start at the actor's centre on enemy contacts, or at the impact point on terrain.</summary>
+    public bool CentreOnContactTarget { get; init; }
     /// <summary>The terminal impact supplies the direct victim's damage profile.</summary>
     public bool ReplacesDirectContact { get; init; } = true;
     /// <summary>Lower placement radius; offset is the upper radius.</summary>

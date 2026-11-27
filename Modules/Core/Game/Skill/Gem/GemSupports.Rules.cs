@@ -10,10 +10,11 @@ public static partial class Game
     public static void LoadWornGrantedSkillsData() =>
         WornGrantedSkillCatalog = new(Skills, Items.Mods, legacyGrantMods: LegacyWornGrantMods);
 
-    // Older and generated Lightpoacher items can carry only the display mod. Its companion owns the exact trigger level.
+    // Older and generated items can carry only the display mod. The native grant owns the exact trigger level.
     static readonly Dictionary<string, string> LegacyWornGrantMods = new()
     {
         ["LocalDisplayGrantLevelXSpiritBurstUnique__1"] = "SpiritBurstOnSkillUseUnique",
+        ["CurseOnHitCriticalWeaknessUnique__1"] = "CurseOnHitCriticalWeaknessUniqueNewUnique__1",
     };
 
     static WornGrantedSkills WornGrantedSkillCatalog = default!;
@@ -55,7 +56,7 @@ public static partial class Game
         equipment ??= ItemsOf(player).EquipmentSnapshot();
         return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && (g.ManuallyCast
                 || g.EffectId is SpiritBurstEffect or GuardianWeaponEffect or FoulgraspEffect or PrismaticBurstEffect
-                    or AvengingFlameEffect or SummonSacredWispEffect
+                    or AvengingFlameEffect or SummonSacredWispEffect or ShockwaveEffect or VoidShockwaveEffect or GoreShockwaveEffect
                 || TriggeredItemMinion(g) is not null)
             && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId)
             && (ItemEffectRules.Enabled && ItemEffectRules.Current.Marks(SkillsFor(player), g).Length != 0
@@ -63,7 +64,8 @@ public static partial class Game
                 || SkillsFor(player).IsWarcry(g.Effect)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
                 || g.EffectId is SnipeEffect or SpiritBurstEffect or FoulgraspEffect or PrismaticBurstEffect
-                    or AvengingFlameEffect or SummonSacredWispEffect or "DoryanisTouch" or ApproachingFlamesEffect
+                    or AvengingFlameEffect or SummonSacredWispEffect or ShockwaveEffect or VoidShockwaveEffect
+                    or GoreShockwaveEffect or "DoryanisTouch" or ApproachingFlamesEffect
                     or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink" or CallOfSteelEffect
                     or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry" or GuardianWeaponEffect
                 || TriggeredItemMinion(g) is not null
@@ -139,7 +141,7 @@ public static partial class Game
                             Quality(p.Socket, p.Gem), p.Socket));
                 else if (variant.Effect2 >= 0
                     && Supports.Of(variant.Effect2) is { Support: true, Id: SnipeSupportEffect or GeneralsCrySupportEffect
-                        or "SupportBrandSupport" or "SupportIntuitiveLink" or AutomationSupport or AutoexertionSupport })
+                        or "SupportBrandSupport" or "SupportIntuitiveLink" or BattlemagesCrySupport or AutomationSupport or AutoexertionSupport })
                     candidates.Add(new(variant.Effect2, EffectiveGemLevel(player, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
                         Quality(p.Socket, p.Gem), p.Socket));
             }
@@ -173,10 +175,14 @@ public static partial class Game
             && CrueltyDotStat is var crueltyKey)
             own[crueltyKey] = own.GetValueOrDefault(crueltyKey) + crueltyPct;
         ApplyBloodAndSandMeleeStats(player, selected.Effect, own);
-        ApplyLacerateBleed(player, selected.Effect, own);
+        ApplyStanceMeleeBleed(player, selected.Effect, own);
         if (SkillsFor(player).IsAura(selected.Effect, supports.Select(s => s.Effect.Row)))
             own[OwnAuraRestriction.BaseAura] = 1;
         own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
+        if (SkillsFor(player).IsAura(selected.Effect) && ItemsFor(player).ByHash(host.TypeHash)?.Class == "Ring"
+            && PlainItemSum(host, ItemsFor(player).Mods).GetValueOrDefault(
+                Stat.DisableBlessingSkillsAndDisplaySocketedAuraGemsReserveNoMana) != 0)
+            own[Stat.BaseSkillNoReservation] = 1;
         return new(selected.Effect, level, quality, supports, own, selected.Place.Gem,
             inactive?.Contains(selected.Place.ItemId) != true
                 && GemRequirementsUnmetAt(player, selected.Place.Gem, requirements) is null,
@@ -652,11 +658,11 @@ public static partial class Game
         if (Stat.AttackSpeedPlusPct is var raw && Stat.MainHandAttackSpeedPlusPct is var final)
         {
             var profile = WeaponProfileFor(player);
-            // The pools' dual-wield "more" (PassiveBonus), doubled by the Claw Mastery with two claws.
-            double factor = profile.DualWield || profile.Unarmed
-                ? profile.DualClaws && Get(Stat.DualWieldInherentAttackSpeedIsDoubledWhileDualWieldingClaws) != 0 ? 1.2 : 1.1
-                : 1;
+            double factor = 1 + InherentAttackSpeedMore(profile, Get) / 100d;
             int skillSpeed = gem.Stats.GetValueOrDefault(raw) + TaggedAttackAndCastSpeedPct(SkillsFor(player), gem.Effect, Get);
+            if (Get(Stat.AttackSpeedPlusPctWithMovementSkills) is int movementSpeed and not 0
+                && SkillsFor(player).IsMovement(gem.Effect))
+                skillSpeed = ActorScale.Saturate((long)skillSpeed + movementSpeed);
             if (gem.Stats.GetValueOrDefault(Stat.AttackSpeedPlusPctIfChangedStanceRecently) is int stanceSpeed and not 0
                 && player.RecentEvents.Happened(StatConditions.ChangedStance, AreaTime(player)))
                 skillSpeed += stanceSpeed;
@@ -677,7 +683,9 @@ public static partial class Game
             stats[proxySpeed] = stats.GetValueOrDefault(proxySpeed) + Get(Stat.TotemSkillAttackSpeedPlusPct)
                 + Get(Stat.TotemsAttackSpeedPlusPctPerActiveTotem) * player.Totems.Living(AreaTime(player)).Count()
                 + Get(Stat.AttackSpeedPlusPctPerMaximumTotem) * TotemLimit(player, skillId);
-        double more = Supports.AttackSpeedMultiplier(gem.Effect, gem.Level) * Math.Max(.01, 1 + Get(Stat.SupportMeleePhysicalDamageAttackSpeedPlusPctFinal) / 100.0)
+        double more = Supports.AttackSpeedMultiplier(gem.Effect, gem.Level)
+            * Math.Max(.01, 1 + Get(Stat.EssenceSupportAttackAndCastSpeedPlusPctFinal) / 100d)
+            * Math.Max(.01, 1 + Get(Stat.SupportMeleePhysicalDamageAttackSpeedPlusPctFinal) / 100.0)
             * Math.Max(.01, 1 + Get(Stat.SupportMultipleAttacksMeleeAttackSpeedPlusPctFinal) / 100.0)
             // Pulverise: "15% less Attack Speed".
             * Math.Max(.01, 1 + Get(Stat.SupportPulveriseAttackSpeedPlusPctFinal) / 100.0)
@@ -722,6 +730,10 @@ public static partial class Game
             int frenzy = ChargesOf(player).Effective(ChargeType.Frenzy);
             more *= Math.Max(.01, 1 + (double)frenzyMore * frenzy / 100);
         }
+        // The bloodstorm buff supplies the condition. The attack speed multiplier belongs to the skill.
+        if (!proxy && gem.Stats.GetValueOrDefault(Stat.BladestormAttackSpeedPlusPctFinalWhileInBloodstorm) is > 0 and var stormSpeed
+            && BladestormBonuses(player).Blood)
+            more *= 1 + stormSpeed / 100d;
         // Close Combat's Combat Rush: more Attack Speed for a travel skill it does not support.
         more *= CombatRushMore(player, skillId, gem, AreaTime(player));
         // Supports.AttackSpeedMultiplier reads the skill's own GEPL row too: its inherent -20 on Tornado Shot is
@@ -844,6 +856,7 @@ public static partial class Game
         if (wildStrike && !strikeFollowup) area ??= false;
         var caster = FinalPlayerStats(player).ToDictionary(v => v.Item1, v => v.Item2);
         var skills = SkillsFor(player);
+        bool iceShot = GatewayProjectileSkillProfiles.IsIceShot(skills.EffectId(gem.Effect));
         int manaPool = ManaCostPool(player, gem);
         var stats = MergeSkillStats(caster, WithManaPoolCost(player, gem, gem.Stats, manaPool),
             skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats), SkillCostScopeFor(skills, gem));
@@ -902,6 +915,11 @@ public static partial class Game
             : name is var k ? stats.GetValueOrDefault(k) : 0;
         bool attack = SkillsFor(player).IsAttack(gem.Effect);
         var types = Supports.Of(gem.Effect)?.Types.ToHashSet() ?? [];
+        // Rain attacks have separate projectile-speed/number support tags, but their landing hits are projectiles.
+        if (attack && Get(Stat.BaseIsProjectile) != 0 && ArrowRain(skills.EffectId(gem.Effect)))
+            types.Add(2);
+        if (IsStormRain(skills.EffectId(gem.Effect)) && Get(Stat.StormRainDamagePlusPct) is int stormRain and not 0)
+            stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, Get(Stat.DamagePlusPct), stormRain);
         // Support-converted traps and mines receive the same hit modifiers as native placed skills.
         if (placed.Trap) types.Add(32);
         if (placed.Mine) types.Add(35);
@@ -1049,11 +1067,13 @@ public static partial class Game
         if (gem.PrismaticBurstElement is { } burstElement)
             raw = DamagePacket.Empty.Add(burstElement, raw[burstElement]);
         Func<uint, int> hitStats = attackWeapon is null || secondary ? Get : SupportedAttackDamage.HitModifiers(attackWeapon, Get, attackAccuracy);
+        if (iceShot && area is true) stats[Stat.SkillPhysicalDamagePctToConvertToCold] = 100;
         var conversion = DamageStats.Conversion(stats, Stats, secondary ? null : attack);
         if (attackWeapon is not null && !secondary)
             SupportedAttackDamage.WithWeaponGains(conversion, attackWeapon, Get);
         return new(raw, hitStats, conversion, attack,
-            Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get(Stat.IsAreaDamage) != 0,
+            Melee: attack && types.Contains(19), Area: attack ? (iceShot && area is bool iceArea ? iceArea : types.Contains(7))
+                : Get(Stat.IsAreaDamage) != 0,
             Projectile: attack ? types.Contains(2) : Get(Stat.BaseIsProjectile) != 0, modifiers, types, plan, caster,
             WieldingWand: attackWeapon?.WieldingWand == true, WieldingBow: attackWeapon?.Bow == true, Secondary: secondary)
         {
@@ -1197,6 +1217,9 @@ public static partial class Game
                 basis = ActorScale.Saturate((long)basis + elusiveBase);
             long increased = player.Pools.CriticalStrikeChancePct + extraIncrease
                 + AttackBaseCriticalStrike.IncreasedSum(weapon, name => Own(name));
+            if (skills.IsProjectile(gem.Effect))
+                increased += (long)Player(Stat.ProjectileAttackSkillCriticalStrikeChancePlusPct)
+                    + Own(Stat.ProjectileAttackSkillCriticalStrikeChancePlusPct);
             int chance = AttackBaseCriticalStrike.ChanceOfBase(basis, increased, Player, Own);
             // Power Siphon's "10% more Critical Strike Chance per Power Charge".
             if (Own(Stat.CriticalStrikeChancePlusPctFinalPerPowerChargeFromPowerSiphon) is int siphon and not 0)
@@ -1207,7 +1230,12 @@ public static partial class Game
             extraIncrease += Player(Stat.SigilCriticalStrikeChancePlusPct) + Own(Stat.SigilCriticalStrikeChancePlusPct);
         if (Player(Stat.SpellCriticalStrikeChancePlusPctPerRaisedSpectre) is int perSpectre and not 0)
             extraIncrease += (long)perSpectre * LivingSummons(player, "Spectre", AreaTime(player));
-        return DisplayedCriticalChance(player, SpellCriticalStrike.Chance(SkillsFor(player).SpellCritChance(gem.Effect, gem.Level),
+        int? spellBase = skills.SpellCritChance(gem.Effect, gem.Level);
+        if (spellBase is >= 0 && (Own(Stat.BaseSpellCriticalChanceEqualToTheCriticalStrikeChanceOfMainWeapon) != 0
+                || Player(Stat.BaseSpellCriticalChanceEqualToTheCriticalStrikeChanceOfMainWeapon) != 0)
+            && WeaponProfileFor(player, activeSet: true) is { Unarmed: false } mainHand)
+            spellBase = mainHand.Critical;
+        return DisplayedCriticalChance(player, SpellCriticalStrike.Chance(spellBase,
             Player, Own, player.Pools.SpellCriticalStrikeChancePct + extraIncrease), Player);
     }
 
@@ -1314,6 +1342,7 @@ public static partial class Game
         if (SkillsFor(player).IsBrand(gem.Effect) || GolemStat(gem.Stats, Stat.SkillGetsBrandDamageCritModifiers) != 0)
             extra += GolemStat(playerStats, Stat.SigilCriticalStrikeMultiplierPlus) + GolemStat(gem.Stats, Stat.SigilCriticalStrikeMultiplierPlus);
         bool attack = SkillsFor(player).IsAttack(gem.Effect);
+        if (attack && skills.IsProjectile(gem.Effect)) extra += Sum(Stat.ProjectileAttackSkillCriticalStrikeMultiplierPlus);
         if (attack && Sum(Stat.CriticalStrikeMultiplierPlusPctWithClawsDaggers) != 0)
             extra += ClawDaggerCriticalBonus(hitWeapon ?? WeaponFor(player), playerStats, gem.Stats);
         return CriticalHitMultiplier((long)(attack ? AttackCriticalMultiplier(player, playerStats, gem.Effect, gem.Stats)

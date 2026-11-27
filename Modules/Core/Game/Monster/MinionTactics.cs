@@ -111,10 +111,14 @@ public static partial class Game
     static double TauntedHitAgainstMinion(Player player, uint attacker, SpawnedMonster source, GolemState.Golem target, double now)
     {
         if (source.TauntedUntil > now || DecoyTarget(source, now) is not null) return .9;
-        return MinionTauntSources.TryGetValue(source, out var taunter) && !ReferenceEquals(target, taunter)
-            && taunter.Taunts.GetValueOrDefault(attacker) > now && !taunter.Monster.Dead
-            && ReferenceEquals(player.Area.Monsters.GetValueOrDefault(taunter.Id), taunter.Monster) ? .9 : 1;
+        var taunter = ActiveMinionTaunter(player, attacker, source, now);
+        return taunter is not null && !ReferenceEquals(target, taunter) ? .9 : 1;
     }
+
+    static GolemState.Golem? ActiveMinionTaunter(Player player, uint id, SpawnedMonster monster, double now) =>
+        MinionTauntSources.TryGetValue(monster, out var taunter)
+        && taunter.Taunts.GetValueOrDefault(id) > now && !taunter.Monster.Dead
+        && ReferenceEquals(player.Area.Monsters.GetValueOrDefault(taunter.Id), taunter.Monster) ? taunter : null;
 
     internal static void FeedingFrenzyOnHitLocked(Player player, GolemState.Golem fighter, double now)
     {

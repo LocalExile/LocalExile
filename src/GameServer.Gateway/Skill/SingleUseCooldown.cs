@@ -163,6 +163,20 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
         return true;
     }
 
+    /// <summary>Adjusts the reservation of a single use that creates one entity per stored charge.</summary>
+    public bool CompleteReservedUse(double now, int version, int count)
+    {
+        if (UseVersion != version || count < 0) return false;
+        Refresh(now, Rate);
+        int change = count - 1;
+        if (change > Math.Max(0, Uses - SpentUses)) return false;
+        SpentUses = Math.Max(0, SpentUses + change);
+        if (SpentUses == 0) RemainingBaseMilliseconds = 0;
+        if (change > 0 && RemainingBaseMilliseconds == 0) RemainingBaseMilliseconds = TotalBaseMilliseconds;
+        if (change != 0 && nativeAcknowledged) nativeDirty = true;
+        return true;
+    }
+
     public void ConfirmNativeUse(int version, ushort skillId, bool synchronizeProgress)
     {
         if (version != UseVersion || nativeAcknowledged) return;

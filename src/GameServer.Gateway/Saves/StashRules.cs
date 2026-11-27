@@ -130,6 +130,12 @@ public sealed class StashRules
     /// </summary>
     public IReadOnlyList<int> OverflowSlots(byte tabType) => _overflowSlots.TryGetValue(tabType, out var s) ? s : [];
 
+    /// <summary>Slots available to <see cref="AccountStash.AddStacked"/> when an item belongs in this tab but lacks a
+    /// dedicated slot: its <see cref="OverflowSlots"/> (Currency/Essence/Delirium) or Ultimatum's GenericSlot.</summary>
+    public IReadOnlyList<int> OverflowFallbackSlots(byte tabType) =>
+        _overflowSlots.TryGetValue(tabType, out var s) && s.Count > 0 ? s
+        : tabType == Ultimatum && _anySlots.TryGetValue(tabType, out var any) ? [.. any.Order()] : [];
+
     public bool IsOverflowSlot(byte tabType, int x, int y) => y == 0 && _overflowSlots.TryGetValue(tabType, out var s) && s.Contains(x);
 
     /// <summary>False without the tables: then every tab holds anything (there is nothing to check against).</summary>
@@ -149,6 +155,12 @@ public sealed class StashRules
 
     /// <summary>Whether this item type is a quest item (QuestItem class or Quest component) that cannot be stashed.</summary>
     public bool IsQuestItem(uint itemType) => _questItems.Contains(itemType);
+
+    static readonly int[] NoAffinities = [];
+
+    /// <summary>The <c>StashTabAffinityId</c> rows that apply to <paramref name="itemType"/>, or empty when none.</summary>
+    public IReadOnlyCollection<int> AffinitiesOf(uint itemType) =>
+        _affinities.TryGetValue(itemType, out var affinities) ? affinities : NoAffinities;
 
     public bool Holds(byte tabType, uint itemType) =>
         !_questItems.Contains(itemType) && !NotShown(tabType) && (IsGrid(tabType) || !Loaded
@@ -327,6 +339,8 @@ public sealed class StashRules
         Layout("DelveStashTabLayout", Delve, DelveItems);
         Layout("BlightStashTabLayout", Blight, BlightItems);
         Layout("MetamorphosisStashTabLayout", Ultimatum, UltimatumItems);
+        foreach (string extraCatalyst in (string[])["Metadata/Items/Currency/CurrencyJewelleryQualityPrefix", "Metadata/Items/Currency/CurrencyJewelleryQualitySuffix"])
+            if (byId.TryGetValue(extraCatalyst, out uint catHash)) Give(catHash, UltimatumItems);
         Layout("DeliriumStashTabLayout", Delirium, DeliriumItems);
         // Divination cards: the table lists the cards in order, without slot numbers; a card's slot is its row (our guess).
         var cards = rules._slots[Divination] = [];

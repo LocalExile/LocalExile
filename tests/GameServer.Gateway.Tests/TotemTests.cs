@@ -172,6 +172,43 @@ public sealed class TotemTests
     }
 
     [Fact]
+    public async Task Authority_hits_around_its_owners_position_when_the_nova_releases()
+    {
+        var clock = new ViperStrikeMambaTests.AttackClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        player.Walk.Teleport(100, 100, clock.At);
+        player.ProjectileRuntimeState = fixture.Session;
+        ushort skillId = Assert.Single(fixture.Equip(("Shockwave Totem of Authority", 1)));
+        var skill = Game.SupportedSkill(player, skillId);
+        var variety = Game.TotemVariety(player, skill.Effect)!;
+        var nearTotem = new SpawnedMonster("near the totem", new(61, 100, 0), 0, 0, 1000);
+        var nearCast = new SpawnedMonster("near the player at cast start", new(100, 100, 0), 0, 0, 1000);
+        var nearRelease = new SpawnedMonster("near the player at release", new(146, 100, 0), 0, 0, 1000);
+        player.Area.Monsters.Add(901, nearTotem);
+        player.Area.Monsters.Add(902, nearCast);
+        player.Area.Monsters.Add(903, nearRelease);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            var placed = await Game.CreateTotem(player, skillId, skill.Effect, skill.Level, variety, (57, 100));
+            Assert.NotNull(placed);
+            var strike = Assert.Single(player.Totems.All).Strike!;
+            Game.TickTotemUses(player);
+            Assert.True(strike.NextCast > clock.At);
+            player.Walk.Teleport(140, 100, clock.At + .1);
+            clock.At = strike.NextCast;
+            using (Game.ProjectileMutation(player, advance: false))
+                fixture.Session.AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(clock.At));
+            Assert.Equal(nearTotem.MaxLife, nearTotem.Life);
+            Assert.Equal(nearCast.MaxLife, nearCast.Life);
+            Assert.True(nearRelease.Life < nearRelease.MaxLife);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    [Fact]
     public async Task Decoy_totem_is_a_monster_target_until_it_dies()
     {
         using var f = new AnimatedAdmissionTests.Fixture();

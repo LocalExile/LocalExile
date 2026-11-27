@@ -163,6 +163,10 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// identified items.</summary>
     public IReadOnlyList<uint> NameWords { get; init => field = Owned.List(value); } = [];
 
+    /// <summary>A custom display name for an identified item (ObjectMagicProperties bit 7 = 0x80, WStr32); takes
+    /// precedence over <see cref="NameWords"/> when non-null.</summary>
+    public string? CustomName { get; init; }
+
     /// <summary>A vendor price: (item type hash, amount) entries, Base flag bit 7 (17-npcs.md §5). Empty for items not
     /// in a shop.</summary>
     public IReadOnlyList<(uint TypeHash, uint Amount)> Price { get; init => field = Owned.List(value); } = [];
@@ -326,7 +330,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// signed compact (0x141e4c7e0) per stat of the row.
     /// </summary>
     void MagicProperties(BlobWriter w) =>
-        global::GameServer.Core.Protocol.Instance.MagicProperties.Write(w, (byte)Rarity, Identified, Mods, nameWords: NameWords, u7a: FracturedCount,
+        global::GameServer.Core.Protocol.Instance.MagicProperties.Write(w, (byte)Rarity, Identified, Mods, nameWords: NameWords, customName: CustomName, u7a: FracturedCount,
             alternateQualityType: AlternateQualityType, alternateQuality: Quality);
 
     /// <summary>The item as inventories and other messages carry it (0x1421f2b40 / 0x1421f2c30): u16 big-endian length,

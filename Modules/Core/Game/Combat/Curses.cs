@@ -150,6 +150,8 @@ public static partial class Game
                 { m.Curses.Remove(mark.Caster, mark.Effect); m.PresentationChanged?.Invoke(); }
             if (caster == player.Id) TrackMarkTarget(player, monster);
         }
+        if (!aura && !fromPlacement && casterId is null)
+            player.RecentEvents.Record(CursedEnemyRecently, now);
         if (!fromPlacement && !aura && Get(Stat.RefreshDurationOfShockChillIgniteOnEnemyWhenCursingEnemy) != 0)
         {
             monster.Ailments.RefreshChillAndShock(now);
@@ -164,6 +166,8 @@ public static partial class Game
         if (!aura || casterId is not null) monster.PresentationChanged?.Invoke();
         return true;
     }
+
+    const string CursedEnemyRecently = "cursed_enemy";
 
     static void RecoverOnFreshCurseLocked(Player player, Func<uint, int> get)
     {
@@ -225,14 +229,15 @@ public static partial class Game
     }
 
     static void CursesOnHitLocked(Player player, SpawnedMonster target, ushort sourceSkill, bool spell, double now,
-        IReadOnlyDictionary<uint, int>? sourceStats, IReadOnlyDictionary<uint, int> hitStats, bool playerHit, Random random)
+        IReadOnlyDictionary<uint, int>? sourceStats, IReadOnlyDictionary<uint, int> hitStats,
+        bool playerHit, bool mayTriggerItemMark, Random random)
     {
         if (target.Dead || target.Life == 0 || player.Reservations.Secondary) return;
         if (playerHit)
         {
             TemporalChainsOnSuccessfulHitLocked(player, target, now, hitStats,
                 hitStats.GetValueOrDefault(Stat.CurseOnHitPctTemporalChains), random);
-            ItemCursesOnHitLocked(player, target, hitStats, now);
+            ItemCursesOnHitLocked(player, target, hitStats, now, mayTriggerItemMark);
         }
         bool mayHextouch = sourceSkill != 0
             && (sourceStats is null || GolemStat(sourceStats, Stat.ApplyLinkedCursesOnHitPct) > 0);
@@ -290,19 +295,8 @@ public static partial class Game
                     || currentGem.Effect != gem.Effect || !currentGem.RequirementsMet
                     || GemSkillInstanceDisabled(player, currentGem.Effect, skill) is not null) return false;
                 RecordCompletedCurseCast(player, effect, AreaTime(player));
-                var curse = CurseCatalog.All[effect];
-                if (CastingBeidatSpell(player, skill) is { ExtraAreas: > 0 } pact && !curse.Mark)
-                {
-                    int radius = CurseRadius(player, skill, false, currentGem, playerStats);
-                    var centres = new List<(int X, int Y)> { aim };
-                    AppendBeidatAreas(player.Walk.Position(now), aim, radius, pact.ExtraAreas, centres);
-                    var applied = new HashSet<uint>();
-                    foreach (var centre in centres)
-                        foreach (var (id, monster) in player.Area.MonstersNear(centre, radius))
-                            if (Dist(monster.Walk.Position(now), centre) <= radius && applied.Add(id))
-                                ApplyCurseLocked(player, monster, skill, now, false, currentGem, playerStats);
-                }
-                else ApplyCurseTargetsLocked(player, skill, currentGem, curse, aim, target, now, playerStats);
+                ApplyCurseTargetsLocked(player, skill, currentGem, CurseCatalog.All[effect], aim, target, now, playerStats,
+                    cascadeFrom: player.Walk.Position(now), extraAreas: CastingBeidatSpell(player, skill)?.ExtraAreas ?? 0);
                 break;
             }
             await AreaWait(PlayerUpdateRole.Minions, 25);
@@ -312,7 +306,8 @@ public static partial class Game
     }
 
     static void ApplyCurseTargetsLocked(Player player, ushort skill, SupportedGem gem, CurseCatalog.Definition curse,
-        (int X, int Y) aim, uint target, double now, IReadOnlyDictionary<uint, int> playerStats)
+        (int X, int Y) aim, uint target, double now, IReadOnlyDictionary<uint, int> playerStats,
+        (int X, int Y)? cascadeFrom = null, int extraAreas = 0)
     {
         if (curse.Mark)
         {
@@ -321,9 +316,31 @@ public static partial class Game
             return;
         }
         int radius = CurseRadius(player, skill, false, gem, playerStats);
+        var centres = cascadeFrom is { } from ? SpellCascadeAreas(player, gem.Effect, gem.Stats, from, aim, radius) : [];
+        centres.Insert(0, aim);
+        if (extraAreas > 0 && cascadeFrom is { } origin)
+        {
+            AppendBeidatAreas(origin, aim, radius, extraAreas, centres);
+            var applied = new HashSet<uint>();
+            foreach (var centre in centres)
+                foreach (var (id, monster) in player.Area.MonstersNear(centre, radius))
+                    if (Dist(monster.Walk.Position(now), centre) <= radius && applied.Add(id))
+                        ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats);
+            return;
+        }
+
+        // A boss can teleport before the movement phase updates the grid. Ordinary hexes use its current position.
         foreach (var monster in player.Area.Monsters.Values)
-            if (Dist(monster.Walk.Position(now), aim) <= radius)
-                ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats);
+        {
+            if (monster.Dead || monster.Life == 0 || !monster.Hostile) continue;
+            var position = monster.Walk.Position(now);
+            foreach (var centre in centres)
+                if (Dist(position, centre) <= radius)
+                {
+                    ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats);
+                    break;
+                }
+        }
     }
 
     static bool IsHexblastEffect(string? effect) => effect is "Hexblast" or "HexblastAltX" or "HexblastAltY";

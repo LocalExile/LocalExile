@@ -10,6 +10,8 @@ public static class OwnedCountItemStats
         (Stat.AttackAndCastSpeedPlusPctPerSummonedRagingSpirit, RagingSpirits, [Stat.AttackSpeedPlusPct, Stat.BaseCastSpeedPlusPct]),
         (Stat.LifeRegenerationRatePerMinutePctPerRaisedZombie, Zombies, [Stat.LifeRegenerationRatePerMinutePct]),
         (Stat.ManaRegenerationRatePlusPctPerRaisedSpectre, Spectres, [Stat.ManaRegenerationRatePlusPct]),
+        (Stat.SpellDamagePlusPctPerSummonedSkeleton, Skeletons, [Stat.SpellDamagePlusPct]),
+        (Stat.AttackDamagePlusPctPerRaisedZombie, Zombies, [Stat.AttackDamagePlusPct]),
     ];
 
     public static bool IsCoefficient(uint stat) => Rules.Any(r => r.Input == stat);

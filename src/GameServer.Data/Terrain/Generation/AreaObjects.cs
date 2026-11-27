@@ -164,6 +164,20 @@ public static class AreaObjects
     public static (int X, int Y, float Angle)? Start(GenerationResult result) =>
         result.Start is { } room && room.Room.Points.FirstOrDefault(p => p.Name == "default") is { } p ? Place(room, p.X, p.Y, p.Angle) : null;
 
+    /// <summary>The first non-feature placed room's <c>default</c> point: the arrival when neither a start room nor the
+    /// room fit gives one (a map beside a Sacred Grove); null without one.</summary>
+    public static (int X, int Y, float Angle)? Entrance(GenerationResult result)
+    {
+        foreach (var record in result.Records)
+        {
+            if (record.FeatureWorldArea >= 0) continue;
+            foreach (var placed in record.Rooms)
+                if (placed.Room.Points.FirstOrDefault(p => p.Name == "default") is { } entry)
+                    return Place(placed, entry.X, entry.Y, entry.Angle);
+        }
+        return null;
+    }
+
     const string DoodadType = "Metadata/MiscellaneousObjects/Doodad";
 
     const string WaypointType = "Metadata/MiscellaneousObjects/Waypoint";

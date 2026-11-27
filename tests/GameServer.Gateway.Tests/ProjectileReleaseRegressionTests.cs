@@ -349,6 +349,79 @@ public sealed class ProjectileReleaseRegressionTests
         Assert.True(cloudburstMine.EndEmission.Child.SplitAtEndOfRange);
     }
 
+    [Fact]
+    public async Task Returning_projectiles_emit_orientation_0x01b9_only_when_direction_changes()
+    {
+        var clock = new Clock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = Prepare(fixture, clock.At, "Gnarled Branch");
+        var session = Game.ProjectilesFor(player);
+        var packets = new List<byte[]>();
+        var outgoing = Program.Outgoing;
+        Program.Outgoing = (p, bytes) => { if (ReferenceEquals(p, player)) lock (packets) packets.Add(bytes.ToArray()); };
+        try
+        {
+            async Task Flush()
+            {
+                var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                session.Enqueue(() => { drained.TrySetResult(); return Task.CompletedTask; });
+                await drained.Task;
+            }
+
+            // Same-direction lobbed arc segments emit zero 0x01b9 orientation updates.
+            var lobbed = new ProjectileProfile("Metadata/Projectiles/FrostBolt")
+                { Speed = 40, Radius = 2, Range = 80, Lobbed = true, ArcHeight = 20 };
+            session.Runtime.Release(new ProjectileUse(lobbed, new(player.Id), new(player.Id), 1, new(100, 100), new(180, 100)));
+            await Flush();
+            for (int step = 0; step < 5; step++)
+            {
+                clock.At += 0.25;
+                session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                await Flush();
+            }
+            static float[] OrientAngles(List<byte[]> sent, uint objectId)
+            {
+                var found = new List<float>();
+                Span<byte> prefix = [0x01, 0xb9, (byte)(objectId >> 24), (byte)(objectId >> 16), (byte)(objectId >> 8), (byte)objectId];
+                foreach (var pkt in sent)
+                    for (int idx = 0; idx + 17 <= pkt.Length; idx++)
+                        if (pkt.AsSpan(idx, 6).SequenceEqual(prefix))
+                            found.Add(BitConverter.Int32BitsToSingle(
+                                System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(pkt.AsSpan(idx + 12, 4))));
+                return [.. found];
+            }
+
+            lock (packets)
+            {
+                uint lobbedId = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(
+                    packets.First(b => b.Length >= 6 && b[0] == 0x02 && b[1] == 0xbb).AsSpan(2, 4));
+                Assert.Empty(OrientAngles(packets, lobbedId));
+            }
+
+            // Returning projectile reverses (+X -> -X) at end of range and emits 0x01b9 facing -X.
+            lock (packets) packets.Clear();
+            var returning = new ProjectileProfile("Metadata/Projectiles/FrostBolt")
+                { Speed = 40, Radius = 2, Range = 20, Returns = true };
+            session.Runtime.Release(new ProjectileUse(returning, new(player.Id), new(player.Id), 1, new(100, 100), new(120, 100))
+                { ReturnPoint = new(100, 100) });
+            await Flush();
+            for (int step = 0; step < 6; step++)
+            {
+                clock.At += 0.2;
+                session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                await Flush();
+            }
+            lock (packets)
+            {
+                uint returnId = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(
+                    packets.First(b => b.Length >= 6 && b[0] == 0x02 && b[1] == 0xbb).AsSpan(2, 4));
+                float angle = Assert.Single(OrientAngles(packets, returnId));
+                Assert.InRange(MathF.Abs(angle - MathF.Atan2(-1, 0)), 0f, 1e-3f);
+            }
+        }
+        finally { Program.Outgoing = outgoing; }
+    }
+
     static Player Prepare(TriggeredSummonTests.Fixture fixture, double now, string weapon)
     {
         var player = fixture.Player;

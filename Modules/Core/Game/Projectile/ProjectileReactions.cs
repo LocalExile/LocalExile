@@ -142,11 +142,18 @@ public static partial class Game
         StopCorpseBlocking(player, id, monster);
         DetonateExplosiveFusesOnDeath(monster, session);
         QueueInfernalBlowDeath(monster, at / (double)ProjectileRuntime.QuantaPerSecond, session);
+        QueueInfernalCryDeath(id, monster, at / (double)ProjectileRuntime.QuantaPerSecond, session);
         SpreadPestilentStrike(player, id, monster, at / (double)ProjectileRuntime.QuantaPerSecond);
         // A soul only moves on some kills: an unchanged balance must not take a gate turn through the presentation.
         if (VaalSoulsUnpresented(player))
             session.World(player.Id, () => VaalSoulPresentation(player), "Vaal souls after projectile kill");
         double now = at / (double)ProjectileRuntime.QuantaPerSecond;
+        if (playerKill && monster.Hostile)
+        {
+            IndexExistingHitMarksLocked(player);
+            if (HitMarkedMonsters.TryGetValue(monster, out _))
+                HitSummonsOnDeathLocked(player, id, monster, now);
+        }
         TransferMarksOnDeathLocked(player, monster, now);
         var position = monster.Walk.Position(now);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
@@ -171,7 +178,8 @@ public static partial class Game
             // the projectile step's world group, and the first kill's life update went a frame before the others.
             if (GameEvents.MonsterKilled.Any)
                 session.EnqueueLater(() => GameEvents.RunMonsterKilled(new(PlayerOf(killer), modMonster)));
-            if (OnslaughtOnKill(player)) session.EnqueueLater(() => SendKillOnslaught(player));
+            if (OnslaughtOnKill(player, now, monster.TauntedAtDeath))
+                session.EnqueueLater(() => SendKillOnslaught(player));
             ChargesOnKill(player, monster, skillStats ?? TakeAcceptedKillSkill(player));
             if (RecoverOnKill(player, monster, tinctureKill) is int deathEpoch)
                 session.EnqueueLater(() => PlayerDiedAtEpoch(player, "death from life lost on kill", deathEpoch));
@@ -204,7 +212,7 @@ public static partial class Game
             session.PlayerExperience(change.After);
             if (level != player.Pools.Level)
             {
-                CommitExperienceLevel(player, level);
+                int before = CommitExperienceLevel(player, level);
                 player.PlayerLife = LifeCap(player); player.PlayerMana = (uint)UnreservedMana(player);
                 RefillPlayerEnergyShield(player);
                 TrimLeechLocked(player);
@@ -212,6 +220,7 @@ public static partial class Game
                 session.Enqueue(() => SendPlayerMana(player, "projectile kill level"));
                 session.Packet(PassivesMessage(player).Bytes);
                 session.Enqueue(() => BroadcastLevelChange(player, level));
+                session.Enqueue(() => GameEvents.RunLevelUp(player, before, level));
                 // Account-level persistence is a projection of the committed XP ledger.
                 session.Enqueue(async () => { await SynchronizeAccountLevel(player); });
             }
@@ -328,9 +337,8 @@ public static partial class Game
         }
         if (!anyNotFull) return;
         var stats = PlayerStatValues(player);
-        int Get(uint key) => stats.GetValueOrDefault(key);
         bool precision = AffectingAuras(player).Any(a => a.EffectId == "Precision");
-        var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), player.FlaskChargeCarry, at, random.Next);
+        var gains = FlaskCharges.OnCrit(bar, PlayerFlaskCritSources(player, stats, precision), player.FlaskChargeCarry, at, random.Next);
         if (gains.Count > 0) CommitProjectileFlaskGain(session, (f, _) => gains.GetValueOrDefault(f.Id));
     }
 }

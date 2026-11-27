@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
@@ -9,6 +11,178 @@ using GameServer.Core;
 /// </summary>
 public sealed class ItemCatalog
 {
+    /// <summary>Optional auxiliary metadata registered alongside a runtime <see cref="BaseType"/> overlay.</summary>
+    public sealed record BaseTypeOverlayOptions(
+        string? VisualIdentityId = null,
+        string? CurrencyAction = null,
+        (int Str, int Dex, int Int)? Requirements = null,
+        BaseDefences? Defences = null,
+        int? WeaponCritical = null,
+        int? ShieldBlock = null,
+        GemType? Gem = null,
+        Flasks.Flask? Flask = null,
+        UtilityFlasks.Utility? UtilityFlask = null,
+        Tinctures.Definition? Tincture = null,
+        bool IsNativeTincture = false,
+        uint? NameWordHash = null);
+
+    sealed record RegisteredBaseOverlay(long Id, string Owner, BaseType BaseType, BaseTypeOverlayOptions? Options);
+    sealed record RegisteredVisualOverlay(long Id, string Owner, string VisualId, ushort Hash);
+    sealed record RegisteredWordOverlay(long Id, string Owner, uint WordHash);
+
+    sealed record CatalogSnapshot(
+        List<BaseType> Rows,
+        Dictionary<int, BaseType> ByRow,
+        Dictionary<uint, BaseType> ByHash,
+        Dictionary<string, BaseType> ById,
+        IReadOnlyList<BaseType> QuestTypes,
+        Dictionary<string, ushort> VisualsById,
+        HashSet<ushort> VisualHashes,
+        HashSet<uint> Words,
+        Dictionary<int, string> CurrencyActions,
+        Dictionary<int, GemType> Gems,
+        Dictionary<string, (int Str, int Dex, int Int)> Requirements,
+        Dictionary<int, BaseDefences> Defences,
+        Dictionary<int, int> WeaponCrits,
+        Dictionary<int, int> ShieldBlocks,
+        Dictionary<int, Flasks.Flask> Flasks,
+        Dictionary<int, UtilityFlasks.Utility> UtilityFlasks,
+        Dictionary<int, Tinctures.Definition> Tinctures,
+        HashSet<int> NativeTinctureRows,
+        long LocalRevision,
+        long SharedRevision);
+
+    static ImmutableArray<RegisteredBaseOverlay> _sharedBaseOverlays = [];
+    static ImmutableArray<RegisteredVisualOverlay> _sharedVisualOverlays = [];
+    static ImmutableArray<RegisteredWordOverlay> _sharedWordOverlays = [];
+    static long _sharedNextId;
+    static long _sharedRevision;
+
+    ImmutableArray<RegisteredBaseOverlay> _localBaseOverlays = [];
+    ImmutableArray<RegisteredVisualOverlay> _localVisualOverlays = [];
+    ImmutableArray<RegisteredWordOverlay> _localWordOverlays = [];
+    long _localNextId;
+    long _localRevision;
+    readonly Lock _snapshotLock = new();
+    readonly CatalogSnapshot _stockSnapshot;
+    CatalogSnapshot _snapshot;
+
+    /// <summary>Advances whenever shared runtime <see cref="ItemCatalog"/> overlays change.</summary>
+    public static long OverlayRevision => Volatile.Read(ref _sharedRevision);
+
+    /// <summary>Advances whenever this catalog's instance, shared runtime overlays, or <see cref="Mods"/> overlays change.</summary>
+    public long Revision => Volatile.Read(ref _localRevision) + Volatile.Read(ref _sharedRevision) + Mods.Revision;
+
+    /// <summary>Computes the 32-bit MurmurHash2 (seed 0, UTF-8) used for <c>BaseItemTypes.HASH32</c> and <c>Words.HASH32</c>.</summary>
+    public static uint ComputeHash32(string id)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(id);
+        return InstanceEntities.Murmur2(Encoding.UTF8.GetBytes(id));
+    }
+
+    /// <summary>Registers a runtime <see cref="BaseType"/> overlay visible to every <see cref="ItemCatalog"/> instance
+    /// until the handle is disposed or <paramref name="owner"/> unloads via <see cref="GameEventOwners"/>.</summary>
+    public static IDisposable RegisterOverlay(string owner, BaseType baseType, BaseTypeOverlayOptions? options = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ValidateOverlay(baseType);
+        long id = Interlocked.Increment(ref _sharedNextId);
+        ImmutableInterlocked.Update(ref _sharedBaseOverlays, list => list.Add(new(id, owner, baseType, options)));
+        Interlocked.Increment(ref _sharedRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _sharedBaseOverlays, list => list.RemoveAll(e => e.Id == id)))
+                Interlocked.Increment(ref _sharedRevision);
+        }));
+    }
+
+    /// <summary>Registers a runtime <see cref="BaseType"/> overlay on this <see cref="ItemCatalog"/> instance until
+    /// disposed or <paramref name="owner"/> unloads via <see cref="GameEventOwners"/>.</summary>
+    public IDisposable Register(string owner, BaseType baseType, BaseTypeOverlayOptions? options = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ValidateOverlay(baseType);
+        long id = Interlocked.Increment(ref _localNextId);
+        ImmutableInterlocked.Update(ref _localBaseOverlays, list => list.Add(new(id, owner, baseType, options)));
+        Interlocked.Increment(ref _localRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _localBaseOverlays, list => list.RemoveAll(e => e.Id == id)))
+                Interlocked.Increment(ref _localRevision);
+        }));
+    }
+
+    /// <summary>Registers a runtime <c>ItemVisualIdentity</c> mapping across all <see cref="ItemCatalog"/> instances.</summary>
+    public static IDisposable RegisterVisualOverlay(string owner, string id, ushort hash)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        long regId = Interlocked.Increment(ref _sharedNextId);
+        ImmutableInterlocked.Update(ref _sharedVisualOverlays, list => list.Add(new(regId, owner, id, hash)));
+        Interlocked.Increment(ref _sharedRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _sharedVisualOverlays, list => list.RemoveAll(e => e.Id == regId)))
+                Interlocked.Increment(ref _sharedRevision);
+        }));
+    }
+
+    /// <summary>Registers a runtime <c>ItemVisualIdentity</c> mapping on this <see cref="ItemCatalog"/> instance.</summary>
+    public IDisposable RegisterVisual(string owner, string id, ushort hash)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        long regId = Interlocked.Increment(ref _localNextId);
+        ImmutableInterlocked.Update(ref _localVisualOverlays, list => list.Add(new(regId, owner, id, hash)));
+        Interlocked.Increment(ref _localRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _localVisualOverlays, list => list.RemoveAll(e => e.Id == regId)))
+                Interlocked.Increment(ref _localRevision);
+        }));
+    }
+
+    /// <summary>Registers a runtime <c>Words.HASH32</c> across all <see cref="ItemCatalog"/> instances.</summary>
+    public static IDisposable RegisterWordOverlay(string owner, uint wordHash)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        long regId = Interlocked.Increment(ref _sharedNextId);
+        ImmutableInterlocked.Update(ref _sharedWordOverlays, list => list.Add(new(regId, owner, wordHash)));
+        Interlocked.Increment(ref _sharedRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _sharedWordOverlays, list => list.RemoveAll(e => e.Id == regId)))
+                Interlocked.Increment(ref _sharedRevision);
+        }));
+    }
+
+    /// <summary>Registers a runtime <c>Words.HASH32</c> on this <see cref="ItemCatalog"/> instance.</summary>
+    public IDisposable RegisterWord(string owner, uint wordHash)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        long regId = Interlocked.Increment(ref _localNextId);
+        ImmutableInterlocked.Update(ref _localWordOverlays, list => list.Add(new(regId, owner, wordHash)));
+        Interlocked.Increment(ref _localRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _localWordOverlays, list => list.RemoveAll(e => e.Id == regId)))
+                Interlocked.Increment(ref _localRevision);
+        }));
+    }
+
+    static void ValidateOverlay(BaseType baseType)
+    {
+        ArgumentNullException.ThrowIfNull(baseType);
+        if (string.IsNullOrWhiteSpace(baseType.Id))
+            throw new ArgumentException("BaseType.Id must be non-empty.", nameof(baseType));
+    }
+
+    sealed class Undo(Action undo) : IDisposable
+    {
+        Action? _undo = undo;
+        public void Dispose() => Interlocked.Exchange(ref _undo, null)?.Invoke();
+    }
+
     /// <summary>What the stash tabs hold (<see cref="StashRules"/>), read when the catalog is made; tests set their own.</summary>
     public StashRules Stash
     {
@@ -30,43 +204,242 @@ public sealed class ItemCatalog
         Limits = limits ?? LimitSettings.Default;
         Mods = new ModCatalog(folder, hardMode);
         _rows = Load(folder, Mods);
-        _questTypes = [.. _rows.Rows.Where(t => t.Quest is not null)];
-        _byHash = _rows.Rows.GroupBy(t => t.Hash).ToDictionary(g => g.Key, g => g.First());
-        _byId = _rows.Rows.GroupBy(t => t.Id, StringComparer.OrdinalIgnoreCase)
+        var questTypes = _rows.Rows.Where(t => t.Quest is not null).ToList();
+        var byRow = new Dictionary<int, BaseType>(_rows.Rows.Count);
+        foreach (var t in _rows.Rows) byRow[t.Row] = t;
+        var byHash = _rows.Rows.GroupBy(t => t.Hash).ToDictionary(g => g.Key, g => g.First());
+        var byId = _rows.Rows.GroupBy(t => t.Id, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.FirstOrDefault(t => t.Supported) ?? g.First(), StringComparer.OrdinalIgnoreCase);
-        _gems = LoadGems(folder, hardMode);
+        var gems = LoadGems(folder, hardMode);
         _activeGemEffects = LoadActiveGemEffects(folder);
-        _requirements = LoadRequirements(folder);
-        _shieldBlocks = LoadShieldBlocks(folder);
-        _weaponCrits = LoadWeaponCrits(folder);
-        _defences = LoadDefences(folder);
-        _flasks = LoadFlasks(folder, _rows.Rows, hardMode);
-        _utilityFlasks = UtilityFlasks.Load(folder, _rows.Rows, hardMode);
+        var requirements = LoadRequirements(folder);
+        var shieldBlocks = LoadShieldBlocks(folder);
+        var weaponCrits = LoadWeaponCrits(folder);
+        var defences = LoadDefences(folder);
+        var flasks = LoadFlasks(folder, _rows.Rows, hardMode);
+        var utilityFlasks = UtilityFlasks.Load(folder, _rows.Rows, hardMode);
         _suffixBuffRows = UtilityFlasks.SuffixBuffRows();
         _tinctures = Tinctures.Load(folder, _rows.Rows);
-        _onslaught = _utilityFlasks.Values.Select(u => u.Extra).FirstOrDefault(x => x is not null);
-        _visualsById = LoadVisualsById(folder);
-        _words = LoadWords(folder);
+        _onslaught = utilityFlasks.Values.Select(u => u.Extra).FirstOrDefault(x => x is not null);
+        var visualsById = LoadVisualsById(folder);
+        var visualHashes = visualsById.Values.Where(h => h != 0).ToHashSet();
+        var words = LoadWords(folder);
         _currencyUses = LoadCurrencyUses(folder);
+        _stockSnapshot = new CatalogSnapshot(
+            _rows.Rows,
+            byRow,
+            byHash,
+            byId,
+            questTypes,
+            visualsById,
+            visualHashes,
+            words,
+            _currencyUses.Actions,
+            gems,
+            requirements,
+            defences,
+            weaponCrits,
+            shieldBlocks,
+            flasks,
+            utilityFlasks,
+            new Dictionary<int, Tinctures.Definition>(_tinctures.ByRow),
+            new HashSet<int>(_tinctures.NativeRows),
+            0,
+            0);
+        _snapshot = _stockSnapshot;
         _stash = StashRules.Load(folder, _rows.Rows);
         MapStock = NessaMapStock.Build(this);
+    }
+
+    CatalogSnapshot CurrentSnapshot()
+    {
+        long localRev = Volatile.Read(ref _localRevision);
+        long sharedRev = Volatile.Read(ref _sharedRevision);
+        var current = Volatile.Read(ref _snapshot);
+        if (current.LocalRevision == localRev && current.SharedRevision == sharedRev)
+            return current;
+        lock (_snapshotLock)
+        {
+            localRev = Volatile.Read(ref _localRevision);
+            sharedRev = Volatile.Read(ref _sharedRevision);
+            current = _snapshot;
+            if (current.LocalRevision == localRev && current.SharedRevision == sharedRev)
+                return current;
+
+            var sharedBases = _sharedBaseOverlays;
+            var localBases = _localBaseOverlays;
+            var sharedVisuals = _sharedVisualOverlays;
+            var localVisuals = _localVisualOverlays;
+            var sharedWords = _sharedWordOverlays;
+            var localWords = _localWordOverlays;
+            if (sharedBases.IsEmpty && localBases.IsEmpty
+                && sharedVisuals.IsEmpty && localVisuals.IsEmpty
+                && sharedWords.IsEmpty && localWords.IsEmpty)
+            {
+                var stock = _stockSnapshot with { LocalRevision = localRev, SharedRevision = sharedRev };
+                Volatile.Write(ref _snapshot, stock);
+                return stock;
+            }
+
+            var rows = new List<BaseType>(_stockSnapshot.Rows.Count + sharedBases.Length + localBases.Length);
+            rows.AddRange(_stockSnapshot.Rows);
+            var byRow = new Dictionary<int, BaseType>(_stockSnapshot.ByRow);
+            var byHash = new Dictionary<uint, BaseType>(_stockSnapshot.ByHash);
+            var byId = new Dictionary<string, BaseType>(_stockSnapshot.ById, StringComparer.OrdinalIgnoreCase);
+            var questTypes = new List<BaseType>(_stockSnapshot.QuestTypes);
+            var visualsById = new Dictionary<string, ushort>(_stockSnapshot.VisualsById, StringComparer.Ordinal);
+            var visualHashes = new HashSet<ushort>(_stockSnapshot.VisualHashes);
+            var words = new HashSet<uint>(_stockSnapshot.Words);
+            var currencyActions = new Dictionary<int, string>(_stockSnapshot.CurrencyActions);
+            var gems = new Dictionary<int, GemType>(_stockSnapshot.Gems);
+            var requirements = new Dictionary<string, (int Str, int Dex, int Int)>(_stockSnapshot.Requirements);
+            var defences = new Dictionary<int, BaseDefences>(_stockSnapshot.Defences);
+            var weaponCrits = new Dictionary<int, int>(_stockSnapshot.WeaponCrits);
+            var shieldBlocks = new Dictionary<int, int>(_stockSnapshot.ShieldBlocks);
+            var flasks = new Dictionary<int, Flasks.Flask>(_stockSnapshot.Flasks);
+            var utilityFlasks = new Dictionary<int, UtilityFlasks.Utility>(_stockSnapshot.UtilityFlasks);
+            var tinctures = new Dictionary<int, Tinctures.Definition>(_stockSnapshot.Tinctures);
+            var nativeTinctures = new HashSet<int>(_stockSnapshot.NativeTinctureRows);
+
+            var rowPos = new Dictionary<int, int>(rows.Count);
+            for (int i = 0; i < rows.Count; i++) rowPos[rows[i].Row] = i;
+            int nextSyntheticRow = _stockSnapshot.Rows.Count;
+
+            void ApplyVisuals(ImmutableArray<RegisteredVisualOverlay> entries)
+            {
+                for (int i = 0; i < entries.Length; i++)
+                {
+                    var e = entries[i];
+                    visualsById[e.VisualId] = e.Hash;
+                    if (e.Hash != 0) visualHashes.Add(e.Hash);
+                }
+            }
+
+            void ApplyWords(ImmutableArray<RegisteredWordOverlay> entries)
+            {
+                for (int i = 0; i < entries.Length; i++)
+                    words.Add(entries[i].WordHash);
+            }
+
+            void ApplyBases(ImmutableArray<RegisteredBaseOverlay> entries)
+            {
+                for (int i = 0; i < entries.Length; i++)
+                {
+                    var (raw, opts) = (entries[i].BaseType, entries[i].Options);
+                    int assignedRow = raw.Row;
+                    if (assignedRow < 0)
+                    {
+                        if (byId.TryGetValue(raw.Id, out var existing)) assignedRow = existing.Row;
+                        else
+                        {
+                            while (byRow.ContainsKey(nextSyntheticRow)) nextSyntheticRow++;
+                            assignedRow = nextSyntheticRow++;
+                        }
+                    }
+                    uint hash = raw.Hash != 0 ? raw.Hash : ComputeHash32(raw.Id);
+                    var type = raw with { Row = assignedRow, Hash = hash };
+
+                    if (byRow.TryGetValue(type.Row, out var replacedRow))
+                    {
+                        if (byHash.TryGetValue(replacedRow.Hash, out var curHash) && ReferenceEquals(curHash, replacedRow))
+                            byHash.Remove(replacedRow.Hash);
+                        if (byId.TryGetValue(replacedRow.Id, out var curId) && ReferenceEquals(curId, replacedRow))
+                            byId.Remove(replacedRow.Id);
+                    }
+                    if (byId.TryGetValue(type.Id, out var replacedId) && replacedId.Row != type.Row)
+                    {
+                        if (byHash.TryGetValue(replacedId.Hash, out var curHash) && ReferenceEquals(curHash, replacedId))
+                            byHash.Remove(replacedId.Hash);
+                        byRow.Remove(replacedId.Row);
+                        questTypes.RemoveAll(q => q.Row == replacedId.Row);
+                        if (rowPos.Remove(replacedId.Row, out int oldPos))
+                        {
+                            int lastIdx = rows.Count - 1;
+                            if (oldPos < lastIdx)
+                            {
+                                var moved = rows[lastIdx];
+                                rows[oldPos] = moved;
+                                rowPos[moved.Row] = oldPos;
+                            }
+                            rows.RemoveAt(lastIdx);
+                        }
+                    }
+
+                    if (rowPos.TryGetValue(type.Row, out int pos))
+                        rows[pos] = type;
+                    else
+                    {
+                        rowPos[type.Row] = rows.Count;
+                        rows.Add(type);
+                    }
+
+                    byRow[type.Row] = type;
+                    byHash[type.Hash] = type;
+                    byId[type.Id] = type;
+                    questTypes.RemoveAll(q => q.Row == type.Row);
+                    if (type.Quest is not null)
+                        questTypes.Add(type);
+                    if (type.VisualIdentity != 0)
+                        visualHashes.Add(type.VisualIdentity);
+
+                    if (opts is not null)
+                    {
+                        if (!string.IsNullOrWhiteSpace(opts.VisualIdentityId) && type.VisualIdentity != 0)
+                            visualsById[opts.VisualIdentityId] = type.VisualIdentity;
+                        if (!string.IsNullOrWhiteSpace(opts.CurrencyAction))
+                            currencyActions[type.Row] = opts.CurrencyAction;
+                        if (opts.Requirements is { } req)
+                            requirements[type.Id] = req;
+                        if (opts.Defences is { } def)
+                            defences[type.Row] = def;
+                        if (opts.WeaponCritical is int crit)
+                            weaponCrits[type.Row] = crit;
+                        if (opts.ShieldBlock is int block)
+                            shieldBlocks[type.Row] = block;
+                        if (opts.Gem is { } gem)
+                            gems[type.Row] = gem with { Row = type.Row };
+                        if (opts.Flask is { } flask)
+                            flasks[type.Row] = flask;
+                        if (opts.UtilityFlask is { } utilFlask)
+                            utilityFlasks[type.Row] = utilFlask;
+                        if (opts.Tincture is { } tinc)
+                            tinctures[type.Row] = tinc;
+                        if (opts.IsNativeTincture)
+                            nativeTinctures.Add(type.Row);
+                        if (opts.NameWordHash is uint wordHash)
+                            words.Add(wordHash);
+                    }
+                }
+            }
+
+            ApplyVisuals(sharedVisuals);
+            ApplyVisuals(localVisuals);
+            ApplyWords(sharedWords);
+            ApplyWords(localWords);
+            ApplyBases(sharedBases);
+            ApplyBases(localBases);
+
+            var built = new CatalogSnapshot(
+                rows, byRow, byHash, byId, questTypes, visualsById, visualHashes, words,
+                currencyActions, gems, requirements, defences, weaponCrits, shieldBlocks,
+                flasks, utilityFlasks, tinctures, nativeTinctures, localRev, sharedRev);
+            Volatile.Write(ref _snapshot, built);
+            return built;
+        }
     }
 
     /// <summary>The map catalogue Nessa's development shop sells and the named maps (<see cref="NessaMapStock"/>).</summary>
     public IReadOnlyList<NessaMapStock.Entry> MapStock { get; }
 
-    private readonly Dictionary<string, ushort> _visualsById;
-    readonly HashSet<uint> _words;
-
     /// <summary>An ItemVisualIdentity row's HASH16 by its Id (DefaultArrow, DefaultQuiver …): the hashes the client
     /// looks an art up by. Null when the table is missing or has no such row.</summary>
-    public ushort? Visual(string id) => _visualsById.TryGetValue(id, out ushort hash) && hash != 0 ? hash : null;
+    public ushort? Visual(string id) => CurrentSnapshot().VisualsById.TryGetValue(id, out ushort hash) && hash != 0 ? hash : null;
 
     /// <summary>Whether a HASH16 is an ItemVisualIdentity row: the client stops at an item with any other.</summary>
-    public bool IsVisual(ushort hash) => hash != 0 && _visualsById.ContainsValue(hash);
+    public bool IsVisual(ushort hash) => hash != 0 && CurrentSnapshot().VisualHashes.Contains(hash);
 
     /// <summary>Whether a HASH32 is a Words row, what an item's name is made of.</summary>
-    public bool IsWord(uint hash) => _words.Contains(hash);
+    public bool IsWord(uint hash) => CurrentSnapshot().Words.Contains(hash);
 
     /// <summary>Whether a byte is an AlternateQualityTypes row.</summary>
     public bool IsAlternateQuality(byte row) => row < _currencyUses.QualityRows;
@@ -135,6 +508,10 @@ public sealed class ItemCatalog
         /// <summary>Referenced by DelveCraftingModifiers with a display name: socketable in Delve resonators.</summary>
         public bool IsFossil { get; init; }
 
+        /// <summary>BaseItemTypes.FragmentBaseItemTypesKey: the modern stackable Fragment Stash base row replacing a
+        /// legacy unstackable fragment base, or null.</summary>
+        public int? FragmentBaseItemTypesRow { get; init; }
+
         public bool Supported => Components.Count > 0 && Item.CanSerialize(Components);
         /// <summary>Several of the type share one cell (a Stack component and a CurrencyItems StackSize above 1).</summary>
         public bool Stackable => MaxStack > 1;
@@ -155,11 +532,10 @@ public sealed class ItemCatalog
     public string? Error => _rows.Error;
 
     /// <summary>The type of an item (its BaseItemTypes HASH32).</summary>
-    public BaseType? ByHash(uint hash) => _byHash.GetValueOrDefault(hash);
+    public BaseType? ByHash(uint hash) => CurrentSnapshot().ByHash.GetValueOrDefault(hash);
 
-    private readonly Dictionary<uint, BaseType> _byHash;
-    // Find's first match (the exact Id) without a scan: drops name their items by Id on every kill.
-    private readonly Dictionary<string, BaseType> _byId;
+    /// <summary>The type of an item by exact <c>BaseItemTypes</c> Id (case-insensitive).</summary>
+    public BaseType? ById(string id) => CurrentSnapshot().ById.GetValueOrDefault(id);
 
     public ItemCatalog() : this("data") { }
 
@@ -168,7 +544,7 @@ public sealed class ItemCatalog
     /// <summary>CurrencyItems.Action for this base, or null when the row is not a currency / has no action. New chisels
     /// and Vaal variants are picked up from the table instead of an Id list.</summary>
     public string? CurrencyAction(BaseType t) =>
-        _currencyUses.Actions.TryGetValue(t.Row, out string? action) && action.Length > 0 ? action : null;
+        CurrentSnapshot().CurrencyActions.TryGetValue(t.Row, out string? action) && action.Length > 0 ? action : null;
 
     /// <summary>AlternateQualityTypes row whose Item column is this currency (Cartographer / Maven map chisels and jewellery catalysts).</summary>
     public byte? AlternateQualityOf(BaseType currency) =>
@@ -208,13 +584,13 @@ public sealed class ItemCatalog
         return (actions, quality, rows, [.. catalysts]);
     }
 
-    public BaseType? Row(int row) => row >= 0 && row < _rows.Rows.Count ? _rows.Rows[row] : null;
+    public BaseType? Row(int row) => CurrentSnapshot().ByRow.GetValueOrDefault(row);
 
     /// <summary>A BaseItemTypes row by number, or by Id: exact, then the last path segment, then the display name, then
     /// an exact trailing parenthetical display alias, then any part of the Id.
     /// Several matches: the first one the serializer supports.</summary>
     /// <summary>Every BaseItemTypes row (the launcher's suggestions).</summary>
-    public IReadOnlyList<BaseType> All => _rows.Rows;
+    public IReadOnlyList<BaseType> All => CurrentSnapshot().Rows;
 
     /// <summary>The names <see cref="FindGem"/> takes: every creatable variant of every gem.</summary>
     public IEnumerable<string> GemNames() =>
@@ -222,9 +598,10 @@ public sealed class ItemCatalog
 
     public BaseType? Find(string query)
     {
-        var rows = _rows.Rows;
-        if (int.TryParse(query, out int row)) return Row(row) is { } numbered ? EmptyResonatorType(numbered) : null;
-        if (_byId.TryGetValue(query, out var byId)) return EmptyResonatorType(byId);
+        var snap = CurrentSnapshot();
+        var rows = snap.Rows;
+        if (int.TryParse(query, out int row)) return snap.ByRow.GetValueOrDefault(row) is { } numbered ? EmptyResonatorType(numbered) : null;
+        if (snap.ById.TryGetValue(query, out var byId)) return EmptyResonatorType(byId);
         foreach (Func<BaseType, bool> match in new Func<BaseType, bool>[]
         {
             t => t.Id.Equals(query, StringComparison.OrdinalIgnoreCase),
@@ -236,7 +613,7 @@ public sealed class ItemCatalog
         {
             var hits = rows.Where(match).ToList();
             if (hits.Count > 0) return EmptyResonatorType(
-                hits.FirstOrDefault(t => t.Supported && (t.Class != "Tincture" || _tinctures.NativeRows.Contains(t.Row)))
+                hits.FirstOrDefault(t => t.Supported && (t.Class != "Tincture" || snap.NativeTinctureRows.Contains(t.Row)))
                 ?? hits.FirstOrDefault(t => t.Supported) ?? hits[0]);
         }
         return null;
@@ -245,8 +622,17 @@ public sealed class ItemCatalog
     // Empty legacy resonators have no Stack component. Filled ones retain their original type.
     public BaseType EmptyResonatorType(BaseType type) =>
         ResonatorSockets(type) > 0 && !type.Components.Contains("Stack")
-            ? _rows.Rows.FirstOrDefault(t => t.Id == type.Id.Replace("/DelveSocketable", "/DelveStackableSocketable")) ?? type
+            ? CurrentSnapshot().Rows.FirstOrDefault(t => t.Id == type.Id.Replace("/DelveSocketable", "/DelveStackableSocketable")) ?? type
             : type;
+
+    /// <summary>Modern stackable Fragment Stash base type for legacy unstackable fragments (<c>FragmentBaseItemTypesKey</c>)
+    /// that do not themselves occupy a Fragment Stash slot.</summary>
+    public BaseType? NormalizedFragment(BaseType type)
+    {
+        if (type.FragmentBaseItemTypesRow is not int row || Row(row) is not { Supported: true } modern) return null;
+        var fragmentSlots = Stash.Slots(StashRules.Fragment);
+        return !fragmentSlots.ContainsKey(type.Hash) && fragmentSlots.ContainsKey(modern.Hash) ? modern : null;
+    }
 
     public static int ResonatorSockets(BaseType type) =>
         type.Id.StartsWith("Metadata/Items/Delve/Delve", StringComparison.Ordinal)
@@ -310,13 +696,12 @@ public sealed class ItemCatalog
     }
 
     /// <summary>The quest items: every type with a Quest component (QuestItems, Agents/docs/protocol/12-quests.md §5).</summary>
-    public IReadOnlyList<BaseType> QuestItemTypes => _questTypes;
-    readonly IReadOnlyList<BaseType> _questTypes;
+    public IReadOnlyList<BaseType> QuestItemTypes => CurrentSnapshot().QuestTypes;
 
     /// <summary>The gems a shop sells of one colour, active or support: creatable, writable, dropping (DropLevel above 0),
     /// not Vaal or awakened, one per name, by drop level then name.</summary>
     public IReadOnlyList<BaseType> ShopGems(int colour, bool support) =>
-        [.. _rows.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest") && !t.Id.Contains("Royale")
+        [.. CurrentSnapshot().Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest") && !t.Id.Contains("Royale")
                 // Same-name legacy rows differ in progression/pricing; these are absent from the official vendor capture.
                 && t.Id is not ("Metadata/Items/Gems/SkillGemNewPhaseRun" or "Metadata/Items/Gems/SkillGemNewArcticArmour"
                     or "Metadata/Items/Gems/SkillGemConvocation")
@@ -327,7 +712,7 @@ public sealed class ItemCatalog
     /// Keep the catalog's creatability checks: placeholder and unsupported awakened rows are not safe to create.
     /// <paramref name="ordinaryOnly"/> leaves the Awakened and Exceptional tabs' gems out of the colour tabs.</summary>
     public IReadOnlyList<(BaseType Type, GemVariant Variant)> FullShopGems(int colour, bool support, bool ordinaryOnly = false) =>
-        [.. _rows.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
+        [.. CurrentSnapshot().Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
                 && Gem(t) is { } g && g.Colour == colour && g.IsSupport == support
                 && (!ordinaryOnly || !g.IsAwakened && !g.IsExceptional))
             .SelectMany(t => Gem(t)!.Variants.Where(v => v.Creatable).Select(v => (Type: t, Variant: v)))
@@ -336,20 +721,20 @@ public sealed class ItemCatalog
     /// <summary>The Awakened tab: every writable Awakened gem. Its rows are creatable only for the exceptional
     /// supports in ordinary play, but the local development shop restores the whole 3.29 table.</summary>
     public IReadOnlyList<(BaseType Type, GemVariant Variant)> AwakenedShopGems() =>
-        [.. _rows.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
+        [.. CurrentSnapshot().Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
                 && Gem(t) is { IsAwakened: true })
             .SelectMany(t => Gem(t)!.Variants.Where(v => v.Effect >= 0).Select(v => (Type: t, Variant: v)))
             .OrderBy(x => x.Type.DropLevel).ThenBy(x => x.Variant.Name)];
 
     /// <summary>The Exceptional tab: the exceptional gems that are not Awakened (the Greater supports and Pacts).</summary>
     public IReadOnlyList<(BaseType Type, GemVariant Variant)> ExceptionalShopGems() =>
-        [.. _rows.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
+        [.. CurrentSnapshot().Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
                 && Gem(t) is { IsExceptional: true, IsAwakened: false })
             .SelectMany(t => Gem(t)!.Variants.Where(v => v.Effect >= 0).Select(v => (Type: t, Variant: v)))
             .OrderBy(x => x.Type.DropLevel).ThenBy(x => x.Variant.Name)];
 
     /// <summary>A base type's gem (its SkillGems row), or null for items that are not gems.</summary>
-    public GemType? Gem(BaseType t) => _gems.GetValueOrDefault(t.Row);
+    public GemType? Gem(BaseType t) => CurrentSnapshot().Gems.GetValueOrDefault(t.Row);
 
     /// <summary>The GrantedEffects rows a gem item grants as skills: its variant's effect and, for a Vaal gem, the base
     /// skill. Only active effects enter the Actor: a support can grant an active companion, but its support effect
@@ -384,7 +769,8 @@ public sealed class ItemCatalog
     /// Frostbolts"), case-insensitive: an exact name first, then the first that contains it.</summary>
     public (BaseType Type, GemVariant Variant)? FindGem(string name)
     {
-        var all = _rows.Rows.Select(t => (Type: t, Gem: Gem(t))).Where(x => x.Gem is not null)
+        var snap = CurrentSnapshot();
+        var all = snap.Rows.Select(t => (Type: t, Gem: snap.Gems.GetValueOrDefault(t.Row))).Where(x => x.Gem is not null)
             .SelectMany(x => x.Gem!.Variants.Where(v => v.Creatable).Select(v => (x.Type, Variant: v))).ToList();
         foreach (var match in (Func<string, bool>[])[n => n.Equals(name, StringComparison.OrdinalIgnoreCase),
             n => n.Contains(name, StringComparison.OrdinalIgnoreCase)])
@@ -393,10 +779,8 @@ public sealed class ItemCatalog
         return null;
     }
 
-    private readonly Dictionary<int, int> _shieldBlocks;
-
     /// <summary>The shield's base block percentage from ShieldTypes.dat (0 for non-shields).</summary>
-    public int ShieldBlock(BaseType t) => _shieldBlocks.GetValueOrDefault(t.Row);
+    public int ShieldBlock(BaseType t) => CurrentSnapshot().ShieldBlocks.GetValueOrDefault(t.Row);
 
     private static Dictionary<int, int> LoadShieldBlocks(string folder)
     {
@@ -434,10 +818,8 @@ public sealed class ItemCatalog
         }
     }
 
-    private readonly Dictionary<int, BaseDefences> _defences;
-
     /// <summary>The base defence range of an item type, or null when it has no armour row.</summary>
-    public BaseDefences? Defences(BaseType t) => _defences.TryGetValue(t.Row, out var d) ? d : null;
+    public BaseDefences? Defences(BaseType t) => CurrentSnapshot().Defences.TryGetValue(t.Row, out var d) ? d : null;
 
     private static Dictionary<int, BaseDefences> LoadDefences(string folder)
     {
@@ -460,10 +842,8 @@ public sealed class ItemCatalog
         return result;
     }
 
-    private readonly Dictionary<int, int> _weaponCrits;
-
     /// <summary>The weapon's base critical strike chance (permyriad: 500 = 5%) from WeaponTypes.dat.</summary>
-    public int WeaponCritical(BaseType t) => _weaponCrits.GetValueOrDefault(t.Row);
+    public int WeaponCritical(BaseType t) => CurrentSnapshot().WeaponCrits.GetValueOrDefault(t.Row);
 
     private static Dictionary<int, int> LoadWeaponCrits(string folder)
     {
@@ -477,16 +857,12 @@ public sealed class ItemCatalog
         return result;
     }
 
-    private readonly Dictionary<int, Flasks.Flask> _flasks;
-
     /// <summary>A life or mana flask's use (Flasks.dat and ComponentCharges), or null for other types, utility flasks
     /// included.</summary>
-    public Flasks.Flask? FlaskOf(BaseType t) => _flasks.GetValueOrDefault(t.Row);
-
-    private readonly Dictionary<int, UtilityFlasks.Utility> _utilityFlasks;
+    public Flasks.Flask? FlaskOf(BaseType t) => CurrentSnapshot().Flasks.GetValueOrDefault(t.Row);
 
     /// <summary>A utility flask's use (<see cref="UtilityFlasks"/>), or null for other types.</summary>
-    public UtilityFlasks.Utility? UtilityFlaskOf(BaseType t) => _utilityFlasks.GetValueOrDefault(t.Row);
+    public UtilityFlasks.Utility? UtilityFlaskOf(BaseType t) => CurrentSnapshot().UtilityFlasks.GetValueOrDefault(t.Row);
 
     /// <summary>The BuffDefinitions row of each "during effect" suffix buff (<see cref="UtilityFlasks.SuffixBuffRows"/>),
     /// by the character stat it grants: the flask_bonus_* rows, read from the tables once at load.</summary>
@@ -497,10 +873,10 @@ public sealed class ItemCatalog
     private readonly Tinctures.Catalog _tinctures;
 
     /// <summary>A tincture's native timing and buff definition (<see cref="Tinctures"/>), or null for other types.</summary>
-    public Tinctures.Definition? TinctureOf(BaseType t) => _tinctures.ByRow.GetValueOrDefault(t.Row);
+    public Tinctures.Definition? TinctureOf(BaseType t) => CurrentSnapshot().Tinctures.GetValueOrDefault(t.Row);
 
     /// <summary>True for the native 3.25+ tincture bases in Tinctures.dat (excluding legacy 3.23 empty-implicit rows).</summary>
-    public bool IsNativeTincture(BaseType t) => _tinctures.NativeRows.Contains(t.Row);
+    public bool IsNativeTincture(BaseType t) => CurrentSnapshot().NativeTinctureRows.Contains(t.Row);
 
     /// <summary>Shared tincture BuffDefinitions rows (Mana Burn, Weeping Wounds, parent and unique tincture buffs).</summary>
     public Tinctures.BuffRows TinctureBuffs => _tinctures.Buffs;
@@ -533,8 +909,6 @@ public sealed class ItemCatalog
                     use.PerCharge, use.Max));
         return result;
     }
-
-    private readonly Dictionary<int, GemType> _gems;
 
     // Not creatable: the "[DNT]" placeholder variants, the "[UNUSED] …", "[DNT] …" and "WIP …" gem rows, the awakened
     // supports other than Empower, Enhance and Enlighten (disabled since 3.28; theirs is GemProgressionExceptionalPlus),
@@ -742,10 +1116,8 @@ public sealed class ItemCatalog
         return (sockets, RollSocketLinks(count, random));
     }
 
-    private readonly Dictionary<string, (int Str, int Dex, int Int)> _requirements;
-
     /// <summary>The base's attribute requirements (ComponentAttributeRequirements), zero when it has none.</summary>
-    public (int Str, int Dex, int Int) Requirements(BaseType t) => _requirements.GetValueOrDefault(t.Id);
+    public (int Str, int Dex, int Int) Requirements(BaseType t) => CurrentSnapshot().Requirements.GetValueOrDefault(t.Id);
 
     private static Dictionary<string, (int, int, int)> LoadRequirements(string folder)
     {
@@ -894,6 +1266,7 @@ public sealed class ItemCatalog
                     CanBeCorrupted = r.IntOrNull("ItemClassesKey") is int cc &&
                         cc >= 0 && cc < corruptibleClasses.Count && corruptibleClasses[cc],
                     IsFossil = name.Length > 0 && fossilRows.Contains(rows.Count),
+                    FragmentBaseItemTypesRow = r.IntOrNull("FragmentBaseItemTypesKey"),
                 });
             }
         }

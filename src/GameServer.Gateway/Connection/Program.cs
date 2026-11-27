@@ -188,6 +188,8 @@ Console.WriteLine($"[gateway] listening on {bind}:{port}");
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+// Keep a persistent reverse control link to Auth so Auth can notify Gateway mods on character creation.
+_ = GatewayControl.RunAsync(cts.Token);
 // Character and stash saves stay in memory during active gameplay and flush to SQLite on area leave, exit, disconnect,
 // or Gateway shutdown (no periodic background SQLite writes during gameplay).
 AppDomain.CurrentDomain.ProcessExit += (_, _) => SaveUnsavedProgressNow("the Gateway stops");

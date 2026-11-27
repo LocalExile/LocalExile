@@ -60,6 +60,14 @@ public sealed class LoginServerSession(AccountService accounts)
         _ => [],
     };
 
+    /// <summary>Asynchronous message dispatch: awaits <see cref="CharacterCreatedAsync"/> on character creation before
+    /// sending S→C 0x15 / 0x13 so initial town and level overrides take effect before the client enters the game.</summary>
+    public async Task<IReadOnlyList<ILoginMessage>> HandleAsync(ILoginMessage message) => message switch
+    {
+        CreateCharacter m => await CreateAsync(m),
+        _ => Handle(message),
+    };
+
     /// <summary>Where 0x14 sends the client: the instance (game) server, GameServer.Gateway.</summary>
     public string InstanceHost { get; init; } = "127.0.0.1";
     public ushort InstancePort { get; init; } = 6112;
@@ -211,6 +219,15 @@ public sealed class LoginServerSession(AccountService accounts)
     /// <summary>Called with (characterName, sourceLeague, targetLeague) after a character league migration commits.</summary>
     public Action<string, string, string>? CharacterMigrated { get; init; }
 
+    /// <summary>Optional overrides returned by the instance server after a character is created, applied before S→C 0x15 / 0x13.</summary>
+    public sealed record CharacterCreatedEffects(string? StartingAreaId = null, int? StartingLevel = null, bool SuppressStartKit = false);
+
+    /// <summary>Called after a new character commits to the account store and before S→C 0x15 / 0x13 are built.</summary>
+    public Func<Character, League, IReadOnlyDictionary<string, string>, Task<CharacterCreatedEffects?>>? CharacterCreatedAsync { get; init; }
+
+    /// <summary>Whether a <see cref="CharacterCreatedEffects.StartingAreaId"/> is a valid login town for <see cref="AccountService.SetLastTown"/>.</summary>
+    public Func<string, bool>? IsValidStartingArea { get; init; }
+
     /// <summary>Change password (0x0a) → 0x0b result 0 (ChangePasswordScreen 0x140cf3650 clears saved password and
     /// succeeds), or BackendErrors code on invalid old password.</summary>
     private ILoginMessage[] ChangePassword(TwoDigests m)
@@ -272,28 +289,99 @@ public sealed class LoginServerSession(AccountService accounts)
     /// </summary>
     private ILoginMessage[] Create(CreateCharacter m)
     {
-        if (Session is null) return [];
+        if (CreateCore(m) is not var (reply, _, _, _)) return [];
+        return reply;
+    }
+
+    private async Task<ILoginMessage[]> CreateAsync(CreateCharacter m)
+    {
+        if (CreateCore(m) is not var (earlyReply, created, league, options)) return [];
+        if (created is null || league is null) return earlyReply;
+        if (CharacterCreatedAsync is not null)
+        {
+            var effects = await CharacterCreatedAsync(created, league, options);
+            ApplyCreationEffects(created, effects);
+        }
+        // The list first: on 0 the create screen (0x140cf7fb0) looks the new character up by name in the character list
+        // and sends Play (0x0e) with its index; with the list sent after 0x13 it was not there yet and the client waited
+        // on "Contacting Server..." (live 2026-10-18).
+        return [CharacterList(), new CreateCharacterResult(ResultOk, false)];
+    }
+
+    private (ILoginMessage[] Reply, Character? Created, League? League, IReadOnlyDictionary<string, string> Options)? CreateCore(CreateCharacter m)
+    {
+        if (Session is null) return null;
         var league = Leagues.Find(m.League);
-        if (league is null) return [new CreateCharacterResult(ResultLeagueDoesNotExist, false)];
+        if (league is null) return ([new CreateCharacterResult(ResultLeagueDoesNotExist, false)], null, null, EmptyOptions);
         if (league.Private && !league.PasswordMatches(m.PasswordDigest))
-            return [new CreateCharacterResult(ResultInvalidPassword, false)];
-        if (ClassOf(m) is not { } cls) return [new CreateCharacterResult(ResultInvalidClass, false)];
+            return ([new CreateCharacterResult(ResultInvalidPassword, false)], null, null, EmptyOptions);
+        var (_, options) = ParseStartState(m.S78);
+        if (ClassOf(m) is not { } cls) return ([new CreateCharacterResult(ResultInvalidClass, false)], null, null, options);
         string name = m.Name.Trim();
-        if (name.Length < 3) return [new CreateCharacterResult(ResultCharacterNameTooShort, false)];
-        if (name.Length > 23) return [new CreateCharacterResult(ResultCharacterNameTooLong, false)];
+        if (name.Length < 3) return ([new CreateCharacterResult(ResultCharacterNameTooShort, false)], null, null, options);
+        if (name.Length > 23) return ([new CreateCharacterResult(ResultCharacterNameTooLong, false)], null, null, options);
         var r = accounts.CreateCharacter(Session.AccountId, name, cls, league.Name);
         if (!r.Ok)
-            return [new CreateCharacterResult(r.Error switch
+            return ([new CreateCharacterResult(r.Error switch
             {
                 AuthError.CharacterNameTaken => ResultCharacterNameTaken,
                 AuthError.LimitReached => ResultTooManyCharacters,
                 AuthError.InvalidClass => ResultInvalidClass,
                 _ => ResultCharacterNameInvalid,
-            }, false)];
-        // The list first: on 0 the create screen (0x140cf7fb0) looks the new character up by name in the character list
-        // and sends Play (0x0e) with its index; with the list sent after 0x13 it was not there yet and the client waited
-        // on "Contacting Server..." (live 2026-10-18).
-        return [CharacterList(), new CreateCharacterResult(ResultOk, false)];
+            }, false)], null, null, options);
+        return ([CharacterList(), new CreateCharacterResult(ResultOk, false)], r.Value, league, options);
+    }
+
+    private void ApplyCreationEffects(Character created, CharacterCreatedEffects? effects)
+    {
+        if (effects is null) return;
+        if (effects.StartingLevel is int level and >= 1 and <= 100 && level != created.Level)
+            accounts.SetLevel(created.Name, level);
+        if (effects.StartingAreaId is { Length: > 0 } rawArea)
+        {
+            string areaId = rawArea.Trim();
+            if (areaId.Length > 0 && (IsValidStartingArea is null || IsValidStartingArea(areaId)))
+                accounts.SetLastTown(created.Name, areaId);
+        }
+    }
+
+    private const string OptionDelimiter = "|nm:";
+    private const int MaxOptionChars = 1024;
+    private const int MaxOptionCount = 32;
+    private static readonly IReadOnlyDictionary<string, string> EmptyOptions =
+        new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>Splits an optional <c>|nm:k=v&amp;...</c> suffix off <see cref="CreateCharacter.S78"/> into the base
+    /// start-state identifier and structured key/value options. Returns an empty dictionary when no suffix is present.</summary>
+    public static (string BaseState, IReadOnlyDictionary<string, string> Options) ParseStartState(string? s78)
+    {
+        if (string.IsNullOrEmpty(s78)) return ("", EmptyOptions);
+        int idx = s78.IndexOf(OptionDelimiter, StringComparison.Ordinal);
+        if (idx < 0) return (s78, EmptyOptions);
+        string baseState = s78[..idx];
+        string tail = s78[(idx + OptionDelimiter.Length)..];
+        if (tail.Length == 0) return (baseState, EmptyOptions);
+        if (tail.Length > MaxOptionChars) tail = tail[..MaxOptionChars];
+        var parsed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string part in tail.Split('&', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (parsed.Count >= MaxOptionCount) break;
+            int eq = part.IndexOf('=');
+            string rawKey = eq >= 0 ? part[..eq].Trim() : part;
+            if (rawKey.Length == 0) continue;
+            string rawVal = eq >= 0 ? part[(eq + 1)..].Trim() : "";
+            string key = SafeUnescape(rawKey);
+            if (key.Length == 0) continue;
+            parsed[key] = SafeUnescape(rawVal);
+        }
+        return (baseState, parsed.Count == 0 ? EmptyOptions : new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(parsed));
+    }
+
+    private static string SafeUnescape(string value)
+    {
+        if (!value.Contains('%')) return value;
+        try { return Uri.UnescapeDataString(value); }
+        catch (UriFormatException) { return value; }
     }
 
     /// <summary>Characters.dat Id → class (CharacterClass is Characters.dat IntegerId).</summary>
@@ -313,13 +401,15 @@ public sealed class LoginServerSession(AccountService accounts)
     ];
 
     /// <summary>The class of a 0x12 request. S78 is the chosen CharacterStartStates.dat Id ("DexDefault" for a Ranger,
-    /// live 2026-10-18; the u32s were 0); a Characters.dat Id or class name is accepted too, then a class number.</summary>
+    /// live 2026-10-18; the u32s were 0), optionally followed by a <c>|nm:k=v&amp;...</c> suffix; a Characters.dat Id or
+    /// class name is accepted too, then a class number.</summary>
     public static CharacterClass? ClassOf(CreateCharacter m)
     {
-        if (ClassIds.TryGetValue(m.S78, out var c)) return c;
-        if (Enum.TryParse<CharacterClass>(m.S78, true, out c) && Enum.IsDefined(c)) return c;
+        var (baseState, _) = ParseStartState(m.S78);
+        if (ClassIds.TryGetValue(baseState, out var c)) return c;
+        if (Enum.TryParse<CharacterClass>(baseState, true, out c) && Enum.IsDefined(c)) return c;
         foreach (var (prefix, cls) in StartStatePrefixes)
-            if (m.S78.StartsWith(prefix, StringComparison.Ordinal)) return cls;
+            if (baseState.StartsWith(prefix, StringComparison.Ordinal)) return cls;
         foreach (uint v in (ReadOnlySpan<uint>)[m.U50, m.U54])
             if (v <= (uint)CharacterClass.Shadow) return (CharacterClass)v;
         return null;

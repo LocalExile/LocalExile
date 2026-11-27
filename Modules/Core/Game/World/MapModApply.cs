@@ -61,8 +61,8 @@ public static partial class Game
     public static ItemDrops.Drop? MapScarab(ItemDrops drops, Random random, int level, MapMods? mods) =>
         MapScarab(drops, random, level, mods, null);
 
-    public static ItemDrops.Drop? MapScarab(ItemDrops drops, Random random, int level, MapMods? mods, DropWeights? weights) =>
-        ScarabsDisabled(mods) ? null : drops.Scarab(random, level, mods, weights);
+    public static ItemDrops.Drop? MapScarab(ItemDrops drops, Random random, int level, MapMods? mods, DropWeights? weights, DropContext? context = null) =>
+        ScarabsDisabled(mods) ? null : drops.Scarab(random, level, mods, weights, context);
 
     static readonly uint[] RandomPhysicalGain =
         [Stat.PhysicalDamagePctToAddAsFire, Stat.PhysicalDamagePctToAddAsCold, Stat.PhysicalDamagePctToAddAsLightning];
@@ -204,8 +204,9 @@ public static partial class Game
             voidstones = System.Numerics.BitOperations.PopCount((uint)mask);
         }
         int upgrade = mods?.Get(Stat.MapTierBonusPermillage) ?? 0;
-        return DropsFor(player).Map(level, rarity, tier, rng, voidstones: voidstones, chanceFactor: chanceFactor,
-            tierUpgradePermillage: upgrade, increasedRarity: IncreasedItemRarity(player));
+        bool corruptEightMods = (mods?.Get(Stat.MapDroppedMapsAreCorruptedWith8Mods) ?? 0) > 0;
+        return DropsFor(player).Map(level, rarity, tier, rng, voidstones, chanceFactor, upgrade,
+            IncreasedItemRarity(player), corruptEightMods);
     }
 
     /// <summary>A map's extra drops: a card from each monster of the card-dropping magic packs, and the map's card and
@@ -214,20 +215,22 @@ public static partial class Game
     /// × (f − 1) per kill. A mod's factors per card, scarab and currency (<see cref="DropWeights.Item"/>) weigh the picks;
     /// a currency kind factor of 0 leaves the extra currency out.</summary>
     static IEnumerable<ItemDrops.Drop> ExtraDropsFromMap(Player player, int monsterLevel, MonsterRarity rarity, Random rng,
-        DropWeights? weights = null)
+        DropWeights? weights = null, DropContext? context = null)
     {
         if (MapModsOf(player) is not { } mods) yield break;
         var drops = DropsFor(player);
-        if (rarity == MonsterRarity.Magic && mods.PacksDropCards > 0 && drops.Card(rng, monsterLevel, weights) is { } packCard)
+        var league = LeagueFor(player);
+        var ctx = context ?? DropContext.MapCurrency(rarity, areaId: player.Layout.Id, leagueId: league.Id, hardMode: league.HardMode);
+        if (rarity == MonsterRarity.Magic && mods.PacksDropCards > 0 && drops.Card(rng, monsterLevel, weights, ctx) is { } packCard)
             yield return packCard;
         double card = MapDropFactor(mods, Stat.MapDivinationCardDropChancePlusPct, Stat.MapDivinationCardDropChancePlusPctFinalFromQuality,
             Stat.MapDivinationCardDropChancePlusPctFinalFromFaridunWish);
-        if (card > 1 && MapDropExtra("drop_card_chance_pct", card - 1, rng) && drops.Card(rng, monsterLevel, weights) is { } extraCard)
+        if (card > 1 && MapDropExtra("drop_card_chance_pct", card - 1, rng) && drops.Card(rng, monsterLevel, weights, ctx) is { } extraCard)
             yield return extraCard;
         double scarab = MapDropFactor(mods, Stat.MapScarabDropChancePlusPctFinalFromUberMod,
             Stat.MapUnscaledScarabDropChancePlusPctFinalFromUberMod, Stat.MapScarabDropChancePlusPctFinalFromFaridunWish);
         if (scarab > 1 && MapDropExtra("drop_scarab_chance_pct", (scarab - 1) * MapScarabQuantity(mods), rng)
-            && MapScarab(drops, rng, monsterLevel, mods, weights) is { } extraScarab)
+            && MapScarab(drops, rng, monsterLevel, mods, weights, ctx) is { } extraScarab)
             yield return extraScarab;
         double currency = MapDropFactor(mods, Stat.MapCurrencyDropChancePlusPctFinalFromUberMod);
         if (currency > 1 && (weights is null || weights.Currency > 0))
@@ -235,7 +238,7 @@ public static partial class Game
             double expected = CurrencyDropExpected(rarity) * (currency - 1);
             int whole = (int)expected + (rng.NextDouble() < expected - (int)expected ? 1 : 0);
             for (int i = 0; i < whole; i++)
-                if (drops.CurrencyDrop(monsterLevel, rng, weights) is { } extraCurrency) yield return extraCurrency;
+                if (drops.CurrencyDrop(monsterLevel, rng, weights, ctx) is { } extraCurrency) yield return extraCurrency;
         }
     }
 
@@ -247,45 +250,66 @@ public static partial class Game
         _ => 0.15,
     };
 
-    sealed record CachedCurrencyPool(object Snapshot, (ItemCatalog.BaseType Type, double Weight, int DropLevel)[] Pool);
+    sealed record CachedCurrencyPool(object Snapshot, long OverlayRevision, long CatalogRevision,
+        (ItemCatalog.BaseType Type, double Weight, int DropLevel, ushort StackSize, DropPoolEntry? Overlay)[] Pool);
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ItemCatalog, CachedCurrencyPool> CurrencyPoolsByCatalog = new();
 
-    public static ItemDrops.Drop? RollWeightedCurrency(ItemCatalog catalog, int level, Random rng)
+    public static ItemDrops.Drop? RollWeightedCurrency(ItemCatalog catalog, int level, Random rng, DropContext? context = null)
     {
         var snapshot = DropDataProvider.Default.Current;
-        if (!CurrencyPoolsByCatalog.TryGetValue(catalog, out var cached) || !ReferenceEquals(cached.Snapshot, snapshot))
+        long overlayRev = DropPoolOverlays.Default.Revision;
+        long catalogRev = catalog.Revision;
+        if (!CurrencyPoolsByCatalog.TryGetValue(catalog, out var cached)
+            || !ReferenceEquals(cached.Snapshot, snapshot)
+            || cached.OverlayRevision != overlayRev
+            || cached.CatalogRevision != catalogRev)
         {
-            var list = new List<(ItemCatalog.BaseType Type, double Weight, int DropLevel)>();
+            var list = new List<(ItemCatalog.BaseType Type, double Weight, int DropLevel, ushort StackSize, DropPoolEntry? Overlay)>();
             if (snapshot.CurrencyWeights.Count > 0)
             {
                 foreach (var row in snapshot.CurrencyWeights.Values)
                     if (row is { Enabled: true, Weight: > 0 } && catalog.Find(row.CurrencyId) is { Supported: true } t && t.Id == row.CurrencyId)
-                        list.Add((t, row.Weight, Math.Max(t.DropLevel, row.DropLevel)));
+                        list.Add((t, row.Weight, Math.Max(t.DropLevel, row.DropLevel), (ushort)1, null));
             }
             if (list.Count == 0)
             {
                 for (int i = 0; i < ItemDrops.Currency.Length; i++)
                     if (catalog.Find(ItemDrops.Currency[i].Id) is { Supported: true } t)
-                        list.Add((t, ItemDrops.Currency[i].Weight, t.DropLevel));
+                        list.Add((t, ItemDrops.Currency[i].Weight, t.DropLevel, (ushort)1, null));
             }
-            cached = new CachedCurrencyPool(snapshot, [.. list]);
+            foreach (var reg in DropPoolOverlays.Default.Snapshot)
+            {
+                var ov = reg.Entry;
+                if (ov.Category != DropPoolCategory.Currency || ov.Weight <= 0) continue;
+                var type = catalog.ById(ov.ItemId) ?? catalog.Find(ov.ItemId);
+                if (type is { Supported: true })
+                    list.Add((type, ov.Weight, Math.Max(type.DropLevel, ov.MinAreaLevel), ov.StackSize, ov));
+            }
+            cached = new CachedCurrencyPool(snapshot, overlayRev, catalogRev, [.. list]);
             CurrencyPoolsByCatalog.AddOrUpdate(catalog, cached);
         }
+        var ctx = context ?? DropContext.MapCurrency(MonsterRarity.Normal);
         var pool = cached.Pool;
         double total = 0;
         for (int i = 0; i < pool.Length; i++)
-            if (pool[i].DropLevel <= level && pool[i].Weight > 0) total += pool[i].Weight;
+        {
+            var e = pool[i];
+            if (e.DropLevel <= level && e.Weight > 0 && (e.Overlay is null || e.Overlay.Matches(level, ctx)))
+                total += e.Weight;
+        }
         if (total <= 0) return null;
         double roll = rng.NextDouble() * total;
-        ItemCatalog.BaseType? picked = null;
+        (ItemCatalog.BaseType Type, ushort StackSize)? picked = null;
         for (int i = 0; i < pool.Length; i++)
         {
             var entry = pool[i];
-            if (entry.DropLevel > level || entry.Weight <= 0) continue;
-            picked = entry.Type;
+            if (entry.DropLevel > level || entry.Weight <= 0 || (entry.Overlay is not null && !entry.Overlay.Matches(level, ctx))) continue;
+            picked = (entry.Type, entry.StackSize);
             if ((roll -= entry.Weight) < 0) break;
         }
-        return picked is null ? null : new(ItemCatalog.Create(picked) with { StackSize = 1, ItemLevel = (byte)Math.Clamp(level, 1, 100) }, picked);
+        if (picked is not { } chosen) return null;
+        ushort stack = (ushort)Math.Clamp(chosen.StackSize == 0 ? 1 : chosen.StackSize, 1, Math.Max(1, (int)chosen.Type.MaxStack));
+        return new(ItemCatalog.Create(chosen.Type) with { StackSize = stack, ItemLevel = (byte)Math.Clamp(level, 1, 100) }, chosen.Type);
     }
 
     static double MapDropFactor(MapMods mods, params ReadOnlySpan<uint> ids)

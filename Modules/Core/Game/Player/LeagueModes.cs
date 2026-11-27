@@ -39,7 +39,7 @@ public static partial class Game
             }
             // Drops read the league's gem rules, which exist once every module loaded, so each HardMode league has its own.
             if (league is not null && !HardModeDrops.ContainsKey(league.Id))
-                HardModeDrops[league.Id] = new(HardModeItems, HardModeRolls, hardMode: true, maps: HardModeAtlas, uniques: HardModeUniques, league: league.Rules);
+                HardModeDrops[league.Id] = new(HardModeItems, HardModeRolls, hardMode: true, maps: HardModeAtlas, uniques: HardModeUniques, league: league.Rules, leagueId: league.Id);
         }
     }
 
