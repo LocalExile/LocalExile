@@ -388,6 +388,8 @@ public static class AtlasFeature
         1075, 426,                    // MavenBossUnlocked, MavenVoidQuestUnlocked
     ];
 
+    internal static readonly int[] DeviceSlotLeagueFlags = [6, 7];
+
     /// <summary>Previously granted in error: they skip Maven/Kirac phases or toast on every area.</summary>
     internal static readonly int[] StripLeagueFlags = [885, 374, 212, 328, 317, 318, 347, 319];
 
@@ -445,6 +447,8 @@ public static class AtlasFeature
     /// Per-character tree flags are put on the connection here, before <c>PlayerForCreation</c> reads them.</summary>
     internal static IEnumerable<(string Log, byte[] Message)> Restore(Player player)
     {
+        // Unlocked5th/6thMapDeviceSlot: nothing earns them, so every character keeps them as on main (in memory, unsaved).
+        player.Character.LeagueQuestFlags.UnionWith(DeviceSlotLeagueFlags);
         ApplyTreeFlags(player);
         var modPlayer = PlayerOf(player);
         var data = WorldOf(modPlayer).CharacterData;
