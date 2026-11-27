@@ -18,13 +18,26 @@ public static class BossKits
             .SelectMany(g => new[] { g.IntOrNull("GrantedEffect"), g.IntOrNull("GrantedEffect2") }).OfType<int>()];
     }
 
+    /// <summary>The 4 Shaper Guardians, 4 Elder Guardians, and 4 Conquerors: their MonsterVarieties rows have
+    /// BossHealthBar = 0 in client.db, so they opt into BossKits explicitly to play their full GrantedEffects kits.</summary>
+    public static bool IsAtlasGuardianOrConqueror(MonsterCatalog.Variety? variety) =>
+        variety?.Id is string id && (
+            id.StartsWith("Metadata/Monsters/AtlasBosses/ChimeraBoss", StringComparison.Ordinal)
+            || id.StartsWith("Metadata/Monsters/AtlasBosses/HydraBoss", StringComparison.Ordinal)
+            || id.StartsWith("Metadata/Monsters/AtlasBosses/MinotaurBoss", StringComparison.Ordinal)
+            || id.StartsWith("Metadata/Monsters/AtlasBosses/PhoenixBoss", StringComparison.Ordinal)
+            || id.StartsWith("Metadata/Monsters/AtlasBosses/TheElder/ElderGuardian", StringComparison.Ordinal)
+            || id.StartsWith("Metadata/Monsters/AtlasExiles/AtlasExile1", StringComparison.Ordinal)
+            || id.StartsWith("Metadata/Monsters/AtlasExiles/AtlasExile2", StringComparison.Ordinal)
+            || id.StartsWith("Metadata/Monsters/AtlasExiles/AtlasExile3", StringComparison.Ordinal)
+            || id.StartsWith("Metadata/Monsters/AtlasExiles/AtlasExile4", StringComparison.Ordinal));
+
     /// <summary>A boss the ordinary AI plays as a kit: a monster the campaign places as a boss (IsCampaignBoss: any of
-    /// the ten acts' named monsters, big and small), one with a life bar, or an Essence Karui spirit, with more
-    /// than one effect the client can play. A boss with an encounter controller never asks (PlanMonsterAi skips it
-    /// before this).</summary>
+    /// the ten acts' named monsters, big and small), one with a life bar, an Atlas Guardian/Conqueror, or an Essence
+    /// Karui spirit, with more than one effect the client can play.</summary>
     public static bool IsKitBoss(SkillCatalog catalog, MonsterCatalog.Variety? variety) =>
-        variety is not null && (variety.BossHealthBar || IsCampaignBoss(variety) || variety.Id == Yugul.Image
-            || SolarisLunaris.IsCelestial(variety) || variety.Id == EssenceKaruiSpirit)
+        variety is not null && (variety.BossHealthBar || IsCampaignBoss(variety) || IsAtlasGuardianOrConqueror(variety)
+            || variety.Id == Yugul.Image || SolarisLunaris.IsCelestial(variety) || variety.Id == EssenceKaruiSpirit)
             && Effects(catalog, variety).Count > 1;
 
     /// <summary>Whether the campaign places this monster as a boss: an area with a town to return to names it in

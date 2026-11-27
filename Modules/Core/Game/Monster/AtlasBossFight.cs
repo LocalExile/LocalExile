@@ -36,13 +36,14 @@ abstract class AtlasBossFight
         bound.Add(player);
     }
 
-    protected LifePhaseGate Phases => boss.LifePhases!;
+    protected LifePhaseGate? Phases => boss.LifePhases;
     protected MonsterCatalog.Variety Variety => boss.Variety!;
     // Log prefix: one line per action, the way the King and the Brine King log theirs.
     protected abstract string Name { get; }
     protected abstract ushort ImmunityRow { get; }
     protected abstract string ShieldArt { get; }
     protected abstract string ShieldOffArt { get; }
+    protected bool IsShielding => shielding;
     /// <summary>Where a phase change puts him back: the arena's own middle marker when the area places one, else the
     /// cell he stood on when the fight began. Never the layout's spawn: that is the map entry, and the Shaper stands
     /// 1050 cells from it, so a "blink to the middle" landed him at the door. The Brine King reads the same marker.</summary>
@@ -86,14 +87,22 @@ abstract class AtlasBossFight
         bool watched = players.Any(p => !p.Closed && !p.LeavingArea && p.PlayerLife > 0);
         if (!watched)
         {
-            // Nobody is left to fight: the arena idles. An intermission that was running ends, so a player who comes back
-            // finds a boss that can be damaged instead of one locked behind a shield nothing will ever lift.
-            if (shielding && players.FirstOrDefault(p => !p.Closed) is { } back) await Shield(back, false);
-            if (Phases.Active) EndIntermission();
+            // Nobody is left to fight: the arena idles. An intermission that was running ends and resets subclass phase
+            // state so a player who returns finds a clean boss instead of stale deadlines or leaked phase effects.
+            if (shielding || Phases is { Active: true })
+            {
+                var actor = Present().FirstOrDefault() ?? player;
+                if (shielding) await Shield(actor, false);
+                if (Phases is { Active: true }) EndIntermission();
+                await OnIntermissionAborted(actor);
+            }
             return;
         }
-        if (!Phases.Active && Phases.Begin(boss.Life, boss.MaxLife)) { await Intermission(player, now); return; }
-        if (Phases.Active) { await Intermission(player, now); return; }
+        if (Phases is { } gate)
+        {
+            if (!gate.Active && gate.Begin(boss.Life, boss.MaxLife)) { await Intermission(player, now); return; }
+            if (gate.Active) { await Intermission(player, now); return; }
+        }
         if (now < busyUntil) return;
         await Act(player, now);
     }
@@ -108,7 +117,7 @@ abstract class AtlasBossFight
     /// <see cref="EndIntermission"/>.</summary>
     protected abstract Task Intermission(Player player, double now);
     // Kept for the classes below: an intermission that has played all of its waves closes its own gate.
-    protected void EndIntermission() => Phases.Finish();
+    protected void EndIntermission() => Phases?.Finish();
 
     /// <summary>Plays one of the boss's skills. The clip's own cast time keeps the boss busy; the method returns at once
     /// (MonsterSwing awaits the clip and lands the hit, which must not hold the instance's tick).</summary>
@@ -197,8 +206,9 @@ abstract class AtlasBossFight
         return effect;
     }
 
-    async Task RemoveEffect(uint effect)
+    protected async Task RemoveEffect(uint effect)
     {
+        if (effect == 0) return;
         effects.RemoveAll(e => e.Id == effect);
         foreach (var player in players) lock (player.QuestObjects) player.QuestObjects.Remove(effect);
         await All(InstanceProtocol.RemoveObject(effect));
@@ -207,6 +217,26 @@ abstract class AtlasBossFight
     protected async Task Expire(double now)
     {
         foreach (var effect in effects.Where(e => e.Ends <= now).ToArray()) await RemoveEffect(effect.Id);
+    }
+
+    protected async Task Voice(ushort line, ushort speaker)
+    {
+        foreach (var peer in Watchers())
+            await Send(peer, InstanceNpcs.TextAudio(0, speaker, line), $"{Name} NPCTextAudio {line}");
+    }
+
+    protected async Task Announce(string message)
+    {
+        foreach (var peer in Watchers())
+            await Send(peer, InstanceChat.ChatLine(message), $"{Name} notice");
+    }
+
+    protected static async Task RefreshPlayerStats(Player player)
+    {
+        if (player.Closed || player.LeavingArea) return;
+        player.Pools = PoolsFor(player, player.Pools.Level);
+        player.ApplyMovementSpeed();
+        await SendPlayerStatSnapshot(player, () => PlayerStatsOffFrames(player), null);
     }
 
     /// <summary>A single hit from one of the boss's skills, on the player the skill lands on (a degen tick or a slam the
@@ -226,9 +256,21 @@ abstract class AtlasBossFight
         if (outcome is not null) await PresentMonsterHit(player, id, outcome);
     }
 
+    /// <summary>Called when an active intermission is aborted because no live watchers remain in the arena.
+    /// Subclasses reset their intermission phase flags and remove any temporary phase effects.</summary>
+    protected virtual Task OnIntermissionAborted(Player player) => Task.CompletedTask;
+
+    /// <summary>The players currently in this instance (alive or dead, still connected and not leaving).</summary>
+    protected Player[] Present()
+    {
+        lock (players) return [.. players.Where(p => !p.Closed && !p.LeavingArea)];
+    }
+
     /// <summary>The players the boss can see now (in the instance, awake, alive).</summary>
-    protected Player[] Watchers() =>
-        [.. players.Where(p => !p.Closed && !p.LeavingArea && p.PlayerLife > 0)];
+    protected Player[] Watchers()
+    {
+        lock (players) return [.. players.Where(p => !p.Closed && !p.LeavingArea && p.PlayerLife > 0)];
+    }
 
     protected async Task All(byte[] bytes, bool monster = false)
     {
@@ -246,6 +288,9 @@ abstract class AtlasBossFight
         return MonsterShown(player, id) && !MonsterAsleep(player, id);
     }
 
+    protected virtual Task OnCleanup(Player player) => Task.CompletedTask;
+    protected virtual void OnStop() { }
+
     /// <summary>The boss left the fight (killed, or the instance emptied): the shield comes off so nothing stays locked
     /// behind a phase gate, and the walk estimate keeps the boss's own speed.</summary>
     protected async Task Cleanup(Player player)
@@ -255,7 +300,9 @@ abstract class AtlasBossFight
         try
         {
             if (shielding) await Shield(player, false);
-            if (Phases.Active) EndIntermission();
+            if (Phases is { Active: true }) EndIntermission();
+            await OnCleanup(player);
+            foreach (var effect in effects.ToArray()) await RemoveEffect(effect.Id);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or OperationCanceledException) { }
         Stop();
@@ -264,11 +311,22 @@ abstract class AtlasBossFight
     internal void Stop()
     {
         stopped = true;
-        Phases.DamageTakenPercent = 100;
+        if (Phases is { } gate) gate.DamageTakenPercent = 100;
+        OnStop();
         if (players.FirstOrDefault() is { } player)
             boss.Walk.SetSpeed(boss.Variety?.MovementSpeed ?? 30, AreaTime(player));
     }
 
     protected static double Distance((int X, int Y) a, (int X, int Y) b) =>
         Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2));
+
+    protected static double LineDistance((int X, int Y) p, (int X, int Y) a, (int X, int Y) b)
+    {
+        double dx = b.X - a.X, dy = b.Y - a.Y;
+        double lenSq = dx * dx + dy * dy;
+        if (lenSq <= 0.001) return Distance(p, a);
+        double t = Math.Clamp(((p.X - a.X) * dx + (p.Y - a.Y) * dy) / lenSq, 0, 1);
+        double projX = a.X + t * dx, projY = a.Y + t * dy;
+        return Math.Sqrt(Math.Pow(p.X - projX, 2) + Math.Pow(p.Y - projY, 2));
+    }
 }

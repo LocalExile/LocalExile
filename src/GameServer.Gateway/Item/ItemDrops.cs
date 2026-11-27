@@ -1228,6 +1228,93 @@ public sealed class ItemDrops
         ("Metadata/Items/DivinationCards/DivinationCardTheEndlessDarkness", 0.15),
     ];
 
+    sealed record BossDropIndex(object From, Dictionary<string, List<GameServer.Storage.GameDataStore.BossItemRow>> ByBoss);
+    volatile BossDropIndex? _bossDropIndex;
+
+    BossDropIndex GetBossDropIndex(DropDataProvider.Snapshot snapshot)
+    {
+        var current = _bossDropIndex;
+        if (current is not null && ReferenceEquals(current.From, snapshot)) return current;
+        var byBoss = new Dictionary<string, List<GameServer.Storage.GameDataStore.BossItemRow>>(StringComparer.Ordinal);
+        foreach (var row in snapshot.BossItems.Values)
+        {
+            if (!byBoss.TryGetValue(row.BossId, out var list)) byBoss[row.BossId] = list = [];
+            list.Add(row);
+        }
+        _bossDropIndex = current = new(snapshot, byBoss);
+        return current;
+    }
+
+    /// <summary>Data-driven boss drops from world.db <c>drop_boss_items</c>: non-unique items (fragments, crests,
+    /// invitations, boss-only currency, gems, cards) roll by their configured chance — with mutually-exclusive
+    /// guaranteed fragment pools (2+ <c>other</c> rows whose fractional chances sum to ~1.0, e.g. Shaper/Elder/T17
+    /// fragments) selecting exactly one fragment per kill — and unpublished (<c>chance IS NULL</c>,
+    /// <c>override_chance IS NULL</c>) unique pool rows granting one weighted unique from the boss's retail unique
+    /// pool without double-rolling <see cref="EncounterJewels"/>.</summary>
+    public IReadOnlyList<Drop> BossDrops(string bossId, int monsterLevel, Random random, DropDataProvider.Snapshot? data = null)
+    {
+        var snapshot = data ?? _dropDataProvider.Current;
+        if (snapshot.Bosses.TryGetValue(bossId, out var boss) && !boss.Enabled) return [];
+        if (!GetBossDropIndex(snapshot).ByBoss.TryGetValue(bossId, out var rows) || rows.Count == 0) return [];
+        var result = new List<Drop>();
+        byte dropLevel = (byte)Math.Clamp(monsterLevel, 1, 100);
+        List<(UniqueCatalog.Definition Def, double Weight)>? uniquePool = null;
+        List<(GameServer.Storage.GameDataStore.BossItemRow Row, double Chance)>? fractionalOthers = null;
+        double fractionalOtherSum = 0;
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            if (row.ItemKind == "unique")
+            {
+                // Explicit chance or override rows are handled by EncounterJewels or dedicated module handlers.
+                if (row.OverrideChance is not null || row.Chance is not null || uniques is null) continue;
+                if (uniques.Find(row.ItemId) is not { } def || def.Name != row.ItemId) continue;
+                double weight = Math.Max(0.05, StockUniqueWeight(def.Name));
+                (uniquePool ??= []).Add((def, weight));
+                continue;
+            }
+            if ((row.OverrideChance ?? row.Chance) is not (> 0 and <= 1 and var chance)) continue;
+            if (row.ItemKind == "other" && chance < 1.0)
+            {
+                (fractionalOthers ??= []).Add((row, chance));
+                fractionalOtherSum += chance;
+                continue;
+            }
+            if (chance < 1.0 && random.NextDouble() >= chance) continue;
+            if (catalog.Find(row.ItemId) is { Supported: true } type)
+                result.Add(new(ItemCatalog.Create(type) with { ItemLevel = dropLevel }, type));
+        }
+        if (fractionalOthers is { Count: > 0 })
+        {
+            // Mutually-exclusive guaranteed fragment pools (e.g. Shaper 0.50/0.50, Elder 0.50/0.50, T17 0.50/0.50 or
+            // 0.34/0.33/0.33) always pick exactly one fragment; single fractional items roll independently.
+            if (fractionalOthers.Count >= 2 && fractionalOtherSum is >= 0.95 and <= 1.05)
+            {
+                if (Pick(fractionalOthers, random) is { } chosenOther
+                    && catalog.Find(chosenOther.ItemId) is { Supported: true } type)
+                    result.Add(new(ItemCatalog.Create(type) with { ItemLevel = dropLevel }, type));
+            }
+            else
+            {
+                for (int i = 0; i < fractionalOthers.Count; i++)
+                {
+                    var (row, chance) = fractionalOthers[i];
+                    if (random.NextDouble() < chance && catalog.Find(row.ItemId) is { Supported: true } type)
+                        result.Add(new(ItemCatalog.Create(type) with { ItemLevel = dropLevel }, type));
+                }
+            }
+        }
+        if (uniquePool is { Count: > 0 } && uniques is not null && Pick(uniquePool, random) is { } chosen)
+        {
+            int bonus = chosen.EncounterItemLevelBonus ?? ItemLevelBonus(MonsterRarity.Unique);
+            byte uqLevel = (byte)Math.Clamp(monsterLevel + (long)bonus, 1, 100);
+            if (uniques.Create(chosen with { ItemLevel = uqLevel }, random) is { } item
+                && catalog.ByHash(item.TypeHash) is { } type)
+                result.Add(new(item with { Identified = false }, type));
+        }
+        return result;
+    }
+
     public IReadOnlyList<Drop> EncounterJewels(string bossId, int monsterLevel, Random random, DropDataProvider.Snapshot data)
     {
         if (uniques is null || data.Bosses.TryGetValue(bossId, out var boss) && !boss.Enabled) return [];
