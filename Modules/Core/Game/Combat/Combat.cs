@@ -20,6 +20,7 @@ public static partial class Game
     {
         EndCycloneStages(player, player.ChannelGeneration, AreaTime(player));
         RetireDivineIre(player, player.ChannelGeneration);
+        RetireStormbind(player, player.ChannelGeneration);
         int generation = ++player.ChannelGeneration;
         player.ChannelSkill = skill;
         player.ChannelSkillSequence = sequence;
@@ -41,6 +42,7 @@ public static partial class Game
             RetireChargedDashLocked(player, started);
             RetireBladeFlurry(player, started);
             RetireDivineIre(player, started);
+            RetireStormbind(player, started);
             if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill)
             {
                 var (x, y) = player.Walk.Position(at);
@@ -1660,6 +1662,8 @@ public static partial class Game
                         channelGeneration = BeginPaidChannel(player, skillId, gem.Effect, action, sequence);
                         if (IsDivineIre(player, gem.Effect))
                             BeginDivineIre(player, skillId, sequence, paymentGem, channelGeneration.Value, action, to);
+                        if (IsStormbind(player, gem.Effect))
+                            BeginStormbind(player, paymentGem, gem, sequence, channelGeneration.Value, action, to, cost);
                         if (IsBladeFlurry(player, gem.Effect))
                             BeginBladeFlurry(player, paymentGem, skillId, action, channelGeneration.Value, sequence, to);
                         if (IsChargedDash(player, gem.Effect))
@@ -1750,7 +1754,7 @@ public static partial class Game
             { AbortStartedChannel(player, channelGeneration); return false; }
             player.NextChannelHitAt = AreaTime(player) + (IsSnipe(gem.Effect) ? interval / 2 : interval);
             _ = RunChannel(player, skillId, gem, action, to, initialCostPaid: true);
-            if (IsDivineIre(player, gem.Effect)) return CompleteSupportedUse(true);
+            if (IsDivineIre(player, gem.Effect) || IsStormbind(player, gem.Effect)) return CompleteSupportedUse(true);
             if (IsChargedDash(player, gem.Effect))
             {
                 if (SkillsFor(player).IsTravel(gem.Effect))
@@ -2641,6 +2645,8 @@ public static partial class Game
         }
         bool divineIre = IsDivineIre(player, gem.Effect);
         var divine = divineIre ? CurrentDivineIre(player) : null;
+        bool stormbind = IsStormbind(player, gem.Effect);
+        var storm = stormbind ? CurrentStormbind(player) : null;
         try
         {
             if (dash is not null) StartChargedDashWave(player, dash, channelStarted);
@@ -2652,6 +2658,8 @@ public static partial class Game
                 StartScourgeChannel(player, gem, action, generation, channelSequence, initialAim, initialCostPaid);
             else if (initialCostPaid && divine is not null)
                 PulseDivineIre(player, divine, gem, lycia?.Pact.DamageMore ?? 1);
+            else if (initialCostPaid && storm is not null)
+                PulseStormbind(player, storm, storm.InitialMana, lycia?.Pact.DamageMore ?? 1);
             // Overheat's per-3 value, read once for the channel rather than a skill build on every tick.
             const uint overheatStat = Stat.SupportOverheatAilmentDamagePlusPctFinalPer3FortificationConsumed;
             int overheatPerThree = overheatStat is var overheatKey
@@ -2689,6 +2697,11 @@ public static partial class Game
                     AbortStartedChannel(player, generation);
                     return;
                 }
+                if (storm is not null && (blocked || !StormbindChannelCurrent(player, storm)))
+                {
+                    AbortStartedChannel(player, generation);
+                    return;
+                }
                 if (blocked) { player.NextChannelHitAt = now + TickSeconds; continue; }
                 var activeGem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
                 if (activeGem.Name is null || activeGem.Effect != gem.Effect
@@ -2708,7 +2721,7 @@ public static partial class Game
                 }
                 else if (!PayMana(player, skillId, out cost, out lifeCost, 100, useSpell: false))
                 {
-                    if (dash is not null || divineIre) await EndPaidChannel(now);
+                    if (dash is not null || divineIre || stormbind) await EndPaidChannel(now);
                     else
                     {
                         lock (LevelUpdatesFor(player).Gate)
@@ -2772,6 +2785,11 @@ public static partial class Game
                     if (divine is not null) PulseDivineIre(player, divine, gem, lycia?.Pact.DamageMore ?? 1);
                     continue;
                 }
+                if (stormbind)
+                {
+                    if (storm is not null) PulseStormbind(player, storm, cost, lycia?.Pact.DamageMore ?? 1);
+                    continue;
+                }
                 double focusedMore = FocusedChannelMore(now - channelStarted,
                     GolemStat(SupportedSkill(player, skillId).Stats, Stat.SupportFocusChannelDamagePlusPctFinalPerSecondChannellingUpTo60Pct));
                 if (dash is not null)
@@ -2807,6 +2825,12 @@ public static partial class Game
                     RetireChargedDashLocked(player, generation);
                     dashLanding = dash.Landing;
                 }
+            if (storm is not null)
+                lock (LevelUpdatesFor(player).Gate)
+                {
+                    RetireStormbind(player, generation);
+                    dashLanding ??= storm.Landing;
+                }
             if (!player.Connection.LockstepClient)
                 await EmitPredictiveChannelFinished(player, generation, channelSequence, dashLanding);
             if (divine is not null)
@@ -2836,7 +2860,8 @@ public static partial class Game
         ScourgeAimedAt(player, (x, y));
         if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill) player.Walk.Order(x, y, at);
         bool aimed = AimDivineIre(player, (x, y));
-        return AimBladeFlurry(player, (x, y)) || dashAimed || aimed;
+        bool stormAimed = AimStormbind(player, (x, y));
+        return AimBladeFlurry(player, (x, y)) || dashAimed || aimed || stormAimed;
     }
 
     // C→S 0x193 (class 0x1431767e8, writer 0x140911210, sender 0x14011ecb0): retarget an active held or channelled
@@ -2923,6 +2948,7 @@ public static partial class Game
         {
             var landing = ReleaseChargedDashLocked(player, at);
             ReleaseDivineIreLocked(player, at, lycia);
+            landing ??= ReleaseStormbindLocked(player, at);
             SnipeReleasedByInput(player, at);
             ReleaseScourgeChannel(player, at);
             _ = ReleaseBladeFlurry(player, at);
@@ -2956,7 +2982,7 @@ public static partial class Game
                 || CurrentChargedDash(player) is not null
                 || player.PaidChannel is { } paid && paid.Skill == skill
                     && (SkillsFor(player).EffectId(paid.Effect) is "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale"
-                        || IsDivineIre(player, paid.Effect))
+                        || IsDivineIre(player, paid.Effect) || IsStormbind(player, paid.Effect))
                 || AreaTime(player) - player.LastChannelUpdateAt <= ChannelSilenceSeconds);
     }
 
