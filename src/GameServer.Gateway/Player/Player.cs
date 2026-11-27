@@ -348,6 +348,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>The rest of a boss's skills (BossKits): the effect each one comes from, its action and its cooldown.
     /// Empty for every monster that swings one attack.</summary>
     public IReadOnlyList<MonsterKitSkill> Kit { get; init; } = [];
+    public IReadOnlyList<int>? OwnedSkillEffects { get; init; }
     /// <summary>The effect behind each id on the actor's skill list, so a mod's command can play any of the monster's own
     /// skills by the GrantedEffects Id the client shows. Empty when the spawn named none.</summary>
     public IReadOnlyList<(int Effect, ushort Id)> SkillIds { get; init; } = [];
@@ -1219,6 +1220,13 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public void ReplaceAreaTransition(uint id, AreaTransitionObject transition) =>
         Layout = Layout with { AreaTransitions = [.. Layout.AreaTransitions.Select(e => e.Id == id ? (e.Id, transition) : e)] };
 
+    /// <summary>Publishes a dynamically added exit in this view without resetting the current walk.</summary>
+    public void AddAreaTransition(uint id, AreaTransitionObject transition)
+    {
+        if (Layout.AreaTransitions.Any(e => e.Id == id)) return;
+        Layout = Layout with { AreaTransitions = [.. Layout.AreaTransitions, (id, transition)] };
+    }
+
     // The quest walls (Barrier) are read on every path, so a wall that opens or closes counts from the next order on.
     private PlayerWalk NewPlayerWalk()
     {
@@ -1273,6 +1281,9 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     // spike traps close, by id.
     public readonly Dictionary<uint, AreaPopulation.RoomObject> TrialObjects = [];
     public readonly Dictionary<uint, IReadOnlySet<(int X, int Y)>> DoorBarriers = [];
+    // Optional per-door sight/projectile layer overrides (layer 1: proj_tri/proj_circle only). Doors absent from this
+    // map default to blocking both walking and sight; walk-only grates register an empty set so blink/dash can cross.
+    public readonly Dictionary<uint, IReadOnlySet<(int X, int Y)>> SightDoorBarriers = [];
     // Cells server objects' Hull projectile shapes close to the server's projectiles, as the client stamps them into its
     // own projectile map (a trial's dart turrets). Changed and read in the area's frame.
     public readonly HashSet<(int X, int Y)> ProjectileWalls = [];
@@ -1280,10 +1291,28 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     // QuestRoomObjects' and DoorBarriers' cells.
     public volatile IReadOnlySet<(int X, int Y)> Barrier = new HashSet<(int X, int Y)>();
 
-    /// <summary>Recomputes <see cref="Barrier"/> from the standing quest walls and closed doors; the player's walk estimate
-    /// reads it on its next order (call in the area's frame).</summary>
-    public void UpdateBarrier() =>
-        Barrier = new HashSet<(int X, int Y)>(QuestRoomObjects.Values.SelectMany(o => o.Cells).Concat(DoorBarriers.Values.SelectMany(c => c)));
+    sealed class DoorLayers(IEnumerable<(int X, int Y)> walk, IReadOnlySet<(int X, int Y)> sight)
+        : HashSet<(int X, int Y)>(walk)
+    {
+        public IReadOnlySet<(int X, int Y)> Sight { get; } = sight;
+    }
+
+    public IReadOnlySet<(int X, int Y)> SightBarrier => Barrier switch { DoorLayers layers => layers.Sight, var walk => walk };
+
+    public void UpdateBarrier()
+    {
+        var quest = QuestRoomObjects.Values.SelectMany(o => o.Cells);
+        var walk = quest.Concat(DoorBarriers.Values.SelectMany(c => c));
+        if (SightDoorBarriers.Count == 0)
+        {
+            Barrier = walk.ToHashSet();
+            return;
+        }
+        var sight = quest.ToHashSet();
+        foreach (var (id, cells) in DoorBarriers)
+            sight.UnionWith(SightDoorBarriers.TryGetValue(id, out var custom) ? custom : cells);
+        Barrier = new DoorLayers(walk, sight);
+    }
     // The player's attacks: the next time one may start (Clock seconds). The client repeats 0x24 while the button is held.
     public double NextAttackAt;
     // Counts the player's actions; an attack's hit lands only if no other action started since (moving cancels it).

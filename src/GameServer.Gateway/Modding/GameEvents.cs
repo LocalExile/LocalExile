@@ -375,6 +375,15 @@ public static class GameEvents
 
     /// <summary>A killed monster's drops, before they are rolled: scale them, add items, or cancel them.</summary>
     public static readonly GameEvent<Action<DropRoll>> Drops = new();
+    /// <summary>A newly generated ground item's final contents, before publication, for kills and containers alike.</summary>
+    public static readonly GameEvent<Func<Player, Item, Item>> GroundItemPreparing = new();
+
+    public static Item PrepareGroundItem(Player player, Item item)
+    {
+        foreach (var (owner, run) in GroundItemPreparing.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(GroundItemPreparing), () => item = run(player, item));
+        return item;
+    }
 
     /// <summary>A gamble window as it opens (an NPC whose shop is the black market, window kind 10): add, remove or reprice
     /// its offers.</summary>

@@ -298,20 +298,21 @@ static class LegionRewards
         var rules = Program.LeagueFor(player).Rules;
         var rng = global::Game.AreaRng(player);
         int level = Math.Clamp(drop.Monster.Level, 1, 100);
+        drop.Quantity *= fighter.RewardFactor;
         foreach (int row in fighter.Rewards)
         {
-            int count = ScaleCount(ItemsPerReward, rules.ItemDropMultiplier, rng);
+            int count = ScaleCount(ItemsPerReward, rules.ItemDropMultiplier * fighter.RewardFactor, rng);
             if (count > 0) RollReward(player, drop.Made, drop.Stacks, row, level, count, rng);
         }
         // Splinters: sergeants and the general only (the chests: LegionRewards.Chest).
         if (fighter.Tier == 2 && rng.Next(100) < SergeantSplinterChance)
         {
-            int splinters = ScaleCount(rng.Next(SergeantSplinterMin, SergeantSplinterMax + 1), rules.ItemDropMultiplier, rng);
+            int splinters = ScaleCount(rng.Next(SergeantSplinterMin, SergeantSplinterMax + 1), rules.ItemDropMultiplier * fighter.RewardFactor, rng);
             if (splinters > 0) AddSplinter(drop.Stacks, fighter.FactionId, splinters);
         }
         else if (fighter.Tier == 3)
         {
-            int splinters = ScaleCount(rng.Next(GeneralSplinterMin, GeneralSplinterMax + 1), rules.ItemDropMultiplier, rng, minimum: 1);
+            int splinters = ScaleCount(rng.Next(GeneralSplinterMin, GeneralSplinterMax + 1), rules.ItemDropMultiplier * fighter.RewardFactor, rng, minimum: 1);
             AddSplinter(drop.Stacks, fighter.FactionId, splinters);
             if (Factions.TryGetValue(fighter.FactionId == "Faridun" ? "Maraketh" : fighter.FactionId, out var f))
             {
