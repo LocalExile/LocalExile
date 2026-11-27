@@ -158,7 +158,7 @@ public static partial class Game
             int mapTier = map?.Area.Tier ?? 0;
             string dropAreaId = map?.Area.DivinationCardArea ?? player.Layout.Id;
             var killContext = DropContext.MonsterKill(m.Rarity, isBoss, m.Variety?.Id,
-                areaId: dropAreaId, leagueId: league.Id, hardMode: league.HardMode);
+                areaId: player.Layout.Id, leagueId: league.Id, hardMode: league.HardMode);
             drops.AddRange(DropsFor(player).Roll(
                 m.Level, m.Rarity, rng, iir,
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * iiq,
@@ -178,7 +178,7 @@ public static partial class Game
                 quantityFactor: ItemQuantityFactor(player)) is { } gold)
                 drops.Add(gold);
             var mapCurrencyContext = DropContext.MapCurrency(m.Rarity, isBoss, m.Variety?.Id,
-                areaId: dropAreaId, leagueId: league.Id, hardMode: league.HardMode);
+                areaId: player.Layout.Id, leagueId: league.Id, hardMode: league.HardMode);
             drops.AddRange(ExtraDropsFromMap(player, m.Level, m.Rarity, rng, modded?.Weights, mapCurrencyContext));
             drops.AddRange(Sirus.Rewards(player, m));
         }

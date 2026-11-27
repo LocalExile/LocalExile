@@ -303,7 +303,7 @@ public sealed class ItemDrops
                     if (ResolveBase(entry.ItemId) is { } sc) scarabOverlays.Add(new(entry, sc, null));
                     break;
                 case DropPoolCategory.Unique:
-                    if (uniques?.Find(entry.ItemId) is { } uq)
+                    if (ResolveExactUnique(entry.ItemId) is { } uq)
                     {
                         var resolved = new ResolvedOverlayEntry(entry, ResolveBase(uq.BaseTypeId), uq);
                         uniqueOverlays.Add(resolved);
@@ -314,13 +314,17 @@ public sealed class ItemDrops
                     }
                     break;
                 case DropPoolCategory.Boss:
-                    if (uniques?.Find(entry.ItemId) is { } bossUq)
+                    if (catalog.ById(entry.ItemId) is { Supported: true } bossExactBase)
+                        bossOverlays.Add(new(entry, bossExactBase, null));
+                    else if (ResolveExactUnique(entry.ItemId) is { } bossUq)
                         bossOverlays.Add(new(entry, ResolveBase(bossUq.BaseTypeId), bossUq));
                     else if (ResolveBase(entry.ItemId) is { } bossBase)
                         bossOverlays.Add(new(entry, bossBase, null));
                     break;
                 case DropPoolCategory.General:
-                    if (uniques?.Find(entry.ItemId) is { } genUq)
+                    if (catalog.ById(entry.ItemId) is { Supported: true } genExactBase)
+                        generalOverlays.Add(new(entry, genExactBase, null));
+                    else if (ResolveExactUnique(entry.ItemId) is { } genUq)
                         generalOverlays.Add(new(entry, ResolveBase(genUq.BaseTypeId), genUq));
                     else if (ResolveBase(entry.ItemId) is { } genBase)
                         generalOverlays.Add(new(entry, genBase, null));
@@ -336,9 +340,26 @@ public sealed class ItemDrops
             currencyOverlays, equipmentOverlays, flaskOverlays, tinctureOverlays, gemOverlays,
             cardOverlays, scarabOverlays, uniqueOverlays, bossOverlays, generalOverlays, uniqueOverlaysByName);
 
-        ItemCatalog.BaseType? ResolveBase(string idOrName) =>
-            catalog.ById(idOrName) is { Supported: true } exact ? exact
-            : catalog.Find(idOrName) is { Supported: true } found ? found : null;
+        ItemCatalog.BaseType? ResolveBase(string idOrName)
+        {
+            if (catalog.ById(idOrName) is { Supported: true } exact) return exact;
+            var all = catalog.All;
+            for (int j = 0; j < all.Count; j++)
+                if (all[j].Supported && string.Equals(all[j].Name, idOrName, StringComparison.OrdinalIgnoreCase))
+                    return all[j];
+            return null;
+        }
+
+        UniqueCatalog.Definition? ResolveExactUnique(string name)
+        {
+            if (uniques is null || string.IsNullOrWhiteSpace(name)) return null;
+            string key = UniqueCatalog.NameKey(name);
+            var all = uniques.All;
+            for (int j = 0; j < all.Count; j++)
+                if (UniqueCatalog.NameKey(all[j].Name).Equals(key, StringComparison.OrdinalIgnoreCase))
+                    return all[j];
+            return null;
+        }
     }
 
     DropContext NormalizeContext(DropContext? context, DropSourceMask defaultSource, MonsterRarity? rarity = null,
@@ -550,7 +571,7 @@ public sealed class ItemDrops
             .Where(row => row.Key.Category == category && row.Value is { Enabled: true, Weight: > 0 })
             .ToDictionary(row => row.Key.ItemId, row => row.Value.Weight, StringComparer.Ordinal);
 
-    List<ResolvedOverlayEntry> MatchingOverlays(IReadOnlyList<ResolvedOverlayEntry> overlays, int level, in DropContext context)
+    IReadOnlyList<ResolvedOverlayEntry> MatchingOverlays(IReadOnlyList<ResolvedOverlayEntry> overlays, int level, in DropContext context)
     {
         if (overlays.Count == 0) return [];
         var tags = AreaTagsOf(context);
@@ -562,7 +583,7 @@ public sealed class ItemDrops
             if (!ov.Entry.Matches(level, context, tags)) continue;
             (hits ??= []).Add(ov);
         }
-        return hits ?? [];
+        return (IReadOnlyList<ResolvedOverlayEntry>?)hits ?? [];
     }
 
     static ushort ClampStack(ItemCatalog.BaseType type, ushort stackSize) =>
@@ -572,7 +593,7 @@ public sealed class ItemDrops
     /// uniformly; either weight times the type's factor in <paramref name="factors"/>. Null when none can drop.</summary>
     static (ItemCatalog.BaseType Type, ushort StackSize)? PickCategory(
         PoolState state, List<ItemCatalog.BaseType> types, string category, int level, Random rng, DropWeights? factors,
-        List<ResolvedOverlayEntry> overlays)
+        IReadOnlyList<ResolvedOverlayEntry> overlays)
     {
         var weights = category == "card" ? state.CardWeights : state.ScarabWeights;
         if (overlays.Count == 0)
@@ -1314,8 +1335,8 @@ public sealed class ItemDrops
         double gemWeight = settings.DropWeightGems * settings.DropMultiplier("gems") * (weights?.Gems ?? 1);
         double flaskWeight = settings.DropWeightFlasks * settings.DropMultiplier("flasks") * (weights?.Flasks ?? 1);
         double equipmentWeight = settings.DropWeightEquipment * settings.DropMultiplier("equipment") * (weights?.Equipment ?? 1);
-        List<ResolvedOverlayEntry>? generalWeighted = null;
-        List<ResolvedOverlayEntry>? bossWeighted = null;
+        IReadOnlyList<ResolvedOverlayEntry>? generalWeighted = null;
+        IReadOnlyList<ResolvedOverlayEntry>? bossWeighted = null;
         double generalWeight = 0;
         double bossWeight = 0;
         if (state.GeneralOverlays.Count > 0)
@@ -1370,7 +1391,7 @@ public sealed class ItemDrops
         return type is null ? null : Rolled(state, type, level, itemLevel, chances, rng, in context);
     }
 
-    List<ResolvedOverlayEntry> MatchingWeightedOverlays(IReadOnlyList<ResolvedOverlayEntry> overlays, int level, in DropContext context)
+    IReadOnlyList<ResolvedOverlayEntry> MatchingWeightedOverlays(IReadOnlyList<ResolvedOverlayEntry> overlays, int level, in DropContext context)
     {
         if (overlays.Count == 0) return [];
         var tags = AreaTagsOf(context);
@@ -1383,10 +1404,10 @@ public sealed class ItemDrops
             if (!ov.Entry.Matches(level, context, tags)) continue;
             (hits ??= []).Add(ov);
         }
-        return hits ?? [];
+        return (IReadOnlyList<ResolvedOverlayEntry>?)hits ?? [];
     }
 
-    static ResolvedOverlayEntry? PickWeightedOverlay(List<ResolvedOverlayEntry> list, Random rng)
+    static ResolvedOverlayEntry? PickWeightedOverlay(IReadOnlyList<ResolvedOverlayEntry> list, Random rng)
     {
         double total = 0;
         for (int i = 0; i < list.Count; i++) total += Math.Max(0, list[i].Entry.Weight);
@@ -1431,6 +1452,9 @@ public sealed class ItemDrops
             {
                 var ov = list[i];
                 if (ov.Entry.Chance is not (> 0 and double baseChance)) continue;
+                // First-kill campaign bosses invoke both RollBossFirstKillBonus and Roll; only run overlays that
+                // explicitly opted into BossBonus (not default DropSourceMask.All) during BossBonus to avoid double-drops.
+                if (context.Source == DropSourceMask.BossBonus && ov.Entry.Sources == DropSourceMask.All) continue;
                 if (ov.BaseType is { } bt && !Allowed(bt, level)) continue;
                 if (!ov.Entry.Matches(level, context, tags)) continue;
                 double effective = context.Source == DropSourceMask.MonsterKill
@@ -1708,7 +1732,9 @@ public sealed class ItemDrops
             bool anyMatched = false;
             for (int i = 0; i < ovList.Count; i++)
                 if (ovList[i].Entry.Matches(monsterLevel, ctx, tags)) { anyMatched = true; break; }
-            if (!anyMatched) return false;
+            if (!anyMatched && uniques?.OverlayWeight(definition.Name, hardMode) is null
+                && (uniques is null || !uniques.HasStockDefinition(definition.Name)))
+                return false;
         }
         if (state.Uniques is { } index
             && index.ByBase.TryGetValue(definition.BaseTypeId, out var entries))
@@ -1848,24 +1874,42 @@ public sealed class ItemDrops
     double UniqueWeight(PoolState state, string name, int level, DropContext? context)
     {
         string key = UniqueCatalog.NameKey(name);
+        bool anyWeightedOverlay = false;
         if (state.UniqueOverlaysByName.TryGetValue(key, out var overlays))
         {
             double weight = 0;
-            bool anyWeighted = false;
+            bool anyMatched = false;
             var ctx = context ?? NormalizeContext(null, DropSourceMask.MonsterKill);
             var tags = AreaTagsOf(ctx);
             for (int i = 0; i < overlays.Count; i++)
             {
                 var ov = overlays[i];
-                if (ov.Entry.Weight <= 0) continue;
-                anyWeighted = true;
-                if (context is null || ov.Entry.Matches(level, ctx, tags))
+                if (ov.Entry.Chance is > 0 || ov.Entry.Weight <= 0) continue;
+                anyWeightedOverlay = true;
+                bool matched;
+                if (context is null)
+                {
+                    matched = (ov.Entry.HardModeOnly is not bool hm || hm == hardMode)
+                        && (ov.Entry.Leagues is not { Count: > 0 }
+                            || (!string.IsNullOrEmpty(_leagueId)
+                                && ov.Entry.Leagues.Any(l => string.Equals(l, _leagueId, StringComparison.OrdinalIgnoreCase))));
+                }
+                else
+                {
+                    matched = ov.Entry.Matches(level, ctx, tags);
+                }
+                if (matched)
+                {
+                    anyMatched = true;
                     weight += ov.Entry.Weight;
+                }
             }
-            if (anyWeighted) return weight;
+            if (anyMatched) return weight;
         }
         if (uniques?.OverlayWeight(name, hardMode) is double overlayWeight)
             return Math.Max(0, overlayWeight);
+        if (anyWeightedOverlay && uniques is not null && !uniques.HasStockDefinition(name))
+            return 0;
         return StockUniqueWeight(name);
     }
 

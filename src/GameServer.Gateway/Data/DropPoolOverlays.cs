@@ -164,7 +164,8 @@ public sealed record DropPoolEntry(DropPoolCategory Category, string ItemId, dou
                     tagHit = true;
                     break;
                 }
-                if (tags is not null && tags.Contains(wanted))
+                if (tags is not null && (tags.Contains(wanted)
+                    || tags.Any(t => string.Equals(t, wanted, StringComparison.OrdinalIgnoreCase))))
                 {
                     tagHit = true;
                     break;
@@ -285,11 +286,17 @@ public sealed class DropPoolOverlays
         ArgumentNullException.ThrowIfNull(entry);
         if (string.IsNullOrWhiteSpace(entry.ItemId))
             throw new ArgumentException("DropPoolEntry.ItemId must be non-empty.", nameof(entry));
-        bool hasChance = entry.Chance is double c && double.IsFinite(c) && c > 0;
-        if (!hasChance && (!double.IsFinite(entry.Weight) || entry.Weight <= 0))
-            throw new ArgumentOutOfRangeException(nameof(entry), "DropPoolEntry.Weight must be finite and positive when Chance is not set.");
+        if (!double.IsFinite(entry.Weight) || entry.Weight < 0)
+            throw new ArgumentOutOfRangeException(nameof(entry), "DropPoolEntry.Weight must be finite and non-negative.");
+        if (entry.MaxAreaLevel > 0 && entry.MinAreaLevel > entry.MaxAreaLevel)
+            throw new ArgumentOutOfRangeException(nameof(entry), "DropPoolEntry.MinAreaLevel must not exceed MaxAreaLevel.");
         if (entry.Chance is double chance && (!double.IsFinite(chance) || chance < 0 || chance > 1))
             throw new ArgumentOutOfRangeException(nameof(entry), "DropPoolEntry.Chance must be in [0, 1].");
+        bool hasChance = entry.Chance is double c && c > 0;
+        if (hasChance && entry.Category is not (DropPoolCategory.Boss or DropPoolCategory.General or DropPoolCategory.Unique))
+            throw new ArgumentOutOfRangeException(nameof(entry), "DropPoolEntry.Chance is only supported on Boss, General, and Unique categories.");
+        if (!hasChance && entry.Weight <= 0)
+            throw new ArgumentOutOfRangeException(nameof(entry), "DropPoolEntry.Weight must be finite and positive when Chance is not set.");
     }
 
     sealed class Undo(Action undo) : IDisposable

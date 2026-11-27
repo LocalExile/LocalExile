@@ -199,6 +199,29 @@ public sealed class DropPoolOverlaysTests
             Assert.NotNull(Game.Uniques.Find(CustomUniqueName));
             var afterReload = drops.CurrencyDrop(50, rng, weights: null, context: DropContext.MonsterKill(MonsterRarity.Rare));
             Assert.Equal(CustomCurrencyId, afterReload?.Type.Id);
+
+            // 9. Scoped Unique overlay on a stock unique must not zero/disable that stock unique in other leagues,
+            //    AreaTags matching is case-insensitive, and Validate rejects non-finite weights even when Chance > 0.
+            var stockUnique = Game.Uniques.All.First(u => !u.EncounterOnly && drops.UniqueWeight(u.Name) > 0);
+            double stockWeightBefore = drops.UniqueWeight(stockUnique.Name);
+            using (DropPoolOverlays.Register(owner, new DropPoolEntry(DropPoolCategory.Unique, stockUnique.Name, 5.0)
+            {
+                Leagues = ["OnlySpecialLeague"],
+            }))
+            {
+                Assert.True(drops.IsDropEligibleUnique(stockUnique, 83, DropContext.MonsterKill(MonsterRarity.Unique, leagueId: "Standard")));
+                Assert.Equal(stockWeightBefore, drops.UniqueWeight(stockUnique.Name));
+            }
+            var upperTagHits = Enumerable.Range(1, 8)
+                .Select(seed => drops.CurrencyDrop(10, new Random(seed), weights: null,
+                    context: DropContext.MonsterKill(MonsterRarity.Normal, areaTags: new HashSet<string>(["SHORE"]), leagueId: "OverlayLeague")))
+                .Where(d => d is not null)
+                .ToList();
+            Assert.Contains(upperTagHits, d => d!.Type.Id == CustomTaggedOrbId);
+            Assert.Throws<ArgumentOutOfRangeException>(() => DropPoolOverlays.Register(owner,
+                new DropPoolEntry(DropPoolCategory.Boss, CustomBossTokenId, double.PositiveInfinity) { Chance = 0.5 }));
+            Assert.Throws<ArgumentOutOfRangeException>(() => DropPoolOverlays.Register(owner,
+                new DropPoolEntry(DropPoolCategory.Currency, CustomCurrencyId, 0) { Chance = 0.5 }));
         }
         finally
         {

@@ -256,6 +256,16 @@ public sealed partial class UniqueCatalog
     bool IsOverlayUnique(Definition definition) =>
         CurrentSnapshot().OverlayNames.Contains(NameKey(definition.Name));
 
+    internal bool HasStockDefinition(string name)
+    {
+        string key = NameKey(name);
+        var stock = GameDataCatalog.Uniques;
+        for (int i = 0; i < stock.Length; i++)
+            if (NameKey(stock[i].Name).Equals(key, StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
+    }
+
     /// <summary>Creatable collection entries include the named-map catalogue as well as equipment and jewels.</summary>
     public IReadOnlyList<(string Name, Item? Item)> CollectionItems(Random random)
     {

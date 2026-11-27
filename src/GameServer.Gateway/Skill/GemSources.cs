@@ -86,8 +86,13 @@ public static class GemSources
             if (items.Find(name) is { } type && items.Gem(type) is not null) pool.Add(type.Row);
         var overlays = _overlays;
         for (int i = 0; i < overlays.Length; i++)
-            if (items.Find(overlays[i].BaseTypeId) is { Supported: true } type)
+        {
+            string id = overlays[i].BaseTypeId;
+            var type = items.ById(id)
+                ?? items.All.FirstOrDefault(t => t.Supported && string.Equals(t.Name, id, StringComparison.OrdinalIgnoreCase));
+            if (type is { Supported: true } && items.Gem(type) is not null)
                 pool.Add(type.Row);
+        }
         return pool;
     }
 
