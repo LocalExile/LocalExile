@@ -22,14 +22,25 @@ public static partial class Game
         var value = player.Rage.Read(ProjectileWorldTime(player), inputs);
         if (player.Rage.NextChangeAt() is double next) StatsChangeAt(next, () => ProjectileWorldTime(player));
         RageStats.ExpandItems(stats, value.Effective);
-        if (value.Current > 0)
+        if (value.Effective > 0)
         {
             int stun = RageStat(stats, Stat.StunThresholdPlusPctPerRage);
             if (stun != 0)
                 stats[Stat.StunThresholdPlusPct] = ActorScale.Saturate(
-                    (long)RageStat(stats, Stat.StunThresholdPlusPct) + (long)stun * value.Current);
+                    (long)RageStat(stats, Stat.StunThresholdPlusPct) + (long)stun * value.Effective);
         }
-        long increased = (long)RageStat(stats, Stat.AttackSpeedPlusPctPerRage) * value.Current
+        int speedPerRage = RageStat(stats, Stat.AttackSpeedPlusPctPerRage);
+        long rageAttackSpeed = (long)speedPerRage * value.Effective;
+        if (speedPerRage != 0)
+            stats[Stat.AttackSpeedPlusPctFromRage] = ActorScale.Saturate(rageAttackSpeed);
+        int movePer5Rage = RageStat(stats, Stat.MovementSpeedPlusPctPer5Rage);
+        if (movePer5Rage != 0)
+            stats[Stat.MovementSpeedPlusPctFromRage] = ActorScale.Saturate((long)(value.Effective / 5) * movePer5Rage);
+        bool grantsCastSpeed = rageAttackSpeed != 0 && RageStat(stats, Stat.RageGrantsCastSpeedInstead) != 0;
+        if (grantsCastSpeed)
+            stats[Stat.CastSpeedPlusPct] = ActorScale.Saturate(
+                (long)RageStat(stats, Stat.CastSpeedPlusPct) + rageAttackSpeed);
+        long increased = (grantsCastSpeed ? 0L : rageAttackSpeed)
             + CorpsePactSpeed(player, stats, AreaTime(player));
         if (RageStat(stats, Stat.AttackSpeedPlusPctPerMinionUpTo80Pct) is int perMinion and > 0)
             increased += Math.Min(80L, (long)perMinion * stats.GetValueOrDefault(Stat.NumberOfActiveMinions));
@@ -161,9 +172,9 @@ public static partial class Game
             LoyaltyMaxRageLocked(player, stats);
         if (player.SentRage == value && player.SentVaalPrevention == prevention) return [];
         bool speedChanged = RageStat(stats, Stat.MovementSpeedPlusPctPer5Rage) != 0
-            && (player.SentRage?.Current ?? 0) / 5 != value.Current / 5;
+            && (player.SentRage?.Effective ?? 0) / 5 != value.Effective / 5;
         bool armourChanged = RageStat(stats, Stat.ArmourPlusPctPerRage) != 0
-            && (player.SentRage?.Current ?? 0) != value.Current;
+            && (player.SentRage?.Effective ?? 0) != value.Effective;
         if (speedChanged || armourChanged)
         {
             // Update pools so both incoming-hit armour and panel stats follow the new Rage; update predictive walk speed too.

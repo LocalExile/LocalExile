@@ -437,6 +437,115 @@ public sealed class CombatBugFixesTests
         }
     }
 
+    [Fact]
+    public void Crave_the_Slaughter_scales_attack_speed_and_per_rage_effects_by_effective_rage()
+    {
+        var clock = new StepClock();
+        using var f = new TriggeredSummonTests.Fixture(clock);
+        var player = f.Player;
+        var previous = Game.AreaUpdateContext.Value;
+        player.ProjectileRuntimeState = f.Session;
+        f.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+        Game.AreaUpdateContext.Value = new(f.Lifetime, clock);
+        try
+        {
+            // Real PassiveSkills graph IDs from client.db:
+            // - Crave the Slaughter (AscendancyBerserker11, 24528): +2000ms rage loss delay, 1% increased attack speed per Rage.
+            // - Rite of Ruin (AscendancyBerserker8, 57560): 50% increased Rage Effect.
+            // - Vengeance (rage_notable2108, 53840): 1% increased Armour per Rage.
+            const ushort craveTheSlaughterHash = 24528;
+            const ushort riteOfRuinHash = 57560;
+            const ushort vengeanceHash = 53840;
+
+            ushort heavyStrike = Assert.Single(f.Equip(("Heavy Strike", 1)));
+            player.Character.Passives.Add(craveTheSlaughterHash);
+            player.Pools = Game.PoolsFor(player, 1);
+
+            int baseStunPerRage = 0;
+            int baseMovePer5Rage = 0;
+            int baseArmour = 0;
+            int castSpeedInstead = 0;
+            using var statHook = GameEvents.PlayerStatSources.Add("Game", (p, s) =>
+            {
+                if (!ReferenceEquals(p, player)) return s;
+                if (baseArmour != 0) s[Stat.BasePhysicalDamageReductionRating] = s.GetValueOrDefault(Stat.BasePhysicalDamageReductionRating) + baseArmour;
+                if (baseStunPerRage != 0) s[Stat.StunThresholdPlusPctPerRage] = s.GetValueOrDefault(Stat.StunThresholdPlusPctPerRage) + baseStunPerRage;
+                if (baseMovePer5Rage != 0) s[Stat.MovementSpeedPlusPctPer5Rage] = s.GetValueOrDefault(Stat.MovementSpeedPlusPctPer5Rage) + baseMovePer5Rage;
+                if (castSpeedInstead != 0) s[Stat.RageGrantsCastSpeedInstead] = 1;
+                return s;
+            });
+
+            // 1. At 0 Rage, Crave the Slaughter delays inherent loss by +2000ms (4000ms total) and grants 0% attack speed.
+            var stats0 = Game.CharacterPlayerStats(player);
+            Assert.Equal(1, stats0.GetValueOrDefault(Stat.AttackSpeedPlusPctPerRage));
+            Assert.Equal(4000, stats0.GetValueOrDefault(Stat.VirtualRageLossDelayMs));
+            Assert.Equal(0, stats0.GetValueOrDefault(Stat.AttackSpeedPlusPctFromRage));
+            int baseSpeedPct = stats0.GetValueOrDefault(Stat.MainHandAttackSpeedPlusPct);
+            Assert.Equal(0, baseSpeedPct);
+            double baseDefaultSeconds = Game.DefaultAttackSeconds(player, AttackHand.Main, stats0);
+            double baseHeavySeconds = Game.SupportedAttackSeconds(player, heavyStrike);
+            var heavyPanel0 = Game.PlayerSkills(player).Single(s => s.Id == heavyStrike).Stats!.ToDictionary(kv => kv.Key, kv => kv.Value);
+
+            // 2. At 20 Rage without Rage Effect, Crave the Slaughter grants +20% increased attack speed.
+            var inputs0 = RageStats.Inputs(player, key => stats0.GetValueOrDefault(key));
+            Assert.True(player.Rage.Gain(20, clock.At, inputs0));
+            var stats20 = Game.CharacterPlayerStats(player);
+            Assert.Equal(20, stats20.GetValueOrDefault(Stat.CurrentRage));
+            Assert.Equal(20, stats20.GetValueOrDefault(Stat.EffectiveRageForPerRageEffects));
+            Assert.Equal(20, stats20.GetValueOrDefault(Stat.AttackSpeedPlusPctFromRage));
+            Assert.Equal(20, stats20.GetValueOrDefault(Stat.MainHandAttackSpeedPlusPct));
+            double rage20DefaultSeconds = Game.DefaultAttackSeconds(player, AttackHand.Main, stats20);
+            double rage20HeavySeconds = Game.SupportedAttackSeconds(player, heavyStrike);
+            Assert.True(rage20DefaultSeconds < baseDefaultSeconds);
+            Assert.True(rage20HeavySeconds < baseHeavySeconds);
+            var heavyPanel20 = Game.PlayerSkills(player).Single(s => s.Id == heavyStrike).Stats!.ToDictionary(kv => kv.Key, kv => kv.Value);
+            Assert.True(heavyPanel20[Stat.MainHandAttackSpeedPlusPct] > heavyPanel0[Stat.MainHandAttackSpeedPlusPct]);
+            Assert.True(heavyPanel20[Stat.HundredTimesAttacksPerSecond] > heavyPanel0[Stat.HundredTimesAttacksPerSecond]);
+
+            // 3. Adding Rite of Ruin (+50% Rage Effect) turns 20 Rage into 30 effective Rage, scaling all per-Rage effects.
+            player.Character.Passives.Add(riteOfRuinHash);
+            player.Character.Passives.Add(vengeanceHash);
+            baseArmour = 1000;
+            baseStunPerRage = 1;
+            baseMovePer5Rage = 1;
+            player.Pools = Game.PoolsFor(player, 1);
+
+            var statsRite = Game.CharacterPlayerStats(player);
+            Assert.Equal(20, statsRite.GetValueOrDefault(Stat.CurrentRage));
+            Assert.Equal(30, statsRite.GetValueOrDefault(Stat.EffectiveRageForPerRageEffects));
+            Assert.Equal(30, statsRite.GetValueOrDefault(Stat.AttackSpeedPlusPctFromRage));
+            Assert.Equal(30, statsRite.GetValueOrDefault(Stat.MainHandAttackSpeedPlusPct));
+            Assert.Equal(30, statsRite.GetValueOrDefault(Stat.StunThresholdPlusPct));
+            Assert.Equal(6, statsRite.GetValueOrDefault(Stat.MovementSpeedPlusPctFromRage)); // 30 / 5 * 1 = 6%
+            Assert.Equal(30, player.Pools.ArmourPct);
+            Assert.Equal(1300, player.Pools.Armour);
+            Assert.Equal(6, player.Pools.MovementVelocityPct);
+            Assert.True(Game.SupportedAttackSeconds(player, heavyStrike) < rage20HeavySeconds);
+
+            // 4. rage_grants_cast_speed_instead routes attack_speed_+%_from_rage into cast speed instead of attack speed.
+            int baseCastSpeed = statsRite.GetValueOrDefault(Stat.CastSpeedPlusPct);
+            castSpeedInstead = 1;
+            var statsCast = Game.CharacterPlayerStats(player);
+            Assert.Equal(30, statsCast.GetValueOrDefault(Stat.AttackSpeedPlusPctFromRage));
+            Assert.Equal(baseSpeedPct, statsCast.GetValueOrDefault(Stat.MainHandAttackSpeedPlusPct));
+            Assert.Equal(baseCastSpeed + 30, statsCast.GetValueOrDefault(Stat.CastSpeedPlusPct));
+
+            // 5. After inherent loss delay (4s) + full decay (2s for 20 Rage), Rage returns to 0 and speed resets cleanly.
+            castSpeedInstead = 0;
+            clock.At += 7.0;
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            var statsDecayed = Game.CharacterPlayerStats(player);
+            Assert.Equal(0, statsDecayed.GetValueOrDefault(Stat.CurrentRage));
+            Assert.Equal(0, statsDecayed.GetValueOrDefault(Stat.EffectiveRageForPerRageEffects));
+            Assert.Equal(0, statsDecayed.GetValueOrDefault(Stat.AttackSpeedPlusPctFromRage));
+            Assert.Equal(baseSpeedPct, statsDecayed.GetValueOrDefault(Stat.MainHandAttackSpeedPlusPct));
+        }
+        finally
+        {
+            Game.AreaUpdateContext.Value = previous;
+        }
+    }
+
     sealed class StepClock : IPlayerUpdateSchedule
     {
         public double At = 1;

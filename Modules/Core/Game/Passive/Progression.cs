@@ -1253,13 +1253,13 @@ public static partial class Game
         if (rageSpeed != 0 || rageArmour != 0)
         {
             var rageInputs = RageStats.Inputs(player, key => sources.GetValueOrDefault(key));
-            int rage = player.Rage.Read(ProjectileWorldTime(player), rageInputs).Current;
+            int effectiveRage = player.Rage.Read(ProjectileWorldTime(player), rageInputs).Effective;
             if (rageSpeed != 0)
                 bonus = bonus with { MovementVelocityPct = ActorScale.Saturate(
-                    bonus.MovementVelocityPct + (rage / 5) * (long)rageSpeed) };
+                    bonus.MovementVelocityPct + (effectiveRage / 5) * (long)rageSpeed) };
             if (rageArmour != 0)
                 bonus = bonus with { ArmourPct = ActorScale.Saturate(
-                    bonus.ArmourPct + (long)rage * rageArmour) };
+                    bonus.ArmourPct + (long)effectiveRage * rageArmour) };
         }
         var map = MapModsOf(player);
         if (map?.Get(Stat.MapPlayerNonCurseAuraEffectPlusPct) is int auraEffect and not 0)

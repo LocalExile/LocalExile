@@ -22,7 +22,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Antiquarian's nodes. Docs: [Antiquarian](../docs/game/antiquarian.md).
 - Conditional critical policy (#242): signed clamp, luck, unarmed multiplier and one roll per gem use.
   Docs: [11](../docs/protocol/11-skills.md), conditional critical policy.
-- Generic Rage (#281). Docs: [26](../docs/protocol/26-rage.md).
+- Generic Rage (#281), including effective-Rage scaling (`rage_effect_+%`) for per-Rage attack speed (Crave the Slaughter), armour, movement speed and stun threshold. Docs: [26](../docs/protocol/26-rage.md).
 - Mana per final Strength (#287). Docs: [11](../docs/protocol/11-skills.md) Â§4.
 - Player Actor scale (#299). Docs: [04](../docs/protocol/04-player-entity.md#41a-player-actor-scale-299).
 - Armour against chaos hits (#288). Docs: [20](../docs/protocol/20-damage.md) Â§2e.
