@@ -453,12 +453,18 @@ internal static class CampaignBossHelpers
             if (player.DoorBarriers.Remove(gate.Id)) player.UpdateBarrier();
             return;
         }
-        player.SetBlocker(gate.Id, gate.X, gate.Y, gate.Size);
         var barrier = GateBarrierCells(player, gate);
         if (barrier.Count > 0)
         {
+            // CreateGate marks gates with blocksNoWalker = true, so client collision uses the TriggerableBlockage hull
+            // cells alone rather than a Positioned square blocker.
+            player.RemoveBlocker(gate.Id);
             player.DoorBarriers[gate.Id] = barrier;
             player.UpdateBarrier();
+        }
+        else
+        {
+            player.SetBlocker(gate.Id, gate.X, gate.Y, gate.Size);
         }
     }
 }

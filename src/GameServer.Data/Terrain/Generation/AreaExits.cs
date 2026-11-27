@@ -242,13 +242,23 @@ public static class AreaExits
             }
             Place(Descriptions.Where(d => d.Kind == ExitKind.Entrance).OrderBy(d => d.Enabled ? 0 : 1), EntrancePoints, EntrancePointName);
             var telepads = Descriptions.Where(d => d.IsTelepad);
-            // The Cauldron's two generic points are authored as telepad2 (tunnel grate), then telepad3
-            // (the face door that opens on Doedre's death). Its boss node lists them in the opposite order.
-            if (Room.Room.Path.StartsWith("Metadata/Terrain/Act8/Area2Level2/", StringComparison.OrdinalIgnoreCase)
-                && Name.Equals("doedre_boss_room_1.arm", StringComparison.OrdinalIgnoreCase))
+            // Rooms whose generic "telepad" points are authored in ascending telepad-number order while their graph node
+            // lists them descending:
+            // - Act 8 The Cauldron (doedre_boss_room_1.arm): telepad2 (tunnel grate), then telepad3 (face door).
+            // - Act 6 Prisoner's Gate & Summit map Abberath Phase 1 (bossphase1.arm / bossphase1_gauntlet.arm):
+            //   telepad1 (east entrance beside DoorAbberathExterior), then telepad4 (west exit beside locked DoorAbberathPhase1).
+            if (HasAscendingGenericTelepads(Room.Room.Path, Name))
                 telepads = telepads.OrderBy(d => d.Number);
             Place(telepads, TeleportPoints, TeleportPointName);
         }
+
+        static bool HasAscendingGenericTelepads(string path, string name) =>
+            (path.StartsWith("Metadata/Terrain/Act8/Area2Level2/", StringComparison.OrdinalIgnoreCase)
+                && name.Equals("doedre_boss_room_1.arm", StringComparison.OrdinalIgnoreCase))
+            || ((path.StartsWith("Metadata/Terrain/Act6/Area8/", StringComparison.OrdinalIgnoreCase)
+                    || path.StartsWith("Metadata/Terrain/EndGame/MapSummit/", StringComparison.OrdinalIgnoreCase))
+                && (name.Equals("bossphase1.arm", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("bossphase1_gauntlet.arm", StringComparison.OrdinalIgnoreCase)));
 
         // Phase 2, with every room's telepads: a gate stands beside the arrival from the place it leads to: "teleportM"
         // takes the slot of this room's "telepadK" whose "teleportK" stands in the room of "telepadM" (K ≠ M). The
