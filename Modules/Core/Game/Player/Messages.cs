@@ -89,6 +89,15 @@ public static partial class Game
             // gameplay, inventory and interaction packets; only transfer acknowledgement, exit and pause control run.
             if (player.LeavingArea && id is not (InstanceTransfer.LeaveAreaAckId or InstanceProtocol.ExitToCharacterSelectId
                 or InstanceProtocol.ExitToLoginId or InstancePause.RequestId)) continue;
+            // 0x194 asks the client for a non-empty AFK reply. Settle a probe before command hooks can change chat presence,
+            // even when a predictive packet established the network mode after the probe went out.
+            if (id == InstanceItems.CommandId && Volatile.Read(ref player.Connection.LockstepProbeSentAt) is > 0 and var probeSent
+                && (readAt == 0 || readAt >= probeSent)
+                && InstanceItems.ReadCommand(bytes) is { Id: InstanceItems.AfkCommand, Argument.Length: > 0 })
+            {
+                AnswerLockstepProbe(player, readAt);
+                continue;
+            }
             // Let ClientMessage intercept chat and slash commands before ChatModule consumes 0x0015 at ModuleRank.
             if (id == InstanceChat.ChatId && GameEvents.ClientMessage.Any
                 && await GameEvents.AnyClientMessage(player, InstanceChat.ReadChat(bytes)))
@@ -313,7 +322,8 @@ public static partial class Game
                 // refused when none is; the server teleports the player, which the client does not.
                 bool flicker = cast && gem.Name is not null && SkillsFor(player).ActionHash(gem.Effect) == FlickerStrike.Action;
                 (uint Id, (int X, int Y) At, (int X, int Y) Landing)? flickerTo = null;
-                bool flameDash = cast && gem.Name is not null && chargeBonus == 0 && IsFlameDashEffect(SkillsFor(player).EffectId(gem.Effect));
+                var moveEffect = cast && gem.Name is not null && chargeBonus == 0 ? SkillsFor(player).EffectId(gem.Effect) : null;
+                bool flameDash = IsFlameDashEffect(moveEffect);
                 (int X, int Y)? flameDashTo = null;
                 LeapSlam.Use? leap = null;
                 bool movedByCast = false;
@@ -462,9 +472,9 @@ public static partial class Game
                         $"0x02c8 Flame Dash burning ground ({px}, {py}) -> ({moveLanding.X}, {moveLanding.Y})");
                     PlaceFlameDashGround(player, (px, py), moveLanding, use.SkillId, gem.Effect, at);
                 }
-                // Flicker Strike strikes from where it lands, at the monster it went to; Flame Dash hits at its resolved landing.
+                // Use the server-approved endpoint for movement contacts and ground effects.
                 var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At)
-                    : flameDash ? ((px, py), moveLanding)
+                    : flameDash || IsWhirlingBlades(moveEffect) ? ((px, py), moveLanding)
                     : ((px, py), (use.X, use.Y));
                 if (cast && !projectileRuntime && (!flameDash || movedByCast)) _ = CastGemSkill(player, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
                     actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse, swingAt: swingAt, movedByCast: movedByCast);
@@ -637,7 +647,6 @@ public static partial class Game
                 else if (command.Id == InstanceItems.WarpToHideoutCommand) await WarpToHideout(player, "/hideout");
                 else if (command.Id == InstanceItems.SaveHideoutCommand) await SaveHideoutLayout(player);
                 else if (command.Id is InstanceItems.ForceResyncCommand or InstanceItems.ForceResyncPlayerCommand) await SendResync(player, "the client asked");
-                else if (command.Id == InstanceItems.AfkCommand && player.Connection.LockstepClient) AnswerLockstepProbe(player, readAt);
                 else Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0016 command {command} (not handled)");
             }
             else if (id == InstanceWaypoints.VisitHideoutId)

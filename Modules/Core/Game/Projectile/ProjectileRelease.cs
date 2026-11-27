@@ -114,7 +114,8 @@ public static partial class Game
     public static Task ScheduleGemProjectile(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll,
-        ushort sequence = 0, double? swingAt = null, bool cryExerted = false, int seals = 0, double reoccurrenceMore = 1)
+        ushort sequence = 0, double? swingAt = null, bool cryExerted = false, int seals = 0, double reoccurrenceMore = 1,
+        int? rallyingDamage = null)
     {
         var session = ProjectilesFor(player);
         session.Advance();
@@ -224,7 +225,7 @@ public static partial class Game
                     return ClientDrawnVolley(player, session, skillId, gem,
                         CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, weaponHand: null, sequence, (uint)left, delay,
                             cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal, reoccurrenceMore: more,
-                            hitAndAilmentMore: beidatMore),
+                            hitAndAilmentMore: beidatMore, rallyingDamage: rallyingDamage),
                         sequence, (uint)left);
                 }, completed);
         }
@@ -375,15 +376,18 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
         TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1,
-        (int X, int Y)? from = null, SupportedGem? capturedSkill = null, int otherWarcryExertions = 0) =>
+        (int X, int Y)? from = null, SupportedGem? capturedSkill = null, int otherWarcryExertions = 0,
+        int? rallyingDamage = null) =>
         CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, weaponHand: null, sequence, repeatsLeft,
-            releaseDelay, totem, cryExerted, repeat, sacrifice, reoccurrenceMore, from, capturedSkill, otherWarcryExertions: otherWarcryExertions);
+            releaseDelay, totem, cryExerted, repeat, sacrifice, reoccurrenceMore, from, capturedSkill, otherWarcryExertions: otherWarcryExertions,
+            rallyingDamage: rallyingDamage);
 
     static ProjectileUse CaptureGemProjectile(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, AttackHand? weaponHand, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
         TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1,
-        (int X, int Y)? from = null, SupportedGem? capturedSkill = null, double hitAndAilmentMore = 1, int otherWarcryExertions = 0)
+        (int X, int Y)? from = null, SupportedGem? capturedSkill = null, double hitAndAilmentMore = 1, int otherWarcryExertions = 0,
+        int? rallyingDamage = null)
     {
         // from: where a placed trap or mine stands, when it and not the player releases the skill.
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
@@ -610,7 +614,27 @@ public static partial class Game
                 }
                 : release is { } launch && definition.Presentation is null ? new() { LaunchHeight = launch.HeightSteps } : null,
         };
-        shot = shot with { IntimidatingCryExerted = cryExerted, OtherWarcryExertions = otherWarcryExertions };
+        if (!spell) otherWarcryExertions += MeleeWarcryTriggersFor(criticalRoll)?.Count ?? 0;
+        shot = shot with { IntimidatingCryExerted = cryExerted, OtherWarcryExertions = otherWarcryExertions, RallyingDamage = rallyingDamage };
+        if (SkillsFor(player).EffectId(gem.Effect) == "LightningArrowAltX")
+            shot = shot with { Electrocution = CaptureElectrocution(Get) };
+        if (GatewayProjectileSkillProfiles.IsIceShot(SkillsFor(player).EffectId(gem.Effect)) && areaHitInputs is { } coneInputs)
+        {
+            shot = shot with
+            {
+                ConeAilments = CaptureConeAilments(0),
+                BlindedConeAilments = additionalBlindedIncreased == 0 ? null : CaptureConeAilments(additionalBlindedIncreased),
+            };
+
+            ProjectileOffense.AreaAilments CaptureConeAilments(long additionalIncreased)
+            {
+                var rows = SupportedAilmentRowsFrom(coneInputs, hand, additionalIncreased);
+                var ignite = IgniteWithTargetCondition(rows, coneInputs, hand, Get, additionalIncreased);
+                return new(WithOverheat(player, skillId, WithIgniteSpread(ignite, playerStats, own, spell, hand)),
+                    WithOverheat(player, skillId, BleedSettings(rows, hand, Get, local, melee: false, bow: true, projectileAttack: true)),
+                    WithOverheat(player, skillId, PoisonSettingsFrom(rows, hand, Get, local, projectileAttack: true)));
+            }
+        }
         if (forbiddenRite)
             shot = shot with { ForbiddenRite = CaptureForbiddenRite(player, admittedGem, totem, Get, variation) };
         if (spell && repeat > 0)

@@ -168,6 +168,8 @@ def animation_contacts(doc):
     result = {"animation_rigs": rigs, "animation_clips": clips, "animation_clip_contacts": frames,
               "animation_clip_events": events, "animation_default_attacks": attacks}
     if skill_clips:
+        # Preserve the existing ACT rows when adding the three actions used by Crushing Fist.
+        skill_clips.sort(key=lambda row: row["skill"] in {"GroundSlam", "GroundSlamOffhand", "SpellAreaOfEffect"})
         result["animation_skill_clips"] = skill_clips
     return result
 

@@ -52,6 +52,16 @@ public sealed partial class DeliriumModule
             else if (kind == 17) item = Drops.Card(Random, Level)?.Item;
             else if (kind == 3) item = Drops.Map(Level, MonsterRarity.Rare, Math.Clamp(Level - 67, 1, 16), Random, 0, 1, 0, 0, CorruptEightModMaps)?.Item;
             else if (kind == 1) item = Drops.PickUnique(GetUniquePool(), Random) is { } unique ? Uniques.Create(unique, Random) : null;
+            else if (kind == 25)
+            {
+                bool wantCluster = Random.Next(100) < 45;
+                var preferred = All.Where(t => wantCluster ? t.Cluster is not null : Eligible(25, t, Gems) && t.Cluster is null).ToArray();
+                var pool = preferred.Length > 0 ? preferred : All.Where(t => Eligible(25, t, Gems)).ToArray();
+                var type = pool.Length == 0 ? null : pool[Random.Next(pool.Length)];
+                item = type is null ? null : ItemCatalog.Create(type);
+                if (item is not null && type is not null && (ItemDrops.EquipmentClasses.Contains(type.Class) || type.Class.Contains("Jewel", StringComparison.Ordinal)))
+                    item = Rolls.Roll(item with { ItemLevel = Level }, Random.Next(100) < 70 ? ItemRarity.Rare : ItemRarity.Magic, Random) with { Identified = false };
+            }
             else
             {
                 var pool = All.Where(t => Eligible(kind, t, Gems, FragmentStashRows)).ToArray();
@@ -153,7 +163,10 @@ public sealed partial class DeliriumModule
         22 => t.Class is "Incubator" or "IncubatorStackable" || t.Id.Contains("CurrencyLegion", StringComparison.Ordinal),
         23 => t.Class == "StackableCurrency" && t.Id.Contains("Oil", StringComparison.Ordinal),
         24 => t.Class == "StackableCurrency" && t.Id.Contains("/CurrencyJewelleryQuality", StringComparison.Ordinal),
-        25 => t.Id.Contains("/CurrencyAfflictionOrb", StringComparison.Ordinal) || t.Cluster is not null,
+        25 => t.Cluster is not null || (t.Id.Contains("/CurrencyAfflictionOrb", StringComparison.Ordinal)
+            && !t.Id.Contains("Harbinger", StringComparison.Ordinal)
+            && !t.Id.Contains("Prophecies", StringComparison.Ordinal)
+            && !t.Id.Contains("HardMode", StringComparison.Ordinal)),
         _ => false,
     };
 }
