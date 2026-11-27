@@ -22,7 +22,16 @@ public sealed class MapBossFights
 
     const string StonesKey = "voidstones", PartsKey = "voidstone_parts";
 
-    public sealed record Invitation(string Id, int ItemRow, int Count, IReadOnlyList<string> Bosses);
+    public sealed record Invitation(int Slot, string Id, int ItemRow, int Count, IReadOnlyList<string> Bosses)
+    {
+        public int AreaLevel { get; init; } = 73;
+        public int MinMapTier { get; init; }
+        public int CompleteLeagueFlag { get; init; }
+        public int PrereqLeagueFlag { get; init; }
+        public int ReadyLeagueFlag { get; init; }
+        public bool IsVoid { get; init; }
+        public IReadOnlyList<ushort> WitnessAreaHashes { get; init; } = [];
+    }
 
     public sealed record Phase(string AreaId, IReadOnlyList<string> First, string Last);
 
@@ -55,11 +64,29 @@ public sealed class MapBossFights
 
     public IReadOnlyList<string> AtlasBosses => _atlasBosses;
 
+    /// <summary>All loaded MavenFights invitation rows in slot order (0..10).</summary>
+    public IReadOnlyList<Invitation> Invitations => [.. _invites.Values.OrderBy(i => i.Slot)];
+
+    /// <summary>When true, MavenHub boss spawning is deferred to the central Crucible activation device instead of
+    /// spawning automatically on area entry.</summary>
+    public bool DeferMavenHubSpawn { get; set; }
+
     public Invitation? InvitationOf(int itemRow) => _invites.GetValueOrDefault(itemRow);
 
+    public Invitation? InvitationById(string id) =>
+        _invites.Values.FirstOrDefault(i => i.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+
+    public Invitation? InvitationBySlot(int slot) =>
+        _invites.Values.FirstOrDefault(i => i.Slot == slot);
+
     /// <summary>The bosses a Maven invitation stands in MavenHub: WitnessAreas' last WorldAreas boss, or that many
-    /// ordinary Atlas map bosses when the row has none (The Atlas).</summary>
-    public IReadOnlyList<string> Witnesses(int itemRow)
+    /// ordinary Atlas map bosses when the row has none (The Atlas). Returns empty when <see cref="DeferMavenHubSpawn"/>
+    /// is enabled so the Maven Crucible device controls the encounter start.</summary>
+    public IReadOnlyList<string> Witnesses(int itemRow) =>
+        DeferMavenHubSpawn ? [] : CrucibleWitnesses(itemRow);
+
+    /// <summary>Fallback bosses for a Maven Crucible invitation when invoked by the Crucible device.</summary>
+    public IReadOnlyList<string> CrucibleWitnesses(int itemRow)
     {
         if (InvitationOf(itemRow) is not { } fight) return [];
         if (fight.Bosses.Count > 0) return fight.Bosses;
@@ -139,16 +166,28 @@ public sealed class MapBossFights
     {
         var varieties = VarietyIds(folder);
         var areaBosses = AreaBosses(folder, varieties);
+        var areaHashes = AreaHashes(folder);
         var invites = new Dictionary<int, Invitation>();
         if (ClientTables.Has("MavenFights"))
         {
+            int slotIndex = 0;
             foreach (var row in ClientTables.Table("MavenFights"))
             {
+                int slot = slotIndex++;
                 if (row.IntOrNull("BaseItemType") is not int item) continue;
                 int[] areas = [.. row.Ints("WitnessAreas")];
                 int count = (row.IntOrNull("WitnessesRequired") ?? areas.Length);
-                invites[item] = new(row.Text("Id") ?? "", item, count,
-                    [.. areas.Select(a => areaBosses.GetValueOrDefault(a, "")).Where(id => id.Length > 0)]);
+                invites[item] = new Invitation(slot, row.Text("Id") ?? "", item, count,
+                    [.. areas.Select(a => areaBosses.GetValueOrDefault(a, "")).Where(id => id.Length > 0)])
+                {
+                    AreaLevel = row.IntOrNull("AreaLevel") ?? 73,
+                    MinMapTier = row.IntOrNull("MinMapTier") ?? 0,
+                    CompleteLeagueFlag = row.IntOrNull("__col3") ?? 0,
+                    PrereqLeagueFlag = row.IntOrNull("__col6") ?? 0,
+                    ReadyLeagueFlag = row.IntOrNull("__col9") ?? 0,
+                    IsVoid = (row.IntOrNull("__col12") ?? 0) != 0 || areas.Length > 0,
+                    WitnessAreaHashes = [.. areas.Select(a => areaHashes.GetValueOrDefault(a, (ushort)0)).Where(h => h != 0)],
+                };
             }
         }
 
@@ -212,6 +251,19 @@ public sealed class MapBossFights
         var map = new Dictionary<int, string>();
         foreach (var (i, _, bosses) in AreaRows(folder, varieties))
             if (bosses.Count > 0) map[i] = bosses[^1];
+        return map;
+    }
+
+    static Dictionary<int, ushort> AreaHashes(string folder)
+    {
+        var map = new Dictionary<int, ushort>();
+        if (!ClientTables.Has("WorldAreas")) return map;
+        int i = 0;
+        foreach (var a in ClientTables.Table("WorldAreas"))
+        {
+            if (a.IntOrNull("HASH16") is int h and > 0) map[i] = (ushort)h;
+            i++;
+        }
         return map;
     }
 

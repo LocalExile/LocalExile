@@ -35,9 +35,88 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, Player player) : AtlasBos
     bool intermission;
     int waves;
     double waveAt;
+    // Zana arena presence (MapWorldsShapersRealm / MapAtlasShapersRealm / MapWorldsElderArenaUber): protective bubble
+    // during Bullet Hell and Shaper fight dialogue.
+    uint zanaId, zanaBubbleFx;
+    bool zanaSpawned, halfSpoken, quarterSpoken;
+    (int X, int Y) zanaBubbleAt;
+    bool zanaBubbleActive;
+
+    static bool HasZanaArena(Player player) => player.Layout.Id is "MapWorldsShapersRealm" or "MapAtlasShapersRealm" or "MapWorldsElderArenaUber";
+
+    async Task EnsureZana(Player player)
+    {
+        if (zanaSpawned || !HasZanaArena(player)) return;
+        zanaSpawned = true;
+        bool uberElder = player.Layout.Id == "MapWorldsElderArenaUber";
+        string varietyId = uberElder ? AtlasBosses.ZanaUberElderVariety : AtlasBosses.ZanaShaperVariety;
+        foreach (var (existingId, existing) in player.Area.Monsters)
+            if (existing.Variety?.Id is AtlasBosses.ZanaShaperVariety or AtlasBosses.ZanaElderVariety or AtlasBosses.ZanaUberElderVariety && !existing.Dead)
+            { zanaId = existingId; return; }
+        if (Monsters.Find(varietyId) is not { Supported: true } zanaV || zanaV.Id != varietyId) return;
+        var centre = Stage(player);
+        var at = player.Layout.Near((centre.X - 12, centre.Y + 8));
+        zanaId = await SpawnMonster(player, zanaV, boss.Level, MonsterRarity.Normal, at.X, at.Y,
+            friendly: true, scripted: true, owned: (_, m) => { m.NoRewards = true; m.EntranceGrace = true; });
+    }
+
+    async Task SetZanaBubble(Player player, bool active, double now)
+    {
+        if (active == zanaBubbleActive) return;
+        zanaBubbleActive = active;
+        if (active)
+        {
+            var centre = Stage(player);
+            zanaBubbleAt = player.Layout.Near((centre.X, centre.Y + 12));
+            if (zanaId != 0 && player.Area.Monsters.TryGetValue(zanaId, out var zana))
+            {
+                zana.Walk.Teleport(zanaBubbleAt.X, zanaBubbleAt.Y, now);
+                await All(InstanceProtocol.Teleport(zanaId, zanaBubbleAt.X, zanaBubbleAt.Y));
+            }
+            zanaBubbleFx = await Effect(player, zanaBubbleAt, AtlasBosses.ZanaBubbleArt, 12.0, 1.5f);
+            await Voice(1899, 323); // "To me, exile! Quickly!"
+            await Announce("Zana raises her protective bubble — stand inside to survive the Bullet Hell!");
+        }
+        else
+        {
+            await RemoveEffect(zanaBubbleFx);
+            zanaBubbleFx = 0;
+            foreach (var peer in Present())
+            {
+                var st = AtlasBosses.EffectsOf(peer);
+                if (st.ZanaBubble)
+                {
+                    st.ZanaBubble = false;
+                    peer.Area.Buffs.Clear(peer.Id, AtlasBosses.ZanaBubbleBuffRow);
+                    await RefreshPlayerStats(peer);
+                }
+            }
+        }
+    }
 
     protected override async Task Ticks(Player player, double now)
     {
+        await EnsureZana(player);
+        if (zanaId != 0)
+        {
+            if (!halfSpoken && boss.Life * 2 <= boss.MaxLife) { halfSpoken = true; await Voice(669, 323); }
+            if (!quarterSpoken && boss.Life * 4 <= boss.MaxLife) { quarterSpoken = true; await Voice(670, 323); }
+        }
+        if (zanaBubbleActive)
+        {
+            foreach (var peer in Watchers())
+            {
+                bool inside = Distance(peer.Walk.Position(now), zanaBubbleAt) <= 12;
+                var st = AtlasBosses.EffectsOf(peer);
+                if (inside != st.ZanaBubble)
+                {
+                    st.ZanaBubble = inside;
+                    if (inside) peer.Area.Buffs.Set(peer.Id, new(AtlasBosses.ZanaBubbleBuffRow, zanaId, U68: Buff.Seconds(12)));
+                    else peer.Area.Buffs.Clear(peer.Id, AtlasBosses.ZanaBubbleBuffRow);
+                    await RefreshPlayerStats(peer);
+                }
+            }
+        }
         if (beamTick is null || now >= beamUntil || now < beamNextTick) return;
         beamNextTick = now + 0.5;
         if (now >= beamUntil) { beamTick = null; return; }
@@ -158,6 +237,7 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, Player player) : AtlasBos
             await Shield(player, true);
             await Teleport(player, Stage(player), now);
             await Effect(player, Stage(player), AtlasBosses.BulletHellCastArt, 2.4, 1.8f);
+            if (HasZanaArena(player)) await SetZanaBubble(player, true, now);
             waveAt = now + 1;
             busyUntil = now + 1;
             return;
@@ -166,6 +246,7 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, Player player) : AtlasBos
         if (waves == 3)
         {
             intermission = false;
+            if (zanaBubbleActive) await SetZanaBubble(player, false, now);
             await Shield(player, false);
             EndIntermission();
             nextVolley = now + 2;
@@ -180,5 +261,18 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, Player player) : AtlasBos
         SwingWith(player, ring, AtlasBosses.BulletHellEffect);
         waveAt = now + 1.4;
         busyUntil = now + 1.2;
+    }
+
+    protected override async Task OnIntermissionAborted(Player player)
+    {
+        intermission = false;
+        waves = 0;
+        if (zanaBubbleActive) await SetZanaBubble(player, false, AreaTime(player));
+    }
+
+    protected override async Task OnCleanup(Player player)
+    {
+        if (zanaBubbleActive) await SetZanaBubble(player, false, AreaTime(player));
+        if (zanaId != 0 && HasZanaArena(player)) await Voice(671, 323); // "I'm so sorry father..."
     }
 }

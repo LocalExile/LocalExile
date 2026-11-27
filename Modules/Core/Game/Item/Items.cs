@@ -1106,7 +1106,8 @@ public static partial class Game
                     : ground.Item;
 
                 // A quest item sets its flags (grant_flag, extra_flag) with the pickup, in the same save.
-                pickupFlags = questFlags is null ? [] : QuestItems.PickupFlags(questFlags, f => ClientHasQuestFlag(player, f));
+                bool HasLeague(int flag) => player.Character.LeagueQuestFlags.Contains(flag);
+                pickupFlags = questFlags is null ? [] : QuestItems.PickupFlags(questFlags, f => ClientHasQuestFlag(player, f), HasLeague);
                 placed = KeepOnGroundIfNotSaved(player, ground, () =>
                 {
                     InventoryItem Put() => items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, itemToPut));
@@ -1114,7 +1115,7 @@ public static partial class Game
                         foreach (bool support in new[] { false, true })
                             if (player.Instance.IsStartWeapon(TutorialObjects.DropKey(CharacterName(player), tutorial, support), id))
                                 return TutorialObjects.Claim(CharacterName(player), support, ground.Item, Put);
-                    return questFlags is not null ? QuestItems.Claim(CharacterName(player), questFlags, Put) : Put();
+                    return questFlags is not null ? QuestItems.Claim(CharacterName(player), questFlags, Put, HasLeague) : Put();
                 }, id);
                 if (placed is not null)
                 {

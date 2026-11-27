@@ -22,6 +22,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Yugul has mirror intervals, pool chill, Fearful orbs and turret volleys; calibrate Fearful magnitudes and orb AI.
   Solaris/Lunaris have celestial fire/cold hazards; calibrate original handoff timing, target distribution and radii.
   Normal Sirus has its laboratory and four-phase controller; calibrate official decision weights and reward chances.
+  Act 11 pinnacle bosses (Maven, Infinite Hunger, Black Star, Eater of Worlds, Searing Exarch, and Incarnations of
+  Neglect, Fear, and Dread) have dedicated multi-phase controllers and boss drop tables; live verification and tuning
+  remain pending ([status](../status/monsters.md#partly-working)).
   Hits can make monsters flee ([11](../docs/protocol/11-skills.md) §6); a live check should settle the flee distance
   and whether the real server walks a fleeing monster with Monster.ot's `Flee` action instead of Move.
   Inherited Life corpse/sinking flags and the source eligibility predicate are implemented for ordinary creation

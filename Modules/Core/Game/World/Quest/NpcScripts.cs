@@ -1,24 +1,75 @@
 using System.Net.Sockets;
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
 // NPCTalk scripts (Agents/docs/protocol/17-npcs.md, campaign-quests.md E5): what a dialogue row's Script / Script2 does
 // beyond its flags (those are NpcCatalog.Talk.ScriptSets / ScriptClears, set by OnQuestTalk). Parsed by NpcCatalog.Talk:
-// - DirtyTransition() on the NPC itself and ForEachOfType / ForEachInRange+IfType Transition() on objects (world changes,
-//   run when the row is chosen);
-// - DoNPCChat(n), FinishNPCChat(), SendOpenScreen(screen), AreaTransitionTo(area, index, delay) (+ FadeToBlack in
-//   Script2): what happens when the row's talk ends (or at once for a row without text).
+// - DirtyTransition() on the NPC itself, ForEachOfType / ForEachInRange+IfType Transition() on objects, DropQuestItem(),
+//   and SetMavenRegionFlag() (world changes, run when the row is chosen);
+// - DoNPCChat(n), FinishNPCChat(), SendOpenScreen(screen[, arg]), AreaTransitionTo(area, index, delay) (+ FadeToBlack in
+//   Script2), SendMavenDialog(id), SendTextAudio(audioId, npcId, range), PlayAnimation(clip), and DispatchRulesetEvent(ev):
+//   what happens when the row's talk ends (or at once for a row without text).
 public static partial class Game
 {
     // S→C 0x7b kinds of the screens the scripts open (the client's screen table at 0x142fd89f0, campaign/pantheon.md §3).
-    public static readonly Dictionary<string, byte> ScriptScreens = new(StringComparer.Ordinal) { ["PantheonScreen"] = 0x14 };
+    public static readonly Dictionary<string, byte> ScriptScreens = new(StringComparer.Ordinal)
+    {
+        ["PantheonScreen"] = 0x14,
+        ["AtlasPassiveTreeScreen"] = InstanceWaypoints.AtlasUi,
+        ["CharacterPassiveTreeScreen"] = InstanceNpcs.PassiveTreeUi,
+        ["HideoutSelectionWindow"] = InstanceNpcs.HideoutSelectionUi,
+        ["DelveMapScreen"] = 0x1c,
+    };
+
+    static Dictionary<string, int>? _npcTextAudioRows;
+    static Dictionary<string, int>? _mavenDialogAudioRows;
+
+    static int? FindNpcTextAudioRow(string audioId)
+    {
+        if (_npcTextAudioRows is null)
+        {
+            var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (ClientTables.Has("NPCTextAudio"))
+            {
+                int i = 0;
+                foreach (var row in ClientTables.Table("NPCTextAudio"))
+                {
+                    if (row.Text("Id") is { Length: > 0 } id) map.TryAdd(id, i);
+                    i++;
+                }
+            }
+            _npcTextAudioRows = map;
+        }
+        return _npcTextAudioRows.TryGetValue(audioId, out int found) ? found : null;
+    }
+
+    static int? FindMavenDialogAudioRow(string dialogId)
+    {
+        if (_mavenDialogAudioRows is null)
+        {
+            var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (ClientTables.Has("MavenDialog"))
+            {
+                foreach (var row in ClientTables.Table("MavenDialog"))
+                {
+                    if (row.Text("Id") is { Length: > 0 } id && row.IntOrNull("TextAudioT1") is int audio and >= 0)
+                        map.TryAdd(id, audio);
+                }
+            }
+            _mavenDialogAudioRows = map;
+        }
+        return _mavenDialogAudioRows.TryGetValue(dialogId, out int found) ? found : null;
+    }
 
     /// <summary>Whether the row does something when its talk ends (or at once without a talk).</summary>
     public static bool EndsWithScript(NpcCatalog.Talk talk) =>
-        talk.NextChat is not null || talk.FinishesChat || talk.AreaTransition is not null || talk.OpensScreen is not null;
+        talk.NextChat is not null || talk.FinishesChat || talk.AreaTransition is not null || talk.OpenScreenRequest is not null
+        || talk.RulesetEvents.Count > 0 || talk.MavenDialogs.Count > 0 || talk.ScriptTextAudios.Count > 0 || talk.PlayAnimations.Count > 0;
 
-    // The row's world changes, when it is chosen: the NPC's own Transitionable steps on (Dialla withers, NPCTalk 534) and the
-    // objects of the named types transition (Quests.OnScriptTransition: transitions a quest shows, objects it changes).
+    // The row's world changes, when it is chosen: the NPC's own Transitionable steps on (Dialla withers, NPCTalk 534),
+    // the objects of the named types transition (Quests.OnScriptTransition), DropQuestItem drops the named quest item
+    // at the NPC, and SetMavenRegionFlag dispatches the general "set_maven_region_flag" ruleset event.
     public static async Task RunTalkWorldScript(Player player, uint npcId,
         SpawnedNpc npc, NpcCatalog.Talk talk)
     {
@@ -42,6 +93,10 @@ public static partial class Game
         }
         foreach (string type in talk.TransitionsTypes)
             await TransitionObjectsOfType(player, type, $"{npc.Npc.Name}: {talk.Option} (NPCTalk {talk.Row})");
+        foreach (string itemId in talk.DropQuestItems)
+            await DropQuestItem(player, itemId, (npc.X, npc.Y), $"{npc.Npc.Name} (NPCTalk {talk.Row})");
+        if (talk.SetsMavenRegionFlag)
+            await GameEvents.DispatchRulesetEvent(player, npcId, npc, talk, "set_maven_region_flag");
     }
 
     // An NPC's Transitionable one state further (no further than its last state).
@@ -112,17 +167,51 @@ public static partial class Game
                 $"0x0084 npc 0x{npcId:x} {npc.Npc.Name} talks on: NPCTalk row {page.Row} (index {page.Index}, DoNPCChat)");
             return true;
         }
-        if (!talk.FinishesChat && talk.AreaTransition is null && talk.OpensScreen is null) return false;
-        player.TalkingTo = 0;
-        player.InNpcTalk = false;
-        player.NpcFinishFlag = null;
-        player.NpcFinishLeagueFlag = null;
-        player.NpcTalkScript = null;
-        await Send(player, InstanceNpcs.Talk(0), $"0x0084 object 0: {npc.Npc.Name}'s dialogue ends (FinishNPCChat, NPCTalk {talk.Row})");
-        if (talk.OpensScreen is { } screen)
+        bool closes = talk.FinishesChat || talk.AreaTransition is not null || talk.OpenScreenRequest is not null;
+        bool hasPostActions = talk.RulesetEvents.Count > 0 || talk.MavenDialogs.Count > 0
+            || talk.ScriptTextAudios.Count > 0 || talk.PlayAnimations.Count > 0;
+        if (!closes && !hasPostActions) return false;
+        if (closes)
+        {
+            player.TalkingTo = 0;
+            player.InNpcTalk = false;
+            player.NpcFinishFlag = null;
+            player.NpcFinishLeagueFlag = null;
+            player.NpcTalkScript = null;
+            await Send(player, InstanceNpcs.Talk(0), $"0x0084 object 0: {npc.Npc.Name}'s dialogue ends (FinishNPCChat, NPCTalk {talk.Row})");
+        }
+        foreach (string ev in talk.RulesetEvents)
+            await GameEvents.DispatchRulesetEvent(player, npcId, npc, talk, ev);
+        foreach (string dialogId in talk.MavenDialogs)
+        {
+            if (!await GameEvents.DispatchRulesetEvent(player, npcId, npc, talk, "maven_dialog:" + dialogId)
+                && FindMavenDialogAudioRow(dialogId) is int audioRow)
+            {
+                int speakerRow = Npcs.Find("Metadata/NPC/Epilogue/Maven")?.Row ?? npc.Npc.Row;
+                await Send(player, InstanceNpcs.TextAudio(npcId, (ushort)speakerRow, (ushort)audioRow),
+                    $"0x01c7 SendMavenDialog({dialogId}) -> NPCTextAudio {audioRow} (NPCTalk {talk.Row})");
+            }
+        }
+        foreach (var (audioId, npcTypeId, _) in talk.ScriptTextAudios)
+        {
+            if (FindNpcTextAudioRow(audioId) is int audioRow)
+            {
+                int speakerRow = Npcs.Find(npcTypeId)?.Row ?? npc.Npc.Row;
+                await Send(player, InstanceNpcs.TextAudio(npcId, (ushort)speakerRow, (ushort)audioRow),
+                    $"0x01c7 SendTextAudio({audioId}, {npcTypeId}) -> NPCTextAudio {audioRow} (NPCTalk {talk.Row})");
+            }
+        }
+        foreach (string clip in talk.PlayAnimations)
+        {
+            if (!await GameEvents.DispatchRulesetEvent(player, npcId, npc, talk, "play_animation:" + clip)
+                && string.Equals(clip, "portal_out_01", StringComparison.OrdinalIgnoreCase))
+                await StepNpcTransition(player, npcId, npc, $"PlayAnimation({clip}) (NPCTalk {talk.Row})");
+        }
+        if (talk.OpenScreenRequest is var (screen, screenArg))
         {
             if (ScriptScreens.TryGetValue(screen, out byte kind))
-                await Send(player, InstanceWaypoints.OpenUi(kind), $"0x007b open {screen} (NPCTalk {talk.Row})");
+                await Send(player, InstanceWaypoints.OpenUi(kind, screenArg),
+                    $"0x007b open {screen} (arg {screenArg}, NPCTalk {talk.Row})");
             else Console.WriteLine($"[gateway] {player.Connection.Remote} NPCTalk {talk.Row}: SendOpenScreen({screen}) is not mapped");
         }
         if (talk.AreaTransition is var (area, index, delay))
@@ -138,7 +227,7 @@ public static partial class Game
             await ChangeArea(player, new PendingTransfer(hash, 0, false, AtSpawn: !useShoreEntrance),
                 $"{npc.Npc.Name}: {talk.Option} (AreaTransitionTo {area}, {index})");
         }
-        return true;
+        return closes;
     }
 
     // The quest objects the engine created of this type (Quests.ObjectRule) go to their last Transitionable state on this
