@@ -116,6 +116,7 @@ public sealed class GameModule : IModule, IDisposable
         // The world.
         global::MapSulphite.LoadMapSulphiteData();
         Rules.LoadQuestEngineData();
+        Rules.LoadLocalCheckpointData();
         global::TourRecords.LoadTourRecordsData();
         global::MapEssenceCatalog.LoadGameData();
         global::MapEssences.LoadGameData();

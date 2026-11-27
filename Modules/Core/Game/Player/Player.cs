@@ -1813,15 +1813,7 @@ public static partial class Game
                 await GameEvents.RunResurrected(player);
                 return;
             }
-            // The Oasis's local gates set a checkpoint at their arrival. Otherwise use the activated waypoint or the
-            // entry point. Both keep the same instance and its encounter progression.
-            bool activated;
-            lock (player.Character.Waypoints)
-                activated = WaypointCatalog.Areas.Find(player.Layout.Hash) is { } entry && player.Character.Waypoints.Contains(entry.Id);
-            var gateCheckpoint = !inTown ? ShakariEncounter.CheckpointOf(player) : null;
-            var (x, y) = gateCheckpoint ?? player.Layout.Checkpoint(activated);
-            string checkpointReason = gateCheckpoint is not null ? "the last Oasis gate"
-                : activated && player.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point";
+            var (x, y, checkpointReason) = ResolveCheckpoint(player, inTown);
             // Hide the death screen and start the continuous blackout in one write while still dead, then revive and
             // teleport behind black right before FadeFromBlack starts so FadeController+0x24 never hits 0 mid-fade.
             await SendResurrectFade(player, (x, y));
