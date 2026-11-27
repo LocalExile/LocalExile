@@ -308,8 +308,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Molten Strike and its Zenith and Vaal versions: a melee hit that launches magma balls from the struck enemies, and
   Zenith's fifth-attack buff. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
 - Wild Strike and Extremes resolve contact and follow-ups. See [projectile skills](../docs/game/projectile-skills.md).
-- Rain of Arrows, Blast Rain and Toxic Rain resolve individual landings; Toxic Rain pods slow, deal chaos damage
-  over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
+- Rain of Arrows, Blast Rain and Toxic Rain resolve individual landings, including their Royale gems.
+  Toxic Rain pods slow, deal chaos damage over time and burst. Concentrated Effect scaling and owner/proxy
+  damage restrictions await a client check.
   The arrows fall before they land, and Toxic Rain's pods grow and burst, for every skill effect.
   The arrow the client flies up is stood in for by the falling art; Rain of Arrows and Blast Rain shoot nothing up.
 - Rain of Arrows of Artillery lands along the shot direction; Saturation lands in expanding pairs around the aim.
