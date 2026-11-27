@@ -11,6 +11,11 @@ public sealed class GameDataStore : IDisposable
 {
     public sealed record ModStatOverride(string ModId, int StatIndex, int Minimum, int Maximum);
     public sealed record LimitOverride(string Key, int Value);
+
+    /// <summary>One row of <c>effect_rules</c>: the stat that turns the rule on and the rule's JSON, as the game module reads it.</summary>
+    public sealed record EffectRuleRow(string Stat, int Ord, string Rule, string? Note);
+    public sealed record EffectSkillRow(string Effect, string How, string? Art, double Scale, double Seconds, int? Radius,
+        int Hits, double Every, int Spread, bool Checked);
     public sealed record SettingRow(string Key, double Value);
     public sealed record UniqueWeightRow(string Name, double Weight, double RuthlessWeight);
     public sealed record CurrencyWeightRow(string CurrencyId, double Weight, int DropLevel, bool Enabled,
@@ -64,18 +69,34 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
+    /// <summary>One fx rule with its rows (fx_rules, fx_rule_sources, fx_rule_when, fx_rule_if, fx_rule_do), as written.
+    /// <see cref="Engine"/> says which code runs it: null for main's world rules (ItemEffectRules, compiled per snapshot),
+    /// "effects" for the effect-rules engine (Modules/Core/Game/Effects/FxRules.cs); the column comes with the effect
+    /// rules' tables and is absent (every rule null) without them.</summary>
     public sealed record FxRuleRow(string Id, string Book, string Title, string? Replaces, string Status,
         IReadOnlyList<(string Kind, string Key)> Sources, IReadOnlyList<(string Trigger, string Args, long? RollOrder)> When,
         IReadOnlyList<(int Group, string Condition, bool Negate, string Args)> If,
         IReadOnlyList<(string Action, string Args, string Target, string TargetArgs, string Value, string Timers)> Do)
     {
         public long? KillChargeOrder { get; init; }
+        public string? Engine { get; init; }
     }
 
+    /// <summary>The enabled fx rules, each with its rows in order. Empty when the tables are not there (an older
+    /// world.db in a test).</summary>
     public IReadOnlyList<FxRuleRow> LoadFxRules()
     {
         lock (_gate)
         {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_rules'"))
+                if (exists.ExecuteScalar() is null) return [];
+            bool Has(string table, string column)
+            {
+                using var c = Command($"SELECT 1 FROM pragma_table_info('{table}') WHERE name = '{column}'");
+                return c.ExecuteScalar() is not null;
+            }
+            bool engine = Has("fx_rules", "engine"), chargeOrder = Has("fx_rules", "kill_charge_order"),
+                rollOrder = Has("fx_rule_when", "roll_order");
             using var transaction = _db.BeginTransaction(deferred: true);
             SqliteCommand Read(string sql)
             {
@@ -92,7 +113,7 @@ public sealed class GameDataStore : IDisposable
             using (var command = Read("SELECT rule, kind, key FROM fx_rule_sources ORDER BY rule, ord"))
             using (var reader = command.ExecuteReader())
                 while (reader.Read()) Of(sources, reader.GetString(0)).Add((reader.GetString(1), reader.GetString(2)));
-            using (var command = Read("SELECT rule, trigger, args, roll_order FROM fx_rule_when ORDER BY rule, ord"))
+            using (var command = Read($"SELECT rule, trigger, args, {(rollOrder ? "roll_order" : "NULL")} FROM fx_rule_when ORDER BY rule, ord"))
             using (var reader = command.ExecuteReader())
                 while (reader.Read()) Of(when, reader.GetString(0)).Add((reader.GetString(1), reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetInt64(3)));
             using (var command = Read("SELECT rule, grp, condition, negate, args FROM fx_rule_if ORDER BY rule, grp, ord"))
@@ -105,14 +126,15 @@ public sealed class GameDataStore : IDisposable
                     Of(actions, reader.GetString(0)).Add((reader.GetString(1), reader.GetString(2), reader.GetString(3),
                         reader.GetString(4), reader.GetString(5), reader.GetString(6)));
             var result = new List<FxRuleRow>();
-            using (var command = Read("SELECT id, book, title, replaces, status, kill_charge_order FROM fx_rules WHERE enabled = 1 ORDER BY kill_charge_order, id"))
+            string order = chargeOrder ? "kill_charge_order" : "NULL";
+            using (var command = Read($"SELECT id, book, title, replaces, status, {order}, {(engine ? "engine" : "NULL")} FROM fx_rules WHERE enabled = 1 ORDER BY {order}, id"))
             using (var reader = command.ExecuteReader())
                 while (reader.Read())
                 {
                     string id = reader.GetString(0);
                     result.Add(new(id, reader.GetString(1), reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3),
                         reader.GetString(4), Of(sources, id), Of(when, id), Of(conditions, id), Of(actions, id))
-                    { KillChargeOrder = reader.IsDBNull(5) ? null : reader.GetInt64(5) });
+                    { KillChargeOrder = reader.IsDBNull(5) ? null : reader.GetInt64(5), Engine = reader.IsDBNull(6) ? null : reader.GetString(6) });
                 }
             transaction.Commit();
             return result;
@@ -128,6 +150,265 @@ public sealed class GameDataStore : IDisposable
             var result = new List<ModStatOverride>();
             while (reader.Read())
                 result.Add(new(reader.GetString(0), reader.GetInt32(1), reader.GetInt32(2), reader.GetInt32(3)));
+            return result;
+        }
+    }
+
+    /// <summary>The enabled, reviewed rows of <c>effect_rules</c>, in stat and ord order.</summary>
+    public IReadOnlyList<EffectRuleRow> LoadEffectRules()
+    {
+        lock (_gate)
+        {
+            using var command = Command("SELECT stat, ord, rule, note FROM effect_rules WHERE enabled = 1 AND reviewed = 1 ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<EffectRuleRow>();
+            while (reader.Read())
+                result.Add(new(reader.GetString(0), reader.GetInt32(1), reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3)));
+            return result;
+        }
+    }
+
+    /// <summary>The enabled rows of <c>effect_skills</c>.</summary>
+    /// <summary>One enabled row of <c>effect_buffs</c>: the buff a released skill gives its user.</summary>
+    /// <summary>One fx_modifiers row that has conditions or a plain stat to count onto: what the game data's
+    /// conditional stats are read from (StatConditions.LoadTable).</summary>
+    public sealed record FxModifierRow(string Stat, int Ord, double Scale, string Conditions, string? CountsAs);
+
+    /// <summary>The enabled fx_modifiers rows with conditions or a counts_as, in order. Empty when the table or its
+    /// counts_as column is not there (an older world.db in a test).</summary>
+    public IReadOnlyList<FxModifierRow> LoadFxModifiers()
+    {
+        lock (_gate)
+        {
+            using (var column = Command("SELECT 1 FROM pragma_table_info('fx_modifiers') WHERE name = 'counts_as'"))
+                if (column.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, ord, scale, conditions, counts_as FROM fx_modifiers " +
+                "WHERE enabled = 1 AND (counts_as IS NOT NULL OR conditions <> '[]') ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxModifierRow>();
+            while (reader.Read())
+                result.Add(new(reader.GetString(0), reader.GetInt32(1), reader.GetDouble(2), reader.GetString(3),
+                    reader.IsDBNull(4) ? null : reader.GetString(4)));
+            return result;
+        }
+    }
+
+    /// <summary>One fx_modifiers row whose stat counts once per something the character has ("per Power Charge"): the
+    /// stat it adds to (the row's quantity) and what it is per, as written (ChargeEffects.LoadTable).</summary>
+    public sealed record FxPerRow(string Stat, int Ord, string Target, string Per);
+
+    /// <summary>The enabled fx_modifiers rows with a "per", in order. Empty when the table or the column is not there
+    /// (an older world.db in a test).</summary>
+    public IReadOnlyList<FxPerRow> LoadFxPerRows()
+    {
+        lock (_gate)
+        {
+            using (var column = Command("SELECT 1 FROM pragma_table_info('fx_modifiers') WHERE name = 'per'"))
+                if (column.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, ord, quantity, per FROM fx_modifiers WHERE enabled = 1 AND per IS NOT NULL ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxPerRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetInt32(1), reader.GetString(2), reader.GetString(3)));
+            return result;
+        }
+    }
+
+    /// <summary>The enabled fx_modifiers rows whose target is the area's players ("players_area"), in order: the area's
+    /// stat, the player's stat (the row's quantity) and how many of it one point gives.</summary>
+    public IReadOnlyList<FxAreaMonsterRow> LoadFxAreaPlayerRows()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_modifiers'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, quantity, scale FROM fx_modifiers WHERE enabled = 1 AND target = 'players_area' ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxAreaMonsterRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetDouble(2)));
+            return result;
+        }
+    }
+
+    /// <summary>One fx_skill_stats row: a character's stat that is a general stat for one skill.</summary>
+    public sealed record FxSkillStatRow(string Stat, string Skill, string Gives, double Scale);
+
+    /// <summary>The enabled fx_skill_stats rows. Empty when the table is not there (an older world.db in a test).</summary>
+    public IReadOnlyList<FxSkillStatRow> LoadFxSkillStats()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_skill_stats'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, skill, gives, scale FROM fx_skill_stats WHERE enabled = 1 ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxSkillStatRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetDouble(3)));
+            return result;
+        }
+    }
+
+    /// <summary>One fx_per_attribute row: a stat that gives another stat once for every so many points of an attribute.</summary>
+    public sealed record FxPerAttributeRow(string Stat, string CountsAs, string Attribute, int Every, double Scale);
+
+    /// <summary>The enabled fx_per_attribute rows. Empty when the table is not there (an older world.db in a test).</summary>
+    public IReadOnlyList<FxPerAttributeRow> LoadFxPerAttribute()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_per_attribute'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, counts_as, attribute, every, scale FROM fx_per_attribute WHERE enabled = 1 ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxPerAttributeRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetInt32(3), reader.GetDouble(4)));
+            return result;
+        }
+    }
+
+    /// <summary>One fx_item_local row: a stat that belongs to its item (Stats.dat IsLocal) and counts as a character
+    /// stat while the item is worn in <paramref name="Slot"/> (any, left_ring, right_ring).</summary>
+    public sealed record FxItemLocalRow(string Stat, string Slot, string CountsAs, double Scale);
+
+    /// <summary>The enabled fx_item_local rows. Empty when the table is not there (an older world.db in a test).</summary>
+    public IReadOnlyList<FxItemLocalRow> LoadFxItemLocal()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_item_local'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, slot, counts_as, scale FROM fx_item_local WHERE enabled = 1 ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxItemLocalRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetDouble(3)));
+            return result;
+        }
+    }
+
+    /// <summary>One fx_aliases row: a stat that is also another stat, with no condition.</summary>
+    public sealed record FxAliasRow(string Stat, string CountsAs, double Scale);
+
+    /// <summary>The enabled fx_aliases rows. Empty when the table is not there (an older world.db in a test).</summary>
+    public IReadOnlyList<FxAliasRow> LoadFxAliases()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_aliases'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, counts_as, scale FROM fx_aliases WHERE enabled = 1 ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxAliasRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetDouble(2)));
+            return result;
+        }
+    }
+
+    /// <summary>The fx_aura_effects rows (an aura or buff skill, a stat that is its own increased effect). Empty when the
+    /// table is not there (an older world.db in a test).</summary>
+    public IReadOnlyList<(string Family, string Stat)> LoadFxAuraEffects()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_aura_effects'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT family, stat FROM fx_aura_effects ORDER BY family, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<(string, string)>();
+            while (reader.Read()) result.Add((reader.GetString(0), reader.GetString(1)));
+            return result;
+        }
+    }
+
+    /// <summary>One fx_reads_as row: a stat as a bundle writes it, and the stat an actor of this kind reads for it.</summary>
+    public sealed record FxReadsAsRow(string Actor, string Stat, string Reads, double Scale);
+
+    /// <summary>The fx_reads_as rows, in order. Empty when the table is not there (an older world.db in a test).</summary>
+    public IReadOnlyList<FxReadsAsRow> LoadFxReadsAs()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_reads_as'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT actor, stat, reads, scale FROM fx_reads_as ORDER BY actor, stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxReadsAsRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetDouble(3)));
+            return result;
+        }
+    }
+
+    /// <summary>The "unscalable" flags of the fx tables: per stat (fx_stats.unscalable, every row) and per item line
+    /// (fx_lines, a Mods Id). Empty when the column or the table is not there (an older world.db in a test).</summary>
+    public (IReadOnlyDictionary<string, bool> Stats, IReadOnlyDictionary<string, bool> Lines) LoadFxUnscalable()
+    {
+        lock (_gate)
+        {
+            var stats = new Dictionary<string, bool>(StringComparer.Ordinal);
+            var lines = new Dictionary<string, bool>(StringComparer.Ordinal);
+            using (var column = Command("SELECT 1 FROM pragma_table_info('fx_stats') WHERE name = 'unscalable'"))
+                if (column.ExecuteScalar() is not null)
+                {
+                    using var command = Command("SELECT stat, unscalable FROM fx_stats");
+                    using var reader = command.ExecuteReader();
+                    while (reader.Read()) stats[reader.GetString(0)] = reader.GetInt32(1) != 0;
+                }
+            using (var table = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_lines'"))
+                if (table.ExecuteScalar() is not null)
+                {
+                    using var command = Command("SELECT mod, unscalable FROM fx_lines");
+                    using var reader = command.ExecuteReader();
+                    while (reader.Read()) lines[reader.GetString(0)] = reader.GetInt32(1) != 0;
+                }
+            return (stats, lines);
+        }
+    }
+
+    /// <summary>One fx_modifiers row of an area modifier that gives the area's monsters a stat they already act on: the
+    /// area's stat, the monster's stat (the row's quantity) and how many of it one point gives.</summary>
+    public sealed record FxAreaMonsterRow(string Stat, string MonsterStat, double Scale);
+
+    /// <summary>The enabled fx_modifiers rows whose target is the area's monsters ("enemies_area"), in order.</summary>
+    public IReadOnlyList<FxAreaMonsterRow> LoadFxAreaMonsterRows()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_modifiers'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, quantity, scale FROM fx_modifiers WHERE enabled = 1 AND target = 'enemies_area' ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxAreaMonsterRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetDouble(2)));
+            return result;
+        }
+    }
+
+    public sealed record EffectBuffRow(string Effect, string? Buff, string? Routine, double? Seconds, string Stats, bool Checked);
+
+    public IReadOnlyList<EffectBuffRow> LoadEffectBuffs()
+    {
+        lock (_gate)
+        {
+            using var command = Command("SELECT effect, buff, routine, seconds, stats, checked FROM effect_buffs WHERE enabled = 1 ORDER BY effect");
+            using var reader = command.ExecuteReader();
+            var result = new List<EffectBuffRow>();
+            while (reader.Read())
+                result.Add(new(reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1),
+                    reader.IsDBNull(2) ? null : reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetDouble(3),
+                    reader.GetString(4), reader.GetInt32(5) != 0));
+            return result;
+        }
+    }
+
+    public IReadOnlyList<EffectSkillRow> LoadEffectSkills()
+    {
+        lock (_gate)
+        {
+            using var command = Command("SELECT effect, how, art, scale, seconds, radius, hits, every, spread, checked FROM effect_skills WHERE enabled = 1 ORDER BY effect");
+            using var reader = command.ExecuteReader();
+            var result = new List<EffectSkillRow>();
+            while (reader.Read())
+                result.Add(new(reader.GetString(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2),
+                    reader.GetDouble(3), reader.GetDouble(4), reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                    reader.GetInt32(6), reader.GetDouble(7), reader.GetInt32(8), reader.GetInt32(9) != 0));
             return result;
         }
     }

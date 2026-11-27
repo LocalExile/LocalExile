@@ -169,6 +169,7 @@ public static partial class Game
         sources = WithTinctures(player, sources);
         sources = WithAlchemistsGenius(player, sources);
         AddBannerAuraStats(player, sources);
+        sources = WithTimedBuffs(player, sources);
         sources = WithLinks(player, GameEvents.WithPlayerStatSources(player, WithQuestStats(player, WithWardBreak(player, WithFortification(player, WithCharges(player, WithSupportGemBuffs(player, sources))), equipment, inactive))));
         if (sources.GetValueOrDefault(Stat.MovementSpeedPlusPctPerNearbyEnemy) is int perEnemy and not 0)
             sources[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)sources.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)
@@ -889,12 +890,21 @@ public static partial class Game
             if (markLevel > 0) sources[itemMark] = markLevel;
         }
         ApplyMinionSocketConversions(active, catalog, sources);
+        ApplySocketCountStats(active, catalog, sources);
+        ApplyItemLocalRows(equipment, inactive, catalog.Mods, sources);
         // Clamp only this outgoing integer view; the authoritative attribute inputs remain wide beside it.
         foreach (var (name, value) in rawAttributes)
             sources[name] = AttributeModifiers.Signed(value);
         AbyssJewels.Count(active, catalog, Stats, sources);
         ApplySocketedGhastlyEyeBonuses(active, catalog, sources);
         ItemStatAliases.Apply(sources);
+        // "Increases and Reductions to Cast Speed apply to Attack Speed" (Wilma's Requital): the cast speed in this
+        // source sum (the cast half of "attack and cast speed" too: Repeater's 8% counts twice for attacks), at the
+        // line's share, counted as attack speed too. Cast speed added after this point (a buff's)
+        // is not carried over.
+        if (sources.GetValueOrDefault(Stat.UniqueHelmetCastSpeedPlusPctAppliesToAttackSpeedAtPctOfOriginalValue) is int castShare and not 0
+            && (long)sources.GetValueOrDefault(Stat.BaseCastSpeedPlusPct) + sources.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPct) is var castSpeed and not 0)
+            GolemAdd(sources, Stat.AttackSpeedPlusPct, ActorScale.Saturate(castSpeed * castShare / 100));
         const uint daggerCrit = Stat.GladiatorCriticalStrikeChancePlusPctFinalWhileWieldingDagger;
         if (sources.GetValueOrDefault(daggerCrit) != 0
             && !WeaponProfileFrom(row => items.Items(row), inactive.Contains, catalog, activeSet: true, () => false).Dagger)
@@ -948,11 +958,16 @@ public static partial class Game
         {
             if (Stats.Name(key) is not { } name) { Add(key, raw); continue; }
             var state = StatConditions.Of(name, subject);
-            if (!StatConditions.Counts(state)) continue;
+            // A stat whose rule records the event its condition waits for keeps its id (StatConditions.KeepsOwnId).
+            if (!StatConditions.Counts(state)) { if (StatConditions.KeepsOwnId(name)) Add(key, 1); continue; }
             int value = StatConditions.Counted(name, raw, state, subject, Stats.Has, out var targets);
             if (targets is null) Add(key, value);
-            else foreach (string target in targets)
+            else
+            {
+                foreach (string target in targets)
                     if (Stats.Key(target) is uint targetKey) Add(targetKey, value);
+                if (StatConditions.KeepsOwnId(name)) Add(key, 1);
+            }
         }
         return folded;
     }
@@ -1275,6 +1290,13 @@ public static partial class Game
                 ColdMaxResistance = bonus.ColdMaxResistance - 15,
                 LightningMaxResistance = bonus.LightningMaxResistance - 15,
             };
+        // "Your Maximum Resistances are #%" (Loreweave): the four maximums are that number, whatever else adds to them
+        // here. A temporary aura's own maximum resistance is still added afterwards.
+        if (EquipmentInput(Stat.OverrideMaximumDamageResistancePct) is int fixedMaximum and > 0)
+        {
+            int offset = fixedMaximum - GameServer.Core.World.DamageModel.DefaultMaxResistance;
+            bonus = bonus with { FireMaxResistance = offset, ColdMaxResistance = offset, LightningMaxResistance = offset, ChaosMaxResistance = offset };
+        }
         int EquipmentInput(uint key) => sources.GetValueOrDefault(key);
         var gear = EquippedBaseDefences(player, EquipmentInput);
         var slots = EquippedArmourDefences(player, EquipmentInput).ToArray();
@@ -1296,6 +1318,13 @@ public static partial class Game
             };
         }
         int EquipmentStat(uint key) => sources.GetValueOrDefault(key);
+        decimal SlotSum(byte one, byte two, Func<(decimal Armour, decimal Evasion, int EnergyShield, decimal Ward), decimal> of)
+        {
+            decimal sum = 0;
+            foreach (var d in slots)
+                if (d.Row == one || d.Row == two) sum += of(d.Defence);
+            return sum;
+        }
         var converted = ConvertEquipmentEnergyShield(player, EquipmentStat, gear.EnergyShield);
         int bodyEvasionStep = EquipmentInput(Stat.MaximumEnergyShieldPlusPerXBodyArmourEvasionRating);
         long bodyArmourEnergyShield = bodyEvasionStep > 0 ? (long)(body.Evasion / bodyEvasionStep) : 0;
@@ -1314,6 +1343,15 @@ public static partial class Game
             BodyEnergyShield = converted.EnergyShield == 0 ? 0 : body.EnergyShield,
             HelmetEnergyShield = converted.EnergyShield == 0 ? 0 : helmet.EnergyShield,
             GlovesBootsArmour = glovesBoots.Armour, GlovesBootsEvasion = glovesBoots.Evasion,
+            SlotArmourBonus = SlotSum(PlayerInventories.Helmet, PlayerInventories.Gloves, d => d.Armour)
+                * EquipmentStat(Stat.ArmourFromHelmetAndGlovesPlusPct) / 100m
+                // "Armour from Equipped Shield is doubled" (Prospero's Protection): the shield's own armour once more.
+                + (EquipmentStat(Stat.ArmourFromShieldDoubled) != 0 ? shieldDefence.Armour : 0),
+            SlotEvasionBonus = SlotSum(PlayerInventories.Helmet, PlayerInventories.Boots, d => d.Evasion)
+                * EquipmentStat(Stat.EvasionRatingFromHelmetAndBootsPlusPct) / 100m,
+            SlotEnergyShieldBonus = converted.EnergyShield == 0 ? 0
+                : SlotSum(PlayerInventories.Gloves, PlayerInventories.Boots, d => d.EnergyShield)
+                    * EquipmentStat(Stat.EnergyShieldFromGlovesAndBootsPlusPct) / 100m,
         };
         int HandDivisor(uint stat, Func<Player, (Item Item, ItemCatalog.BaseType? Type)?> hand)
         {
@@ -1432,8 +1470,11 @@ public static partial class Game
             AttackSpeedPct = bonus.AttackSpeedPct + aura.AttackSpeedPct + cat.AttackSpeedPct,
             SpellBlockChance = bonus.SpellBlockChance + (activeWeapon.Shield
                 ? auras.Where(a => a.EffectId == "TempestShield").Select(a => ReservationStat(player, a, Stat.ShieldSpellBlockPct)).DefaultIfEmpty(0).Max() : 0),
-            MovementVelocityPct = bonus.MovementVelocityPct + aura.MovementVelocityPct + ShieldChargeMovementPct(player)
-                + FlickerMovementPct(player) + ElusiveMovementPct(player) + BladestormBonuses(player).MoveIncreased
+            // "Your Movement Speed is #% of its base value" (The Stampede): that number, whatever else would change it
+            // here. What is applied after this point (a flask's speed, slows) still moves it.
+            MovementVelocityPct = EquipmentInput(Stat.MovementSpeedIsPctOfBase) is int fixedSpeed and > 0 ? fixedSpeed - 100
+                : bonus.MovementVelocityPct + aura.MovementVelocityPct + ShieldChargeMovementPct(player)
+                    + FlickerMovementPct(player) + ElusiveMovementPct(player) + BladestormBonuses(player).MoveIncreased
         };
         // Running utility flasks and Mageblood's permanent ones combined before one strongest-per-effect pass: the same
         // effect never counts twice.
@@ -1571,8 +1612,10 @@ public static partial class Game
             // A pure base stat takes its place before the global increases: the weapon override (Slayer Overwhelm,
             // Blind Prophet's Sightless) replaces the armed weapon's base, already with its local mods, and unarmed
             // melee uses its own Behemoth base. Neither base is a spell value; the spell route stays on SpellCriticalStrike.
-            AttackCriticalStrikeChance = DisplayedCriticalChance(player, AttackBaseCriticalStrike.Chance(!activeWeapon.Unarmed,
-                activeWeapon.Critical, pools.CriticalStrikeChancePct, RawCritical), RawCritical),
+            // "This Weapon's Critical Strike Chance is 100%" (Trypanon) / "is #%" (Actum): the panel's number too.
+            AttackCriticalStrikeChance = FixedWeaponCriticalChance(player, AttackHand.Main) is int fixedCritical and > 0 ? fixedCritical
+                : DisplayedCriticalChance(player, AttackBaseCriticalStrike.Chance(!activeWeapon.Unarmed,
+                    activeWeapon.Critical, pools.CriticalStrikeChancePct, RawCritical), RawCritical),
             SpellCriticalStrikeChance = DisplayedCriticalChance(player, SpellCriticalStrike.Chance(
                 DamageModel.BaseSpellCriticalStrikeChancePerMyriad, RawCritical,
                 playerIncrease: pools.SpellCriticalStrikeChancePct), RawCritical)
@@ -1588,7 +1631,9 @@ public static partial class Game
         double blockIncrease = bonus.BlockChanceInc + (double)(map?.Get(Stat.MapPlayersBlockChancePlusPct) ?? 0);
         double blockFactor = Math.Max(0, 1 + blockIncrease / 100) * (1 + bonus.BlockChanceMore / 100.0);
         int totalAttack = (int)Math.Round(Math.Max(0, rawAttack) * blockFactor);
-        int totalSpell = (int)Math.Round(Math.Max(0, pools.SpellBlockChance) * blockFactor);
+        // "Cannot Block Spell Damage" (Iron Heart).
+        int totalSpell = EquipmentInput(Stat.CannotBlockSpells) != 0 ? 0
+            : (int)Math.Round(Math.Max(0, pools.SpellBlockChance) * blockFactor);
         pools = pools with
         {
             BlockChanceBase = shieldBlock,
@@ -1671,6 +1716,11 @@ public static partial class Game
                 Ward = (uint)Math.Min(uint.MaxValue, Scale(pools.Ward)),
             };
         }
+        // "1% increased Movement Speed per # Evasion Rating, up to 75%" (Queen of the Forest): from the finished evasion
+        // rating, so it is added here and not with the other increases (a slow's "less" does not scale this part).
+        if (EquipmentInput(Stat.MovementVelocityPlus1PctPerXEvasionRating) is int perEvasion and > 0
+            && pools.MovementVelocityPct > -100 && EquipmentInput(Stat.MovementSpeedIsPctOfBase) <= 0)
+            pools = pools with { MovementVelocityPct = pools.MovementVelocityPct + (int)Math.Min(75, pools.Evasion / perEvasion) };
         int shieldEqualsLife = EquipmentInput(Stat.MaximumEnergyShieldIsXPctOfMaximumLife);
         if (!bonus.NoEnergyShield && shieldEqualsLife > 0)
             pools = pools with { EnergyShield = (uint)Math.Min(int.MaxValue, (long)pools.Life * shieldEqualsLife / 100) };

@@ -68,8 +68,9 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
         get
         {
             if (Pending || Holds) return true;
-            for (int i = 0; i < ChargeGains.Periodics.Count; i++)
-                if (Observed(ChargeGains.Periodics[i].Stat) != 0) return true;
+            var periodics = ChargeGains.KnownPeriodics;
+            for (int i = 0; i < periodics.Count; i++)
+                if (Observed(periodics[i].Stat) != 0) return true;
             return false;
         }
     }
@@ -100,7 +101,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
             Record(Charges.ConversionFlag(type));
             Record(Charges.MinimumConversionFlag(type));
         }
-        foreach (var p in ChargeGains.Periodics) Record(p.Stat);
+        foreach (var p in ChargeGains.KnownPeriodics) Record(p.Stat);
         foreach (uint name in ChargeTriggers.Observed) Record(name);
         Record(Stat.KeystoneQuietMight);
         observed = seen;
@@ -216,6 +217,9 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
         return spent;
     }
 
+    /// <summary>The stats an effect rule is live for on this character: left to the rule (ChargeGains.Roll).</summary>
+    public Func<uint, bool>? Ruled { get; set; }
+
     void ApplyEvent(ChargeEvent e, double now, Func<uint, int> stats, Func<WeaponProfile> weapon, Random rng, List<string> log)
     {
         SettleDegeneration(now);
@@ -235,7 +239,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
         if (e is ChargeEvent.Hit { Primary: true, Skill: { } skill }
             && skill(Stat.FrenzyConsumeChargesToOnslaughtForMsPerCharge) is > 0 and var perCharge)
             FrenzyOfOnslaughtHit(now, perCharge, rng, log);
-        foreach (var gain in ChargeGains.Roll(e, stats, weapon(), rng)) Apply(gain, now, rng, log);
+        foreach (var gain in ChargeGains.Roll(e, stats, weapon(), rng, Ruled)) Apply(gain, now, rng, log);
     }
 
     void FrenzyOfOnslaughtHit(double now, int perCharge, Random rng, List<string> log)

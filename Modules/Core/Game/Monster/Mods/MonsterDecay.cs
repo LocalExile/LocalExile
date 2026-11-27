@@ -101,7 +101,7 @@ public static partial class Game
         int damage = state.Damage.Advance(now, factor);
         if (!state.Damage.Burning) DecayIcon(player, state, now);
         damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref state.TakenCarry,
-            IncomingResourceDefences.LessTakenPct(player.Pools, Get), typedIncreasedPct: Get(Stat.ChaosDamageTakenPlusPct)
+            IncomingResourceDefences.LessTakenPct(player.Pools, Get), typedIncreasedPct: Get(Stat.ChaosDamageTakenPlusPct) + Get(Stat.ChaosDamageTakenOverTimePlusPct)
                 + (player.InCausticCloud ? Get(Stat.ChaosDamageTakenOverTimePlusPctWhileInCausticCloud) : 0),
             finalTakenPct: Get(IncomingResourceDefences.UnhingedSaneDamageFinal));
         return DamagePlayerChaosOverTime(player, damage, now, playerStats);

@@ -46,6 +46,9 @@ public static partial class Game
             return "Animate Guardian's Weapon triggers from a qualifying minion kill";
         if (GolemStat(gem.Stats, Stat.CastOnLoseCatsStealth) != 0)
             return "this skill can only trigger when Cat's Stealth is lost";
+        // A granted skill an effect rule triggers (a row keyed by one of its own stats) is never used by hand.
+        if (gem.WornGrant is { } worn && EffectRules.CarrierRuleFor(SkillCarrier, key => GolemStat(gem.Stats, key), worn.EffectId))
+            return "this skill is triggered by the item that grants it";
         if (gem.Supports.Any(s => s.Effect.Id == "SupportCastWhenDamageTaken"))
             return "this skill can only trigger when damage is taken";
         if (gem.Supports.Any(s => SupportHas(s, Stat.CastOnStunnedPct)))

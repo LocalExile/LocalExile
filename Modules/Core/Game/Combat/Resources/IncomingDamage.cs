@@ -101,6 +101,8 @@ public static partial class Game
         // Physical Aegis follows mitigation and totem redirection. Path of Exile's damage order puts an Aegis before
         // Ward; only the Aegis overflow reaches Ward, ES, Mana and Life.
         physical = PhysicalAegisDamage(player, physical, at);
+        // The Fire, Cold, Lightning and Elemental Aegises take their share of the elemental part at the same step.
+        other = TypedAegisDamage(player, other, types, at);
         (physical, other, chaos) = AbsorbTriggeredGuardHit(player, physical, other, chaos, at);
         int total = (int)Math.Min(int.MaxValue, (long)physical + other + chaos);
         int diverted = MinionsTakeOwnerHitLocked(player, total, at, playerStats);
@@ -121,7 +123,9 @@ public static partial class Game
             && (Get(Stat.VirtualEnergyShieldProtectsMana) != 0 || Get(Stat.KeystoneEldritchBattery) != 0);
         int bypass = divineFlesh ? 100 : Get(IncomingResourceDefences.BypassStat);
         int physicalLife = protectsMana ? player.EnergyShield.Damage(physical, true, at)
-            : IncomingResourceDefences.Damage(player.EnergyShield, physical, bypass, at);
+            // "Physical Damage taken bypasses Energy Shield" (The Fourth Vow): that share of the physical part.
+            : IncomingResourceDefences.Damage(player.EnergyShield, physical,
+                Math.Clamp(bypass + Get(Stat.PctPhysicalDamageBypassesEnergyShield), 0, 100), at);
         int otherLife = protectsMana ? player.EnergyShield.Damage(other, true, at)
             : IncomingResourceDefences.Damage(player.EnergyShield, other, bypass, at);
         int nonChaosLife = (int)Math.Min(int.MaxValue, (long)physicalLife + otherLife);

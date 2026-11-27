@@ -24,7 +24,9 @@ public static partial class Game
         EnsureFortificationPools(player);
         ConfigureFortificationRecovery(player, player.Pools.Life, Get);
         ConfigureLeech(player, Get, CriticalOnLowLife(player, stats));
-        ConfigureKillOnslaught(player, Get);
+        // A stat an effect rule drives is the rule's: the older Onslaught code reads it as 0.
+        ConfigureKillOnslaught(player, EffectRules.Unhandled(Get));
+        EffectRules.Configure(player, Get, RuleSources(player));
         ConfigureSoulEater(player, stats);
         ObserveWardBreak(player, stats);
         ReconcileRampageSource(player, stats);

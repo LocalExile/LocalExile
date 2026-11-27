@@ -156,7 +156,79 @@ public static partial class Game
         Gain(Stat.MapMonsterAllDamageCanIgniteFreezeShock, Stat.AllDamageCanIgnite);
         Gain(Stat.MapMonsterAllDamageCanIgniteFreezeShock, Stat.AllDamageCanFreeze);
         Gain(Stat.MapMonsterAllDamageCanIgniteFreezeShock, Stat.AllDamageCanShock);
+        // The pairs the fx tables add (area modifiers no code read before), while the effect rules are on.
+        if (EffectRules.Enabled)
+            foreach (var (map, monster, scale) in TableMonsterPairs())
+                if (mods.Get(map) is int value and not 0)
+                    extra[monster] = ActorScale.Saturate((long)extra.GetValueOrDefault(monster) + (long)Math.Round(value * scale));
+        // The bundles the area gives its monsters (a rule whose source is the area). Flat maximum life is not counted
+        // here: a monster's life is worked out from its percent modifiers when it is made.
+        foreach (var grant in EffectRules.AreaGrants)
+            if (!grant.Players && mods.Get(grant.Stat) is int has and not 0)
+                foreach (var (stat, value) in ForMonsters(BundleAt(grant.Bundle, grant.Roll + grant.RollPerPoint * has, grant.Effect + grant.EffectPerPoint * has, has)))
+                    extra[stat] = ActorScale.Saturate((long)extra.GetValueOrDefault(stat) + value);
         return extra;
+    }
+
+    /// <summary>What the area gives the player because of its own stats (map modifiers), added to the player's stat
+    /// sources while the rules are on: modifier rows with the target players_area (the area's stat counts as the
+    /// player's), and the bundles of the area's rules for its players. With neither loaded it costs two lookups.</summary>
+    static void AddAreaStatsForPlayer(Player player, Dictionary<uint, int> sources)
+    {
+        if (!EffectRules.Enabled) return;
+        var pairs = TablePlayerPairs();
+        var grants = EffectRules.AreaGrants;
+        if (pairs.Length == 0 && grants.Count == 0 || MapModsOf(player) is not { } mods) return;
+        AddAreaStatsFor(mods, sources);
+    }
+
+    static void AddAreaStatsFor(MapMods mods, Dictionary<uint, int> sources)
+    {
+        if (!EffectRules.Enabled) return;
+        var pairs = TablePlayerPairs();
+        var grants = EffectRules.AreaGrants;
+        foreach (var (map, own, scale) in pairs)
+            if (mods.Get(map) is int value and not 0)
+                sources[own] = ActorScale.Saturate((long)sources.GetValueOrDefault(own) + (long)Math.Round(value * scale));
+        foreach (var grant in grants)
+            if (grant.Players && mods.Get(grant.Stat) is int has and not 0)
+                foreach (var (stat, value) in BundleAt(grant.Bundle, grant.Roll + grant.RollPerPoint * has, grant.Effect + grant.EffectPerPoint * has, has))
+                    sources[stat] = ActorScale.Saturate((long)sources.GetValueOrDefault(stat) + value);
+    }
+
+    static TableMonsterStats _tablePlayerPairs = new([], []);
+    static (uint Map, uint Monster, double Scale)[] TablePlayerPairs()
+    {
+        var rows = GameData.FxAreaPlayerStats;
+        var cached = Volatile.Read(ref _tablePlayerPairs);
+        if (ReferenceEquals(cached.Rows, rows)) return cached.Pairs;
+        var pairs = new List<(uint, uint, double)>();
+        foreach (var row in rows)
+            if (Stats.Key(row.Stat) is uint map && Stats.Key(row.MonsterStat) is uint own) pairs.Add((map, own, row.Scale));
+            else Console.WriteLine($"[rules] fx_modifiers {row.Stat}: unknown stat; the area modifier is left out");
+        if (pairs.Count > 0) Console.WriteLine($"[rules] {pairs.Count} area modifier(s) on players from the fx tables");
+        var worked = new TableMonsterStats(rows, [.. pairs]);
+        Volatile.Write(ref _tablePlayerPairs, worked);
+        return worked.Pairs;
+    }
+
+    // fx_modifiers rows with the target enemies_area, by stat key: worked out once for each load of the game data.
+    sealed record TableMonsterStats(IReadOnlyList<GameServer.Storage.GameDataStore.FxAreaMonsterRow> Rows, (uint Map, uint Monster, double Scale)[] Pairs);
+    static TableMonsterStats _tableMonsterPairs = new([], []);
+
+    static (uint Map, uint Monster, double Scale)[] TableMonsterPairs()
+    {
+        var rows = GameData.FxAreaMonsterStats;
+        var cached = Volatile.Read(ref _tableMonsterPairs);
+        if (ReferenceEquals(cached.Rows, rows)) return cached.Pairs;
+        var pairs = new List<(uint, uint, double)>();
+        foreach (var row in rows)
+            if (Stats.Key(row.Stat) is uint map && Stats.Key(row.MonsterStat) is uint monster) pairs.Add((map, monster, row.Scale));
+            else Console.WriteLine($"[rules] fx_modifiers {row.Stat}: unknown stat; the area modifier is left out");
+        if (pairs.Count > 0) Console.WriteLine($"[rules] {pairs.Count} area modifier(s) on monsters from the fx tables");
+        var worked = new TableMonsterStats(rows, [.. pairs]);
+        Volatile.Write(ref _tableMonsterPairs, worked);
+        return worked.Pairs;
     }
 
     public static IReadOnlyDictionary<uint, int> MapBossEffects(MapMods mods) => new Dictionary<uint, int>

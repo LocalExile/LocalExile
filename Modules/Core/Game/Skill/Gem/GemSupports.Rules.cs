@@ -54,12 +54,14 @@ public static partial class Game
         IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null)
     {
         equipment ??= ItemsOf(player).EquipmentSnapshot();
-        return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && (g.ManuallyCast
+        // A skill an effect rule triggers (RuleTriggeredGrant) is one of the Actor's skills too, as the game lists it:
+        // its id is what its cost, its supports and the client know it by. It cannot be used by hand (TriggerOnlyReason).
+        return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && (RuleTriggeredGrant(player, g) || g.ManuallyCast
                 || g.EffectId is SpiritBurstEffect or GuardianWeaponEffect or FoulgraspEffect or PrismaticBurstEffect
                     or AvengingFlameEffect or SummonSacredWispEffect or ShockwaveEffect or VoidShockwaveEffect or GoreShockwaveEffect
                 || TriggeredItemMinion(g) is not null)
             && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId)
-            && (ItemEffectRules.Enabled && ItemEffectRules.Current.Marks(SkillsFor(player), g).Length != 0
+            && (RuleTriggeredGrant(player, g) || ItemEffectRules.Enabled && ItemEffectRules.Current.Marks(SkillsFor(player), g).Length != 0
                 || g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
                 || SkillsFor(player).IsWarcry(g.Effect)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
@@ -168,6 +170,7 @@ public static partial class Game
             + GemQualityBonus(player, selected.Place.Gem);
         var own = SkillsFor(player).EffectStats(selected.Effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         ApplySupportStats(player, own, supports);
+        ApplySkillSpecificStats(selected.Effect, own, stat => RawGemStat(player, stat));
         ApplySocketedGolemEquipment(player, selected.Effect, host, local, own);
         AddIntensityBaseStats(player, own);
         if (CrueltySupportedStat is var crueltyFlag && own.GetValueOrDefault(crueltyFlag) != 0
@@ -270,6 +273,7 @@ public static partial class Game
             requirements.Inactive, sourceIsGem: false);
         var own = SkillsFor(player).EffectStats(grant.Effect, grant.Level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         ApplySupportStats(player, own, supports);
+        ApplySkillSpecificStats(grant.Effect, own, stat => RawGemStat(player, stat));
         AddIntensityBaseStats(player, own);
         if (SkillsFor(player).IsAura(grant.Effect, supports.Select(s => s.Effect.Row)))
             own[OwnAuraRestriction.BaseAura] = 1;
@@ -847,7 +851,8 @@ public static partial class Game
 
     public static SupportedHitInputs? SupportedHitInputsFor(Player player, ushort skillId, bool? area = null,
         SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null, SupportedGem? capturedGem = null,
-        bool projectile = false, int addedChaos = 0, bool totem = false, uint? projectileTotemLife = null)
+        bool projectile = false, int addedChaos = 0, bool totem = false, uint? projectileTotemLife = null,
+        GameServer.Core.World.DamagePacket? baseExtra = null)
     {
         var gem = capturedGem ?? SupportedSkill(player, skillId);
         bool wildStrike = IsWildStrike(gem.Effect);
@@ -966,7 +971,10 @@ public static partial class Game
             double lightning = Math.Floor(missing * (double)manaDamage / 100);
             plan = plan with { SpellBase = plan.SpellBase.Add(GameServer.Core.World.DamageType.Lightning, new(lightning, lightning)) };
         }
-        if (!plan.CanHit) return null;
+        // baseExtra: a spell's base damage its caller worked out (per character level, per shield quality): part of
+        // the spell's base, and enough for a spell whose stat set has no other to hit.
+        bool extraBase = baseExtra is not null && plan.Kind == SkillHitKind.Spell;
+        if (!plan.CanHit && !extraBase) return null;
         bool secondary = plan.Kind == SkillHitKind.Secondary;
         var attackWeapon = attack ? weapon ?? WeaponFor(player) : null;
         var coefficients = SkillsFor(player).DamageCoefficients(gem.Effect, gem.Level);
@@ -986,7 +994,8 @@ public static partial class Game
             : attackWeapon is not null
             ? SupportedAttackDamage.Raw(attackWeapon, Get, new(attackAccuracy),
                 coefficients.Base, coefficients.Added, melee: types.Contains(19) && !SkillsFor(player).RequiresShield(gem.Effect))
-            : DamageStats.RawAdded(spellBase, Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
+            : DamageStats.RawAdded(extraBase ? spellBase.Add(baseExtra!) : spellBase, Get, spell: true,
+                AddedEffectiveness(player, gem.Effect, gem.Level));
         if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.SpellBaseFireDamagePctMaximumLife) is int lifePct and > 0)
         {
             double fire = (long)player.PlayerMaxLife * lifePct / 100d;
@@ -1171,6 +1180,13 @@ public static partial class Game
         var gem = SupportedSkill(player, skillId);
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
         if (!hitPlan.CanHit && gem.Stats.GetValueOrDefault(Stat.InfernalBoltBaseFireDamagePctMaximumLife) <= 0) return 0;
+        // "This Weapon's Critical Strike Chance is 100%" (Trypanon) and "Critical Strike Chance is #% for Hits with this
+        // Weapon" (Actum): an attack with that hand's weapon has that chance, whatever else would change it. Here, so
+        // the swing, a projectile's release and the character panel all read the same number. weaponCritical is only
+        // given for the off hand.
+        if (SkillsFor(player).IsAttack(gem.Effect)
+            && FixedWeaponCriticalChance(player, weaponCritical is null ? AttackHand.Main : AttackHand.Off) is int fixedChance and > 0)
+            return fixedChance;
         // Inspiration: "Supported Skills have (6-11)% increased Critical Strike Chance per Inspiration Charge".
         if (player.SupportGems.InspirationCharges > 0
             && Stat.CriticalStrikeChancePlusPctPerRighteousCharge is var chargeCrit)

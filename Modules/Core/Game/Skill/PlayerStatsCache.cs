@@ -437,6 +437,13 @@ public static partial class Game
     /// <summary>Marks <paramref name="step"/> and is true: for a condition that started an effect the step reads.</summary>
     internal static bool Marked(Player player, PlayerStatStep step) { MarkPlayerStats(player, step); return true; }
 
+    /// <summary>The systems that take their configuration from the stats are told again at the next stat phase though
+    /// no stat changed: something that turns rules on came or went without a stat of its own (a flask's effect).</summary>
+    public static void TellStatsUpdated(Player player)
+    {
+        if (FrameStatsOf.TryGetValue(player, out var frame)) frame.Updated = true;
+    }
+
     public static void MarkPlayerStats(Player player, PlayerStatStep step)
     {
         if (FrameStatsOf.TryGetValue(player, out var frame) && frame.Graph is { } graph) graph.MarkRule((int)step);

@@ -178,7 +178,8 @@ public static partial class Game
         var raw = StatSourceValues(player);
         if (activated && effect >= 0) BlindOnElementalSkillUseLocked(player, effect, now, raw);
         ApplySiphoningSkillUseLocked(player, now, raw);
-        int loss = activated ? raw.GetValueOrDefault(Stat.LoseXManaWhenYouUseSkill) : 0;
+        // An effect rule live for the stat loses the mana itself (lose_mana_on_skill).
+        int loss = activated && !EffectRules.LiveFor(player, Stat.LoseXManaWhenYouUseSkill) ? raw.GetValueOrDefault(Stat.LoseXManaWhenYouUseSkill) : 0;
         if (loss > 0 && player.PlayerMana != 0)
         {
             uint before = player.PlayerMana, maximum = player.Pools.Mana;

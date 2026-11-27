@@ -131,7 +131,7 @@ public static partial class Game
                     projectileAttack: true),
                 PoisonSettingsFrom(blindedRows, "main_hand", Get, sourceWeapon.LocalSources,
                     projectileAttack: true)),
-            MaimChance = Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
+            MaimChance = Get(Stat.KeystoneBarbedTips) != 0 ? 100 : Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
             CriticalRoll = criticalRoll, Leech = captured.Leech, WeaponLocal = sourceWeapon.LocalSources,
             OffHandWeapon = hand == AttackHand.Off,
             AccuracyMoreUnique = player.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = player.Pools.AccuracyMoreInCloseRangePct,

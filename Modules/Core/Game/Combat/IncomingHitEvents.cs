@@ -11,7 +11,7 @@ public static partial class Game
     // Call in the area's frame after applying damage. Presentation must not create gameplay events a second time.
     static void RecordIncomingHitLocked(Player player, double now, bool spell, bool blocked, bool suppressed,
         long lifeDamage, bool damaged, bool critical = false, bool enemy = true, bool projectile = false, bool attack = false,
-        SpawnedMonster? attacker = null)
+        SpawnedMonster? attacker = null, IReadOnlyDictionary<uint, int>? stats = null, uint byId = 0, int physicalTaken = 0)
     {
         if (enemy)
         {
@@ -40,6 +40,6 @@ public static partial class Game
             OpenRetaliationWindows(player, blocked: false, now);
             QueueFlaskTrigger(player, FlaskEnchantments.Trigger.SavageHit);
         }
-        ChargesWhenHit(player, blocked, spell, critical);
+        ChargesWhenHit(player, blocked, spell, critical, attacker, stats, now, byId, melee: attack && !projectile, physicalTaken: physicalTaken);
     }
 }

@@ -78,8 +78,9 @@ public static partial class Game
         SupportedGem? captured, IReadOnlyDictionary<uint, int>? sources, int addedEffect, double effectMultiplier,
         bool fromPlacement = false)
     {
+        // An item's triggered variant is the curse it names (CurseFamily).
         var gem = captured ?? SupportedSkill(player, skill);
-        return gem.RequirementsMet && ApplyCurseDataLocked(player, monster, skill, SkillsFor(player).EffectId(gem.Effect) ?? "",
+        return gem.RequirementsMet && ApplyCurseDataLocked(player, monster, skill, CurseFamily(SkillsFor(player).EffectId(gem.Effect)),
             gem.Stats, now, aura, sources, addedEffect, effectMultiplier, fromPlacement: fromPlacement);
     }
 
@@ -235,8 +236,9 @@ public static partial class Game
         if (target.Dead || target.Life == 0 || player.Reservations.Secondary) return;
         if (playerHit)
         {
-            TemporalChainsOnSuccessfulHitLocked(player, target, now, hitStats,
-                hitStats.GetValueOrDefault(Stat.CurseOnHitPctTemporalChains), random);
+            if (!EffectRules.LiveFor(player, Stat.CurseOnHitPctTemporalChains))
+                TemporalChainsOnSuccessfulHitLocked(player, target, now, hitStats,
+                    hitStats.GetValueOrDefault(Stat.CurseOnHitPctTemporalChains), random);
             ItemCursesOnHitLocked(player, target, hitStats, now, mayTriggerItemMark);
         }
         bool mayHextouch = sourceSkill != 0

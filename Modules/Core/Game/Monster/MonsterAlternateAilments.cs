@@ -176,10 +176,10 @@ public static partial class Game
 
     /// <summary>The player's "X% chance to Scorch Enemies when you Block their Damage" (and Brittle's, Sap's) on the
     /// monster whose hit was blocked, each on its own roll of Random.Shared. Under the Monsters lock.</summary>
-    static void AlternateAilmentsOnBlockLocked(SpawnedMonster m, Func<uint, int> player, double now)
+    static void AlternateAilmentsOnBlockLocked(SpawnedMonster m, Func<uint, int> player, double now, Func<uint, bool>? ruled = null)
     {
         foreach (var a in AlternateAilments)
-            if (RandomRolls.Chance(player(a.OnBlock), 100, Random.Shared) && !m.EntranceGrace)
+            if (ruled?.Invoke(a.OnBlock) != true && RandomRolls.Chance(player(a.OnBlock), 100, Random.Shared) && !m.EntranceGrace)
                 AlternateAilmentWithoutHit(m.RuleAilments, a.Kind, now, player, name => m.Effects[name]);
     }
 

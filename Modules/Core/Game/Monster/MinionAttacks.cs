@@ -98,6 +98,9 @@ public static partial class Game
             cull: cull, cullPlayer: null, chaosDamage: chaosDamage) is not { } hit) return null;
         if (!t.Dead && damage > 0 && supported is not null && player.Beasts.Active is { } beast)
             MinionExposureOnHitLocked(beast.SkillStats, t, mitigated, now, random);
+        // The hit event with the minion as its actor, for a minion the player owns (a shrine's ally is not his).
+        if (damage > 0 && player.Minions.Owns(id, m))
+            HitLandedLocked(player, t, false, false, supported?.Stats, CombatActors.Minion, at: now, damage: mitigated, monsterId: targetId);
         return (hit, damage, HitCode(mitigated));
     }
 

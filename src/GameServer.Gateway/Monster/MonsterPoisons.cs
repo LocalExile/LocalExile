@@ -46,7 +46,10 @@ public sealed class MonsterPoisons
             double seconds = BaseSeconds(get) / faster * MonsterIgnites.DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
-                local?.GetValueOrDefault(Stat.LocalPoisonOnHitPct) ?? 0, projectileChance, Secondary: hand == "secondary",
+                // The weapon's own chance, and for an attack that is not a projectile "Melee Attacks have #% chance to
+                // Poison on Hit" (Voidheart): both count for attack hits only.
+                (local?.GetValueOrDefault(Stat.LocalPoisonOnHitPct) ?? 0) + (projectileAttack ? 0 : get(Stat.ChanceToPoisonOnMeleeHitPct)),
+                projectileChance, Secondary: hand == "secondary",
                 NeverFromCrit: get(Stat.KeystoneElementalOverload) != 0,
                 OnlyFromCrit: get(Stat.KeystoneAilmentCrit) != 0)
             {

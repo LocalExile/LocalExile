@@ -35,6 +35,9 @@ public static class HitResistances
         bool IgnoreLightning = false, bool IgnorePhysicalReduction = false)
     {
         public int TincturedWeaponIgnorePhysicalReductionChance { get; init; }
+        /// <summary>Overwhelm: this many percent come off the target's physical damage reduction for the hit, to no
+        /// less than none.</summary>
+        public int Overwhelm { get; init; }
         public bool IgnoreCold { get; init; }
         public ResistanceSelection ChaosSelection { get; init; }
         public bool ElementalUsesLowestResistance { get; init; }

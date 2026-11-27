@@ -156,6 +156,68 @@ Part of [Status](../Status.md); what to build next in this area is in
   Pantheon souls in matching Atlas maps and unlock upgrades at Sin (soul capture not checked live).
   Docs: [pantheon](../docs/game/campaign/pantheon.md).
 
+- Effect rules: item triggers as rows in world.db ([effect rules](../docs/dev/effect-rules.md)). Onslaught and
+  Adrenaline on kill, hit or crit; marks on hit; item-granted skills triggered on hit, crit, kill, when hit, on
+  block, on a skill or attack use and on melee hits (Lightning Bolt, Fire Burst, Ignition Blast, Commandment of
+  Inferno, Blazing Glare, Shield Shatter, Storm Cascade, Starfall and others, as area hits with an effect object for
+  art); Raging Spirits, spiders and wolves on kill; Blood Rage on kill and Shade Form; and the always-on Death Aura,
+  Abberath's Fury and Blinding Aura. Seen in the client 2026-11-22 and 2026-11-23. Every art, radius and storm
+  number is a guess until its row has `checked = 1`. Mageblood's lines work from any worn item. "Nearby Enemies
+  have/take ..." lines (the four resistances, all resistances, physical and elemental damage taken
+  and stun recovery) give their rolled value to enemies within the reach their own aura template states (60 cells),
+  shown with the template's buff, and "Nearby Enemies are Blinded / Intimidated" lines work as the auras do. 17 map
+  modifiers about players ("Players have Point Blank", "Players and Monsters take #% increased Fire Damage") count as
+  the player's own stat. 27 flask lines "during Effect" that no code read (leech, regeneration, accuracy, rarity,
+  Vessel of Vinktar's lightning lines, Culling Strike, Cannot be Stunned) hold while that flask's effect runs, and
+  "when you use a Flask" lines (recover life, chance for Onslaught, remove chill and freeze, ignite, shock or
+  bleeding) run on every flask use. Ten stats count as another stat from the table ("increased Global Damage" on a
+  weapon, the old leech and spell block names, "+# to Armour and Evasion Rating"). Offline tests only so far.
+- Added damage "with Axe / Mace or Sceptre / Staff / Sword Attacks" counts for attacks with that weapon, Overwhelm
+  takes its percent off the physical damage reduction a hit meets, and "Minions take #% increased Damage" reaches
+  minions. A minion's hit is a hit event of its own actor: "Minions have #% chance to Blind on Hit with Attacks" and
+  "... to Hinder Enemies on Hit with Spells" run from it, and minions' attacks Overwhelm. A minion's hit rolls Chill, Freeze and Shock from its cold and lightning
+  damage on the minion's own chances, and "Minion Critical Strikes do not deal extra Damage" counts. Offline tests
+  only so far.
+- An Eldritch implicit "while a Unique Enemy is in your Presence" counts only while a unique enemy is within the
+  presence radius, as the Pinnacle Boss ones do. "+# to Level of all Fire / Cold / Lightning / Chaos / Physical Spell
+  Skill Gems" raise gems with both tags, and "... all Minion / Melee / Totem / Aura Skill Gems" theirs. Offline tests
+  only so far.
+- A mod that is an aura stays with its wearer only when its aura template says it reaches the wearer: "Nearby
+  Allies ..." lines (Dying Breath, Kingmaker) no longer count for the wearer, and "You and nearby Allies ..." lines
+  no longer go missing. Defences "from Equipped Helmet and Gloves / Helmet and Boots / Gloves and Boots" and the
+  weapon tree's "more Cast Speed" count. Offline tests only so far.
+- Single uniques' lines: "+# Strength / Dexterity / Intelligence Requirement" on the item; increased damage against
+  Frozen, Ignited, Shocked or Hindered enemies and with hits and ailments against Bleeding, Chilled or Cursed ones;
+  23 "per # Strength / Dexterity / Intelligence" lines from the table; 14 "per Red / Green / Blue / White Socket"
+  lines and The Untouched Soul's "per Empty Socket" ones; leech, added damage and attack damage against enemies in
+  a state (Shocked, Cursed, Frozen, Bleeding, Maimed, Chilled, Poisoned, Ignited); "at least # Strength / Dexterity /
+  Intelligence" thresholds; Rain of Arrows and Toxic Rain on bow attack (Lioneye's Paws), each as one hit around the
+  aim; poison chance against Cursed enemies and for attacks at maximum Frenzy Charges; critical strike multiplier
+  per 1% block chance; The Tactician's threshold; at the character's own hit, critical strike chance against Chilled
+  enemies, life leech on critical strike and "Cannot Leech Life from Critical Strikes"; Replica Windripper's 20%
+  against Frozen enemies. Offline tests only so far.
+- Fire, Cold, Lightning and Elemental Aegis (Invictus Solaris, Vix Lunaris, Perepiteia, Magna Eclipsis): the shield
+  takes its types' share of a hit's elemental damage and is restored after its delay, with the client's own buffs,
+  as Physical Aegis does. Not carried across an area change. Offline tests only so far.
+- Lines that belong to a ring's slot or to the ring itself, from the `fx_item_local` table while the effect rules are
+  on: Shavronne's Revelation's six left and right ring slot lines and Woespike's impale duration. Offline tests only.
+- Ground effects from item skills: Consecrate on critical strike (Gifts from Above) and Shock Ground when hit
+  (Ylfeban's Trickery, enemies on it Shocked at 15%), on the flask grounds; the radius is a guess. Not seen in the
+  client yet.
+- Voidfletcher: Void Charges (one every interval up to the maximum, counted in code, not shown on screen) and Void
+  Shot for a charge on a bow attack, as one area hit with no art. Ylfeban's Trickery curses what hits you with a random
+  hex beyond the curse limit (a rule with `ignore`: `curse_limit`). Offline tests only.
+- Damage returned to attackers: "Reflects # Damage to Melee Attackers", "Reflects # Damage to Attackers on Block" and
+  "#% of Melee Physical Damage taken reflected to Attacker" (Bramblejack, Wall of Brambles, The Anvil, The Blood
+  Thorn, Veil of the Night). Rules of the `damage` action on when_hit and block; the monster
+  mitigates it and it is not a hit of the character's. Queen of the Forest's movement speed per evasion and Razor of the Seventh Sun's melee physical damage
+  against ignited enemies. Offline tests only.
+- Keystones from items and cluster jewels: Inner Conviction (3% more Spell Damage per Power Charge, Power Charges
+  instead of Frenzy Charges) and Kineticism (attack projectiles always bleed, maim and knock back; projectiles cannot
+  pierce, fork or chain). Prospero's Protection's doubled shield armour; Maligaro's Virtuosity's 300% multiplier on
+  hits. Not seen in the client yet.
+  Code: `Modules/Core/Game/Effects/`. Not yet: see the doc's "Not yet".
+
 ## Not working yet
 
 - Most uniques and special mods (#60) and chancing to a unique; currency beyond the orbs above; support gems and links.

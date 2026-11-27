@@ -25,9 +25,13 @@ public static partial class Game
         {
             player.RecentEvents.Record(StatConditions.UsedLifeFlask, now);
         }
+        RaiseCombatEvent(player, new ChargeEvent.FlaskUse(flask.Id,
+            use.LifePerUse > 0 && use.ManaPerUse > 0 ? "hybrid" : use.LifePerUse > 0 ? "life" : "mana"));
         ApplyMinionRecoveryFlasksLocked(player, flask.Item, (byte)slot, use, recovery, local, character, now);
         // Sample the payer at accepted use, including a hybrid flask whose life recovery goes to a minion.
-        int chargeChance = use.ManaPerUse > 0 ? character(Stat.GainPowerChargeOnManaFlaskUsePctChance) : 0;
+        // An effect rule live for the stat rolls it itself (power_charge_on_mana_flask_use).
+        int chargeChance = use.ManaPerUse > 0 && !EffectRules.LiveFor(player, Stat.GainPowerChargeOnManaFlaskUsePctChance)
+            ? character(Stat.GainPowerChargeOnManaFlaskUsePctChance) : 0;
         if (chargeChance > 0 && RandomRolls.Chance(chargeChance, 100, AreaRng(player)))
             ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Power, 1,
                 Stats.Name(Stat.GainPowerChargeOnManaFlaskUsePctChance)));

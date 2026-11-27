@@ -25,6 +25,14 @@ public static class SupportedAttackDamage
             Stat.Of($"attack_maximum_added_{t.ToString().ToLowerInvariant()}_damage_with_daggers")))]),
     ];
 
+    // "Adds # to # ... Damage with Axe / Mace or Sceptre / Staff / Sword Attacks", by the tree's family name of the
+    // attacking hand (WeaponTypeDamage.FamilyOf). The tables have no chaos row for these four.
+    static readonly (string Family, (DamageType Type, uint Min, uint Max)[] Ranges)[] FamilyAddedRanges =
+        [.. new[] { ("axe", "axes"), ("mace", "maces"), ("staff", "staves"), ("sword", "swords") }.Select(f => (f.Item1,
+            new[] { DamageType.Physical, DamageType.Fire, DamageType.Cold, DamageType.Lightning }.Select(t => (t,
+                Stat.Of($"attack_minimum_added_{t.ToString().ToLowerInvariant()}_damage_with_{f.Item2}"),
+                Stat.Of($"attack_maximum_added_{t.ToString().ToLowerInvariant()}_damage_with_{f.Item2}"))).ToArray()))];
+
     static readonly (DamageType Type, uint Min1, uint Min2, uint Max1, uint Max2)[] BowAddedRanges =
         [.. DamageTypes.ConversionOrder.Select(t => (t,
             Stat.Of($"attack_minimum_added_{t.ToString().ToLowerInvariant()}_damage_with_bow"),
@@ -139,6 +147,12 @@ public static class SupportedAttackDamage
         foreach (var (itemClass, ranges) in MeleeFamilyAddedRanges)
             if (WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, itemClass)
                 || itemClass == "Dagger" && weapon.ItemClass == "Rune Dagger")
+                foreach (var (type, min, max) in ranges)
+                    added = added.Add(type, new(get(min), get(max)));
+        string? family = WeaponTypeDamage.FamilyOf(weapon.ItemClass);
+        bool everyOneHand = WeaponIdentity.AllOneHandMelee(weapon.LocalSources);
+        foreach (var (name, ranges) in FamilyAddedRanges)
+            if (family == name || everyOneHand && name != "staff")
                 foreach (var (type, min, max) in ranges)
                     added = added.Add(type, new(get(min), get(max)));
         if (weapon.WieldingWand)

@@ -167,7 +167,65 @@ public static class ChargeEffects
 
     /// <summary>Whether a per-charge stat is one <see cref="Expand"/> turns into a stat the server calculates with (so a
     /// consumer gating on unsupported stats must not refuse it: PlayerHitRecovery's stun threshold and recovery).</summary>
-    public static bool Expands(uint stat) => Expanded.Contains(stat);
+    public static bool Expands(uint stat) => Expanded.Contains(stat) || Volatile.Read(ref _table) is { } table && table.Stats.Contains(stat);
+
+    // The same two lists as the fx tables give them (fx_modifiers rows with a "per"): what Expand reads while the
+    // tables are the source (StatConditions.UseTable, the effect rules' switch). Null until they load, or when they
+    // have no such row.
+    sealed record Table(Rule[] PerCharge, Condition[] Conditional, HashSet<uint> Stats);
+    static Table? _table;
+
+    /// <summary>The per-charge rules in use: the fx tables' while they are the source, the list above otherwise.</summary>
+    public static IReadOnlyList<Rule> ActivePerCharge => StatConditions.UseTable && Volatile.Read(ref _table) is { } table ? table.PerCharge : PerCharge;
+
+    /// <summary>The "no charges" / "any charges" stats in use, the same way.</summary>
+    public static IReadOnlyList<Condition> ActiveConditional => StatConditions.UseTable && Volatile.Read(ref _table) is { } table ? table.Conditional : Conditional;
+
+    /// <summary>
+    /// Takes the per-charge stats the fx tables describe, when the game data loads. A stat's rows name the stats it adds
+    /// to (one row each); "per" says what it counts: {"of":"power_charge"} (endurance_charge, frenzy_charge, or
+    /// "charge" for all three), "special": true for the type's converted charges (Brutal, Affliction, Absorption),
+    /// "maximum": true for the type's maximum, "cap": the most the total can be, and "when": "none" or "any" for a stat
+    /// that counts once while the character has none, or at least one, of them. A row that cannot be read is left out
+    /// and logged.
+    /// </summary>
+    public static void LoadTable(IReadOnlyList<GameServer.Storage.GameDataStore.FxPerRow> rows)
+    {
+        var rules = new List<Rule>();
+        var conditions = new List<Condition>();
+        foreach (var group in rows.GroupBy(r => r.Stat, StringComparer.Ordinal))
+        {
+            try
+            {
+                uint stat = Program.Stats.Key(group.Key) ?? throw new FormatException("unknown stat");
+                uint[] targets = [.. group.Select(r => Program.Stats.Key(r.Target) ?? throw new FormatException($"unknown stat \"{r.Target}\""))];
+                using var document = System.Text.Json.JsonDocument.Parse(group.First().Per);
+                var per = document.RootElement;
+                string of = per.GetProperty("of").GetString() ?? "";
+                ChargeType? type = of switch
+                {
+                    "endurance_charge" => ChargeType.Endurance, "frenzy_charge" => ChargeType.Frenzy, "power_charge" => ChargeType.Power,
+                    "charge" => null, _ => throw new FormatException($"\"per\" of \"{of}\" has no code yet"),
+                };
+                bool Flag(string name) => per.TryGetProperty(name, out var flag) && flag.GetBoolean();
+                if (per.TryGetProperty("when", out var when))
+                {
+                    if (type is not { } counted) throw new FormatException("\"when\" needs one charge type");
+                    bool none = when.GetString() switch { "none" => true, "any" => false, var other => throw new FormatException($"unknown \"when\": {other}") };
+                    conditions.Add(new(stat, counted, none, targets));
+                }
+                else rules.Add(new(stat, type, targets, per.TryGetProperty("cap", out var cap) ? cap.GetInt32() : null, Flag("special"), Flag("maximum")));
+            }
+            catch (Exception e) when (e is FormatException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException)
+            {
+                Console.WriteLine($"[rules] fx_modifiers {group.Key}: {e.Message}; its \"per\" is left out");
+            }
+        }
+        Volatile.Write(ref _table, rules.Count + conditions.Count == 0 ? null
+            : new([.. rules], [.. conditions], [.. rules.Select(r => r.Stat)]));
+        if (rules.Count + conditions.Count > 0)
+            Console.WriteLine($"[rules] {rules.Count} per-charge stat(s) and {conditions.Count} charge condition(s) from the fx tables");
+    }
 
     /// <summary>Stats that apply while the character has none of a type, or at least one.</summary>
     public sealed record Condition(uint Stat, ChargeType Type, bool WhenNone, uint[] Targets);
@@ -216,7 +274,8 @@ public static class ChargeEffects
         int Standard(ChargeType type) => converted?.Invoke(type) == true ? 0 : held(type);
         int Special(ChargeType type) => converted?.Invoke(type) == true ? held(type) : 0;
         int total = Charges.Types.Sum(Standard);
-        foreach (var rule in rules is null ? PerCharge : PerCharge.Concat(rules))
+        var active = ActivePerCharge;
+        foreach (var rule in rules is null ? active : active.Concat(rules))
         {
             int perCharge = get(rule.Stat);
             if (perCharge == 0) continue;
@@ -225,7 +284,7 @@ public static class ChargeEffects
             if (rule.Cap is int cap) value = Math.Min(value, cap);
             foreach (uint target in rule.Targets) Add(target, value);
         }
-        foreach (var c in Conditional)
+        foreach (var c in ActiveConditional)
             if (get(c.Stat) is int value and not 0 && (Standard(c.Type) == 0) == c.WhenNone)
                 foreach (uint target in c.Targets) Add(target, value);
         if (includePhysicalReduction)

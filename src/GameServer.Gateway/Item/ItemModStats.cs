@@ -103,7 +103,11 @@ public static class ItemModStats
                 // A mod that displays an aura for other creatures ("Nearby Enemies have 50% increased Fire and Cold
                 // Resistances") carries that aura's stats in the same row; they belong to the nearby enemies or allies,
                 // never to the wearer (Eye of Malice, The Admiral). No seeded unique mixes one with self stats.
-                if (row.Stats.Any(IsOthersAura)) continue;
+                // Where the mod's own aura template says who it reaches, that decides for the character's sum: "You and
+                // nearby Allies ..." stays with the wearer, "Nearby Allies ..." does not (Dying Breath, Kingmaker). The
+                // display-stat marker decides for the rest, and for an item's local sum as before.
+                if (!local && row.AuraForSelf is bool self) { if (!self) continue; }
+                else if (row.Stats.Any(IsOthersAura)) continue;
                 long percent = EffectPercent(mod, row, effect);
                 // Eldritch "while a Pinnacle Boss is in your Presence": a mod carrying the condition stat only
                 // reaches the character while a Pinnacle Boss is in presence. The condition stat itself is local,
@@ -113,6 +117,8 @@ public static class ItemModStats
                 // not answer presence leaves the mod as before. Local sums are not gated: Local() caches per item
                 // and takes no subject.
                 if (!local && RequiresCelestialPresence(row, mod) && !CelestialBossInPresence(subject)) continue;
+                // The same gate for "while a Unique Enemy is in your Presence" (Stats 15801, 1,362 Mods rows).
+                if (!local && RequiresUniquePresence(row, mod) && !UniqueEnemyInPresence(subject)) continue;
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
                     if (row.Stats[s].Local == local
                         || !local && sourceBound && StatConditions.SourceLocalCondition(row.Stats[s].Name))
@@ -122,14 +128,25 @@ public static class ItemModStats
                         var state = StatConditions.Of(name, subject);
                         // Unknown source relationships retain the local view instead of leaking into a global one.
                         if (row.Stats[s].Local && !local && state is StatConditions.State.NotModelled) continue;
-                        if (!StatConditions.Counts(state)) continue;
+                        if (!StatConditions.Counts(state))
+                        {
+                            // Its rule records the event its condition waits for: the id stays, with a value nothing reads.
+                            if (StatConditions.KeepsOwnId(name)) yield return (id, 1);
+                            continue;
+                        }
                         // The condition holds: a conditional stat with no consumer of its own moves onto its plain
                         // name, which is what the pools read (issue #504).
-                        int value = IsEffectStat(row.Stats[s].Id) ? mod.Values[s]
+                        // An unscalable number stays as rolled (ModScaling); asked only when something would scale it.
+                        int value = IsEffectStat(row.Stats[s].Id) || (percent != 0 || rule is not null) && ModScaling.Unscalable(row, s)
+                            ? mod.Values[s]
                             : rule?.Invoke(mod, row, s, percent) ?? Scale(mod.Values[s], percent);
                         value = StatConditions.Counted(name, value, state, subject, statExists, out var targets);
                         if (targets is null) yield return (id, value);
-                        else foreach (string target in targets) yield return (Stat.Of(target), value);
+                        else
+                        {
+                            foreach (string target in targets) yield return (Stat.Of(target), value);
+                            if (StatConditions.KeepsOwnId(name)) yield return (id, 1);
+                        }
                     }
             }
     }
@@ -177,6 +194,19 @@ public static class ItemModStats
             if (row.Stats[s].Id == RequiresCelestialBossPresence && mod.Values[s] != 0) return true;
         return false;
     }
+
+    const uint RequiresUniqueMonsterPresence = Stat.LocalInfluenceModRequiresUniqueMonsterPresence;
+
+    static bool RequiresUniquePresence(ModCatalog.Mod row, ItemMod mod)
+    {
+        for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
+            if (row.Stats[s].Id == RequiresUniqueMonsterPresence && mod.Values[s] != 0) return true;
+        return false;
+    }
+
+    /// <summary>Whether the subject says a Unique Enemy is in presence; true when the subject does not answer it.</summary>
+    static bool UniqueEnemyInPresence(StatConditions.Subject subject) =>
+        subject.Flags is null || !subject.Flags.TryGetValue(StatConditions.UniqueEnemyInPresence, out bool present) || present;
 
     /// <summary>Whether the subject says a Pinnacle Boss is in presence; true when the subject does not answer it.</summary>
     static bool CelestialBossInPresence(StatConditions.Subject subject) =>
@@ -285,9 +315,11 @@ public static class ItemModStats
         int all = Percent(Stat.LocalAttributeRequirementsPlusPct);
         int Scale(int value, int percent) => (int)Math.Floor(value * (100L + all + percent) / 100.0);
         var (str, dex, intel) = items.Requirements(type);
-        return (Scale(str, Percent(Stat.LocalStrengthRequirementPlusPct)),
-            Scale(dex, Percent(Stat.LocalDexterityRequirementPlusPct)),
-            Scale(intel, Percent(Stat.LocalIntelligenceRequirementPlusPct)));
+        // "+# Strength Requirement" (Mjölner's +300, Cospri's Malice): a flat amount on top, never below none.
+        int Flat(int value, uint id) => Math.Max(0, value + Percent(id));
+        return (Flat(Scale(str, Percent(Stat.LocalStrengthRequirementPlusPct)), Stat.LocalStrengthRequirementPlus),
+            Flat(Scale(dex, Percent(Stat.LocalDexterityRequirementPlusPct)), Stat.LocalDexterityRequirementPlus),
+            Flat(Scale(intel, Percent(Stat.LocalIntelligenceRequirementPlusPct)), Stat.LocalIntelligenceRequirementPlus));
     }
 
     /// <summary>A worn item with what it needs: strength, dexterity, intelligence and character level.</summary>

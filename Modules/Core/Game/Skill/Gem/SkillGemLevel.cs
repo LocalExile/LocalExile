@@ -13,7 +13,16 @@ public static class SkillGemLevel
         (Stat.PhysicalSkillGemLevelPlus, "physical"), (Stat.FireSkillGemLevelPlus, "fire"),
         (Stat.ColdSkillGemLevelPlus, "cold"), (Stat.LightningSkillGemLevelPlus, "lightning"),
         (Stat.ChaosSkillGemLevelPlus, "chaos"), (Stat.SpellSkillGemLevelPlus, "spell"),
-        (Stat.MinionSkillGemLevelPlus, "minion"),
+        (Stat.MinionSkillGemLevelPlus, "minion"), (Stat.MeleeSkillGemLevelPlus, "melee"),
+        (Stat.TotemSkillGemLevelPlus, "totem"), (Stat.AuraSkillGemLevelPlus, "aura"),
+    ];
+
+    // "+# to Level of all Fire Spell Skill Gems": a gem with both tags.
+    public static readonly (uint Stat, string Tag, string And)[] TwoTagActiveLevelStats =
+    [
+        (Stat.PhysicalSpellSkillGemLevelPlus, "physical", "spell"), (Stat.FireSpellSkillGemLevelPlus, "fire", "spell"),
+        (Stat.ColdSpellSkillGemLevelPlus, "cold", "spell"), (Stat.LightningSpellSkillGemLevelPlus, "lightning", "spell"),
+        (Stat.ChaosSpellSkillGemLevelPlus, "chaos", "spell"),
     ];
 
     // "All Skill Gems" means active skill gems (PoB keyword grants_active_skill); supports have their own stat.

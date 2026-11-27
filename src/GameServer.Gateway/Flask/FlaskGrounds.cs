@@ -12,7 +12,13 @@ using GameServer.Core;
 /// </summary>
 public static class FlaskGrounds
 {
-    public enum Kind { SmokeCloud, ConsecratedGround, ProfaneGround, Taunt, ChilledGround }
+    public enum Kind { SmokeCloud, ConsecratedGround, ProfaneGround, Taunt, ChilledGround,
+        /// <summary>Shocked ground from an item's skill (Ylfeban's Trickery): enemies on it are Shocked.</summary>
+        ShockedGround }
+
+    /// <summary>What shocked ground makes an enemy on it take, in percent, when nothing states another number (poewiki,
+    /// Shocked ground: "Its default value is 15%").</summary>
+    public const int ShockedGroundPct = 15;
 
     /// <summary>The flask's implicit stats that make something on use, by kind.</summary>
     static readonly (uint Stat, Kind Kind)[] OnUseStats =
@@ -117,7 +123,7 @@ public static class FlaskGrounds
         var ids = ClientTables.Table("GroundEffectTypes").Select(r => r.Text("Id")).ToList();
         var e = ClientTables.Table("GroundEffects");
         foreach (var (kind, id) in new[] { (Kind.SmokeCloud, "Smoke"), (Kind.ConsecratedGround, "Consecration"),
-            (Kind.ProfaneGround, "Profane"), (Kind.ChilledGround, "Ice") })
+            (Kind.ProfaneGround, "Profane"), (Kind.ChilledGround, "Ice"), (Kind.ShockedGround, "Lightning") })
             foreach (var r in e)
                 if (r.IntOrNull("GroundEffectTypesKey") is int k && ids.ElementAtOrDefault(k) == id
                     && r.Int("__col1") == 0 && r.Int("__col2") == 2
@@ -177,7 +183,7 @@ public static class FlaskGrounds
             get
             {
                 lock (_lock) return _blinded.Count > 0 || _profane.Count > 0
-                    || _grounds.Any(g => g.Kind is Kind.SmokeCloud or Kind.ProfaneGround or Kind.ChilledGround);
+                    || _grounds.Any(g => g.Kind is Kind.SmokeCloud or Kind.ProfaneGround or Kind.ChilledGround or Kind.ShockedGround);
             }
         }
 

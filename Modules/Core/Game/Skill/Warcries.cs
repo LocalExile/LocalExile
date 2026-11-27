@@ -395,7 +395,8 @@ public static partial class Game
             bool givesAlliesOnslaught = stats.GetValueOrDefault(Stat.YouAndNearbyAllysGainOnslaughtFor4SecondsOnWarcry) != 0;
             const double nearbyOnslaught = 4;
             double personalOnslaught = Math.Max(givesAlliesOnslaught ? nearbyOnslaught : 0,
-                stats.GetValueOrDefault(Stat.GainOnslaughtMsOnUsingAWarcry) / 1000d);
+                // An effect rule live for the stat grants it itself (onslaught_on_warcry).
+                EffectRules.LiveFor(player, Stat.GainOnslaughtMsOnUsingAWarcry) ? 0 : stats.GetValueOrDefault(Stat.GainOnslaughtMsOnUsingAWarcry) / 1000d);
             if (personalOnslaught > 0 && KillOnslaughtOf(player).Gain(now, personalOnslaught)
                 && Marked(player, PlayerStatStep.Onslaught))
                 (onslaught ??= []).Add(player);

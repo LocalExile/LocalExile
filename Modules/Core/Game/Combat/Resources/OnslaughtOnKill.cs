@@ -25,6 +25,9 @@ public sealed class KillOnslaught
     // otherwise remove and re-add it every tick (#849 review follow-up).
     const double RepresentSeconds = 1;
     public bool Applied => double.IsFinite(SentUntil);
+    /// <summary>Whether the client would be told something new now: the buff starts, or its shown end moved enough.
+    /// A gain on every hit otherwise waits for the player tick, which presents it anyway.</summary>
+    public bool PresentationDue => !Applied || Until - SentUntil >= RepresentSeconds;
 
     public static IReadOnlyList<(int Chance, double Seconds)> From(Func<uint, int> get)
     {
@@ -46,6 +49,15 @@ public sealed class KillOnslaught
         foreach (var (chance, s) in Rolls)
             if (RandomRolls.Chance(chance, 100, random)) seconds = Math.Max(seconds, s);
         return Gain(now, seconds);
+    }
+
+    /// <summary>A gain of <paramref name="seconds"/> at <paramref name="now"/> (an effect rule's): whether it started
+    /// or lengthened Onslaught. A gain never shortens the Onslaught running.</summary>
+    public bool Extend(double now, double seconds)
+    {
+        if (seconds <= 0 || now + seconds <= Until) return false;
+        Until = now + seconds;
+        return true;
     }
 
     /// <summary>One hit at <paramref name="now"/>: whether it started or lengthened Onslaught ("You gain Onslaught for
@@ -88,6 +100,8 @@ public static partial class Game
     // Read when the player stats are built, not per death: an area hit that kills a pack does not rebuild them per corpse.
     public static void ConfigureKillOnslaught(Player player, Func<uint, int> get)
     {
+        // The stats as its caller gives them: the stat build hands over EffectRules.Unhandled, where a stat an effect
+        // rule drives reads 0, so each gain is rolled once, by the row that replaced its line here (ours or main's).
         var rolls = ItemEffectRules.Enabled ? ItemEffectRules.Current.OnslaughtRolls(get) : KillOnslaught.From(get);
         var onslaught = KillOnslaughtOf(player);
         onslaught.Rolls = rolls;

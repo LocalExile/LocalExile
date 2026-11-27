@@ -146,6 +146,7 @@ public static partial class Game
         double now = ResourceEffectsTime(player);
         var state = PhysicalAegisAt(player, now, advance: true);
         player.RetiredPhysicalAegisBuffs.Clear();
+        PresentTypedAegises(player);
         var buffs = player.Area.Buffs;
         if (state.Exists && double.IsFinite(state.RestoresAt)) PresentIn(player, state.RestoresAt - now);
         ushort wanted = !state.Exists ? (ushort)0 : state.Depleted ? PhysicalAegisDepletedBuffRow : PhysicalAegisBuffRow;

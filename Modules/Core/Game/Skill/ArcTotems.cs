@@ -207,7 +207,8 @@ public static partial class Game
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player),
                     sourceEffect: skill.Effect, blind: blind, hitOrigin: from, attackerSize: bodySize,
-                    attackerHasReversedStat: false, playerHit: false);
+                    attackerHasReversedStat: false, playerHit: false,
+                    who: totem ? CombatActors.Totem : mine ? CombatActors.Mine : CombatActors.Trap);
             WriteSpellProxyHit(session, emitter, sequence, id, m, from, now, mitigated, damage, crit, accepted.Life);
             if (accepted.StageStarts)
             {

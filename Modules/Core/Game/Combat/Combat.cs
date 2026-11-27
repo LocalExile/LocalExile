@@ -824,6 +824,11 @@ public static partial class Game
         var modifiers = TargetModifiers(Get, lowLife, target.MaimedUntil > at,
             weapon.Melee && Get(Stat.MeleeDamagePlusPctAtCloseRange) != 0 && InCloseRange(player, target, at),
             claw: lowLife && WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw"), contact: contact);
+        // "increased Attack / Melee Damage against Bleeding Enemies" (Goredrill, Haemophilia, Gorebreaker).
+        if ((Get(Stat.AttackDamageVsBleedingEnemiesPlusPct) != 0 || Get(Stat.MeleeDamageVsBleedingEnemiesPlusPct) != 0)
+            && target.Bleeds.IgnitedAt(at))
+            additionalIncreased += Get(Stat.AttackDamageVsBleedingEnemiesPlusPct)
+                + (weapon.Melee ? Get(Stat.MeleeDamageVsBleedingEnemiesPlusPct) : 0);
         playerStats = TypedTargetDamageStats(playerStats, target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), lowLife);
         playerStats = WithElementalOverload(player, SkillCatalog.FirstSkillId, playerStats);
         int rating = accuracy ?? PlayerAccuracy(player, playerStats);
@@ -1653,7 +1658,7 @@ public static partial class Game
                     $"0x01b1 player cost {player.PlayerMana} mana, {player.PlayerLife} life (-{cost} mana, -{lifeCost} life for {gem.Name}) (t={AreaTime(player):0.000})");
             }
         }
-        if (gem.Name is not null) ChargesOnSkillUse(player, gem.Effect, vaalCast);
+        if (gem.Name is not null) ChargesOnSkillUse(player, gem.Effect, vaalCast, to, skillId);
         if (vaalCast)
         {
             recoveryGeneration = vaalUse!.RecoveryGeneration;
@@ -2999,11 +3004,12 @@ public static partial class Game
         double radiusMore = 1, SacrificeUse? sacrifice = null, double? swingAt = null, Func<bool>? triggeredCurrent = null,
         DischargeUse? discharge = null, int scaledBlastChaos = 0, uint? singleStrikeTarget = null, Action<uint>? onHit = null,
         ProjectileSession? scheduledSession = null, bool? cryExerted = null, long addedChaos = 0, long baseChaos = 0, HolySweepHammers.Settings? hammer = null,
-        bool seismicExerted = false, int? rallyingDamage = null) =>
+        bool seismicExerted = false, int? rallyingDamage = null, DamagePacket? baseExtra = null) =>
         AreaSkillHitForUse(null, player, skillId, gem, from, to, immediate, sequence, actionToken,
             cooldownUse, melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat,
             radiusOverride, once, repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, scaledBlastChaos,
-            singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer, seismicExerted: seismicExerted, rallyingDamage: rallyingDamage);
+            singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer, seismicExerted: seismicExerted,
+            rallyingDamage: rallyingDamage, baseExtra: baseExtra);
 
     static Task AreaSkillHitForUse(double? ruthlessMore, Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -3020,7 +3026,8 @@ public static partial class Game
         BoneshatterContact? boneshatter = null, InfernalBlowUse? infernalBlast = null,
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false, bool seismicExerted = false, int ancestralTargets = 0,
-        int? rallyingDamage = null, RetainedAreaAttack? retainedAttack = null, IReadOnlyList<uint>? contactTargets = null) =>
+        int? rallyingDamage = null, RetainedAreaAttack? retainedAttack = null, IReadOnlyList<uint>? contactTargets = null,
+        DamagePacket? baseExtra = null) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
@@ -3031,7 +3038,7 @@ public static partial class Game
             boneshatter: boneshatter, infernalBlast: infernalBlast, strikeSeconds: strikeSeconds,
             extraShockChance: extraShockChance, cascadeBurst: cascadeBurst,
             flurryRelease: flurryRelease, nearbyOnly: nearbyOnly, seismicExerted: seismicExerted, ancestralTargets: ancestralTargets,
-            rallyingDamage: rallyingDamage, contactTargets: contactTargets);
+            rallyingDamage: rallyingDamage, contactTargets: contactTargets, baseExtra: baseExtra);
 
     private static async Task AreaSkillHitStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -3051,7 +3058,7 @@ public static partial class Game
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         IReadOnlyList<uint>? contactTargets = null, BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false,
         LacerateUse? lacerate = null, SupportedGem? triggeredSpellSource = null, bool seismicExerted = false,
-        int ancestralTargets = 0, int? rallyingDamage = null)
+        int ancestralTargets = 0, int? rallyingDamage = null, DamagePacket? baseExtra = null)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
@@ -3117,7 +3124,9 @@ public static partial class Game
             chargeAttackMore = Math.Max(0, 1 + perChargeDamage * (double)charges / 100);
             chargeRadius = SkillArea.RadiusMultiplier(ActorScale.Saturate((long)perChargeArea * charges));
         }
-        if (!hitPlan.CanHit)
+        // baseExtra: base damage the caller worked out for a skill whose stat set states it in a form the hit plan does
+        // not read (per character level, per shield quality): it makes such a spell a hit and joins the raw damage.
+        if (!hitPlan.CanHit && (baseExtra is null || hitPlan.Kind != SkillHitKind.Spell))
         {
             if (IsBane(player, gem.Effect))
                 await CastBane(player, skillId, admittedGem, from, to, repeat, radiusMore, Current);
@@ -3942,7 +3951,7 @@ public static partial class Game
                         }
                         bool? hitArea = boneshatter?.Pulse ?? (infernalBlast is not null ? true
                             : infernalStrike || pestilentStrike ? false : IsSmite(gem.Effect) ? singleStrikeTarget is null : (bool?)null);
-                        if (SupportedHitInputsFor(player, skillId, weapon: sourceWeapon, charges: discharge?.Charges, capturedGem: admittedGem, area: hitArea)
+                        if (SupportedHitInputsFor(player, skillId, weapon: sourceWeapon, charges: discharge?.Charges, capturedGem: admittedGem, area: hitArea, baseExtra: baseExtra)
                             is not { } capturedInputs) break;
                         var bothOff = shield is null && hand == AttackHand.Both ? OffhandWeaponFor(player) : null;
                         var offInputs = bothOff is not null
@@ -4203,10 +4212,14 @@ public static partial class Game
                             SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical),
                             SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical));
                         // Read an existing bleed before this attack can inflict its own.
-                        if (!spell && m.Bleeds.IgnitedAt(ProjectileWorldTime(player)))
+                        // "increased Critical Strike Chance against Chilled Enemies" (Cospri's Malice) joins the same sum.
+                        long chilledCrit = playerStats.GetValueOrDefault(global::Stat.GlobalCriticalStrikeChancePlusPctVsChilledEnemies) is int vsChilled and not 0
+                            && AilmentOn(m, AilmentType.Chill, ProjectileWorldTime(player)) ? vsChilled : 0;
+                        if (chilledCrit != 0 || !spell && m.Bleeds.IgnitedAt(ProjectileWorldTime(player)))
                         {
-                            long bleedingCrit = (long)Stat(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies)
-                                + playerStats.GetValueOrDefault(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies);
+                            long bleedingCrit = chilledCrit + (!spell && m.Bleeds.IgnitedAt(ProjectileWorldTime(player))
+                                ? (long)Stat(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies)
+                                    + playerStats.GetValueOrDefault(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies) : 0);
                             if (bleedingCrit != 0)
                                 criticalChance = CriticalChanceOn(player, id,
                                     SupportedCriticalChance(player, skillId, hand, offCritical, bleedingCrit),
@@ -4252,7 +4265,7 @@ public static partial class Game
                     if (splashMore.TryGetValue(id, out double splashScale)) more *= splashScale;
                     if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
                     int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, at, damage, takenRules);
-                    if (ownerContact) LeechOnHitTargetLocked(player, m, taken, damage, leech!, id);
+                    if (ownerContact) LeechOnHitTargetLocked(player, m, taken, damage, critical ? WithCriticalLeech(leech!, playerStats) : leech!, id);
                     damage = WithImpaleHitLocked(player, m, damage, rolled, critical,
                         sourceMultiplier + FullLifeCriticalMultiplier(m, playerStats, skillStats),
                         critical ? criticalImpale : impale, more).Damage;
@@ -4786,7 +4799,8 @@ public static partial class Game
         bool ignorePhys = mods.IgnorePhysicalReduction || (rolled[DamageType.Physical].Max > 0
             && GameServer.Core.World.RandomRolls.Chance(ignorePhysicalChance, 100, random ?? Random.Shared));
         int takenPct = additionalTakenPct + (trapOrMine ? BearTrapDamageTaken(m, now) : 0);
-        int damage = MonsterTakesMitigatedCore(m, mitigated, spell: !attack, now, takenPct, ignorePhys, random, additionalElementalTakenPct);
+        int damage = MonsterTakesMitigatedCore(m, mitigated, spell: !attack, now, takenPct, ignorePhys, random, additionalElementalTakenPct,
+            overwhelm: mods.Overwhelm);
         return (damage,
             described.Count > 0 ? string.Join(", ", described) : null, mitigated,
             new(takenPct, additionalElementalTakenPct, ignorePhys));
@@ -4811,6 +4825,7 @@ public static partial class Game
             TincturedWeaponIgnorePhysicalReductionChance = Has(Stat.TinctureApplied)
                 ? Value(Stat.HitsIgnoreEnemyMonsterPhysicalDamageReductionPctChanceWithTincturedWeapons) : 0,
             CriticalPenetration = Value(Stat.CriticalStrikesPenetratesPctElementalResistancesWhileAffectedByZealotry),
+            Overwhelm = Math.Max(0, Value(Stat.EnemyPhysReductionPctPenaltyVsHit)),
         };
 
         bool Has(uint name) => name is var key

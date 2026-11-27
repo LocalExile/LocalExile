@@ -1096,6 +1096,10 @@ public static partial class Game
                 && shot.ActualCaster is null && !shot.Spell && !shot.FromTrapOrMine && !shot.FromTotem
                 && shot.SkillStats.GetValueOrDefault(Stat.SummonSacredWispsOnHit) > 0)
                 SacredWispsOnHit(shot);
+            // Who made the hit (HitLanded): a totem's or a placed skill's projectile is not the character's own hit.
+            // Trap or mine is read from the skill, and only while someone listens for hits.
+            string who = shot.FromTotem ? CombatActors.Totem : !shot.FromTrapOrMine ? CombatActors.Self
+                : HitListened(Player) && PlacedKind(SupportedSkill(Player, shot.SourceSkill)).Mine ? CombatActors.Mine : CombatActors.Trap;
             if (!immune && shot.SourceSkill == 0 && shot.WeaponAttack && shot.ActualCaster is null && !shot.FromTrapOrMine)
                 CaptureEquippedHitExplosionLocked(target, player);
             if (!immune && hit.Value.Life == 0 && !shot.Spell && shot.ActualCaster is null
@@ -1114,12 +1118,13 @@ public static partial class Game
                     attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell),
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
-                    attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance,
+                    attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance, who: who,
                     areaHit: contact.IsArea, sourceEffect: shot.Effect, ownHit: ownHit,
                     weaponWitherChance: weaponLocal?.GetValueOrDefault(Stat.LocalWitheredOnHitFor2SecondsPctChance) ?? 0);
                 if (critical && shot.DirectAttackContact && ownHit)
                     TryDeathmarkedLocked(Player, target, at, player);
             }
+            else HitLandedLocked(Player, target, critical, shot.Spell, shot.SkillStats, who, shot.SourceSkill);
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
             if (!immune && hit.Value.Life > 0)

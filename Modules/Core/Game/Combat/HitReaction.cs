@@ -62,7 +62,7 @@ public static class HitReaction
         if (hit.Owner is { } owner)
         {
             Func<uint, int>? own = hit.Skill is { } skill ? key => skill.GetValueOrDefault(key) : null;
-            Game.ChargesOf(owner).Enqueue(new ChargeEvent.Stun(hit.Melee, own));
+            Game.RaiseCombatEvent(owner, new ChargeEvent.Stun(hit.Melee, own) { Monster = m });
             if (m.Effects[Stat.EnemyGrantXRageOnStun] is > 0 and var rage)
                 Game.RageOnMarkedStunLocked(owner, rage, now);
         }

@@ -37,6 +37,7 @@ public static partial class Game
     /// <summary>The charm's "X% chance to gain Phasing for 4 seconds on Kill": one roll per kill.</summary>
     public static void GainPhasingOnKill(Player player)
     {
+        if (EffectRules.LiveFor(player, Stat.PhasingFor4SecondsOnKillPct)) return;   // the effect rule rolls it
         int chance = StatSourceValues(player).GetValueOrDefault(Stat.PhasingFor4SecondsOnKillPct);
         if (chance <= 0 || AreaRng(player).Next(100) >= Math.Min(100, chance)) return;
         GainPhasing(player, 4);
@@ -65,7 +66,8 @@ public static partial class Game
         if (!player.Phasing) return PhasingVisualRow;
         var items = ItemsFor(player);
         var bar = ItemsOf(player).Items(PlayerInventories.Flask).OrderBy(f => f.X).ToList();
-        IReadOnlyList<InventoryItem> permanent = MagebloodBelt(player) is { } belt ? MagebloodFlasks(bar, MagebloodFlaskCount(belt, items), items) : [];
+        var always = MagebloodCount(player);
+        IReadOnlyList<InventoryItem> permanent = always.Count > 0 ? MagebloodFlasks(bar, always, items) : [];
         foreach (var flask in bar)
             if ((player.UtilityFlaskEffects.Of(flask.Id) is not null || permanent.Contains(flask))
                 && items.ByHash(flask.Item.TypeHash) is { } type

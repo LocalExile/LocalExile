@@ -171,6 +171,30 @@ public sealed record KillContext(Player Player, SpawnedMonster Monster, string V
     public void Later(Func<Task> send) => Afterwards.Add(send);
 }
 
+/// <summary>Something that happened to a player's character in a fight: a hit it dealt, a kill, a hit that reached it, a
+/// block, a stun it caused, a skill it used. The game module's records derive from this and carry the facts of each
+/// (<c>HitLanded</c>, <c>ChargeEvent.Kill</c>, <c>WhenHit</c>, <c>Block</c>, <c>Stun</c>, <c>SkillUse</c>); handed over by
+/// <see cref="GameEvents.Combat"/>.</summary>
+public abstract record CombatEvent
+{
+    /// <summary>The monster on the other side (hit, killed, stunned, or the attacker), when the place that recorded the
+    /// event knows it.</summary>
+    public SpawnedMonster? Monster { get; init; }
+    /// <summary>Who of the player's side did it: the character itself, or something it placed or commands
+    /// (<see cref="CombatActors"/>). A handler that means "the player's own" checks for <see cref="CombatActors.Self"/>.</summary>
+    public string Who { get; init; } = CombatActors.Self;
+    /// <summary>How many triggered effects stand between the actor's own action and this event: 0 for a hit of a skill
+    /// the player used, 1 for a hit of a skill that hit triggered. What a loop guard reads.</summary>
+    public int Depth { get; init; }
+}
+
+/// <summary>The kinds of actor on a player's side that a combat event can come from. A module or mod may use further
+/// names of its own.</summary>
+public static class CombatActors
+{
+    public const string Self = "self", Totem = "totem", Trap = "trap", Mine = "mine", Minion = "minion";
+}
+
 /// <summary>A player's current chat availability (away / do-not-disturb flags and autoreply messages).</summary>
 public readonly record struct ChatAvailability(bool Afk, string AfkMessage, bool Dnd, string DndMessage);
 
@@ -824,6 +848,20 @@ public static class GameEvents
     {
         foreach (var run in OutgoingDamage.For(player)) rolled = run(player, playerStats, monster, rolled);
         return rolled;
+    }
+
+    /// <summary>A combat event of this player's character, as it is recorded. A handler runs where the event
+    /// happened, on the area's frame and several times per hit: it must be quick, and must not send or wait. Work that
+    /// needs either is queued and done on <see cref="Tick"/>.</summary>
+    public static readonly GameEvent<Action<Player, CombatEvent>> Combat = new();
+
+    /// <summary>Hands a combat event to its subscribers. With none (the usual case) this is one check.</summary>
+    public static void RaiseCombat(Player player, CombatEvent e)
+    {
+        if (!Combat.Any) return;
+        foreach (var (owner, run) in Combat.Subscribers(player))
+            try { run(player, e); }
+            catch (Exception ex) { Console.WriteLine($"[events] {owner}: Combat failed: {ex.Message}"); }
     }
 
     public static async Task<bool> AnyObjectUse(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)

@@ -965,7 +965,7 @@ public static partial class Game
                     attackGains: default, projectileDamage: false, projectileFreezeChance: 0,
                     sourceEffect: skill.Effect, blind: blind, hitOrigin: cascade?.HitOrigin(targetAt, totem.At) ?? totem.At,
                     playerHit: false, attackerSize: totem.BodySize, attackerHasReversedStat: false,
-                    extraShockChance: extraShockChance, cascadeBurst: cascade?.Burst ?? CascadeBurst.None);
+                    extraShockChance: extraShockChance, cascadeBurst: cascade?.Burst ?? CascadeBurst.None, who: CombatActors.Totem);
             byte hitCode = HitCode(mitigated, damage, m.MaxLife, crit || accepted.Life == 0);
             ushort hitFlags = (ushort)(0x4200 | HitTypeFlag(hitCode) | (crit ? 0x0020 : 0));
             byte hitKind = 3, hitAngle = HitAngle(targetAt.X - totem.At.X, targetAt.Y - totem.At.Y);

@@ -1130,7 +1130,8 @@ public static partial class Game
                 playerHit: false, weaponWitherChance: weaponWither,
                 hitOrigin: cascade?.Pulse.HitOrigin(m.Walk.Position(now), placed.At),
                 attackerSize: cascade is null ? LivingCollision.PlayerSize : 0, attackerHasReversedStat: cascade is null,
-                extraShockChance: shockNova?.Pulse.ExtraShockChance ?? 0, cascadeBurst: cascade?.Pulse.Burst ?? CascadeBurst.None);
+                extraShockChance: shockNova?.Pulse.ExtraShockChance ?? 0, cascadeBurst: cascade?.Pulse.Burst ?? CascadeBurst.None,
+                who: placed.Mine ? CombatActors.Mine : CombatActors.Trap);
             if (!m.Dead && profile.Ignite.Max > 0)
             {
                 var ignite = RepeatAilment(profile.Ignite, targetAilmentMore);

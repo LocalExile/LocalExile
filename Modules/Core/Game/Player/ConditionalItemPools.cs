@@ -94,8 +94,8 @@ public static partial class Game
         flags["_while_wielding_staff"] = weapons.Staff;
         flags["_while_wielding_sword"] = weapons.Sword;
         bool flask = player.FlaskEffects.Any || player.UtilityFlaskEffects.ActiveAt(now)
-            || MagebloodBelt(player) is { } belt
-                && MagebloodFlasks(ItemsOf(player).Items(PlayerInventories.Flask), MagebloodFlaskCount(belt)).Count > 0;
+            || MagebloodCount(player, activeItems) is { Count: > 0 } always
+                && MagebloodFlasks(ItemsOf(player).Items(PlayerInventories.Flask), always).Count > 0;
         flags["_while_using_flask"] = flags["_during_flask_effect"] = flags[StatConditions.DuringAnyFlaskEffect] = flask;
         flags["_if_affected_by_no_flasks"] = !flask;
         flags["_while_bleeding"] = player.IncomingAilments.Bleeding(now);
@@ -112,6 +112,9 @@ public static partial class Game
         // key, so a pinnacle boss entering or leaving presence recomputes the sources.
         if (WornHasCelestialPresenceMod(player, activeItems))
             flags[StatConditions.CelestialBossInPresence] = alive && CelestialBossInPresenceLocked(player, now);
+        // "while a Unique Enemy is in your Presence": the same, for the mods with that condition stat.
+        if (WornHasPresenceMod(player, activeItems, Stat.LocalInfluenceModRequiresUniqueMonsterPresence))
+            flags[StatConditions.UniqueEnemyInPresence] = alive && UniqueInPresenceLocked(player, now);
         flags["_while_onslaught_is_active"] = onslaught;
         flags["_while_have_onslaught"] = onslaught;
         flags["_while_channelling"] = player.ChannelSkill != 0;
@@ -224,7 +227,19 @@ public static partial class Game
     // A named event is answerable only when a production commit records it. Other mechanics retain their dedicated
     // stat id until their owning subsystem supplies the event; an absent unsupported event is not evidence of false.
     // Each entry needs a production Record call; the slice that adds an event's recorder adds it here, never earlier.
-    public static readonly IReadOnlySet<string> TrackedItemRecentEvents = new HashSet<string>(TrackedCurseCastEvents())
+    public static IReadOnlySet<string> TrackedItemRecentEvents => Volatile.Read(ref _trackedRecentEvents);
+
+    /// <summary>Events an effect rule records ("remember"): they are answerable from the moment the rule loads, as the
+    /// rule is their recorder. A rule records for the characters it is live for, so every stat that asks for such an
+    /// event is one of that rule's sources.</summary>
+    public static void TrackRecentEvents(IEnumerable<string> events)
+    {
+        var current = Volatile.Read(ref _trackedRecentEvents);
+        var added = events.Where(e => !current.Contains(e)).ToArray();
+        if (added.Length > 0) Volatile.Write(ref _trackedRecentEvents, new HashSet<string>(current.Concat(added)));
+    }
+
+    static IReadOnlySet<string> _trackedRecentEvents = new HashSet<string>(TrackedCurseCastEvents())
     {
         StatConditions.HitEnemy, StatConditions.KilledEnemy, StatConditions.KilledCursedEnemy,
         StatConditions.Crit, StatConditions.BeenHit,
@@ -269,12 +284,15 @@ public static partial class Game
     /// <c>local_influence_mod_requires_celestial_boss_presence</c> (Stats 15802, IsLocal): the one
     /// question the pinnacle-presence flag needs, answered per item from the local-sum cache
     /// (<see cref="ItemModStats.LocalValue"/>), never a fresh mod scan or <c>ItemModStats.Sum</c>.</summary>
-    static bool WornHasCelestialPresenceMod(Player player, IEnumerable<Item>? activeItems)
+    static bool WornHasCelestialPresenceMod(Player player, IEnumerable<Item>? activeItems) =>
+        WornHasPresenceMod(player, activeItems, Stat.LocalInfluenceModRequiresCelestialBossPresence);
+
+    static bool WornHasPresenceMod(Player player, IEnumerable<Item>? activeItems, uint condition)
     {
         if (activeItems is null) return false;
         var mods = ItemsFor(player).Mods;
         foreach (var item in activeItems)
-            if (ItemModStats.LocalValue(item, mods, Stat.LocalInfluenceModRequiresCelestialBossPresence) != 0)
+            if (ItemModStats.LocalValue(item, mods, condition) != 0)
                 return true;
         return false;
     }
@@ -365,6 +383,7 @@ public static partial class Game
             state.CheckedLevel = level;
             state.CheckedGod = god;
             state.HasConditionalPools = current.Key.Flags?.ContainsKey(StatConditions.CelestialBossInPresence) == true
+                || current.Key.Flags?.ContainsKey(StatConditions.UniqueEnemyInPresence) == true
                 || current.Sources.GetValueOrDefault(Stat.MovementSpeedPlusPctWhileNotUsingFlask) != 0
                 || WornHasConditionalMods(player, current.Worn);
             state.HasBeastCompanions = HasAnyBeastCompanionState(player)
@@ -386,6 +405,7 @@ public static partial class Game
         // After a Game-module reload the source marker is new but the connection's old final pools survive.
         // Rebuild conditional equipment on first observation instead of accepting an already-expired old bonus.
         bool conditionalEquipment = before is null && (current.Key.Flags?.ContainsKey(StatConditions.CelestialBossInPresence) == true
+            || current.Key.Flags?.ContainsKey(StatConditions.UniqueEnemyInPresence) == true
             || current.Sources.GetValueOrDefault(Stat.MovementSpeedPlusPctWhileNotUsingFlask) != 0
             || current.Worn.Any(w => w.Item.Mods.Any(m =>
             ItemsFor(player).Mods.ByHash(m.Hash)?.Stats.Any(s => !s.Local

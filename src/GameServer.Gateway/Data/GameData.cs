@@ -28,6 +28,43 @@ public static class GameData
     public static string DefaultPath => GameDataStore.DefaultPath;
 
     public static GameDataStore? Store => _store;
+
+    /// <summary>world.db's <c>effect_rules</c> rows as last read (enabled and reviewed ones), for the game module that
+    /// gives them their meaning; <see cref="Snapshot.Revision"/> changes when they are read again.</summary>
+    public static IReadOnlyList<GameDataStore.EffectRuleRow> EffectRules => Volatile.Read(ref _effectRules);
+    static IReadOnlyList<GameDataStore.EffectRuleRow> _effectRules = [];
+    public static IReadOnlyList<GameDataStore.EffectSkillRow> EffectSkills => Volatile.Read(ref _effectSkills);
+    static IReadOnlyList<GameDataStore.EffectSkillRow> _effectSkills = [];
+    /// <summary>The enabled rows of <c>effect_buffs</c>: the buffs released skills give (the game module reads them).</summary>
+    public static IReadOnlyList<GameDataStore.EffectBuffRow> EffectBuffs => Volatile.Read(ref _effectBuffs);
+    /// <summary>The fx rules as their tables have them (fx_rules and its four tables).</summary>
+    public static IReadOnlyList<GameDataStore.FxRuleRow> FxRules => Volatile.Read(ref _fxRules);
+    static IReadOnlyList<GameDataStore.FxRuleRow> _fxRules = [];
+
+    /// <summary>The area modifiers the fx tables turn into stats of the area's monsters (fx_modifiers rows with the
+    /// target enemies_area).</summary>
+    public static IReadOnlyList<GameDataStore.FxAreaMonsterRow> FxAreaMonsterStats => Volatile.Read(ref _fxAreaMonsterStats);
+    /// <summary>Area modifiers that give the area's players a stat they already act on (fx_modifiers, target
+    /// players_area; the row's MonsterStat is the player's stat here).</summary>
+    public static IReadOnlyList<GameDataStore.FxAreaMonsterRow> FxAreaPlayerStats => Volatile.Read(ref _fxAreaPlayerStats);
+    static IReadOnlyList<GameDataStore.FxAreaMonsterRow> _fxAreaPlayerStats = [];
+    /// <summary>A character's stats that are a general stat for one skill (fx_skill_stats).</summary>
+    public static IReadOnlyList<GameDataStore.FxSkillStatRow> FxSkillStats => Volatile.Read(ref _fxSkillStats);
+    static IReadOnlyList<GameDataStore.FxSkillStatRow> _fxSkillStats = [];
+    /// <summary>Stats that are also another stat, with no condition (fx_aliases).</summary>
+    public static IReadOnlyList<GameDataStore.FxAliasRow> FxAliases => Volatile.Read(ref _fxAliases);
+    static IReadOnlyList<GameDataStore.FxAliasRow> _fxAliases = [];
+    /// <summary>Stats that give another stat per so many points of an attribute (fx_per_attribute).</summary>
+    public static IReadOnlyList<GameDataStore.FxPerAttributeRow> FxPerAttribute => Volatile.Read(ref _fxPerAttribute);
+    static IReadOnlyList<GameDataStore.FxPerAttributeRow> _fxPerAttribute = [];
+    /// <summary>The fx_item_local rows: item-local stats that count as a character stat while worn in a slot.</summary>
+    public static IReadOnlyList<GameDataStore.FxItemLocalRow> FxItemLocal => Volatile.Read(ref _fxItemLocal);
+    static IReadOnlyList<GameDataStore.FxItemLocalRow> _fxItemLocal = [];
+    /// <summary>What an actor of another kind reads for a stat a bundle gives it (fx_reads_as).</summary>
+    public static IReadOnlyList<GameDataStore.FxReadsAsRow> FxReadsAs => Volatile.Read(ref _fxReadsAs);
+    static IReadOnlyList<GameDataStore.FxReadsAsRow> _fxReadsAs = [];
+    static IReadOnlyList<GameDataStore.FxAreaMonsterRow> _fxAreaMonsterStats = [];
+    static IReadOnlyList<GameDataStore.EffectBuffRow> _effectBuffs = [];
     public static Snapshot Current => Volatile.Read(ref _snapshot);
 
     /// <summary>Open world.db (bringing it up to date from sql/) and publish its rows. Called once at Gateway startup.</summary>
@@ -54,6 +91,9 @@ public static class GameData
         var old = _store;
         _store = null;
         Volatile.Write(ref _snapshot, Empty);
+        Volatile.Write(ref _effectRules, []);
+        Volatile.Write(ref _effectSkills, []);
+        Volatile.Write(ref _effectBuffs, []);
         ModRangeProvider.Default.Replace(Empty.ModRanges);
         LimitSettings.Default.Replace(Empty.Limits);
         UniqueWeightProvider.Default.Reset();
@@ -71,10 +111,21 @@ public static class GameData
             .ToDictionary(row => (row.ModId, row.StatIndex), row => (row.Minimum, row.Maximum));
         var limits = store.LoadLimits()
             .ToDictionary(row => row.Key, row => row.Value, StringComparer.OrdinalIgnoreCase);
+        // One read of the fx rules, two engines: main's world rules (ItemEffectRules, validated per snapshot) take the
+        // rows with no engine, the effect-rules engine those marked "effects" (fx_rules.engine).
+        var fxAll = store.LoadFxRules();
         var snapshot = new Snapshot(Interlocked.Increment(ref _revision), ranges, limits)
         {
-            FxRules = store.LoadFxRules()
+            FxRules = [.. fxAll.Where(r => r.Engine is null)]
         };
+        var effectRules = store.LoadEffectRules();
+        var effectSkills = store.LoadEffectSkills();
+        var effectBuffs = store.LoadEffectBuffs();
+        IReadOnlyList<GameDataStore.FxRuleRow> fxRules = [.. fxAll.Where(r => r.Engine == "effects")];
+        var fxModifiers = store.LoadFxModifiers();
+        var fxPerRows = store.LoadFxPerRows();
+        var fxAreaMonsterStats = store.LoadFxAreaMonsterRows();
+        var fxUnscalable = store.LoadFxUnscalable();
 
         // Build the catalogues and settings first: a bad payload leaves the previous ranges/limits and catalogues intact.
         foreach (var validate in Validating.All) validate(snapshot);
@@ -84,6 +135,23 @@ public static class GameData
         GameDataDrops.Reload(store);
         ModRangeProvider.Default.Replace(ranges);
         LimitSettings.Default.Replace(limits);
+        Volatile.Write(ref _effectRules, effectRules);
+        Volatile.Write(ref _effectSkills, effectSkills);
+        Volatile.Write(ref _effectBuffs, effectBuffs);
+        Volatile.Write(ref _fxRules, fxRules);
+        Volatile.Write(ref _fxAreaMonsterStats, fxAreaMonsterStats);
+        Volatile.Write(ref _fxReadsAs, store.LoadFxReadsAs());
+        Volatile.Write(ref _fxSkillStats, store.LoadFxSkillStats());
+        Volatile.Write(ref _fxAliases, store.LoadFxAliases());
+        Volatile.Write(ref _fxPerAttribute, store.LoadFxPerAttribute());
+        Volatile.Write(ref _fxItemLocal, store.LoadFxItemLocal());
+        Volatile.Write(ref _fxAreaPlayerStats, store.LoadFxAreaPlayerRows());
+        StatConditions.LoadTable(fxModifiers);
+        ChargeEffects.LoadTable(fxPerRows);
+        ModScaling.LoadTable(fxUnscalable.Stats, fxUnscalable.Lines);
+        AuraCatalog.LoadEffectTable(store.LoadFxAuraEffects());
+        StatConditions.SetRecorderStats(fxRules.Where(r => r.Status != "not built" && r.Do.Any(d => d.Action == "raise"))
+            .SelectMany(r => r.Sources.Where(s => s.Kind == "stat").Select(s => s.Key)));
         Volatile.Write(ref _snapshot, snapshot);
         var (uniqueWeights, uniqueWeightOverrides) = store.UniqueWeightCounts();
         var drop = store.DropCounts();
@@ -91,7 +159,7 @@ public static class GameData
             $"{limits.Count} limit override(s), {SystemSettings.Default.Values.Count} system setting(s) ({reason}); " +
             $"{uniqueWeights} unique weight(s), {uniqueWeightOverrides} unique weight override(s); " +
             $"{drop.CurrencyWeights} currency weight(s), {drop.Bosses} boss(es), {drop.BossItems} boss item(s), " +
-            $"{drop.CardAreas} card area(s), {drop.ItemWeights} item weight(s); {GameDataCatalog.Summary}");
+            $"{drop.CardAreas} card area(s), {drop.ItemWeights} item weight(s); {effectRules.Count} effect rule(s), {effectSkills.Count} effect skill(s), {effectBuffs.Count} effect buff(s); {GameDataCatalog.Summary}");
     }
 
     public static int Limit(string key, int baseValue) =>

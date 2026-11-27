@@ -67,10 +67,20 @@ public static class WeaponTypeDamage
         {
             Physical = ActorScale.Saturate((long)weaponIncreases.Physical + rangedPhysical),
             Elemental = ActorScale.Saturate((long)weaponIncreases.Elemental + localElemental),
-            MeleePhysicalMorePct = get(Stat.WarBannerPhysicalDamagePlusPctFinalWithMeleeSkills),
+            MeleePhysicalMorePct = MeleePhysicalMore(weapon, get),
             MaximumMore = (DamageTypeHistory.Physical, get(Stat.MaximumPhysicalAttackDamagePlusPctFinal)),
             AttackMorePct = get(Game.NonInstantAttackMore),
         };
+    }
+
+    // War Banner's "more Physical Damage with Melee Skills" and, with no weapon in this hand, Facebreaker's "#% more
+    // Physical Damage with Unarmed Melee Attacks": two multipliers, carried as the one percent the resolver takes.
+    static int MeleePhysicalMore(SkillCatalog.Unarmed weapon, Func<uint, int> get)
+    {
+        int banner = get(Stat.WarBannerPhysicalDamagePlusPctFinalWithMeleeSkills);
+        int unarmed = weapon.ItemClass is null ? get(Stat.UniqueFacebreakerUnarmedMeleePhysicalDamagePlusPctFinal) : 0;
+        return unarmed == 0 ? banner
+            : ActorScale.Saturate((long)Math.Round((Math.Max(0, 1 + banner / 100.0) * Math.Max(0, 1 + unarmed / 100.0) - 1) * 100));
     }
 
 

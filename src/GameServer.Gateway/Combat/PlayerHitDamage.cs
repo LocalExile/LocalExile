@@ -125,6 +125,9 @@ public static class PlayerHitDamage
         // per hit, so the skill's damage stats (its tooltip) carry it too; a totem's hits read its owner's stats.
         if (get(Stat.HierophantPassiveDamagePlusPctFinalPerTotem) is var perTotem and not 0)
             result = result.Scale(Math.Max(0, 1 + (double)perTotem * get(Stat.NumberOfActiveTotems) / 100));
+        // Quill Rain: "#% more Damage" (a less), on everything the character deals with hits.
+        if (get(Stat.UniqueQuillRainDamagePlusPctFinal) is var quillRain and not 0)
+            result = result.Scale(Math.Max(0, 1 + quillRain / 100.0));
         if (attack && additional.AttackMorePct is int attackMore and not 0)
             result = result.Scale(Math.Max(0, 1 + attackMore / 100d));
         return spell || charges == 1 ? result : result.Scale(charges);

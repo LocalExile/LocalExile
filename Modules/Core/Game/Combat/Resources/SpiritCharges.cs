@@ -33,8 +33,18 @@ public static partial class Game
     static void SpiritChargeOnKill(Player player, double at)
     {
         var stats = StatSourceValues(player);
-        int cap = SpiritChargeLimit(stats);
-        if (cap == 0 || !RandomRolls.Chance(stats.GetValueOrDefault(Stat.GainSpiritChargeOnKillPctChance), 100, AreaRng(player))) return;
+        // An effect rule that is live for the chance rolls it and gains the charge (GainSpiritChargeLocked).
+        if (EffectRules.LiveFor(player, Stat.GainSpiritChargeOnKillPctChance)) return;
+        if (!RandomRolls.Chance(stats.GetValueOrDefault(Stat.GainSpiritChargeOnKillPctChance), 100, AreaRng(player))) return;
+        GainSpiritChargeLocked(player, at);
+    }
+
+    /// <summary>One more Spirit Charge, up to the character's limit, its time starting again: what the chance on kill
+    /// gives, and the effect rules' "spirit_charge".</summary>
+    internal static void GainSpiritChargeLocked(Player player, double at)
+    {
+        int cap = SpiritChargeLimit(StatSourceValues(player));
+        if (cap == 0) return;
         var state = SpiritCharges.GetOrCreateValue(player);
         int held = at < state.Until ? state.Held : 0;
         state.Until = at + SpiritChargeSeconds;

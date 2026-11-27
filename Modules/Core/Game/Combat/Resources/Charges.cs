@@ -25,6 +25,7 @@ public static partial class Game
             _ => StatConditions.GainedEnduranceCharge,
         }, at), () => ResourceEffectsTime(player), (from, until) => player.Walk.MovingSeconds(from, until))
         {
+            Ruled = stat => EffectRules.LiveFor(player, stat),
             OnslaughtFromFrenzy = (at, seconds) =>
             {
                 if (player.PlayerLife == 0 || !KillOnslaughtOf(player).Gain(at, seconds)) return;
@@ -34,6 +35,27 @@ public static partial class Game
         });
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SkillCatalog, System.Collections.Concurrent.ConcurrentDictionary<(int Effect, int Level, int Quality), Func<uint, int>>> ChargeHitSkillStats = new();
+
+    // The stats of the skill whose hit killed a monster, kept from that hit until its kill is recorded (the hit comes
+    // first on every path that has them).
+    sealed class KillingSkill { public Func<uint, int>? Stats; }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, KillingSkill> KillingSkills = new();
+
+    // The one place a combat event of a player's is recorded: the charge rules take it (applied at the charge ticker's
+    // next step), the effect rules run (EffectRules), then the other modules and the mods (GameEvents.Combat). Charge commands (Grant, Set, Spend) are not
+    // events and go to the session directly.
+    public static void RaiseCombatEvent(Player player, ChargeEvent e)
+    {
+        ChargesOf(player).Enqueue(e);
+        // The charge system's hit record is its own: the hit event of rules, modules and mods is HitLanded, raised
+        // where every hit passes (brands, heralds and totems too), with who made it.
+        // An event caused by a triggered skill says so (CombatEvent.Depth), for the loop guard.
+        if (TriggerDepth != 0 && e.Depth == 0) e = e with { Depth = TriggerDepth };
+        EffectRules.Run(player, e);
+        // Rules see the charge system's hit ("skill_hit"); modules and mods get HitLanded for a hit.
+        if (e is ChargeEvent.Hit) return;
+        GameEvents.RaiseCombat(player, e);
+    }
 
     // A player hit on a monster that landed (Attack, AreaSkillHit, a projectile's impact): its "on hit", "on critical
     // strike" and "on non-critical strike" gains. effect: the gem skill's GrantedEffects row (-1: the default attack).
@@ -63,6 +85,7 @@ public static partial class Game
                 return name => own.GetValueOrDefault(name);
             });
         }
+        if (skill is not null && (m.Dead || m.Life == 0)) KillingSkills.GetOrCreateValue(m).Stats = skill;
         double now = ProjectileWorldTime(player);
         bool frozen = m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0;
         bool bleeding = m.Bleeds.Burning;
@@ -72,9 +95,9 @@ public static partial class Game
             if (curse.Mark && curse.Caster == player.Id) { marked = true; break; }
         bool selfBleeding = player.IncomingAilments.Bleeding(now);
         bool selfPoisoned = player.IncomingAilments.PoisonStacks(now) > 0;
-        ChargesOf(player).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(player).EffectId(effect) : null,
+        RaiseCombatEvent(player, new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(player).EffectId(effect) : null,
             skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: frozen, Bleeding: bleeding, Marked: marked,
-            SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned));
+            SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned) { Monster = m });
         CurseCharges(player, m, death: false, now);
         PlayerGrantsNearbyChargesLocked(player, kill: false, now);
     }
@@ -131,8 +154,10 @@ public static partial class Game
         RecordPlayerMonsterKill(player, m, now);
         if (player.TinctureEffects.BurnStacks > 0) TinctureOnKillLocked(player, CharacterPlayerStats(player));
         TryGainElusiveLocked(player, critical: false, kill: true, now);
+        // The skill whose hit killed it: the one handed in, else the one its killing hit left (KillingSkills).
         Func<uint, int>? skill = skillStats is { Count: > 0 } own ? key => own.GetValueOrDefault(key) : null;
-        ChargesOf(player).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons, skill));
+        skill ??= KillingSkills.TryGetValue(m, out var by) ? by.Stats : null;
+        RaiseCombatEvent(player, new ChargeEvent.Kill(m.Rarity, frozen, poisons, skill) { Monster = m });
         SpiritChargeOnKill(player, AreaTime(player));
         SelfBuffsOnKill(player);
         CurseCharges(player, m, death: true, now);
@@ -150,7 +175,8 @@ public static partial class Game
     // recently" counts blocked hits too (wiki Blocking, fixed in 3.11.1c). critical: the monster's hit was a critical
     // strike. Daresso's Defiance's "You gain Onslaught for X seconds per Endurance Charge when Hit" counts the charges
     // held before its own "You lose all Endurance Charges when Hit" (a ChargeGains rule) takes them.
-    public static void ChargesWhenHit(Player player, bool blocked, bool spell = false, bool critical = false)
+    public static void ChargesWhenHit(Player player, bool blocked, bool spell = false, bool critical = false, SpawnedMonster? by = null,
+        IReadOnlyDictionary<uint, int>? stats = null, double? at = null, uint byId = 0, bool melee = false, int physicalTaken = 0)
     {
         bool onslaught = false;
         var session = ChargesOf(player);
@@ -162,19 +188,19 @@ public static partial class Game
             KillOnslaughtOf(player).Until = until;
             onslaught = true;
         }
-        session.Enqueue(new ChargeEvent.WhenHit(critical));
-        if (blocked) session.Enqueue(new ChargeEvent.Block(spell));
+        RaiseCombatEvent(player, new ChargeEvent.WhenHit(critical) { Monster = by, PlayerStats = stats, HitAt = at, MonsterId = byId, MeleeAttacker = melee, PhysicalTaken = physicalTaken });
+        if (blocked) RaiseCombatEvent(player, new ChargeEvent.Block(spell) { Monster = by, PlayerStats = stats, HitAt = at, MonsterId = byId, MeleeAttacker = melee, PhysicalTaken = physicalTaken });
         if (onslaught) _ = AreaFrames.Start(() => SendKillOnslaught(player));
     }
 
     // A skill the player used, after its cost (CastGemSkill): the "when you use a Vaal Skill / Cast a Curse Spell /
     // Throw a Trap" gains.
-    public static void ChargesOnSkillUse(Player player, int effect, bool vaal)
+    public static void ChargesOnSkillUse(Player player, int effect, bool vaal, (int X, int Y)? at = null, ushort skillId = 0)
     {
         if (effect < 0) return;
         var skills = SkillsFor(player);
         bool curse = CurseCatalog.All.ContainsKey(skills.EffectId(effect) ?? "");
-        ChargesOf(player).Enqueue(new ChargeEvent.SkillUse(vaal, curse, skills.HasType(effect, "Trapped")));
+        RaiseCombatEvent(player, new ChargeEvent.SkillUse(vaal, curse, skills.HasType(effect, "Trapped"), effect, at, skillId));
     }
 
     // Transfer: the charges go with the player to the area of the new ticket.

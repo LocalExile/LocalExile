@@ -171,8 +171,27 @@ public static class AuraCatalog
         PerAuraEffectPctFor(aura.EffectId, sources);
 
     /// <summary>One aura's own named effect term from the caster's raw sources, by effect id.</summary>
-    public static int PerAuraEffectPctFor(string effectId, IReadOnlyDictionary<uint, int> sources) =>
-        PerAuraEffectStats.TryGetValue(Family(effectId), out uint key) ? sources.GetValueOrDefault(key) : 0;
+    public static int PerAuraEffectPctFor(string effectId, IReadOnlyDictionary<uint, int> sources)
+    {
+        string family = Family(effectId);
+        long effect = PerAuraEffectStats.TryGetValue(family, out uint key) ? sources.GetValueOrDefault(key) : 0;
+        // The families the fx tables add (fx_aura_effects: a herald's "increased Buff Effect"), while the tables are on.
+        if (StatConditions.UseTable && Volatile.Read(ref _tableEffectStats).TryGetValue(family, out var more))
+            foreach (uint stat in more) effect += sources.GetValueOrDefault(stat);
+        return ActorScale.Saturate(effect);
+    }
+
+    static IReadOnlyDictionary<string, uint[]> _tableEffectStats = new Dictionary<string, uint[]>();
+
+    /// <summary>Takes fx_aura_effects when the game data loads: per aura or buff skill (its GrantedEffects Id), the
+    /// character's stats that are its own "increased effect".</summary>
+    public static void LoadEffectTable(IReadOnlyList<(string Family, string Stat)> rows)
+    {
+        var table = rows.Where(r => Program.Stats.Key(r.Stat) is not null).GroupBy(r => r.Family, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Select(r => Program.Stats.Key(r.Stat)!.Value).ToArray(), StringComparer.Ordinal);
+        Volatile.Write(ref _tableEffectStats, table);
+        if (table.Count > 0) Console.WriteLine($"[rules] {table.Count} aura(s) with an effect stat of their own from the fx tables");
+    }
 
     /// <summary>The character stat that exempts a supported aura family from Mana reservation. The shipped rows use the
     /// lower snake-case effect family (for example EnvyNoReservationUnique__1 carries envy_reserves_no_mana).</summary>

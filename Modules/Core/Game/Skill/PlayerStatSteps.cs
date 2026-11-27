@@ -105,7 +105,8 @@ public static partial class Game
                     MarkLaterStep(player, PlayerStatStep.TailCritical);
             }
             // Their "recently" conditions change by themselves when an event ages out of its window.
-            if (GetIn(stats, Stat.DamagePlusPctIfUsedTravelSkillRecently) is int travelDamage and not 0
+            // With the fx tables on, their modifier row (fx_modifiers, event used_travel_skill) counts this line instead.
+            if (!StatConditions.UseTable && GetIn(stats, Stat.DamagePlusPctIfUsedTravelSkillRecently) is int travelDamage and not 0
                 && player.RecentEvents.Happened(UsedTravelSkillRecently, now))
                 AddTo(stats, Stat.DamagePlusPct, travelDamage);
             if (GetIn(stats, Stat.ChaosDamagePlusPctPer100MaxManaUpTo80) is int chaosPerMana and not 0)
@@ -300,6 +301,31 @@ public static partial class Game
             if (GetIn(stats, Stat.DamagePlusPctPer1PctBlockChance) is int perBlock and not 0)
                 AddTo(stats, Stat.DamagePlusPct,
                     (long)perBlock * Math.Clamp(player.Pools.BlockChance, 0, player.Pools.BlockChanceMax));
+            // Nebulis: "#% increased Elemental Damage per 1% Fire, Cold, or Lightning Resistance above 75%"; its Replica:
+            // "... per 1% Missing Fire, Cold, or Lightning Resistance, up to a maximum of 450%" (missing: below the
+            // element's maximum). The three elements' own amounts, added up.
+            int perOver = GetIn(stats, Stat.ElementalDamagePlusPctPerLightningColdFireResistanceAbove75),
+                perMissing = GetIn(stats, Stat.ElementalDamagePlusPctPerMissingLightningColdFireResistance);
+            if (perOver != 0 || perMissing != 0)
+            {
+                long over = 0, missing = 0;
+                foreach (var type in new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning })
+                {
+                    int resistance = Resistance(player, type);
+                    over += Math.Max(0, resistance - 75);
+                    missing += Math.Max(0, MaxResistance(player, type) - resistance);
+                }
+                if (perOver != 0) AddTo(stats, Stat.ElementalDamagePlusPct, perOver * over);
+                if (perMissing != 0) AddTo(stats, Stat.ElementalDamagePlusPct, Math.Min(450, perMissing * missing));
+            }
+            // "#% increased Spell Damage per 5% Chance to Block Attack Damage" (Cybil's Paw): complete fives.
+            if (GetIn(stats, Stat.SpellDamagePlusPctPer5PctBlockChance) is int spellPerBlock and not 0)
+                AddTo(stats, Stat.SpellDamagePlusPct,
+                    (long)spellPerBlock * (Math.Clamp(player.Pools.BlockChance, 0, player.Pools.BlockChanceMax) / 5));
+            // "+#% to Critical Strike Multiplier per 1% Chance to Block Attack Damage" (Duskdawn, Light of Lunaris).
+            if (GetIn(stats, Stat.CriticalStrikeMultiplierPlusPer1PctBlockChance) is int critPerBlock and not 0)
+                AddTo(stats, Stat.BaseCriticalStrikeMultiplierPlus,
+                    (long)critPerBlock * Math.Clamp(player.Pools.BlockChance, 0, player.Pools.BlockChanceMax));
         });
         // The passives' conditional attack speed is already one final value in Pools. main_hand_attack_speed_+% is the
         // total the client swings with, so Unarmed reads only it.

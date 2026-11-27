@@ -117,6 +117,8 @@ public static partial class Game
         foreach (var source in MarksForHit(player, rules))
         {
             int effect = source.Grant.Effect;
+            // A mark an effect rule (the effect-rules engine) triggers is cast by that rule, not again here.
+            if (RuleTriggeredGrant(player, source.Grant)) continue;
             if (source.Rule.RareOrUnique && !rare || now < player.SkillReadyAt.GetValueOrDefault(effect)) continue;
             if (source.Rule.RequiresNoMark && ActiveMarkTarget(player, now) is not null) continue;
             var gem = SupportedSkill(player, source.Skill);

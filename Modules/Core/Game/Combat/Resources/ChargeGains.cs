@@ -3,8 +3,21 @@ using GameServer.Core.Protocol.Instance;
 
 /// <summary>Something that can grant charges (issue #237): a hit, a kill, being hit, a block, a skill's own grant, or
 /// the /charges command.</summary>
-public abstract record ChargeEvent
+public abstract record ChargeEvent : CombatEvent
 {
+    /// <summary>For a monster's hit on the player (WhenHit, Block), what its site had: the player's stats as it read
+    /// them, its own time for the hit, and the monster's id in the area. What an effect on the attacker (an ailment, a
+    /// blind) is worked out from; null or 0 where the site gave none.</summary>
+    public IReadOnlyDictionary<uint, int>? PlayerStats { get; init; }
+    public double? HitAt { get; init; }
+    public uint MonsterId { get; init; }
+
+    /// <summary>For a monster's hit on the player (WhenHit, Block): it was a melee attack (an attack that is not a
+    /// projectile), and the physical damage it dealt after the player's mitigation. What a "damage" action that
+    /// returns damage to the attacker reads.</summary>
+    public bool MeleeAttacker { get; init; }
+    public int PhysicalTaken { get; init; }
+
     /// <summary>The player hit a monster (one per monster hit). <paramref name="Skill"/>: the stats of the skill used
     /// (its "on hit" chances, e.g. Flicker Strike's 15%); <paramref name="SkillEffect"/>: its GrantedEffects Id;
     /// <paramref name="Killed"/>: the hit killed it; <paramref name="Primary"/>: the use's first target (a skill's
@@ -17,7 +30,9 @@ public abstract record ChargeEvent
 
     /// <summary>The player killed a hostile monster; <paramref name="Frozen"/>: it was frozen when it died, shattered
     /// included (MonsterElementalAilments.FrozenAtDeath); <paramref name="Poisons"/>: the poisons on it when it died;
-    /// <paramref name="Skill"/>: the killing skill's own stats (its supports' included).</summary>
+    /// <paramref name="Skill"/>: the stats of the skill whose hit killed it (its supports' included), when the kill came
+    /// from a hit that had them: a support's "on Kill" chance (Ice Bite's Frenzy Charge on Killing a Frozen Enemy) is
+    /// its skill's stat, not the character's.</summary>
     public sealed record Kill(MonsterRarity Rarity, bool Frozen = false, int Poisons = 0, Func<uint, int>? Skill = null) : ChargeEvent;
 
     /// <summary>A monster's hit reached the player: it landed or was blocked, not evaded (blocking keeps the defender's
@@ -28,8 +43,15 @@ public abstract record ChargeEvent
     /// <paramref name="Skill"/> the stunning skill's own stats (its supports' included).</summary>
     public sealed record Stun(bool Melee = false, Func<uint, int>? Skill = null) : ChargeEvent;
 
-    /// <summary>The player used a skill (after its cost): a Vaal skill, a curse spell or a trap throw.</summary>
-    public sealed record SkillUse(bool Vaal, bool Curse, bool Trap) : ChargeEvent;
+    /// <summary>The player used a skill (after its cost): a Vaal skill, a curse spell or a trap throw.
+    /// <paramref name="Effect"/>: its GrantedEffects row; <paramref name="At"/>: where it was aimed;
+    /// <paramref name="SkillId"/>: its id among the character's skills.</summary>
+    public sealed record SkillUse(bool Vaal, bool Curse, bool Trap, int Effect = -1, (int X, int Y)? At = null,
+        ushort SkillId = 0) : ChargeEvent;
+
+    /// <summary>The player used a flask and its charges were paid: the flask's item id, and what it is
+    /// ("utility", "life", "mana" or "hybrid").</summary>
+    public sealed record FlaskUse(uint ItemId, string Kind) : ChargeEvent;
 
     /// <summary>The player blocked a hit (an attack, or a spell with <paramref name="Spell"/>).</summary>
     public sealed record Block(bool Spell) : ChargeEvent;
@@ -39,6 +61,9 @@ public abstract record ChargeEvent
 
     /// <summary>The /charges command sets a type's count; null type with 0 clears all.</summary>
     public sealed record Set(ChargeType? Type, int Count) : ChargeEvent;
+
+    /// <summary>What an effect rule's "charge" does: one gain or loss, as a rule of <see cref="ChargeGains"/> gives it.</summary>
+    public sealed record RuleGain(ChargeGains.Gain Gain) : ChargeEvent;
 
     /// <summary>A skill spends <paramref name="Count"/> charges of a type (Discharge): never below the minimum.</summary>
     public sealed record Spend(ChargeType Type, int Count, string Why) : ChargeEvent;
@@ -196,7 +221,9 @@ public static class ChargeGains
     /// the used skill's own stats to its "on hit" chances. Each rule rolls once; a random type is drawn with
     /// <c>rng.Next(3)</c> in the order Endurance, Frenzy, Power.
     /// </summary>
-    public static List<Gain> Roll(ChargeEvent e, Func<uint, int> get, WeaponProfile weapon, Random rng)
+    /// <paramref name="ruled"/>: the stats an effect rule is live for on this character (EffectRules.LiveFor); the rule
+    /// rolls those, the skill's own part included, so they are left out here.
+    public static List<Gain> Roll(ChargeEvent e, Func<uint, int> get, WeaponProfile weapon, Random rng, Func<uint, bool>? ruled = null)
     {
         var rules = e switch
         {
@@ -204,14 +231,18 @@ public static class ChargeGains
             ChargeEvent.Hit => ItemEffectRules.Enabled ? ItemEffectRules.Current.HitChargeRules : LegacyHitRules,
             _ => OtherRules
         };
-        return Roll(e, get, weapon, rng, rules);
+        return Roll(e, get, weapon, rng, rules, ruled);
     }
 
-    internal static List<Gain> Roll(ChargeEvent e, Func<uint, int> get, WeaponProfile weapon, Random rng, IReadOnlyList<Rule> rules)
+    internal static List<Gain> Roll(ChargeEvent e, Func<uint, int> get, WeaponProfile weapon, Random rng, IReadOnlyList<Rule> rules,
+        Func<uint, bool>? ruled = null)
     {
         var gains = new List<Gain>();
         switch (e)
         {
+            case ChargeEvent.RuleGain rule:
+                gains.Add(rule.Gain);
+                return gains;
             case ChargeEvent.Grant g:
                 if (g.Count > 0) gains.Add(new(g.Type, g.Count, g.Why));
                 return gains;
@@ -221,10 +252,11 @@ public static class ChargeGains
                 if (spend.Count > 0) gains.Add(new(spend.Type, -spend.Count, spend.Why));
                 return gains;
         }
-        var skill = e switch { ChargeEvent.Hit h => h.Skill, ChargeEvent.Kill k => k.Skill, ChargeEvent.Stun s => s.Skill, _ => null };
+        var skill = e switch { ChargeEvent.Hit h => h.Skill, ChargeEvent.Stun s => s.Skill, ChargeEvent.Kill k => k.Skill, _ => null };
         foreach (var rule in rules)
         {
             if (!rule.When(e, weapon)) continue;
+            if (ruled is not null && ruled(rule.Stat)) continue;
             int value = get(rule.Stat) + (skill?.Invoke(rule.Stat) ?? 0);
             int chance = rule.Flag ? (value != 0 ? 100 : 0) : value;
             if (!Rolls(chance, rng)) continue;
@@ -294,10 +326,35 @@ public static class ChargeGains
     /// </summary>
     static (double Period, int Count) EachSecond(int value) => (1, value);
 
+    // The same list as the fx tables give it ("interval" rules that give or take charges), each stat at its place in
+    // Periodics so a character's timers keep their slots; a stat only the tables have follows. Null until they load.
+    static volatile IReadOnlyList<Periodic>? tablePeriodics;
+
+    /// <summary>The periodic charges in use: the fx tables' while the effect rules are on, the list above otherwise.</summary>
+    public static IReadOnlyList<Periodic> ActivePeriodics => EffectRules.Enabled && tablePeriodics is { } table ? table : Periodics;
+
+    /// <summary>Every periodic charge stat either list has (what a character's charge session watches).</summary>
+    public static IReadOnlyList<Periodic> KnownPeriodics => tablePeriodics ?? Periodics;
+
+    /// <summary>Takes the periodic charges the fx tables describe (FxRules.Periodics), when the game data loads. A stat
+    /// of the list above that the tables do not have keeps its entry.</summary>
+    public static void LoadPeriodics(IReadOnlyList<Periodic> fromTables)
+    {
+        if (fromTables.Count == 0) { tablePeriodics = null; return; }
+        var merged = new List<Periodic>(Periodics);
+        foreach (var periodic in fromTables)
+        {
+            int at = merged.FindIndex(p => p.Stat == periodic.Stat);
+            if (at >= 0) merged[at] = periodic;
+            else merged.Add(periodic);
+        }
+        tablePeriodics = merged;
+    }
+
     /// <summary>The timers of the <see cref="Periodics"/> of one character.</summary>
     public sealed class Timers
     {
-        private readonly double[] elapsed = new double[Periodics.Count];
+        private double[] elapsed = new double[Periodics.Count];
 
         /// <summary>Advances every timer by <paramref name="seconds"/> of game time and returns the charges that came due.
         /// A timer whose stat is absent or whose condition does not hold is reset. <paramref name="lostRecently"/>: whether
@@ -309,9 +366,11 @@ public static class ChargeGains
             bool mineDetonatedRecently, Func<ChargeType, bool>? lostRecently = null)
         {
             var gains = new List<Gain>();
-            for (int i = 0; i < Periodics.Count; i++)
+            var periodics = ActivePeriodics;
+            if (elapsed.Length < periodics.Count) Array.Resize(ref elapsed, periodics.Count);
+            for (int i = 0; i < periodics.Count; i++)
             {
-                var p = Periodics[i];
+                var p = periodics[i];
                 int value = get(p.Stat);
                 // Not zero rather than above zero: the per-second jewel stats store -1 for their one charge.
                 bool holds = value != 0 && p.Condition switch

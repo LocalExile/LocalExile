@@ -79,6 +79,11 @@ public static partial class Game
                 : settings.Secondary ? 0
                 : Get(Stat.ChanceToPoisonOnHitWithAttacksPct) + settings.WeaponChance + settings.ProjectileChance);
         if (chaos > 0) chance += Get(Stat.ChaosDamageChanceToPoisonPct);
+        // Single uniques' lines: against a cursed enemy (Cospri's Will), and attacks at maximum Frenzy Charges (Snakebite).
+        if (Player(Stat.ChanceToPoisonPctVsCursedEnemies) is int vsCursed and not 0 && target.Curses.All.Count > 0) chance += vsCursed;
+        if (!spell && !settings.Secondary && Player(Stat.AttacksChanceToPoisonPctOnMaxFrenzyCharges) is int atMaxFrenzy and not 0
+            && Player(Stat.VirtualMaximumFrenzyCharges) is > 0 and var maximumFrenzy && Player(Stat.CurrentFrenzyCharges) >= maximumFrenzy)
+            chance += atMaxFrenzy;
 
         if (chance <= 0 || !RandomRolls.Chance((int)Math.Clamp(chance, 0, 100), 100, random)) return false;
         if (target.Mods.Effects[Stat.CannotBePoisoned] != 0) return false;
