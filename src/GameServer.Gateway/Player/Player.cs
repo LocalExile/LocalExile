@@ -61,7 +61,13 @@ public sealed record MonsterComboControl(
     int Ms,
     int? EndMs = null,
     ContactPoint? Point = null,
-    bool TerrainClamped = false);
+    bool TerrainClamped = false)
+{
+    /// <summary>Start time as a fraction of the raw clip length, clamped to [0, 1].</summary>
+    public double Fraction { get; init; }
+    /// <summary>End time as a fraction of the raw clip length (when <see cref="EndMs"/> is set), clamped to [0, 1].</summary>
+    public double? EndFraction { get; init; }
+}
 
 /// <summary>One skill of a boss's kit (BossKits): the granted effect it is built from, its action, and how long the
 /// tables make it wait between two uses (0: the plain attack every monster has).</summary>

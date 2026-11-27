@@ -98,6 +98,8 @@ public static class MonsterKits
         var template = TemplateFor(player, variety, level);
         if (template.BaseSkills is not { } baseSkills || baseSkills.Count != kit.Count || template.BaseKit.Count != kit.Count)
             return BossKits.SkillsOf(player, variety, level, kit);
+        if (ReferenceEquals(kit, template.BaseKit))
+            return baseSkills;
 
         bool allSame = true;
         for (int i = 0; i < kit.Count; i++)
@@ -126,11 +128,31 @@ public static class MonsterKits
         a.Effect == b.Effect
         && a.Attack.SkillId == b.Attack.SkillId
         && a.Attack.Seconds == b.Attack.Seconds
+        && a.Attack.Range == b.Attack.Range
+        && a.Attack.Spell == b.Attack.Spell
+        && a.Attack.DualWielding == b.Attack.DualWielding
         && a.Attack.InPlace == b.Attack.InPlace
         && a.Attack.Proxy == b.Attack.Proxy
         && a.Attack.Ranged == b.Attack.Ranged
+        && (a.Attack.Projectile is not null) == (b.Attack.Projectile is not null)
         && a.Attack.Projectile?.Count == b.Attack.Projectile?.Count
-        && a.Attack.Projectile?.Variation == b.Attack.Projectile?.Variation;
+        && a.Attack.Projectile?.Variation == b.Attack.Projectile?.Variation
+        && (a.Attack.Spell || SameAttackDamage(a.Attack.Damage, b.Attack.Damage));
+
+    static bool SameAttackDamage(DamagePacket a, DamagePacket b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        var pa = a[DamageType.Physical];
+        var pb = b[DamageType.Physical];
+        var ca = a[DamageType.Chaos];
+        var cb = b[DamageType.Chaos];
+        return (int)Math.Floor(pa.Min) == (int)Math.Floor(pb.Min)
+            && (int)Math.Floor(pa.Max) == (int)Math.Floor(pb.Max)
+            && (int)Math.Floor(ca.Min) == (int)Math.Floor(cb.Min)
+            && (int)Math.Floor(ca.Max) == (int)Math.Floor(cb.Max)
+            && (int)Math.Floor(a.MinTotal) == (int)Math.Floor(b.MinTotal)
+            && (int)Math.Floor(a.MaxTotal) == (int)Math.Floor(b.MaxTotal);
+    }
 
     /// <summary>Builds a modded multi-skill kit for an ordinary hostile monster, or empty if the variety only has a
     /// single plain attack matching <paramref name="defaultEffect"/> (which stays on the fast single-attack path).</summary>
@@ -142,6 +164,8 @@ public static class MonsterKits
         if (template.BaseKit.Count == 0 || (template.BaseKit.Count == 1 && template.BaseKit[0].Effect == defaultEffect))
             return ([], template.AuraStats, template.AuraRows);
         var effectiveMods = applyAuraStats && template.AuraStats.Count > 0 ? mods.Combine(template.AuraStats) : mods;
+        if (effectiveMods.Ids.Count == 0 && mapBossDamage == 1.0)
+            return (template.BaseKit, template.AuraStats, template.AuraRows);
         return (ApplyMods(template.BaseKit, effectiveMods, level, mapBossDamage), template.AuraStats, template.AuraRows);
     }
 

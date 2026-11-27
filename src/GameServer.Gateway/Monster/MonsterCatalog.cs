@@ -80,7 +80,7 @@ public sealed class MonsterCatalog
         public IReadOnlyList<int>? EndgameMods { get; init; }
         public IReadOnlyList<string> ComponentsOrBase => Components ?? MonsterObject.BaseComponents;
         /// <summary>Index of the <c>StateMachine</c> component in <see cref="ComponentsOrBase"/>, or −1 when absent.</summary>
-        public int StateMachineComponentIndex { get; init; } = IndexOfComponent(Components ?? MonsterObject.BaseComponents, "StateMachine");
+        public int StateMachineComponentIndex => IndexOfComponent(ComponentsOrBase, "StateMachine");
         /// <summary>Per-shared-state metadata from <c>object_type_state_meta</c> (client listeners, client GEAL writers,
         /// and default-hidden rendering flags), merged with <c>AddonMonsterTypeIndex</c>.</summary>
         public IReadOnlyDictionary<string, ObjectTypes.StateFlagMeta> StateMeta { get; init; } = EmptyStateMeta;

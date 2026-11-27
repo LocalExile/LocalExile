@@ -156,6 +156,7 @@ public sealed class DiscordBugReportFixesTests : IDisposable
         Assert.Null(skills.SharedProjectile(rocDash));
         Assert.Equal("Metadata/Projectiles/AtlasBasiliskSnakeProjectile", skills.SharedProjectile(basiliskSnake)?.Id);
         Assert.Null(skills.SharedProjectile(skills.EffectRow("LunarisGlaiveProjectileTriggered")));
+        Assert.Null(skills.SharedProjectile(skills.EffectRow("EmptyActionAttackDaressoReave")));
         // monster_fading_projectile_spell still shares its phantasm projectile.
         Assert.Equal("Metadata/Projectiles/SummonPhantasmFadingProjectile",
             skills.SharedProjectile(skills.EffectRow("SummonPhantasmFadingProjectile"))?.Id);

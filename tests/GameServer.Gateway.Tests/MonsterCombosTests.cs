@@ -72,7 +72,11 @@ public sealed class MonsterCombosTests
         Assert.True(voxCombos.Parents.TryGetValue(comboDash, out var dashCombo));
         Assert.Equal(["left", "right", "dash"], dashCombo.Events.Select(e => e.EventName));
         Assert.Contains(dashCombo.Controls, c => c.Kind == "StartFaceEventType");
-        Assert.Contains(dashCombo.Controls, c => c.Kind == "MoveEventType" && c.TerrainClamped);
+        Assert.Contains(dashCombo.Controls, c => c.Kind == "MoveEventType" && c.TerrainClamped && c.Fraction > 0 && c.Fraction <= 1.0);
+        // Non-projectile area/melee/travel ActionTypes must dispatch as TriggeredAction (0x1ce), not Projectile.
+        Assert.Equal(MonsterComboDispatch.TriggeredAction, MonsterCombos.DispatchFor("MonsterCleave"));
+        Assert.Equal(MonsterComboDispatch.TriggeredAction, MonsterCombos.DispatchFor("MonsterShockNova"));
+        Assert.Equal(MonsterComboDispatch.TriggeredAction, MonsterCombos.DispatchFor("MonsterFlameblast"));
 
         var aukuna = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/LegionLeague/LegionMarakethGeneral"));
         var aukunaCombos = MonsterCombos.For(catalog, aukuna);

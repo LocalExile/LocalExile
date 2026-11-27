@@ -25,6 +25,9 @@ public sealed class MonsterStatesTests
             catalog.Find("Metadata/Monsters/AtlasExiles/BasiliskInfluenceMonsters/BasiliskFemaleViper"));
         Assert.True(viper.StateMachineComponentIndex >= 0);
         Assert.Equal("StateMachine", viper.ComponentsOrBase[viper.StateMachineComponentIndex]);
+        // Derived from ComponentsOrBase so runtime Variety overlays (`with { Components = ... }`) never observe a stale index.
+        Assert.Equal(1, (viper with { Components = ["Positioned", "StateMachine"] }).StateMachineComponentIndex);
+        Assert.Equal(-1, (viper with { Components = ["Positioned", "Life"] }).StateMachineComponentIndex);
         Assert.True(viper.StateMeta.TryGetValue("arrow_visible", out var arrowMeta));
         Assert.True(arrowMeta.HasClientListener);
         Assert.True(arrowMeta.HasClientWriter);

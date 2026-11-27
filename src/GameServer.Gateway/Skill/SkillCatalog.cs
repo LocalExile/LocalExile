@@ -954,7 +954,9 @@ public sealed class SkillCatalog
     };
 
     HashSet<int> LoadNoBorrowSkills() => ClientTables.TableOrEmpty("ActiveSkills").Select((r, i) => (r, i))
-        .Where(a => a.r.TextOrNull("Id") is { } id && NoBorrowSkillIds.Contains(id)).Select(a => a.i).ToHashSet();
+        .Where(a => a.r.TextOrNull("Id") is { } id
+            && (NoBorrowSkillIds.Contains(id) || id.StartsWith("empty_action_", StringComparison.Ordinal)))
+        .Select(a => a.i).ToHashSet();
 
     /// <summary>The projectile the client's own path gives a weapon-attack effect: its <c>monster_projectile_variation</c>
     /// names a MonsterProjectileAttack row, which names the Projectiles row (Roc Sentinel's dash 76 LegionMarakethRangedDash,

@@ -40,9 +40,12 @@ public sealed class MonsterKitsTests
         Assert.Equal(uncappedTemplate.BaseKit.Count, uncappedTemplate.BaseSkills!.Count);
 
         var (ordKit, _, _) = MonsterKits.ForOrdinary(player, uncapped!, 70, -1, MonsterModEffects.None, applyAuraStats: false);
-        Assert.Equal(uncappedTemplate.BaseKit.Count, ordKit.Count);
+        Assert.Same(uncappedTemplate.BaseKit, ordKit);
         var reusedSkills = MonsterKits.SkillsForOrdinary(player, uncapped!, 70, ordKit);
         Assert.Same(uncappedTemplate.BaseSkills, reusedSkills);
+        var (dmgModKit, _, _) = MonsterKits.ForOrdinary(player, uncapped!, 70, -1, MonsterModEffects.None, mapBossDamage: 2.0, applyAuraStats: false);
+        if (uncappedTemplate.BaseKit.Any(k => !k.Attack.Spell && !k.Attack.Damage.IsZero))
+            Assert.NotSame(uncappedTemplate.BaseSkills, MonsterKits.SkillsForOrdinary(player, uncapped!, 70, dmgModKit));
 
         // 2. Animation == NULL primary skills (e.g. Melee / MonsterFireball) are NOT dropped by S4 exclusion rules.
         var solarisCaster = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Axis/AxisCasterSolarisChampion"));
