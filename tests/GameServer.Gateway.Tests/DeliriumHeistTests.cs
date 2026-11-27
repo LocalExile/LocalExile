@@ -557,6 +557,195 @@ public class DeliriumHeistTests
         }
     }
 
+    static async Task<(DeliriumMirrorEncounter Encounter, InstanceState Instance, Player Player, TcpListener Listener, TcpClient Writer, TcpClient Reader, MemoryStream Capture, Task Drain, byte[] Key, MirrorTestContext Context)>
+        OpenDeliriumPlayer(string namePrefix, uint seed, byte keyFill, uint life)
+    {
+        AfflictionRuleset.LoadGameData();
+        var context = new MirrorTestContext();
+        var encounter = new DeliriumMirrorEncounter();
+        encounter.Attach(context);
+
+        var beachHash = AreaTransitionCatalog.HashOf("MapWorldsBeach")!.Value;
+        var beachStats = new AreaStatsRequest("Exile", "Standard", beachHash, null)
+        {
+            Seed = seed,
+            AreaStats = new Dictionary<uint, int> { [Stat.MapAfflictionLeague] = 1 },
+        };
+        var terrain = Assert.Single(DeliriumMirrorEncounter.PlanTerrain(beachStats)!);
+        var layout = new AreaLayout(beachHash, "MapWorldsBeach", 138, 69, 20, 24, (_, _) => true, []);
+        var instance = new InstanceState();
+        instance.TerrainPluginStates(() => [terrain]);
+        instance.AreaStats(() => beachStats.AreaStats!);
+        var league = new LeagueRuntime(new League(namePrefix, "Standard", false, false),
+            new HashSet<string>(["Game", "Delirium"]));
+
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var accept = listener.AcceptTcpClientAsync();
+        var writer = new TcpClient();
+        await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+        var reader = await accept;
+        var capture = new MemoryStream();
+        var drain = reader.GetStream().CopyToAsync(capture);
+        var key = Enumerable.Repeat(keyFill, 64).ToArray();
+        var player = new Player(layout, 1, seed)
+        {
+            Instance = instance,
+            PlayerLife = life,
+            LeagueModule = league,
+            Character = { Name = $"{namePrefix}-{Guid.NewGuid():N}", Experience = CharacterStats.ExperienceFor(90) },
+            Pools = new(90, life, life, 2, 0),
+            Connection =
+            {
+                LockstepClient = false,
+                PlayerSent = true,
+                Session = new(namePrefix, writer.GetStream(), new ConnectionCiphers(key, false)),
+            },
+        };
+        player.Connection.Outbox = (bytes, log) => Program.Send(player, bytes, log);
+        player.Clock.Start();
+        instance.AddPlayer(player);
+        Program.InGame[player] = 0;
+        return (encounter, instance, player, listener, writer, reader, capture, drain, key, context);
+    }
+
+    [Fact]
+    public async Task AreaEnvironments_preserves_delirium_fog_across_breach_ritual_and_pause_transitions()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var peer = await OpenDeliriumPlayer("DeliriumEnv", 424242, 0x33, 1000);
+        using var context = peer.Context;
+        var (encounter, _, player, listener, writer, reader, capture, drain, key, _) = peer;
+
+        try
+        {
+            Assert.NotEmpty(encounter.BeforeEnterMessages(player));
+            var state = encounter.For(player);
+            player.Walk.Place(state.MirrorX, state.MirrorY, Game.AreaTime(player));
+            await encounter.OnTick(player, 0.1);
+            Assert.Equal(DeliriumMirrorEncounter.MirrorStage.Active, state.Stage);
+
+            ushort fogRow = AfflictionRuleset.FogEnvironmentRow!.Value;
+            const ushort breachRow = 1187;
+            const ushort ritualRow = 1279;
+
+            // Breach opening/closing and Ritual starting/ending must never drop Delirium's 1193 layer.
+            await AreaEnvironments.Set(player, "breach", breachRow, 2f);
+            Assert.Equal(InstanceEnvironments.Data((fogRow, 2f), (breachRow, 2f)), AreaEnvironments.BuildPacket(player));
+
+            await AreaEnvironments.Clear(player, "breach");
+            Assert.Equal(InstanceEnvironments.Data((fogRow, 2f)), AreaEnvironments.BuildPacket(player));
+
+            await AreaEnvironments.Set(player, "ritual", ritualRow, 0f);
+            Assert.Equal(InstanceEnvironments.Data((fogRow, 2f), (ritualRow, 0f)), AreaEnvironments.BuildPacket(player));
+
+            await AreaEnvironments.Clear(player, "ritual", -1e-7f);
+            Assert.Equal(InstanceEnvironments.Data((fogRow, 2f)), AreaEnvironments.BuildPacket(player));
+
+            // Escape-menu pause emits EncounterPause(true) then EncounterPause(false) and keeps OuterElapsed frozen.
+            float elapsedBeforePause = state.OuterElapsed;
+            player.Clock.Stop();
+            await encounter.OnTick(player, 0.5);
+            Assert.True(state.FogPaused);
+            Assert.Equal(elapsedBeforePause, state.OuterElapsed);
+            player.Clock.Start();
+            await encounter.OnTick(player, 0.2);
+            Assert.False(state.FogPaused);
+            Assert.True(state.OuterElapsed > elapsedBeforePause);
+
+            // >255 fog regions compact without dropping a large distant corridor.
+            var manyRegions = new List<AfflictionRuleset.FogRegion>
+            {
+                new(0, 0, 20, 20, 10, 10, 0f),
+            };
+            for (int i = 1; i <= 270; i++)
+                manyRegions.Add(new(i * 4, 0, i * 4 + 1, 1, i * 4, 0, i));
+            manyRegions.Add(new(900, 900, 1200, 1200, 1000, 1000, 999f));
+            var compacted = AfflictionRuleset.CompactRegions(manyRegions);
+            Assert.Equal(byte.MaxValue, compacted.Count);
+            Assert.Contains(compacted, r => r.DistanceOffset == 999f);
+
+            player.Closed = true;
+            writer.Dispose();
+            await drain;
+
+            byte[] wire = capture.ToArray();
+            new ConnectionCiphers(key, true).Receive.Process(wire);
+            byte[] emptyEnv = InstanceEnvironments.Data();
+            Assert.True(wire.AsSpan().IndexOf(emptyEnv) < 0, "0x00df must never clear Delirium fog while active");
+            Assert.True(wire.AsSpan().IndexOf(InstanceEnvironments.Data((fogRow, 2f), (ritualRow, -1e-7f))) >= 0);
+            Assert.True(wire.AsSpan().IndexOf(AfflictionRuleset.EncounterPause(0f, paused: true)!) >= 0);
+            Assert.True(wire.AsSpan().IndexOf(AfflictionRuleset.EncounterPause(0f, paused: false)!) >= 0);
+        }
+        finally
+        {
+            Program.InGame.TryRemove(player, out _);
+            player.Closed = true;
+            writer.Dispose();
+            reader.Dispose();
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Delirium_volatile_pod_proximity_spawns_and_detonates_chasing_affliction_volatile()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var peer = await OpenDeliriumPlayer("DeliriumVolatile", 515151, 0x44, 2000);
+        using var context = peer.Context;
+        var (encounter, instance, player, listener, writer, reader, _, drain, _, _) = peer;
+
+        try
+        {
+            Assert.NotEmpty(encounter.BeforeEnterMessages(player));
+            var state = encounter.For(player);
+            player.Walk.Place(state.MirrorX, state.MirrorY, Game.AreaTime(player));
+            await encounter.OnTick(player, 0.1);
+            Assert.Equal(DeliriumMirrorEncounter.MirrorStage.Active, state.Stage);
+
+            int podX = Math.Clamp(state.MirrorX + 4, 4, player.Layout.GridW - 5);
+            int podY = Math.Clamp(state.MirrorY, 4, player.Layout.GridH - 5);
+            double t0 = Game.AreaTime(player);
+            uint podId = await DeliriumVolatiles.SpawnPodAt(player, state, DeliriumVolatiles.BloodBagPodPaths[1], podX, podY, 68, t0);
+            Assert.NotEqual(0u, podId);
+            var sm = instance.World.MonsterOrigins[podId].Object.StateMachine!;
+            Assert.Equal(1, sm.SharedStates[sm.IndexOf("visible")]);
+
+            // Step into pod proximity: pod pops and spawns chasing AfflictionVolatile cores at MovementSpeed 24.
+            player.Walk.Place(podX + 1, podY, t0);
+            await DeliriumVolatiles.Tick(player, state, t0 + 0.05, 0.05f, activeLifetime: true);
+            var pod = Assert.Single(state.Volatiles.Pods);
+            Assert.True(pod.Popped);
+            Assert.NotEmpty(state.Volatiles.Cores);
+            var core = state.Volatiles.Cores[0];
+            Assert.Equal(24.0, core.Speed);
+            Assert.True(player.Area.Monsters.ContainsKey(core.Id));
+
+            // Advance past arming + pod removal delay while within contact radius: core detonates, damages player, and cleans up.
+            uint lifeBefore = player.PlayerLife;
+            double detonateTime = t0 + DeliriumVolatiles.PodRemoveDelaySeconds + 0.1;
+            await DeliriumVolatiles.Tick(player, state, detonateTime, 0.1f, activeLifetime: true);
+            Assert.Empty(state.Volatiles.Cores);
+            Assert.Empty(state.Volatiles.Pods);
+            Assert.False(player.Area.Monsters.ContainsKey(core.Id));
+            Assert.False(instance.World.MonsterOrigins.ContainsKey(core.Id));
+            Assert.False(player.Area.Monsters.ContainsKey(podId));
+            Assert.True(player.PlayerLife < lifeBefore, $"Expected AfflictionVolatile detonation to damage player (before={lifeBefore}, after={player.PlayerLife})");
+
+            player.Closed = true;
+            writer.Dispose();
+            await drain;
+        }
+        finally
+        {
+            Program.InGame.TryRemove(player, out _);
+            player.Closed = true;
+            writer.Dispose();
+            reader.Dispose();
+            listener.Stop();
+        }
+    }
+
     sealed class MirrorTestContext : IModuleContext, IDisposable
     {
         readonly ModuleLifetime lifetime = new("Delirium");
