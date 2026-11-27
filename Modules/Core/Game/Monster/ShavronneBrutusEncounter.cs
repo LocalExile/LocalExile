@@ -231,7 +231,8 @@ public static class ShavronneBrutusEncounter
             {
                 nextEmpowerAt = now + 9.0;
                 var bPos = brutus.Walk.Position(now);
-                if (await CastAction(runner, shavId, shav, 6691, bPos, 2.0, now, "[Shavronne] Empower Beam") is not null)
+                // ShavronneEmpowerBeam[6691] (ActionType 683, tgt=[3] ally): CanUse rejects targetEntity == null.
+                if (await CastAction(runner, shavId, shav, 6691, bPos, 2.0, now, "[Shavronne] Empower Beam", targetObjectId: brutusId) is not null)
                 {
                     await SpawnTimedEffect(runner, effects, pos, EmpowerBeamArt, now + 2.2, scale: 1.2f);
                     await SpawnTimedEffect(runner, effects, bPos, LightningGlowArt, now + 2.2, scale: 1.2f);

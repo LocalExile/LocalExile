@@ -91,11 +91,39 @@ public static partial class Game
         return UnhingedCorpseDestroy is var key && stats.GetValueOrDefault(key) != 0;
     }
 
-    /// <summary>Freeze the item decision as part of the lethal hit mutation, before hit notifications can yield.</summary>
-    public static void CaptureUnhingedHitKillLocked(Player player, SpawnedMonster m, bool playerHit)
+    static bool HitKillDestroysCorpseLocked(Player player, SpawnedMonster m, bool directPlayerHit,
+        IReadOnlyDictionary<uint, int>? playerStats)
+    {
+        if (!m.Hostile || m.Effects[Stat.CorpseCannotBeDestroyed] != 0 || IsSpectreCorpse(m)
+            || (MapModsOf(player)?.Get(Stat.MapCorpseCannotBeDestroyed) ?? 0) != 0)
+            return false;
+        var stats = playerStats ?? PlayerStatValues(player);
+        if (stats.GetValueOrDefault(Stat.EnemiesExplodeOnKill) != 0) return true;
+        if (directPlayerHit && UnhingedCorpseDestruction(player)) return true;
+        if (m.Ignites.IgnitedAt(ProjectileWorldTime(player)) || m.Ignites.DiedBurning)
+        {
+            if (stats.GetValueOrDefault(Stat.IgnitedEnemiesExplodeOnKill) != 0) return true;
+            if (stats.GetValueOrDefault(Stat.BaseChanceToDestroyCorpseOnKillPctVsIgnited) is > 0 and var ignitedChance
+                && RandomRolls.Chance(ignitedChance, 100, AreaRng(player)))
+                return true;
+        }
+        if (stats.GetValueOrDefault(Stat.DestroyCorpsesOnKillPctChance) is > 0 and var destroyChance
+            && RandomRolls.Chance(destroyChance, 100, AreaRng(player)))
+            return true;
+        return false;
+    }
+
+    /// <summary>Freeze the hit-kill corpse-destruction decision as part of the lethal hit mutation, before hit
+    /// notifications can yield. Covers Axe Mastery / Kitava's Feast (<c>enemies_explode_on_kill</c>), Unhinged,
+    /// Pyre / Cremator (<c>ignited_enemies_explode_on_kill</c>), and chance-based corpse destruction on hit kills.</summary>
+    public static void CaptureUnhingedHitKillLocked(Player player, SpawnedMonster m, bool playerHit) =>
+        CaptureHitCorpseDestructionLocked(player, m, playerHit, playerStats: null);
+
+    internal static void CaptureHitCorpseDestructionLocked(Player player, SpawnedMonster m, bool directPlayerHit,
+        IReadOnlyDictionary<uint, int>? playerStats)
     {
         if (m.Life == 0)
-            m.UnhingedHitKill = new(player, playerHit && UnhingedCorpseDestruction(player));
+            m.UnhingedHitKill = new(player, HitKillDestroysCorpseLocked(player, m, directPlayerHit, playerStats));
     }
 
     /// <summary>Consume the decision for this exact monster and owner. No current-state fallback is allowed.</summary>
@@ -107,21 +135,31 @@ public static partial class Game
         return receipt.DestroyCorpse;
     }
 
+    /// <summary>Marks a hit-killed monster's corpse destroyed immediately in the kill commit so death skills (such as
+    /// Porcupine spines), corpse consumption, warcries, Raise Zombie, Detonate Dead, and re-entry snapshots never see
+    /// the corpse. Returns true when the caller should send <c>0x02bd</c> removal (false if already consumed or
+    /// shattered natively).</summary>
+    internal static bool DestroyHitKillCorpseLocked(Player player, uint id, SpawnedMonster m)
+    {
+        if (m.CorpseConsumed) return false;
+        m.CorpseConsumed = true;
+        player.Area.Monsters.Remove(id);
+        player.ReleaseCorpseBody(id, m);
+        foreach (var peer in player.Frames.Players()) peer.ReleaseCorpseBody(id, m);
+        return !m.Ailments.Shattered;
+    }
+
     public static Task PublishUnhingedCorpseDestruction(Player player, uint id, SpawnedMonster m, bool committed)
     {
         if (!committed) return Task.CompletedTask;
         if (!CurrentGameWork || player.Closed || player.LeavingArea || m.CorpseConsumed
             || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) return Task.CompletedTask;
         m.CorpseConsumed = true;
-        // Item text: "Enemies Killed by your Hits are destroyed while Insane." The extraction supplies only the boolean,
-        // so remove the accepted hit's corpse without inventing damage, another kill event, loot roll or experience award.
-        // `committed` is the qualification captured at the lethal hit: later source/toggle changes cannot rewrite it.
+        player.Area.Monsters.Remove(id);
+        if (m.Ailments.Shattered) return Task.CompletedTask;
         return SendWorldRemoval(player, id,
-            $"0x02bb corpse of 0x{id:x} destroyed while unhinged", still: () =>
-            {
-                return CurrentGameWork && !player.Closed && !player.LeavingArea
-                    && player.Area.Monsters.TryGetValue(id, out var current) && ReferenceEquals(current, m);
-            });
+            $"0x02bd corpse of 0x{id:x} destroyed on hit kill", still: () =>
+                CurrentGameWork && !player.Closed && !player.LeavingArea);
     }
 
     public static async Task<bool> ToggleUnhinged(Player player, ushort skillId, int effect, Func<bool> current)

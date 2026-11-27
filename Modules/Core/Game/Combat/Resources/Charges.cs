@@ -405,8 +405,8 @@ public static partial class Game
             // A triggered warcry has no cast windup. Ordinary casts still release on the area clock.
             while (!triggered && !player.Closed && AreaTime(player) < until) await AreaDelay(player, 0.016);
             if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
-            double taunt = TauntSeconds(Player);
-            foreach (var (k, v) in own) playerStats[k] = v;
+            int Combined(uint key) => ActorScale.Saturate((long)Player(key) + Own(key));
+            double taunt = TauntSeconds(Combined);
             int radius = SkillRadius(player, WarcryRadius, own, spell: false, effect);
             double now = AreaTime(player);
             var here = player.Walk.Position(now);
@@ -414,15 +414,17 @@ public static partial class Game
             Console.WriteLine($"[gateway] {effectId}: taunts {taunted} monster(s) within {radius} cells for {taunt:0.##} s");
             int affectedAllies = 0;
             if (effectId == "IntimidatingCry")
-                ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now, applyMovementBuff: !suppressBuffs);
+                ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now, applyMovementBuff: !suppressBuffs, skillId: skillId);
             else if (!suppressBuffs)
                 affectedAllies = GrantWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
-            if (effectId == "SeismicCry")
-                GrantSeismicCryExertsLocked(player, own, playerStats);
-            else if (effectId == "AncestralCry")
-                GrantAncestralCryExertsLocked(player, own, playerStats);
             else if (effectId == "RallyingCry")
-                GrantRallyingCryExertsLocked(player, own, playerStats, affectedAllies);
+                affectedAllies = RallyingCryNearbyAlliesLocked(player, here, radius, now);
+            if (effectId == "SeismicCry")
+                GrantSeismicCryExertsLocked(player, own, playerStats, skillId);
+            else if (effectId == "AncestralCry")
+                GrantAncestralCryExertsLocked(player, own, playerStats, skillId);
+            else if (effectId == "RallyingCry")
+                GrantRallyingCryExertsLocked(player, own, playerStats, affectedAllies, skillId);
             else if (effectId == "InfernalCry")
             {
                 GrantInfernalCryExertsLocked(player, skillId, own, playerStats);

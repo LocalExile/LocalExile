@@ -478,6 +478,8 @@ public static partial class Game
             // this value for Groundbreaking's shorter range and its unskipped startup (0x1412fafd0 / 0x1419fda80).
             // StaticStrikeNew selects Gathering Lightning's beam at melee contact with variation 1 (0x141b16580).
             string? effectId = skills.EffectId(effect);
+            if (CooldownTriggerController(effectId) != 0)
+                stats[Stat.MetaSkillLinkedSkillCount] = CooldownTriggerLinkedCount(player, id, effect);
             if (effectId == TrarthusBlastRain)
                 stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
             bool gatheringLightning = IsGatheringLightning(effect);
@@ -492,6 +494,11 @@ public static partial class Game
                 stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
                 stats[Stat.InSandStance] = player.Stance == StanceCatalog.SandSelection ? 1 : 0;
             }
+            else if (IsBladestorm(effectId))
+            {
+                // Bladestorm's native action (0x141b5ea30) reads in_sand_stance directly from the skill stats to pick Sand vs Blood spin visuals.
+                stats[Stat.InSandStance] = player.Stance == StanceCatalog.SandSelection ? 1 : 0;
+            }
             bool perforate = skills.ActionHash(effect) == PerforateAction;
             if (perforate) PublishPerforateStats(player, skills, effect, stats);
             if (gatheringLightning)
@@ -501,6 +508,10 @@ public static partial class Game
             if (Stat.BaseSkillEffectDuration is var baseDurationKey && own.GetValueOrDefault(baseDurationKey) > 0
                 && Stat.SkillEffectDuration is var durationKey)
                 stats[durationKey] = (int)Math.Round(1000 * SkillDurationModifiers.Seconds(own[baseDurationKey],
+                    name => playerStats.GetValueOrDefault(name),
+                    name => own.GetValueOrDefault(name), DurationKinds(player, effect)));
+            if (TraumaBaseDurationMs(own) is int traumaBaseMs and > 0)
+                stats[Stat.TraumaDurationMs] = (int)Math.Round(1000 * SkillDurationModifiers.Seconds(traumaBaseMs,
                     name => playerStats.GetValueOrDefault(name),
                     name => own.GetValueOrDefault(name), DurationKinds(player, effect)));
             // Devout of Lunaris: the client aims a self-targeted Nova at the cursor only on
@@ -1911,6 +1922,7 @@ public static partial class Game
             player.PetrifiedBlood.Suspend();
             CharacterSaves.SetPetrifiedBlood(CharacterName(player), false);
         }
+        ClearCooldownTriggersLocked(player, gone);
         double now = AreaTime(player);
         foreach (var fighter in player.Summons.Fighters.Values.Where(g => gone.Contains(g.Source)).ToArray())
             RemoveSummonLocked(player, fighter, now);

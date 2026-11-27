@@ -255,8 +255,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   A skill that declares a duration and a per-stack percentage but no stack count applies one stack: the blood-projectile
   and bonespire family (Greed's essence nova, Belly Totem, Breach, Pyramid, Vendigo) rows omit the count.
   Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
-  Arakaali's unsafe generic laser activators stay out; a dedicated controller supplies linked native turret rails.
-  Her Silk transition and stance-specific attacks run; corner travel, laser ordering and collision calibration remain.
+  Arakaali's unsafe generic laser activators and entity-targeted `ArakaaliHide` stay out of generic kits; her dedicated
+  controller supplies linked native turret rails, engagement-gated combat/relocation timers, and created
+  `TeleportMarkerSerialized1..4` scene objects for native `ArakaaliHide[6885]` corner travel (with server-hidden fallback).
   Campaign Yugul finishes his native entrance before generic AI, making him targetable on first entry as on reentry;
   his two mirror intervals hide the body until ten images die; pools chill, Fearful orbs chase and four native turrets
   fire piercing volleys with terminal bursts. Fearful magnitudes, orb escalation and aura radii remain calibrated.

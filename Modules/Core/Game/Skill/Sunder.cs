@@ -125,6 +125,7 @@ public static partial class Game
                     headingSegments++;
                     dueAt += interval;
                     IsShockwave = false;
+                    TriggerEarthshatterSpikesLocked(player, centre, radius, ProjectileWorldTime(player));
                     Collect(targets, centre, radius);
                 }
                 if (targets.Count > before) return true;

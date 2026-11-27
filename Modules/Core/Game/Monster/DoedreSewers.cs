@@ -163,6 +163,7 @@ public static class DoedreSewers
         readonly double cloudDps;
         public uint ValveId;
         public (int X, int Y) ValveAt;
+        uint cauldronId;
         int phase = -1;
         bool started, draining, finished, stopped, sceneBroadcast;
         double ready, nextHazard, nextWarp, nextBurst, nextGround, nextCloudMove;
@@ -237,6 +238,7 @@ public static class DoedreSewers
                 }
             if (scene.FirstOrDefault(s => s.Type.EndsWith("Cauldron")) is { } cauldron)
             {
+                cauldronId = cauldron.Id;
                 centre = (cauldron.At.X, cauldron.At.Y);
                 string colour = started && phase >= 0 ? Colours[phase].ToLowerInvariant() : "brown";
                 hazards.Add(new(c.TakeObjectId(), centre, double.PositiveInfinity, 3, Art + $"cauldron/cauldron_{colour}.ao", Moved: now, Loop: started));
@@ -407,8 +409,9 @@ public static class DoedreSewers
             var attack = Attack(c, boss.Variety!, boss.Level, effect, Math.Max(0, phase));
             var pos = boss.Walk.Position(now);
             int generation = ++boss.ActionGeneration; boss.SwingGeneration = null; boss.BusyUntil = now + attack.Seconds + .2; boss.Walk.Order(pos.X, pos.Y, now);
+            uint? targetObject = effect is Drain or Emerge && cauldronId != 0 ? cauldronId : null;
             await SendMonsterAction(c, id, boss, generation, () =>
-                [.. InstanceProtocol.ActionStarted(id, pos.X, pos.Y, aim.X, aim.Y, Skill(effect), c.NextActionSequence(), 0x0408), .. InstanceProtocol.ActionEnded(id)],
+                [.. InstanceProtocol.ActionStarted(id, pos.X, pos.Y, aim.X, aim.Y, Skill(effect), c.NextActionSequence(), 0x0408, targetObjectId: targetObject), .. InstanceProtocol.ActionEnded(id)],
                 $"[Doedre] {Game.SkillsFor(c).EffectId(effect)}");
             if (effect is Drain or Emerge) return;
             if (effect == Melee) contacts.Add(new(now + attack.Seconds * .4, generation, effect, pos, aim, 9));

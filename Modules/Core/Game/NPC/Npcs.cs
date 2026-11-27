@@ -15,7 +15,7 @@ public static partial class Game
         // An NPC is the player's quest view: their quest state chose it, so it is theirs alone to see (AreaDelta's private entities).
         if (InAreaFrame(player))
         {
-            player.Area.Delta.Add(id, InstanceEntities.CreateObject(id, type, obj.Blob()), log, AreaDelta.Kind.Create, only: player);
+            player.Area.Delta.Add(id, InstanceEntities.CreateObject(id, type, obj.Blob(), headerU32: uint.MaxValue), log, AreaDelta.Kind.Create, only: player);
             player.Area.Delta.Add(id, InstanceProtocol.EnterWakeZone(id), null, only: player);
         }
         else

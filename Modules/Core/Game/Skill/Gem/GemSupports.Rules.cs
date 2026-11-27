@@ -982,11 +982,34 @@ public static partial class Game
             stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, Get(Stat.DamagePlusPct),
                 Get(Stat.ForbiddenRiteDamagePlusPct));
         }
+        int traumaMeleeMore = 0;
+        int traumaStacks = 0;
+        if (attackWeapon is not null && !secondary && WeaponAttributeDamage.Armed(attackWeapon))
+        {
+            int traumaMin = stats.GetValueOrDefault(Stat.AttackMinimumAddedPhysicalDamageWithWeaponsPerTrauma);
+            int traumaMax = stats.GetValueOrDefault(Stat.AttackMaximumAddedPhysicalDamageWithWeaponsPerTrauma);
+            traumaMeleeMore = types.Contains(19) ? stats.GetValueOrDefault(Stat.SupportTraumaMeleeDamagePlusPctFinalPerTrauma) : 0;
+            if (traumaMin != 0 || traumaMax != 0 || traumaMeleeMore != 0)
+            {
+                traumaStacks = CurrentTraumaCount(player, ProjectileWorldTime(player));
+                if (traumaStacks > 0)
+                {
+                    if (traumaMin != 0)
+                        stats[Stat.AttackMinimumAddedPhysicalDamage] = ActorScale.Saturate(
+                            (long)stats.GetValueOrDefault(Stat.AttackMinimumAddedPhysicalDamage) + (long)traumaMin * traumaStacks);
+                    if (traumaMax != 0)
+                        stats[Stat.AttackMaximumAddedPhysicalDamage] = ActorScale.Saturate(
+                            (long)stats.GetValueOrDefault(Stat.AttackMaximumAddedPhysicalDamage) + (long)traumaMax * traumaStacks);
+                }
+            }
+        }
         var raw = secondary ? SecondaryRawHit(player, gem, spellBase, Get)
             : attackWeapon is not null
             ? SupportedAttackDamage.Raw(attackWeapon, Get, new(attackAccuracy),
                 coefficients.Base, coefficients.Added, melee: types.Contains(19) && !SkillsFor(player).RequiresShield(gem.Effect))
             : DamageStats.RawAdded(spellBase, Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
+        if (traumaMeleeMore != 0 && traumaStacks > 0)
+            raw = raw.Scale(Math.Max(0, 1 + (long)traumaMeleeMore * traumaStacks / 100d));
         if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.SpellBaseFireDamagePctMaximumLife) is int lifePct and > 0)
         {
             uint life = skills.EffectId(gem.Effect) == BodyswapSacrificeEffect
@@ -1152,13 +1175,16 @@ public static partial class Game
         new(inputs.Secondary ? "secondary" : hand, Spell: !inputs.Attack && !inputs.Secondary, inputs.Melee)
         { WeaponStats = inputs.WeaponStats };
 
-    public static AttackAccuracyProfile SupportedAccuracy(Player player, ushort skillId)
+    public static AttackAccuracyProfile SupportedAccuracy(Player player, ushort skillId) =>
+        SupportedAccuracy(player, skillId, extraIncreased: 0);
+
+    internal static AttackAccuracyProfile SupportedAccuracy(Player player, ushort skillId, long extraIncreased)
     {
         var gem = SupportedSkill(player, skillId);
         var playerStats = CharacterPlayerStats(player);
         var local = UsesShieldAccuracy(SkillsFor(player), gem.Effect) ? null : MainHandLocalSources(player);
         return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, gem.Stats, local)
-            with { Rating = WeaponAccuracyFor(player, null, playerStats, gem.Stats, gem.Effect) };
+            with { Rating = WeaponAccuracyFor(player, null, playerStats, gem.Stats, gem.Effect, extraIncreased) };
     }
 
     public static int SupportedCriticalChance(Player player, ushort skillId) => SupportedCriticalChanceFor(player, skillId, false);
@@ -1169,7 +1195,11 @@ public static partial class Game
     // extraIncrease: a target condition's increase (critical_strike_chance_+%_vs_blinded_enemies, Game's Blind.cs).
     // weaponCritical: the swinging hand's weapon base (AttackHands' off hand) in the main hand's place.
     public static int SupportedCriticalChanceFor(Player player, ushort skillId, bool release, long extraIncrease = 0,
-        int? weaponCritical = null)
+        int? weaponCritical = null) =>
+        SupportedCriticalChanceFor(player, skillId, release, extraIncrease, weaponCritical, extraBaseCrit: 0);
+
+    internal static int SupportedCriticalChanceFor(Player player, ushort skillId, bool release, long extraIncrease,
+        int? weaponCritical, int extraBaseCrit)
     {
         var gem = SupportedSkill(player, skillId);
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
@@ -1218,6 +1248,8 @@ public static partial class Game
             if (Own(Stat.AdditionalCriticalStrikeChancePermyriadWhileAffectedByElusive) is int elusiveBase and not 0
                 && ElusiveFactor(player) > 0)
                 basis = ActorScale.Saturate((long)basis + elusiveBase);
+            if (extraBaseCrit != 0)
+                basis = ActorScale.Saturate((long)basis + extraBaseCrit);
             long increased = player.Pools.CriticalStrikeChancePct + extraIncrease
                 + AttackBaseCriticalStrike.IncreasedSum(weapon, name => Own(name));
             if (skills.IsProjectile(gem.Effect))
