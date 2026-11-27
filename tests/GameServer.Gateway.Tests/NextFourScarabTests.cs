@@ -119,9 +119,9 @@ public sealed class NextFourScarabTests
             Assert.Equal(temple.ItemData(83, new Random(1), false).Connections, item.IncursionTemple.Connections);
             var beach = new MapDevice.MapArea(AreaTransitionCatalog.HashOf("MapWorldsBeach")!.Value, "MapWorldsBeach", "Beach", 16);
             fixture.Player.Use(new AreaLayout(beach.Hash16, beach.Id, 600, 600, 10, 10, (_, _) => true, []));
-            fixture.Player.Instance.OpenedWith(MapDevice.Run.Of(fixture.Player.Character.Name, new(beach,
+            fixture.Player.Instance.OpenedWith(new MapDevice.Run(fixture.Player.Character.Name, beach,
                 MapMods.None.WithFragmentStat(Stat.MapExpeditionPctChanceLogbooksDropWithFourImplicits, 100)
-                    .WithFragmentStat(Stat.MapFinalIncursionArchitectCopiesTemple, 1))));
+                    .WithFragmentStat(Stat.MapFinalIncursionArchitectCopiesTemple, 1)));
             var normalBook = ExpeditionLogbooks.Create(83, new Random(505), false)!;
             var prepared = ExpeditionLogbooks.Prepare(fixture.Player, normalBook);
             for (int i = 0; i < normalBook.ExpeditionSaga!.Areas.Count; i++)
