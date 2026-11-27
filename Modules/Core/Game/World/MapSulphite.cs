@@ -34,6 +34,10 @@ public static class MapSulphite
     sealed record AreaFlags(bool IsMapArea, bool RandomnessDisabled, bool HasLeagueChance, bool HasHardModeLeagueChance);
     static Dictionary<string, AreaFlags>? _areas;
 
+    public static bool Eligible(string areaId) => (_areas ??= LoadAreas()).TryGetValue(areaId, out var area)
+        && !area.RandomnessDisabled && area.IsMapArea && area.HasLeagueChance
+        && LeagueChances.Current.ChanceOf(areaId, DelveLeagueRow, alternate: false).Chance > 0;
+
     static Dictionary<string, AreaFlags> LoadAreas()
     {
         var areas = new Dictionary<string, AreaFlags>(StringComparer.Ordinal);
@@ -66,7 +70,9 @@ public static class MapSulphite
     {
         if (player.Instance is { } cachedInstance && Placements.TryGetValue(cachedInstance, out var cached))
             return cached.Present;
-        if (Excluded(mods))
+        var areas = _areas ??= LoadAreas();
+        if (Excluded(mods) || !areas.TryGetValue(areaId, out var area) || area.RandomnessDisabled
+            || !area.HasLeagueChance || LeagueChances.Current.ChanceOf(areaId, DelveLeagueRow, alternate: false).Chance <= 0)
         {
             if (player.Instance is { } excludedInstance)
                 Placements.AddOrUpdate(excludedInstance, PresentFalse);
@@ -104,6 +110,16 @@ public static class MapSulphite
     }
 
     public static bool Fumes(MapMods mods) => mods.Get(Stat.MapEnragingSulphite) > 0;
+
+    public static bool Enraged(InstanceState instance, uint id) => instance.HasState($"delve.sulphite.enraged.{id}");
+
+    public static void Enrage(InstanceState instance, uint id, SpawnedMonster monster)
+    {
+        if (!instance.SetState($"delve.sulphite.enraged.{id}")) return;
+        var stats = monster.EncounterStats is null ? new Dictionary<uint, int>() : new Dictionary<uint, int>(monster.EncounterStats);
+        stats[EnragedQuantity] = (int)Math.Min(int.MaxValue, (long)stats.GetValueOrDefault(EnragedQuantity) + FumesQuantity);
+        monster.EncounterStats = stats;
+    }
 
     public static int Yield(int level, MapMods mods, bool owner, int nearbyPlayers = 1)
     {

@@ -204,7 +204,7 @@ public static partial class Game
             session.PlayerExperience(change.After);
             if (level != player.Pools.Level)
             {
-                CommitExperienceLevel(player, level);
+                int before = CommitExperienceLevel(player, level);
                 player.PlayerLife = LifeCap(player); player.PlayerMana = (uint)UnreservedMana(player);
                 RefillPlayerEnergyShield(player);
                 TrimLeechLocked(player);
@@ -212,6 +212,7 @@ public static partial class Game
                 session.Enqueue(() => SendPlayerMana(player, "projectile kill level"));
                 session.Packet(PassivesMessage(player).Bytes);
                 session.Enqueue(() => BroadcastLevelChange(player, level));
+                session.Enqueue(() => GameEvents.RunLevelUp(player, before, level));
                 // Account-level persistence is a projection of the committed XP ledger.
                 session.Enqueue(async () => { await SynchronizeAccountLevel(player); });
             }
