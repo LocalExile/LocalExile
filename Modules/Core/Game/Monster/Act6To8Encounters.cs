@@ -240,7 +240,7 @@ internal static class Act6To8Driver
 
     /// <summary>Starts a boss skill action, freezes walk in place, bumps <c>ActionGeneration</c> and <c>BusyUntil</c>.</summary>
     public static async Task<int?> CastAction(Player runner, uint id, SpawnedMonster boss, int effect,
-        (int X, int Y) target, double duration, double now, string? log = null)
+        (int X, int Y) target, double duration, double now, string? log = null, uint? targetObjectId = null)
     {
         var pos = boss.Walk.Position(now);
         boss.Walk.Order(pos.X, pos.Y, now);
@@ -253,7 +253,8 @@ internal static class Act6To8Driver
         {
             var here = boss.Walk.Position(AreaTime(runner));
             seq = runner.NextActionSequence();
-            return InstanceProtocol.ActionStarted(id, here.X, here.Y, target.X, target.Y, skillId, seq, 0x0408);
+            return InstanceProtocol.ActionStarted(id, here.X, here.Y, target.X, target.Y, skillId, seq, 0x0408,
+                targetObjectId: targetObjectId);
         }, log);
         if (sent && SkillsFor(runner).IsChannelled(effect))
             SendAfter(runner, Math.Max(0.35, duration), () =>
