@@ -33,59 +33,61 @@ public sealed class GameEventsTests
         using var runtime = new PartyFollowerTests.Runtime();
         using var wire = new PartyFollowerTests.Wire();
         using var chatContext = new TestModuleContext(chatOwner);
-        new ChatModule().Load(chatContext);
-
-        string name = "Events" + Guid.NewGuid().ToString("N");
-        var layout = new AreaLayout(1, "1_1_1", 100, 100, 50, 50, (_, _) => true, [(1u, new AreaTransitionObject(1, 1, 1))]);
-        var player = new Player(layout, 1, 1)
-        {
-            Instance = new(),
-            Character = { Name = name },
-            LeagueModule = new(new League("events-test", "Standard", false, false), new HashSet<string>([owner, chatOwner])),
-        };
-        player.Connection.Session = new("events-test", wire.Stream, wire.Ciphers);
-        player.Connection.LockstepClient = false;
+        Player? player = null;
+        ClientInbox? inbox = null;
         using var reading = new CancellationTokenSource();
-        var inbox = new ClientInbox(player.Connection.Performance);
-        player.Frames.Attach(player, inbox, reading);
-
-        List<byte[]> outbox = [];
-        List<string> replies = [];
-        player.Connection.Outbox = (bytes, _) => { outbox.Add(bytes); return Task.CompletedTask; };
-        player.Commands = new ChatCommands
-        {
-            Send = (bytes, _) => { outbox.Add(bytes); return Task.CompletedTask; },
-            Reply = text => { replies.Add(text); return Task.CompletedTask; },
-        };
-        Program.InGame.TryAdd(player, 0);
-
-        List<ClientMessage> seenMessages = [];
-        int readyCalls = 0;
-        bool readySawPlayerSent = false;
-        bool suppress = false;
-        int commandRuns = 0;
-
-        using var msgSub = GameEvents.ClientMessage.Add(owner, m =>
-        {
-            seenMessages.Add(m);
-            return Task.FromResult(suppress);
-        });
-        using var readySub = GameEvents.ClientReady.Add(owner, p =>
-        {
-            readyCalls++;
-            readySawPlayerSent = p.Connection.PlayerSent;
-            return Task.CompletedTask;
-        });
-        using var cmdSub = GameEvents.Command(owner, "pingtest", "/pingtest", (_, _) =>
-        {
-            commandRuns++;
-            return Task.CompletedTask;
-        });
-        using var lvlSub = GameEvents.LevelUp.Add(owner, (_, _, _) => Task.CompletedTask);
-        using var cosSub = GameEvents.CosmeticChanged.Add(owner, _ => Task.CompletedTask);
 
         try
         {
+            new ChatModule().Load(chatContext);
+
+            string name = "Events" + Guid.NewGuid().ToString("N");
+            var layout = new AreaLayout(1, "1_1_1", 100, 100, 50, 50, (_, _) => true, [(1u, new AreaTransitionObject(1, 1, 1))]);
+            player = new Player(layout, 1, 1)
+            {
+                Instance = new(),
+                Character = { Name = name },
+                LeagueModule = new(new League("events-test", "Standard", false, false), new HashSet<string>([owner, chatOwner])),
+            };
+            player.Connection.Session = new("events-test", wire.Stream, wire.Ciphers);
+            player.Connection.LockstepClient = false;
+            inbox = new ClientInbox(player.Connection.Performance);
+            player.Frames.Attach(player, inbox, reading);
+
+            List<byte[]> outbox = [];
+            List<string> replies = [];
+            player.Connection.Outbox = (bytes, _) => { outbox.Add(bytes); return Task.CompletedTask; };
+            player.Commands = new ChatCommands
+            {
+                Send = (bytes, _) => { outbox.Add(bytes); return Task.CompletedTask; },
+                Reply = text => { replies.Add(text); return Task.CompletedTask; },
+            };
+            Program.InGame.TryAdd(player, 0);
+
+            List<ClientMessage> seenMessages = [];
+            int readyCalls = 0;
+            bool readySawPlayerSent = false;
+            bool suppress = false;
+            int commandRuns = 0;
+
+            using var msgSub = GameEvents.ClientMessage.Add(owner, m =>
+            {
+                seenMessages.Add(m);
+                return Task.FromResult(suppress);
+            });
+            using var readySub = GameEvents.ClientReady.Add(owner, p =>
+            {
+                readyCalls++;
+                readySawPlayerSent = p.Connection.PlayerSent;
+                return Task.CompletedTask;
+            });
+            using var cmdSub = GameEvents.Command(owner, "pingtest", "/pingtest", (_, _) =>
+            {
+                commandRuns++;
+                return Task.CompletedTask;
+            });
+            using var lvlSub = GameEvents.LevelUp.Add(owner, (_, _, _) => Task.CompletedTask);
+            using var cosSub = GameEvents.CosmeticChanged.Add(owner, _ => Task.CompletedTask);
             // 1. Plain chat pass-through -> ClientMessage sees once, ChatModule broadcasts 0x0017 once.
             await Game.OnClientMessages([(InstanceChat.ChatId, ChatPacket("hello world"))], [], player);
             Assert.Single(seenMessages);
@@ -129,12 +131,15 @@ public sealed class GameEventsTests
         }
         finally
         {
-            player.Closed = true;
-            inbox.Complete();
+            if (player is not null) player.Closed = true;
+            inbox?.Complete();
             reading.Cancel();
-            player.Frames.Detach(player);
-            player.Instance.RemovePlayer(player.Id);
-            Program.InGame.TryRemove(player, out _);
+            if (player is not null)
+            {
+                player.Frames.Detach(player);
+                player.Instance.RemovePlayer(player.Id);
+                Program.InGame.TryRemove(player, out _);
+            }
             GameEventOwners.Release(owner, GameEventOwners.ModuleRank);
             GameEventOwners.Release(chatOwner, GameEventOwners.ModuleRank);
         }

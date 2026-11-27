@@ -206,6 +206,8 @@ public static partial class Game
             return id == 0 ? null : id;
         }
 
+        static int _timedBuffTag;
+
         public async Task<bool> ApplyTimedBuffAsync(uint targetObjectId, ushort buffRow, IReadOnlyDictionary<uint, int>? stats,
             double seconds, uint sourceObjectId = 0)
         {
@@ -214,7 +216,8 @@ public static partial class Game
             bool isPlayer = targetObjectId == player.Id;
             if (!isPlayer && !player.Area.Monsters.ContainsKey(targetObjectId)) return false;
 
-            ushort tag = isPlayer ? player.NextBuff++ : (ushort)0;
+            bool stacks = buffRow != 0 && BuffRows.Of(buffRow)?.Stacks == true;
+            ushort tag = stacks ? (ushort)Math.Max(1, Interlocked.Increment(ref _timedBuffTag) & 0xFFFF) : (ushort)0;
             uint source = sourceObjectId != 0 ? sourceObjectId : player.Id;
             if (buffRow != 0)
                 player.Area.Buffs.Set(targetObjectId, BuffRows.Spec(buffRow, source, stats, seconds, tag));
@@ -225,19 +228,20 @@ public static partial class Game
                 var entity = new EntityId(targetObjectId);
                 var copy = new Dictionary<uint, int>(stats);
                 player.Area.SetStatBuff(entity, owner, copy);
-                if (isPlayer) await RefreshStats();
                 _ = AreaFrames.Start(async () =>
                 {
                     try
                     {
                         await AreaDelay(player, seconds);
-                        player.Area.RemoveStatBuff(entity, owner);
-                        if (isPlayer && !player.Closed && !player.LeavingArea)
-                            await RefreshStats();
                     }
-                    catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
+                    catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or OperationCanceledException) { }
+                    finally
+                    {
+                        player.Area.RemoveStatBuff(entity, owner);
+                    }
                 });
             }
+            await Task.CompletedTask;
             return true;
         }
 

@@ -413,36 +413,41 @@ public sealed partial class AccountStash
     public uint Gold { get { lock (_lock) return _gold; } }
 
 
+    static bool IsInternalModuleKey(string key) =>
+        key is PublicTabsModuleKey or ItemNotesModuleKey or TradeEarningsModuleKey or TradeHistoryModuleKey;
+
     /// <summary>A module's saved text (IPlayerWorld.AccountData / IPlayerWorld.LeagueData).</summary>
-    public string? ModuleData(string key) { lock (_lock) return _moduleData.GetValueOrDefault(key); }
+    public string? ModuleData(string key) { lock (_lock) return IsInternalModuleKey(key) ? null : _moduleData.GetValueOrDefault(key); }
 
     /// <summary>Changes a module's saved text; a null result changes nothing.</summary>
-    public bool ChangeModuleData(string key, Func<string?, string?> change) => Saves.Atomically(() =>
-    {
-        lock (_lock)
+    public bool ChangeModuleData(string key, Func<string?, string?> change) =>
+        !IsInternalModuleKey(key) && Saves.Atomically(() =>
         {
-            if (change(_moduleData.GetValueOrDefault(key)) is not { } next) return false;
-            _moduleData[key] = next;
-        }
-        Persist();
-        return true;
-    });
+            lock (_lock)
+            {
+                if (change(_moduleData.GetValueOrDefault(key)) is not { } next) return false;
+                _moduleData[key] = next;
+            }
+            Persist();
+            return true;
+        });
 
     /// <summary>Removes a module's saved key atomically; true when the key existed and was removed.</summary>
-    public bool RemoveModuleData(string key) => Saves.Atomically(() =>
-    {
-        lock (_lock)
-            if (!_moduleData.Remove(key)) return false;
-        Persist();
-        return true;
-    });
+    public bool RemoveModuleData(string key) =>
+        !IsInternalModuleKey(key) && Saves.Atomically(() =>
+        {
+            lock (_lock)
+                if (!_moduleData.Remove(key)) return false;
+            Persist();
+            return true;
+        });
 
     /// <summary>Lists saved module data keys (optionally filtered by ordinal <paramref name="prefix"/>), sorted ordinally.</summary>
     public IReadOnlyList<string> ModuleDataKeys(string? prefix = null)
     {
         lock (_lock)
         {
-            IEnumerable<string> keys = _moduleData.Keys;
+            IEnumerable<string> keys = _moduleData.Keys.Where(k => !IsInternalModuleKey(k));
             if (!string.IsNullOrEmpty(prefix))
                 keys = keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal));
             return [.. keys.OrderBy(k => k, StringComparer.Ordinal)];

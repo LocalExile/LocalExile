@@ -552,12 +552,21 @@ public static class CharacterSaves
                 bool permDead = r.GetInt64(11) != 0;
                 bool isVoid = string.Equals(charLeague, HardcoreDeathRules.VoidLeague, StringComparison.OrdinalIgnoreCase);
                 if (!includeDead && (permDead || isVoid)) continue;
-                uint xp = UnsavedExperience.TryGetValue(name, out uint unsaved) ? unsaved : (uint)Math.Max(0L, r.GetInt64(4));
+                bool hasCached = Saves.TryGetCachedCharacter(name, out var cachedSave) && cachedSave is not null;
+                uint xp = UnsavedExperience.TryGetValue(name, out uint unsaved) ? unsaved
+                    : hasCached && cachedSave!.Experience is uint cachedXp ? cachedXp
+                    : (uint)Math.Max(0L, r.GetInt64(4));
+                int accountLevel = checked((int)r.GetInt64(3));
+                int level = xp > 0 ? Math.Max(accountLevel, Progression.LevelFor(xp, CharacterStats.LevelStarts)) : accountLevel;
+                string? ascendancy = hasCached && cachedSave!.MainAscendancy?.Selection is { } sel ? sel.Id
+                    : r.IsDBNull(12) ? null : r.GetString(12);
+                string? ascendancyFamily = hasCached && cachedSave!.MainAscendancy?.Selection is { } selFam ? selFam.Family.Name()
+                    : r.IsDBNull(13) ? null : r.GetString(13);
                 list.Add(new LeagueCharacterInfo(
                     Guid.Parse(r.GetString(0)),
                     name,
                     (CharacterClass)r.GetInt64(2),
-                    checked((int)r.GetInt64(3)),
+                    level,
                     xp,
                     charLeague,
                     r.GetString(6),
@@ -566,8 +575,8 @@ public static class CharacterSaves
                     ParseUtc(r.GetString(9)),
                     hcDead,
                     permDead,
-                    r.IsDBNull(12) ? null : r.GetString(12),
-                    r.IsDBNull(13) ? null : r.GetString(13)));
+                    ascendancy,
+                    ascendancyFamily));
             }
             return list;
         });

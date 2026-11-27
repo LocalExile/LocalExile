@@ -284,7 +284,7 @@ public sealed class LeagueApiExtensionsTests
             // 1 leftover Scroll of Wisdom is returned as currency change (matching built-in currency recipes).
             Assert.Contains(quote.Rewards, r => r.TypeHash == customKeyType.Hash && r.StackSize == 1);
             // Ruthless (basic-sale multiplier) also returns partially consumed currency change instead of throwing.
-            var ruthlessRules = new VendorRecipes(Program.Items, Program.Rolls);
+            var ruthlessRules = new VendorRecipes(Program.Items);
             var ruthlessQuote = ruthlessRules.Evaluate([new InventoryItem(11, 0, 0, ItemCatalog.Create(customKeyType) with { StackSize = 4 })],
                 new Random(1), basicSaleMultiplier: 0.5, player: player1);
             Assert.Contains(ruthlessQuote.Rewards, r => r.TypeHash == chaosType.Hash);
@@ -293,10 +293,13 @@ public sealed class LeagueApiExtensionsTests
             Assert.Throws<ArgumentOutOfRangeException>(() => badCtx.AddReward(ItemCatalog.Create(chaosType) with { StackSize = 0 }, "bad"));
 
             // 4. GameEvents.MapDeviceAcceptsItem extends MapDevice.AcceptsItem and PlayerInventories.AcceptsItem with league isolation.
+            var playerUnlistedLeague = MakePlayer(acc2, "Unlisted" + suffix, leagueB);
+            playerUnlistedLeague.LeagueModule = new(new League(leagueB, "Standard", false, false), new HashSet<string>([vendorsOwner]));
             Assert.True(MapDevice.AcceptsItem(customKeyType.Hash, customKeyType.Class, player1));
             Assert.True(PlayerInventories.AcceptsItem(PlayerInventories.MapDevice, customKeyType.Hash, customKeyType.Class, player1));
-            Assert.False(MapDevice.AcceptsItem(customKeyType.Hash, customKeyType.Class, playerOtherLeague));
+            Assert.False(MapDevice.AcceptsItem(customKeyType.Hash, customKeyType.Class, playerUnlistedLeague));
             Assert.False(PlayerInventories.AcceptsItem(PlayerInventories.MapDevice, customKeyType.Hash, customKeyType.Class));
+            playerUnlistedLeague.Closed = true;
 
             // 5. IPlayerWorld.LeagueData is shared across accounts in the same league, isolated across leagues,
             //    and ISavedData.Keys / Remove work on LeagueData, AccountData, and CharacterData.
@@ -317,6 +320,21 @@ public sealed class LeagueApiExtensionsTests
             Assert.Equal(["acc.flag"], world1.AccountData.Keys("acc."));
             Assert.True(world1.AccountData.Remove("acc.flag"));
             Assert.Null(world1.AccountData.Get("acc.flag"));
+            // Internal stash/trade keys must never be exposed or deletable via AccountData.
+            var stash1 = AccountStash.For(AccountStash.Key(acc1, leagueA), Program.Items);
+            Assert.DoesNotContain("stash.public-tabs.v1", world1.AccountData.Keys());
+            Assert.False(world1.AccountData.Remove("stash.public-tabs.v1"));
+            Assert.False(world1.AccountData.Change("stash.public-tabs.v1", _ => "corrupt"));
+
+            // Duplicate currency entries in CraftInSlot costs must be summed before payment (never throw mid-payment).
+            var inv1 = PlayerInventories.For(char1, Program.Items);
+            var craftOrb = ItemCatalog.Create(chaosType) with { StackSize = 4 };
+            inv1.Add(PlayerInventories.MainInventory, 0, 0, craftOrb);
+            inv1.Add(PlayerInventories.CraftingBench, 0, 0, ItemCatalog.Create(Program.Items.Find("Iron Greaves")!));
+            Assert.Null(ItemMoves.CraftInSlot(inv1, stash1, PlayerInventories.CraftingBench,
+                item => new CraftResult(item, [(chaosType.Hash, 3), (chaosType.Hash, 3)])));
+            Assert.Equal(4, inv1.Count(PlayerInventories.MainInventory, chaosType.Hash));
+            PlayerInventories.Forget(char1);
 
             CharacterSaves.Write(char1, new CharacterSaves.Save([]));
             Assert.True(world1.CharacterData.Change("char.step", _ => "3"));
@@ -414,10 +432,12 @@ public sealed class LeagueApiExtensionsTests
             Assert.NotNull(monsterId);
             Assert.True(player.Area.Monsters.ContainsKey(monsterId!.Value));
 
-            // 4. ApplyTimedBuffAsync wires both AreaBuffs visual and AreaStatBuffs stats for player & monster.
+            // 4. ApplyTimedBuffAsync wires both AreaBuffs visual and AreaStatBuffs stats for player & monster,
+            //    and re-applying a non-stacking buff refreshes tag 0 instead of duplicating with NextBuff++.
             var buffStats = new Dictionary<uint, int> { [Stat.BaseMovementVelocityPlusPct] = 25 };
             Assert.True(await world.ApplyTimedBuffAsync(player.Id, customBuffRow, buffStats, seconds: 5.0));
-            Assert.True(player.Area.Buffs.HasRow(player.Id, customBuffRow));
+            Assert.True(await world.ApplyTimedBuffAsync(player.Id, customBuffRow, buffStats, seconds: 5.0));
+            Assert.True(player.Area.Buffs.Has(player.Id, customBuffRow, source: player.Id, tag: 0));
             Assert.True(await world.ApplyTimedBuffAsync(monsterId.Value, customBuffRow, buffStats, seconds: 5.0));
             Assert.True(player.Area.Buffs.HasRow(monsterId.Value, customBuffRow));
 
@@ -429,8 +449,7 @@ public sealed class LeagueApiExtensionsTests
             Assert.True(Game.HasCustomPortal(player, portalId!.Value));
             using (GameEvents.TravelRefusal.Add(owner, (_, _) => "refused by test"))
             {
-                player.SetPosition(52, 52);
-                Assert.True(await Game.TryUseCustomPortal(player, new InstanceTransfer.UseSkillOnObject(portalId.Value, 0x0266, 0), player.Area.Time));
+                Assert.True(await Game.TryUseCustomPortal(player, new InstanceTransfer.UseSkillOnObject(portalId.Value, 0x0266, 0, 0), player.Area.Time));
                 Assert.True(Game.HasCustomPortal(player, portalId.Value));
             }
             Assert.True(await Game.ResendMapPortals(player));
