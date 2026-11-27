@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Modules.Settlers.Operations;
@@ -20,8 +21,10 @@ public sealed class VillageMappingService(IOperationsHost host)
     public const int DeviceStateRunning = 1;
     public const int DeviceStateKidnapped = 3;
 
-    // MapDeviceState StateFlags1 bits: bit 0 = running, bit 1 = pause after current map, bit 2 = failed/lost mapper ack needed.
-    public const byte FlagRunning = 0x01;
+    // MapDeviceState StateFlags1 (+0x15) bits (live-verified 3.29.3d):
+    // bit 0 = isStopped (1 = stopped/idle showing OPEN MAP; 0 = running showing EXIT MAP + SUSPEND MAPPING),
+    // bit 1 = pause after current map, bit 2 = failed/lost mapper ack needed.
+    public const byte FlagStopped = 0x01;
     public const byte FlagPauseAfterCurrent = 0x02;
     public const byte FlagFailedAckPending = 0x04;
 
@@ -119,7 +122,7 @@ public sealed class VillageMappingService(IOperationsHost host)
     {
         var states = new InstanceVillage.MapDeviceState[OperationsData.MapDeviceCount];
         for (int i = 0; i < states.Length; i++)
-            states[i] = new InstanceVillage.MapDeviceState(0, 0, 0, 0, []);
+            states[i] = new InstanceVillage.MapDeviceState(0, 0, FlagStopped, 0, []);
 
         foreach (var d in snap.MapDevices)
         {
@@ -405,12 +408,33 @@ public sealed class VillageMappingService(IOperationsHost host)
         var mappers = host.GetWorkersForJob(account, league, (byte)(OperationsData.JobMappingFirst + deviceIdx));
         if (mappers.Count == 0) return false;
 
+        var snapBefore = host.ReadSnapshot(account, league);
+        var existingBefore = snapBefore?.MapDevices.FirstOrDefault(d => d.DeviceIndex == deviceIdx);
+        int completedCount = existingBefore is not null ? ParseSummary(existingBefore.SummaryJson).CompletionPercents.Length : 0;
+
         var inv = ItemsOf(player);
         var queued = inv.Items(PlayerInventories.KalguurMapping)
-            .Where(i => i.Y == deviceIdx)
+            .Where(i => i.Y == deviceIdx && i.X >= completedCount)
             .OrderBy(i => i.X)
             .FirstOrDefault();
         if (queued is null) return false;
+
+        // Keep completed slots 0..completedCount-1 and the next running map tightly packed from X=0 so
+        // KalguurMapRunnersWindow (0x14053d2f0) aligns slot index X 1:1 with CompletionPercents[X].
+        if (queued.X != completedCount && completedCount < 12
+            && !inv.Items(PlayerInventories.KalguurMapping).Any(i => i.Y == deviceIdx && i.X == completedCount))
+        {
+            if (inv.Remove(PlayerInventories.KalguurMapping, queued.Id) is { } movedOld)
+            {
+                var movedNew = inv.Add(PlayerInventories.KalguurMapping, (byte)completedCount, (byte)deviceIdx, movedOld.Item);
+                await Send(player, InstanceItems.InventoryChange(
+                    PlayerInventories.InventoryId(PlayerInventories.KalguurMapping),
+                    inv.NextRevision(PlayerInventories.KalguurMapping),
+                    [movedOld.Id], [movedNew]),
+                    $"0x00bf village mapping pack slot ({movedOld.X}->{completedCount}) on device {deviceIdx}");
+                queued = movedNew;
+            }
+        }
 
         var catalog = ItemsFor(player);
         var (tier, mapName) = ResolveMapInfo(queued.Item, catalog);
@@ -485,20 +509,9 @@ public sealed class VillageMappingService(IOperationsHost host)
         DeviceSummary summary)
     {
         var rng = Random.Shared;
-        var inv = ItemsOf(player);
-        var activeMap = inv.Items(PlayerInventories.KalguurMapping)
-            .FirstOrDefault(i => i.Y == deviceIdx && i.X == dev.ActiveMapSlot)
-            ?? inv.Items(PlayerInventories.KalguurMapping).Where(i => i.Y == deviceIdx).OrderBy(i => i.X).FirstOrDefault();
-
-        if (activeMap is not null && inv.Remove(PlayerInventories.KalguurMapping, activeMap.Id) is { } removed)
-        {
-            await Send(player, InstanceItems.InventoryChange(
-                PlayerInventories.InventoryId(PlayerInventories.KalguurMapping),
-                inv.NextRevision(PlayerInventories.KalguurMapping),
-                [removed.Id], []),
-                $"0x00bf village mapping consumed map {removed.Id} from device {deviceIdx}");
-        }
-
+        // Completed maps MUST remain in KalguurMapping1 (row 88, slots 0..CompletionPercents.Length-1) until the player
+        // claims or discards Mapping rewards; KalguurMapRunnersWindow::Update (0x14053d2f0..0x14053d6da) skips empty
+        // slots and never enables the "Click to Take Rewards" button if the completed map item was deleted early.
         bool alreadyKidnapped = FindKidnappedDevice(account, league) >= 0;
         double ambushChance = host.Settings.BossAmbushChanceMultiplier <= 0 || alreadyKidnapped
             ? 0.0
@@ -590,7 +603,8 @@ public sealed class VillageMappingService(IOperationsHost host)
             var dev = snap.MapDevices.FirstOrDefault(d => d.DeviceIndex == devIdx && d.BossAmbushPending && d.State == DeviceStateKidnapped);
             if (dev is null) return (null, null);
             var s = ParseSummary(dev.SummaryJson);
-            var next = s with { CurrentMapName = "", ElapsedProgress = 0, ProgressTarget = 0, FailedAckPending = false };
+            var nextCompletions = s.CompletionPercents.Append((byte)100).TakeLast(12).ToArray();
+            var next = s with { CurrentMapName = "", CompletionPercents = nextCompletions, ElapsedProgress = 0, ProgressTarget = 0, FailedAckPending = false };
             var devices = snap.MapDevices.Where(d => d.DeviceIndex != devIdx).ToList();
             devices.Add(dev with
             {
@@ -697,23 +711,114 @@ public sealed class VillageMappingService(IOperationsHost host)
         return -1;
     }
 
+    /// <summary>
+    /// Called when the last mapping reward item for <paramref name="deviceIdx"/> is claimed or discarded:
+    /// removes the <c>CompletionPercents.Length</c> completed map items from <c>KalguurMapping1</c> (row 88),
+    /// shifts remaining queued maps left, clears <c>CompletionPercents</c>, and syncs <c>0x00bf</c> + full village state.
+    /// </summary>
+    public async Task OnRewardsEmptiedAsync(Player player, int deviceIdx)
+    {
+        if (deviceIdx < 0 || deviceIdx >= OperationsData.MapDeviceCount) return;
+        var (account, league) = VillageStore.ScopeOf(player);
+
+        int completedCount = host.MutateSnapshot(account, league, snap =>
+        {
+            var dev = snap.MapDevices.FirstOrDefault(d => d.DeviceIndex == deviceIdx);
+            if (dev is null) return (null, 0);
+            var summary = ParseSummary(dev.SummaryJson);
+            int count = summary.CompletionPercents.Length;
+            if (count == 0) return (null, 0);
+            var nextSummary = summary with { CompletionPercents = [] };
+            int nextActiveSlot = dev.State == DeviceStateRunning && dev.ActiveMapSlot >= count
+                ? dev.ActiveMapSlot - count
+                : dev.ActiveMapSlot;
+            var devices = snap.MapDevices.Where(d => d.DeviceIndex != deviceIdx).ToList();
+            devices.Add(dev with
+            {
+                ActiveMapSlot = nextActiveSlot,
+                SummaryJson = SerializeSummary(nextSummary, running: dev.State == DeviceStateRunning),
+            });
+            devices.Sort((a, b) => a.DeviceIndex.CompareTo(b.DeviceIndex));
+            return (snap with { MapDevices = devices }, count);
+        }, persistNow: true);
+
+        if (completedCount > 0)
+        {
+            var inv = ItemsOf(player);
+            var rowItems = inv.Items(PlayerInventories.KalguurMapping)
+                .Where(i => i.Y == deviceIdx)
+                .OrderBy(i => i.X)
+                .ToList();
+
+            var removedIds = new List<uint>();
+            var toShift = new List<(byte NewX, Item Item)>();
+            foreach (var it in rowItems)
+            {
+                if (inv.Remove(PlayerInventories.KalguurMapping, it.Id) is not { } rem) continue;
+                removedIds.Add(rem.Id);
+                if (rem.X >= completedCount)
+                    toShift.Add(((byte)(rem.X - completedCount), rem.Item));
+            }
+
+            var addedItems = new List<InventoryItem>(toShift.Count);
+            foreach (var (newX, item) in toShift)
+                addedItems.Add(inv.Add(PlayerInventories.KalguurMapping, newX, (byte)deviceIdx, item));
+
+            if (removedIds.Count > 0 || addedItems.Count > 0)
+            {
+                await Send(player, InstanceItems.InventoryChange(
+                    PlayerInventories.InventoryId(PlayerInventories.KalguurMapping),
+                    inv.NextRevision(PlayerInventories.KalguurMapping),
+                    removedIds,
+                    addedItems),
+                    $"0x00bf village mapping cleared {completedCount} completed map(s) on device {deviceIdx}");
+            }
+        }
+
+        if (OperationsSubsystem.IsVillageArea(player))
+            await host.SyncFullVillageStateAsync(player);
+    }
+
+    static readonly Regex TierNumberRegex = new(@"Tier\s*(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     static (int Tier, string Name) ResolveMapInfo(Item item, ItemCatalog catalog)
     {
+        OperationsData.EnsureLoaded();
         var bt = catalog.ByHash(item.TypeHash);
         string name = bt?.Name ?? "Map";
+
+        // 1. Authoritative 3.29 client.db tables (MapKeys.dat + Maps.dat).
+        if (OperationsData.TryGetMapTier(item.TypeHash, out int tableTier))
+            return (Math.Clamp(tableTier, 1, 17), name);
+
         if (item.TypeHash == OperationsData.SpecialTier17MapHash) return (17, name);
+
         if (bt is not null)
         {
-            if (bt.Id.Contains("Tier17", StringComparison.OrdinalIgnoreCase) || bt.DropLevel >= 84) return (17, name);
+            // 2. Explicit tier encoded in BaseItemTypes Id or Name (e.g. MapKeyTier1 / "Map (Tier 1)").
+            if (TryParseTierNumber(bt.Id, out int idTier)) return (idTier, name);
+            if (TryParseTierNumber(bt.Name, out int nameTier)) return (nameTier, name);
+            if (bt.DropLevel >= 84) return (17, name);
             if (bt.DropLevel >= 68) return (Math.Clamp(bt.DropLevel - 67, 1, 17), name);
         }
+
         return (Math.Clamp(item.ItemLevel >= 68 ? item.ItemLevel - 67 : 1, 1, 17), name);
+    }
+
+    static bool TryParseTierNumber(string? text, out int tier)
+    {
+        tier = 0;
+        if (string.IsNullOrEmpty(text)) return false;
+        var m = TierNumberRegex.Match(text);
+        if (!m.Success || !int.TryParse(m.Groups[1].Value, out int parsed)) return false;
+        tier = Math.Clamp(parsed, 1, 17);
+        return true;
     }
 
     static byte BuildFlags1(bool running, bool pauseAfterCurrent, bool failedAckPending)
     {
         byte f = 0;
-        if (running) f |= FlagRunning;
+        if (!running) f |= FlagStopped;
         if (pauseAfterCurrent) f |= FlagPauseAfterCurrent;
         if (failedAckPending) f |= FlagFailedAckPending;
         return f;

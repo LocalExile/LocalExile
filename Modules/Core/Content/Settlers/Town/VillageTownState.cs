@@ -498,7 +498,8 @@ public sealed class TownMapDevice
     public long MapDurationSeconds { get; set; }
     public uint TimerElapsed { get; set; }
     public uint TimerTotal { get; set; }
-    public byte StateFlags1 { get; set; }
+    /// <summary>Bit 0 = isStopped (1 when idle/OPEN MAP, 0 when running/EXIT MAP); bit 1 = pause after current; bit 2 = failed ack.</summary>
+    public byte StateFlags1 { get; set; } = 0x01;
     public byte StateFlags2 { get; set; }
     public List<byte> MapCompletionPercents { get; set; } = [];
     public int PortalsRemaining { get; set; }
@@ -508,8 +509,11 @@ public sealed class TownMapDevice
     public string SummaryJson { get; set; } = "{}";
     public bool IsRunning => State == 1 && !BossAmbushPending;
 
-    public InstanceVillage.MapDeviceState ToWire() =>
-        new(TimerElapsed, TimerTotal, StateFlags1, StateFlags2, [.. MapCompletionPercents]);
+    public InstanceVillage.MapDeviceState ToWire()
+    {
+        byte f1 = State == 1 ? (byte)(StateFlags1 & ~0x01) : (byte)(StateFlags1 | 0x01);
+        return new(TimerElapsed, TimerTotal, f1, StateFlags2, [.. MapCompletionPercents]);
+    }
 }
 
 /// <summary>One port quota entry for one of the 6 destination ports (3 slots per port).</summary>
@@ -625,7 +629,7 @@ public sealed class VillageTownState
                 uint elapsedProg = (uint)Math.Clamp((long)Math.Round(target * (elapsedSec / (double)totalSec)), 0, target);
                 shipTimers[i] = new(elapsedProg, target);
             }
-            else if (s.State == 3)
+            else if (s.State is 2 or 3)
             {
                 uint target = Operations.VillageShippingService.ComputeTravelTime(s.PortRow, 0, 1.0).ProgressTarget;
                 shipTimers[i] = new(target, target);

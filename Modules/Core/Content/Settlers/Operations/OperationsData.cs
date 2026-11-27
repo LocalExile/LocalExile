@@ -219,6 +219,7 @@ public static class OperationsData
     public static HashSet<int> RecombinableClassRows { get; private set; } = [.. DefaultRecombinableClassRows];
     public static HashSet<string> RecombinableClassIds { get; private set; } = new(DefaultRecombinableClassIds, StringComparer.Ordinal);
     public static RunegraftEntry[] ActiveRunegrafts { get; private set; } = [];
+    public static Dictionary<uint, int> MapTierByBaseHash { get; private set; } = [];
 
     // VillageSharedConstants values
     public static uint RansomCost { get; private set; } = 50_000;
@@ -262,8 +263,12 @@ public static class OperationsData
         LoadUniqueDisenchantValues();
         LoadRecombinableClasses();
         LoadRunegrafts();
+        LoadMapItemTiers();
         _loaded = true;
     }
+
+    public static bool TryGetMapTier(uint baseTypeHash, out int tier) =>
+        MapTierByBaseHash.TryGetValue(baseTypeHash, out tier);
 
     public static int WorkerPowerForRank(int rank)
     {
@@ -557,6 +562,47 @@ public static class OperationsData
             list.Add(new RunegraftEntry(row, id, name, hash));
         }
         ActiveRunegrafts = [.. list];
+    }
+
+    static void LoadMapItemTiers()
+    {
+        var baseTypes = ClientTables.TableOrEmpty("BaseItemTypes");
+        if (baseTypes.Count == 0) return;
+
+        var tiers = new Dictionary<uint, int>();
+
+        uint HashForBaseRow(int row)
+        {
+            if (row < 0 || row >= baseTypes.Count) return 0;
+            var r = baseTypes[row];
+            uint h = r.UIntOrNull("HASH32") ?? 0;
+            if (h == 0 && r.TextOrNull("Id") is { Length: > 0 } id) h = ItemCatalog.ComputeHash32(id);
+            return h;
+        }
+
+        // 3.29 generic map keys (MapKeys.dat: BaseItemType -> MapTier)
+        foreach (var row in ClientTables.TableOrEmpty("MapKeys"))
+        {
+            if (row.IntOrNull("BaseItemType") is int baseRow
+                && row.IntOrNull("MapTier") is int tier && tier is >= 1 and <= 17)
+            {
+                uint h = HashForBaseRow(baseRow);
+                if (h != 0) tiers.TryAdd(h, tier);
+            }
+        }
+
+        // Named/legacy maps (Maps.dat: BaseItemTypesKey -> Tier)
+        foreach (var row in ClientTables.TableOrEmpty("Maps"))
+        {
+            if (row.IntOrNull("BaseItemTypesKey") is int baseRow
+                && row.IntOrNull("Tier") is int tier && tier is >= 1 and <= 17)
+            {
+                uint h = HashForBaseRow(baseRow);
+                if (h != 0) tiers.TryAdd(h, tier);
+            }
+        }
+
+        MapTierByBaseHash = tiers;
     }
 
     static LevelBalance[] BuildFallbackBalance()

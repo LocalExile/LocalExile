@@ -447,9 +447,15 @@ public sealed class VillageRewardsService(IOperationsHost host)
                 $"0x00bf village reward tab 0x{invId:x} removed {removedIds.Count} item(s)");
         }
 
-        bool empty;
-        lock (session.Gate) empty = session.ByItemId.Count == 0;
-        if (empty) await SyncRewardVisibilityAsync(player);
+        bool slotEmpty = !HasAnyRewards(account, league, session.SourceKind, session.SlotIndex);
+        if (slotEmpty)
+        {
+            if (session.SourceKind == SourceShipping)
+                await OperationsSubsystem.Shipping.OnRewardsEmptiedAsync(player, session.SlotIndex);
+            else if (session.SourceKind == SourceMapping)
+                await OperationsSubsystem.Mapping.OnRewardsEmptiedAsync(player, session.SlotIndex);
+            await SyncRewardVisibilityAsync(player);
+        }
     }
 
     static List<(uint InvId, List<InventoryItem> Items)> LayoutIntoPages(

@@ -19,6 +19,7 @@ public sealed class VillageShippingService(IOperationsHost host)
     // Matches town-idle VillageTownState.TownShip.State enum (0=Idle, 1=Sailing, 2=Returned/RewardsReady, 3=Commandeered).
     public const int ShipStateIdle = 0;
     public const int ShipStateSailing = 1;
+    public const int ShipStateReturned = 2;
     public const int ShipStateCommandeered = 3;
     const int ShipStateResolving = 4;
 
@@ -163,7 +164,7 @@ public sealed class VillageShippingService(IOperationsHost host)
                 uint elapsedProg = (uint)Math.Clamp((long)Math.Round(target * (elapsedSec / (double)totalSec)), 0, target);
                 timers[s.ShipIndex] = new InstanceVillage.TimerState(elapsedProg, target);
             }
-            else if (s.State == ShipStateCommandeered)
+            else if (s.State is ShipStateReturned or ShipStateCommandeered)
             {
                 var (target, _) = ComputeTravelTime(s.PortId, 0, 1.0);
                 timers[s.ShipIndex] = new InstanceVillage.TimerState(target, target);
@@ -197,7 +198,7 @@ public sealed class VillageShippingService(IOperationsHost host)
         for (int i = 0; i < OperationsData.ShipCount; i++)
         {
             var ship = ships.FirstOrDefault(s => s.ShipIndex == i);
-            byte portRow = ship is { State: ShipStateSailing or ShipStateCommandeered } && ship.PortId is >= 1 and <= OperationsData.PortCount
+            byte portRow = ship is { State: ShipStateSailing or ShipStateReturned or ShipStateCommandeered } && ship.PortId is >= 1 and <= OperationsData.PortCount
                 ? (byte)ship.PortId
                 : InstanceVillage.NoneRow;
             byte failRow = ship is { EventId: > 0 } ? (byte)ship.EventId : InstanceVillage.NoneRow;
@@ -626,11 +627,28 @@ public sealed class VillageShippingService(IOperationsHost host)
             OperationsSubsystem.Rewards.AddRewards(account, league, VillageRewardsService.SourceShipping, ship.ShipIndex, rewards, ItemsFor(player).Mods);
         }
 
+        bool hasRewards = OperationsSubsystem.Rewards.HasAnyRewards(account, league, VillageRewardsService.SourceShipping, ship.ShipIndex);
+        var (target, _) = ComputeTravelTime(ship.PortId, 0, 1.0);
+        uint[] wireCargo = hasRewards ? survivingCargo : new uint[OperationsData.ExportCount];
+        byte wirePort = hasRewards && ship.PortId is >= 1 and <= OperationsData.PortCount
+            ? (byte)ship.PortId
+            : InstanceVillage.NoneRow;
+
         host.MutateSnapshot(account, league, snap =>
         {
             var ships = snap.Ships.Where(s => s.ShipIndex != ship.ShipIndex).ToList();
-            ships.Add(new VillageStore.ShipRow(ship.ShipIndex, ShipStateIdle, 0, 0, 0, 0, 0,
-                SerializeCargoBlob(new uint[OperationsData.ExportCount], 0, 0), "[]", failureRow, 0, false));
+            if (hasRewards)
+            {
+                ships.Add(new VillageStore.ShipRow(
+                    ship.ShipIndex, ShipStateReturned, ship.PortId,
+                    ship.DepartedUtc, ship.ArrivalUtc, ship.RiskPercent, ship.ShipmentValue,
+                    SerializeCargoBlob(survivingCargo, target, target), "[]", failureRow, 0, false));
+            }
+            else
+            {
+                ships.Add(new VillageStore.ShipRow(ship.ShipIndex, ShipStateIdle, 0, 0, 0, 0, 0,
+                    SerializeCargoBlob(new uint[OperationsData.ExportCount], 0, 0), "[]", failureRow, 0, false));
+            }
             ships.Sort((a, b) => a.ShipIndex.CompareTo(b.ShipIndex));
             return (snap with { Ships = ships }, true);
         }, persistNow: true);
@@ -638,14 +656,39 @@ public sealed class VillageShippingService(IOperationsHost host)
         if (OperationsSubsystem.IsVillageArea(player))
         {
             byte wireFail = failureRow > 0 ? (byte)failureRow : InstanceVillage.NoneRow;
-            await Send(player, InstanceVillage.ShipUpdate((byte)ship.ShipIndex, InstanceVillage.NoneRow, wireFail, new uint[OperationsData.ExportCount]),
-                $"0x02c9 village ShipUpdate(ship={ship.ShipIndex}, returned, fail={wireFail})");
+            await Send(player, InstanceVillage.ShipUpdate((byte)ship.ShipIndex, wirePort, wireFail, wireCargo),
+                $"0x02c9 village ShipUpdate(ship={ship.ShipIndex}, {(hasRewards ? "returned-rewards" : "idle")}, port={wirePort}, fail={wireFail})");
             if (updatedQuotas is not null && ship.PortId is >= 1 and <= OperationsData.PortCount)
             {
                 await Send(player, InstanceVillage.PortQuotas((byte)(ship.PortId - 1), BuildQuotaWireSlots(updatedQuotas)),
                     $"0x02c9 village PortQuotas(portIdx={ship.PortId - 1}, updated)");
             }
+            await host.SyncFullVillageStateAsync(player);
             await OperationsSubsystem.Rewards.SyncRewardVisibilityAsync(player);
+        }
+    }
+
+    /// <summary>Called when the last shipping reward item for <paramref name="shipIndex"/> is claimed or discarded — returns the ship to Docked/Idle.</summary>
+    public async Task OnRewardsEmptiedAsync(Player player, int shipIndex)
+    {
+        if (shipIndex < 0 || shipIndex >= OperationsData.ShipCount) return;
+        var (account, league) = VillageStore.ScopeOf(player);
+        bool cleared = host.MutateSnapshot(account, league, snap =>
+        {
+            var existing = snap.Ships.FirstOrDefault(s => s.ShipIndex == shipIndex);
+            if (existing is null || existing.State != ShipStateReturned) return (null, false);
+            var ships = snap.Ships.Where(s => s.ShipIndex != shipIndex).ToList();
+            ships.Add(new VillageStore.ShipRow(shipIndex, ShipStateIdle, 0, 0, 0, 0, 0,
+                SerializeCargoBlob(new uint[OperationsData.ExportCount], 0, 0), "[]", 0, 0, false));
+            ships.Sort((a, b) => a.ShipIndex.CompareTo(b.ShipIndex));
+            return (snap with { Ships = ships }, true);
+        }, persistNow: true);
+
+        if (cleared && OperationsSubsystem.IsVillageArea(player))
+        {
+            await Send(player, InstanceVillage.ShipUpdate((byte)shipIndex, InstanceVillage.NoneRow, InstanceVillage.NoneRow, new uint[OperationsData.ExportCount]),
+                $"0x02c9 village ShipUpdate(ship={shipIndex}, idle-after-claim)");
+            await host.SyncFullVillageStateAsync(player);
         }
     }
 

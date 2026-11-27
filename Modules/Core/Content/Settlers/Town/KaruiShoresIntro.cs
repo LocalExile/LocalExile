@@ -343,7 +343,24 @@ public static class KaruiShoresIntro
 
     static async Task EnsureKingsmarchUnlockedFlagsAsync(Player player)
     {
-        await SetMissingLeagueFlagsAsync(player, KingsmarchCoreLeagueFlags);
+        var desired = new List<int>(KingsmarchCoreLeagueFlags);
+        var state = VillageTownService.GetState(player);
+        lock (state.Gate)
+        {
+            if (state.TutorialFlags.HasFlag(VillageTutorialFlags.FirstRecruitHired))
+                desired.Add(LqfRecruitHired);
+            if (state.TutorialFlags.HasFlag(VillageTutorialFlags.FirstGoldDeposited))
+            {
+                desired.Add(LqfGoldDeposited);
+                desired.Add(LqfTutorialComplete);
+            }
+            if (state.TutorialFlags.HasFlag(VillageTutorialFlags.FirstWorkerAssigned))
+            {
+                desired.Add(LqfAssignedMiner);
+                desired.Add(LqfMiningQuestComplete);
+            }
+        }
+        await SetMissingLeagueFlagsAsync(player, desired);
         if (!G.ClientHasQuestFlag(player, QfMetJohan))
             await G.SetQuestFlags(player, [QfMetJohan, QfJohanIntroTownSeen]);
     }

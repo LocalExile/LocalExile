@@ -288,6 +288,23 @@ public sealed class SettlersTests
             long dust84x2 = VillageDisenchantingService.ComputeDustValue(item0 with { ItemLevel = 84 }, catalog, dustYieldMultiplier: 2.0);
             Assert.True(dust45 > 0 && dust68 > dust45 && dust84 > dust68);
             Assert.Equal(dust84 * 2, dust84x2);
+
+            // 6. Verify Returned ship state keeps (target, target) timer, idle map device has isStopped=1, and 3.29 Map (Tier 1) resolves to tier 1.
+            lock (state.Gate)
+            {
+                state.Ships[0].State = VillageShippingService.ShipStateReturned;
+                state.Ships[0].PortRow = 1;
+                var wire = state.ToWireSnapshot((ulong)now);
+                uint target = VillageShippingService.ComputeTravelTime(1, 0, 1.0).ProgressTarget;
+                Assert.Equal(target, wire.ShipTimers[0].Elapsed);
+                Assert.Equal(target, wire.ShipTimers[0].Total);
+                Assert.Equal(VillageMappingService.FlagStopped, (byte)(wire.MapDevices[0].StateFlags1 & VillageMappingService.FlagStopped));
+            }
+            if (catalog.Find("Map (Tier 1)") is { } t1Map)
+            {
+                Assert.True(OperationsData.TryGetMapTier(t1Map.Hash, out int resolvedTier));
+                Assert.Equal(1, resolvedTier);
+            }
         }
         finally
         {

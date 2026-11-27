@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -160,24 +161,27 @@ public static class KingsmarchHubWorld
             {
                 if (!visuals.Built)
                 {
-                    int activeWorkerBudget = CountActiveTownWorkersLocked(townState);
-                    int tempWorkerOrdinal = 0;
-
-                    foreach (var obj in _armObjects)
+                    if (!TryRebuildIntoLocked(visuals, player, townState))
                     {
-                        if (!_specs.TryGetValue(obj.Type, out var spec)) continue;
-                        if (obj.IntParams.TryGetValue("upgrade_type", out int upgType) && upgType > 8)
-                            continue;
+                        int activeWorkerBudget = CountActiveTownWorkersLocked(townState);
+                        int tempWorkerOrdinal = 0;
 
-                        StateMachineData sm = BuildInitialStateMachineLocked(obj, spec.DefaultStates, townState, ref tempWorkerOrdinal, activeWorkerBudget);
-                        var intVars = BuildEntityIntVariables(obj);
-                        uint id = player.TakeObjectId();
-                        var rec = new SpawnedRecord(id, obj, spec, intVars, sm);
-                        visuals.RecordIndexById[id] = visuals.AllObjects.Count;
-                        visuals.AllObjects.Add(rec);
-                        TrackSpawnedLocked(visuals, id, obj, spec, sm);
+                        foreach (var obj in _armObjects)
+                        {
+                            if (!_specs.TryGetValue(obj.Type, out var spec)) continue;
+                            if (obj.IntParams.TryGetValue("upgrade_type", out int upgType) && upgType > 8)
+                                continue;
+
+                            StateMachineData sm = BuildInitialStateMachineLocked(obj, spec.DefaultStates, townState, ref tempWorkerOrdinal, activeWorkerBudget);
+                            var intVars = BuildEntityIntVariables(obj);
+                            uint id = player.TakeObjectId();
+                            var rec = new SpawnedRecord(id, obj, spec, intVars, sm);
+                            visuals.RecordIndexById[id] = visuals.AllObjects.Count;
+                            visuals.AllObjects.Add(rec);
+                            TrackSpawnedLocked(visuals, id, obj, spec, sm);
+                        }
+                        visuals.Built = true;
                     }
-                    visuals.Built = true;
                 }
 
                 if (!visuals.PresentedPlayers.Add(player))
@@ -223,7 +227,7 @@ public static class KingsmarchHubWorld
     public static async Task<bool> OnObjectUseAsync(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (!use.InitialPress || !IsKingsmarch(player)) return false;
-        if (!AreaVisuals.TryGetValue(player.Area, out var visuals)) return false;
+        if (!TryGetOrRebuildVisuals(player, out var visuals)) return false;
 
         InteractableEntry? entry;
         lock (visuals.Gate)
@@ -250,8 +254,10 @@ public static class KingsmarchHubWorld
 
     public static async Task SyncWorldVisualsAsync(Player player, VillageTownState townState)
     {
-        if (!IsKingsmarch(player) || !AreaVisuals.TryGetValue(player.Area, out var visuals))
+        if (!IsKingsmarch(player) || !TryGetOrRebuildVisuals(player, out var visuals))
             return;
+
+        lock (visuals.Gate) visuals.PresentedPlayers.Add(player);
 
         var updates = new List<(uint Id, byte SmIdx, StateMachineData Sm, string Log)>();
 
@@ -621,6 +627,117 @@ public static class KingsmarchHubWorld
         2 or 3 => 2,
         _ => 0,
     };
+
+    // ---- Hot-reload recovery: rebuild InstanceVisuals from GameArea.Objects when the Settlers ALC reloads ----------
+
+    static bool TryGetOrRebuildVisuals(Player player, out InstanceVisuals visuals)
+    {
+        if (AreaVisuals.TryGetValue(player.Area, out var existing) && existing.Built)
+        {
+            visuals = existing;
+            return true;
+        }
+        if (_armObjects.Count == 0)
+        {
+            visuals = null!;
+            return false;
+        }
+        var candidate = AreaVisuals.GetOrCreateValue(player.Area);
+        var townState = VillageTownService.GetState(player);
+        lock (townState.Gate)
+        {
+            lock (candidate.Gate)
+            {
+                if (!candidate.Built && !TryRebuildIntoLocked(candidate, player, townState))
+                {
+                    visuals = null!;
+                    return false;
+                }
+                candidate.PresentedPlayers.Add(player);
+            }
+        }
+        visuals = candidate;
+        return true;
+    }
+
+    static bool TryRebuildIntoLocked(InstanceVisuals visuals, Player player, VillageTownState townState)
+    {
+        var creates = player.Area.Objects.SnapshotCreates();
+        if (creates.Count == 0 || _armObjects.Count == 0) return false;
+
+        var candidatesByHash = new Dictionary<uint, List<int>>();
+        for (int i = 0; i < _armObjects.Count; i++)
+        {
+            var obj = _armObjects[i];
+            if (!_specs.ContainsKey(obj.Type)) continue;
+            if (obj.IntParams.TryGetValue("upgrade_type", out int upgType) && upgType > 8) continue;
+            uint hash = InstanceEntities.ObjectTypeHash(obj.Type);
+            (candidatesByHash.TryGetValue(hash, out var list) ? list : candidatesByHash[hash] = []).Add(i);
+        }
+
+        var usedArm = new bool[_armObjects.Count];
+        int activeWorkerBudget = CountActiveTownWorkersLocked(townState);
+        int tempWorkerOrdinal = 0;
+        int matched = 0;
+
+        foreach (var (id, typeHash, blob) in creates)
+        {
+            if (!candidatesByHash.TryGetValue(typeHash, out var list)) continue;
+            if (!TryReadPositionedXY(blob, out int x, out int y)) continue;
+
+            int armIdx = -1;
+            for (int k = 0; k < list.Count; k++)
+            {
+                int idx = list[k];
+                if (usedArm[idx]) continue;
+                var arm = _armObjects[idx];
+                if (arm.X == x && arm.Y == y) { armIdx = idx; break; }
+            }
+            if (armIdx < 0) continue;
+
+            usedArm[armIdx] = true;
+            var obj = _armObjects[armIdx];
+            var spec = _specs[obj.Type];
+            StateMachineData sm = BuildInitialStateMachineLocked(obj, spec.DefaultStates, townState, ref tempWorkerOrdinal, activeWorkerBudget);
+            var intVars = BuildEntityIntVariables(obj);
+            var rec = new SpawnedRecord(id, obj, spec, intVars, sm);
+            visuals.RecordIndexById[id] = visuals.AllObjects.Count;
+            visuals.AllObjects.Add(rec);
+            TrackSpawnedLocked(visuals, id, obj, spec, sm);
+            matched++;
+        }
+
+        if (matched == 0) return false;
+        visuals.Built = true;
+        return true;
+    }
+
+    static bool TryReadPositionedXY(ReadOnlySpan<byte> blob, out int x, out int y)
+    {
+        x = 0;
+        y = 0;
+        if (blob.Length < 10) return false;
+        int varCount = blob[1];
+        int pos = 2;
+        for (int v = 0; v < varCount; v++)
+        {
+            if (pos + 6 > blob.Length) return false;
+            pos += 5; // u32 nameHash + u8 flags
+            byte valCount = blob[pos++];
+            if (valCount > 0)
+            {
+                if (pos >= blob.Length) return false;
+                byte valType = blob[pos++];
+                // QuestObject IntVariables (9), FloatVariables (8), EntityVariables (1) are 4 bytes per value.
+                if (valType is not (1 or 8 or 9)) return false;
+                pos += valCount * 4;
+            }
+        }
+        if (pos + 8 > blob.Length) return false;
+        x = BinaryPrimitives.ReadInt32LittleEndian(blob[pos..]);
+        y = BinaryPrimitives.ReadInt32LittleEndian(blob[(pos + 4)..]);
+        return true;
+    }
 
     static int CountWorkersByJobTypeLocked(VillageTownState state, byte jobType)
     {
