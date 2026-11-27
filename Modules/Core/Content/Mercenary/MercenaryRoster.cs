@@ -72,7 +72,9 @@ public sealed partial class MercenaryModule
             }
             mutate(state);
             latest = state;
-            return JsonSerializer.Serialize(state);
+            // Unchanged (or still empty) writes nothing: this runs on every area entry for every character.
+            string next = JsonSerializer.Serialize(state);
+            return next == (string.IsNullOrWhiteSpace(existing) ? JsonSerializer.Serialize(new RosterState()) : existing) ? null : next;
         });
         return latest;
     }
