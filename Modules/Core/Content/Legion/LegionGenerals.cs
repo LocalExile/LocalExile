@@ -50,11 +50,13 @@ static class LegionGenerals
         [System.Text.Json.Serialization.JsonIgnore] public IReadOnlyDictionary<uint, int>? Stats { get; set; }
     }
 
-    /// <summary>Hyrri's rider on her Fish, tracking its follow cadence and active water clones.</summary>
+    /// <summary>Hyrri's rider on her Fish, the effect of its water clone mortar (-1: none) and when it was last used.</summary>
     sealed class Rider
     {
         public uint Body { get; set; }
         public uint Id { get; set; }
+        public int Mortar { get; set; } = -1;
+        public double MortarUsed { get; set; } = double.NegativeInfinity;
         public double FollowedAt { get; set; } = double.NegativeInfinity;
         public int Clones { get; set; }
     }
@@ -172,10 +174,11 @@ static class LegionGenerals
         // Its .ot: untargetable, base_cannot_be_damaged, no drops. The server keeps hits, minions and rewards off it too.
         rider.DamageImmune = true;
         rider.NoRewards = true;
+        int mortar = LegionSkillHooks.WaterCloneMortarEffect is >= 0 and int mortarEffect && rider.Kit.Any(k => k.Effect == mortarEffect) ? mortarEffect : -1;
         var g = Of(player);
         lock (g)
         {
-            g.Riders[bodyId] = new Rider { Body = bodyId, Id = id };
+            g.Riders[bodyId] = new Rider { Body = bodyId, Id = id, Mortar = mortar, MortarUsed = mortar >= 0 ? rider.KitReadyAt.GetValueOrDefault(mortar, double.NegativeInfinity) : 0 };
             Keep(player, g);
         }
         Module?.Log($"Hyrri: rider 0x{id:x} ({variety.Id}) on the body 0x{bodyId:x} at ({x},{y}), kit [{string.Join(",", rider.Kit.Select(k => k.Effect))}]");
@@ -233,7 +236,7 @@ static class LegionGenerals
                 if (due > mount.Step) { (dismount ??= []).Add((mount, m, due)); changed = true; }
             }
             foreach (var r in g.Riders.Values)
-                if (CheckRider(player, r, now) is { } work) { (riders ??= []).Add(work); changed |= work.Gone; }
+                if (CheckRider(player, g, r, now) is { } work) { (riders ??= []).Add(work); changed |= work.Gone || work.Cloned; }
             for (int i = g.Pending.Count - 1; i >= 0; i--)
                 if (now >= g.Pending[i].At) { (clones ??= []).Add(g.Pending[i]); g.Pending.RemoveAt(i); changed = true; }
             // A clone plays its dying state, then goes; the bird goes at once.
@@ -365,45 +368,35 @@ static class LegionGenerals
         return id;
     }
 
-    /// <summary>What a rider's frame must still do outside the lock: go with its Fish or follow it.</summary>
-    sealed record RiderWork(Rider Rider, SpawnedMonster? Self, bool Gone, (int X, int Y)? Move);
+    /// <summary>What a rider's frame must still do outside the lock: go with its Fish, follow it, or tell of a queued clone.</summary>
+    sealed record RiderWork(Rider Rider, SpawnedMonster? Self, bool Gone, (int X, int Y)? Move, bool Cloned);
 
-    /// <summary>Called by <see cref="LegionSkillHooks"/> when Hyrri's rider starts <c>LegionHyrriWaterCloneMortar</c>:
-    /// queues a water clone near its target without per-frame cooldown polling.</summary>
-    internal static void OnWaterCloneMortarStarted(Player player, uint riderId, SpawnedMonster rider, double now)
-    {
-        if (!Areas.TryGetValue(player.Area, out var g)) return;
-        bool queued = false;
-        lock (g)
-        {
-            Rider? owner = null;
-            foreach (var candidate in g.Riders.Values)
-                if (candidate.Id == riderId) { owner = candidate; break; }
-            if (owner is not null && rider.Target is { } target && owner.Clones < MaxClones)
-            {
-                var (tx, ty) = target.Walk.Position(now);
-                var rng = global::Game.AreaRng(player);
-                g.Pending.Add(new PendingClone { Rider = riderId, X = tx + rng.Next(-CloneScatter, CloneScatter + 1), Y = ty + rng.Next(-CloneScatter, CloneScatter + 1), At = now + CloneFlightSeconds });
-                owner.Clones++;
-                Keep(player, g);
-                queued = true;
-            }
-        }
-        if (queued) Module?.Log($"Hyrri: rider 0x{riderId:x} fired its water clone mortar: a clone in {CloneFlightSeconds} s");
-    }
-
-    /// <summary>The rider's frame under lock(g) (null, and no allocation, when there is nothing to send): gone with its Fish;
-    /// else a follow when the Fish moved. Rider teleports are filtered at kit build time by <see cref="LegionSkillHooks"/>.</summary>
-    static RiderWork? CheckRider(Player player, Rider r, double now)
+    /// <summary>The rider's frame under lock(g) (null, and no allocation, when there is nothing to send): gone with its Fish; else a
+    /// follow when the Fish moved, and a water clone queued when its mortar's cooldown was restarted (whichever path swung it).
+    /// Rider teleports are filtered at kit build time by <see cref="LegionSkillHooks"/>.</summary>
+    static RiderWork? CheckRider(Player player, AreaGenerals g, Rider r, double now)
     {
         var monsters = player.Area.Monsters;
         monsters.TryGetValue(r.Body, out var body);
         monsters.TryGetValue(r.Id, out var self);
-        if (body is null || body.Dead || body.Life == 0 || self is null) return new RiderWork(r, self, true, null);
+        if (body is null || body.Dead || body.Life == 0 || self is null) return new RiderWork(r, self, true, null, false);
+        (int X, int Y)? move = null;
+        bool clone = false;
         var at = body.Walk.Position(now);
-        if (at == self.Walk.Position(now) || now - r.FollowedAt < FollowSeconds) return null;
-        r.FollowedAt = now;
-        return new RiderWork(r, self, false, at);
+        if (at != self.Walk.Position(now) && now - r.FollowedAt >= FollowSeconds) { r.FollowedAt = now; move = at; }
+        if (r.Mortar >= 0 && self.KitReadyAt.TryGetValue(r.Mortar, out double used) && used != r.MortarUsed)
+        {
+            r.MortarUsed = used;
+            if (self.Target is { } target && r.Clones < MaxClones)
+            {
+                var (tx, ty) = target.Walk.Position(now);
+                var rng = global::Game.AreaRng(player);
+                g.Pending.Add(new PendingClone { Rider = r.Id, X = tx + rng.Next(-CloneScatter, CloneScatter + 1), Y = ty + rng.Next(-CloneScatter, CloneScatter + 1), At = now + CloneFlightSeconds });
+                r.Clones++;
+                clone = true;
+            }
+        }
+        return move is null && !clone ? null : new RiderWork(r, self, false, move, clone);
     }
 
     static async Task StepRider(Player player, RiderWork work, double now)

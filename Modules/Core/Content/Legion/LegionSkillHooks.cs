@@ -5,7 +5,7 @@ namespace GameServer.Modules.Legion;
 /// <summary>
 /// Wires Legion Generals, Sergeants, and soldiers into <see cref="MonsterKitHooks"/> (S6):
 /// filters out Hyrri rider teleports and Fish rocket-jump parents so the Fish drives movement while the rider fires,
-/// observes Hyrri's water-clone mortar start to queue clones without per-frame polling, and supplies explicit Tier-1
+/// and supplies explicit Tier-1
 /// clip-event → child-GE combo bindings for Legion <c>EmptyAction*</c> parents.
 /// </summary>
 static class LegionSkillHooks
@@ -16,11 +16,17 @@ static class LegionSkillHooks
         public HashSet<int> HyrriRiderRows { get; } = [];
         public HashSet<int> HyrriBodyRows { get; } = [];
         public HashSet<int> HyrriRiderBlockedEffects { get; } = [];
+        public int CommanderFlingEffect { get; set; } = -1;
         public int HyrriRocketJumpEffect { get; set; } = -1;
         public int HyrriWaterCloneMortarEffect { get; set; } = -1;
     }
 
+    const int CommanderRow = 10492;
+
     static Table? Loaded;
+
+    /// <summary>The GrantedEffects row of Hyrri's water clone mortar (-1: none); the rider's frame watches its cooldown.</summary>
+    public static int WaterCloneMortarEffect => Loaded?.HyrriWaterCloneMortarEffect ?? -1;
 
     public static void LoadData()
     {
@@ -32,11 +38,8 @@ static class LegionSkillHooks
             table.HyrriRiderRows.Add(rows.Rider);
         }
 
-        var geRows = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var row in ClientTables.TableOrEmpty("GrantedEffects"))
-            if (row.Text("Id") is { Length: > 0 } id) geRows.TryAdd(id, row.Index);
-
-        int Ge(string id) => geRows.TryGetValue(id, out int row) ? row : -1;
+        var skills = Program.Skills;
+        int Ge(string id) => skills.EffectRow(id);
 
         void BlockRider(string id) { if (Ge(id) is int r and >= 0) table.HyrriRiderBlockedEffects.Add(r); }
         BlockRider("LegionHyrriTeleport");
@@ -147,8 +150,9 @@ static class LegionSkillHooks
             table.Combos[spamParent] = alternating;
         }
 
-        // Faridun Legion Commander (10492)
+        // Faridun Legion Commander (variety row 10492 only: Ridan 10489 and the Forgotten Afarud Commander 10490 share the parent).
         Bind("EAAFaridunWildbossFling", ("contact", "MPWFaridunMinibossFleshProjectile"));
+        table.CommanderFlingEffect = Ge("EAAFaridunWildbossFling");
 
         Loaded = table;
     }
@@ -160,8 +164,7 @@ static class LegionSkillHooks
     {
         IDisposable filter = MonsterKitHooks.AddEffectFilter(AllowEffect);
         IDisposable combos = MonsterKitHooks.AddComboBindings(ComboBindings);
-        IDisposable lifecycle = MonsterKitHooks.AddActionLifecycleObserver(OnActionLifecycle);
-        return new Composite(filter, combos, lifecycle);
+        return new Composite(filter, combos);
     }
 
     static bool AllowEffect(MonsterCatalog.Variety variety, int effect, string? effectId)
@@ -179,18 +182,11 @@ static class LegionSkillHooks
         if (Loaded is not { } table) return null;
         if (parentEffect == table.HyrriRocketJumpEffect && table.HyrriBodyRows.Contains(variety.Row))
             return null;
+        if (parentEffect == table.CommanderFlingEffect && variety.Row != CommanderRow) return null;
         return table.Combos.TryGetValue(parentEffect, out var bindings) ? bindings : null;
     }
 
-    static void OnActionLifecycle(Player player, uint monsterId, SpawnedMonster monster, int effect,
-        MonsterKitHooks.ActionLifecyclePhase phase, double now)
-    {
-        if (phase != MonsterKitHooks.ActionLifecyclePhase.Started || Loaded is not { } table) return;
-        if (effect == table.HyrriWaterCloneMortarEffect && table.HyrriWaterCloneMortarEffect >= 0)
-            LegionGenerals.OnWaterCloneMortarStarted(player, monsterId, monster, now);
-    }
-
-    sealed class Composite(IDisposable a, IDisposable b, IDisposable c) : IDisposable
+    sealed class Composite(IDisposable a, IDisposable b) : IDisposable
     {
         int disposed;
         public void Dispose()
@@ -198,7 +194,6 @@ static class LegionSkillHooks
             if (Interlocked.Exchange(ref disposed, 1) != 0) return;
             a.Dispose();
             b.Dispose();
-            c.Dispose();
         }
     }
 }

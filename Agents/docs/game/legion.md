@@ -194,12 +194,10 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   rider's own teleports (10063/10064) and the Fish's rocket-jump parent (8048) via `MonsterKitHooks.AddEffectFilter` (`LegionSkillHooks.cs`)
   so the Fish drives movement while the rider fires. The Domain slot, ghost and revival are the Fish's.
   GUESS: no client link between the two (the server teleports the rider onto the Fish's cell, at most every 0.2 s); a water clone
-  7703 (NoAi, `dying` state) is queued via `MonsterKitHooks.AddActionLifecycleObserver` when mortar 9988 starts, placed near the rider's
+  7703 (NoAi, `dying` state) is queued when the rider restarts mortar 9988's cooldown (any swing path), placed near the rider's
   target 1 s later (the server does not follow the mortar), lives 8 s, at most 3 per Hyrri. Live check: does the rider ride the Fish or
   float beside it, and does the frozen Fish (no rider in stasis) look right.
-- Generals, Sergeants and soldiers (`LegionSkillHooks.cs`): registers explicit Tier-1 `EmptyAction*` clip-event -> child-GE bindings
-  via `MonsterKitHooks.AddComboBindings` (all 5 Generals including Lioneye CircleOfDeath/dive-roll shots, Aukuna mounted + dismounted
-  cleave/dash combos, Vox ComboDash + HolyRuckus, Viper all 5 combos with alternating phys/poison sweep, Hyrri RocketJump, plus all
-  Legion Sergeants, Karui Backburner, and Forgotten Afarud Commander) and routes monster StateMachine transitions (`nobird`, `explodeepk`,
-  `dying`, `fleeing`) through `MonsterStateMachine.TrySet`.
+- Generals, Sergeants and soldiers (`LegionSkillHooks.cs`): the clip events of their `EmptyAction*` parents are bound to child effects by
+  name (the clips give the event names, the data the effects). GUESS: Viper's 10-hit sweep alternates physical and poison projectiles
+  (the order is not in the data); the Faridun Commander's fling binds only variety 10492 (the parent is shared with Ridan 10489 and 10490).
 - Not yet built: the `LegionCocoonCrystal` item-insertion UI window for Enshrouding Crystals (requires client protocol RE).
