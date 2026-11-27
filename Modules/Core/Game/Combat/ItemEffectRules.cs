@@ -11,6 +11,7 @@ sealed partial class ItemEffectRules
     readonly HashSet<uint> blockSupportStats = [];
     readonly ConcurrentDictionary<(SkillCatalog Skills, int Effect, int Level), MarkRule[]> grantedMarks = new();
     internal readonly IReadOnlyList<ChargeGains.Rule> ChargeRules;
+    internal readonly IReadOnlyList<ChargeGains.Rule> MinionKillCharges;
     internal readonly bool NeedsRareHit;
 
     static readonly RuleTable<GameData.Snapshot, ItemEffectRules> Tables = new();
@@ -22,7 +23,9 @@ sealed partial class ItemEffectRules
     {
         List<ChargeGains.Rule> beforeAdditional = [];
         List<ChargeGains.Rule> afterAdditional = [];
-        foreach (var row in snapshot.FxRules) Compile(row, beforeAdditional, afterAdditional);
+        List<ChargeGains.Rule> minionKills = [];
+        foreach (var row in snapshot.FxRules) Compile(row, beforeAdditional, afterAdditional, minionKills);
+        MinionKillCharges = minionKills;
         // Keep the original roll order, including the random charge type drawn between the two sets.
         ChargeRules = [.. beforeAdditional, .. ChargeGains.AdditionalKillRules, .. afterAdditional, .. ChargeGains.OtherRules];
         NeedsRareHit = onHit.All(rule => rule.RareOrUnique);
