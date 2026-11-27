@@ -39,7 +39,7 @@ public static partial class Game
     public static bool LandsAtAim(Player player, int effect) =>
         SkillsFor(player).IsMovement(effect) && !SkillsFor(player).IsChannelled(effect)
         && !(SkillsFor(player).EffectId(effect) is { } id && (IsLightningWarpEffect(id) || id == "FrostblinkAltX"
-            || id.StartsWith("BlinkArrow", StringComparison.Ordinal)
+            || IsConsecratedPath(id) || id.StartsWith("BlinkArrow", StringComparison.Ordinal)
             || MovementInPlace.Any(name => id.StartsWith(name, StringComparison.Ordinal))));
 
     public static bool IsFlameDashEffect(string? effectId) =>

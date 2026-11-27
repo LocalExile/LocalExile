@@ -377,6 +377,7 @@ public static partial class Game
             if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
             double now = ProjectileWorldTime(player);
             player.RecentEvents.RecordAmount(StatConditions.UsedWarcry, now);
+            TriggerEarthshatterSpikesLocked(player, at, radius, now);
             stats = AreaPlayerStats(player);
             if (stats.GetValueOrDefault(Stat.WarcryPhysicalDamageReductionRatingPlusPctPer5PowerFor8Seconds) is int armour and > 0)
             {
