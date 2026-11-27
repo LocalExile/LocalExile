@@ -84,6 +84,8 @@ public static partial class Game
             return "Kinetic Flux triggers from attacks supported by Kinetic Instability";
         if (GolemStat(gem.Stats, Stat.TriggeredByVoidstormSupport) != 0)
             return "Voidstorm triggers when a supported ranged attack lands";
+        if (GolemStat(gem.Stats, Stat.TriggeredBySupportMovement) != 0)
+            return "Windburst triggers on a supported attack hit after moving";
         if (gem.WornGrant is { EffectId: GoreShockwaveEffect })
             return "Gore Shockwave triggers on melee hits with at least 150 Strength";
         if (GolemStat(gem.Stats, Stat.TriggeredByDivineCry) != 0)

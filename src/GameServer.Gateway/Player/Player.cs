@@ -1293,7 +1293,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
         var l = Layout;
         Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && (Barrier is not { Count: > 0 } b || !b.Contains((cx, cy))) : null;
         return new(l.SpawnX, l.SpawnY, Program.WalkSpeed, walkable, l.GridW > 0 ? l.GridW : 4096, l.GridH > 0 ? l.GridH : 4096,
-            () => Blockers, sight: l.Sight) { FrameOf = LockstepFrameOf };
+            () => Blockers, sight: l.Sight) { FrameOf = LockstepFrameOf, TrackDistance = true };
     }
     /// <summary>True when C→S 0x7d's tile hash differed from the server's generated <see cref="ServerLevels.Level.TileHash"/>.</summary>
     public bool LevelDesynced { get; set; }
