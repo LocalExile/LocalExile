@@ -117,31 +117,61 @@ public static class SettlersRefinersBargain
     }
 
     /// <summary>
-    /// Estimates an equipment item's Thaumaturgic Dust disenchant value using <c>VillageUniqueDisenchantValues</c>
-    /// for Uniques and retail-scaled item level / rarity / quality / influence multipliers for other gear.
+    /// Computes an equipment item's exact 3.29.3c Thaumaturgic Dust disenchant value (<c>0x1424c6af0</c>):
+    /// <list type="bullet">
+    /// <item>Unique: <c>round(VillageUniqueDisenchantValues[uniqueName].Value * 500)</c> (fallback 500).</item>
+    /// <item>Magic/Rare: sum of <c>VillageBalancePerLevelShared[mod.RequiredLevel].__col6</c> across explicit mods
+    /// (normal items fall back to a single base-level mod entry).</item>
+    /// <item>Bonus %: <c>quality * 2 + popcount(influences) * 50 + corruptedImplicits * 50</c>.</item>
+    /// <item>ItemLevel multiplier: <c>ilvl &lt; 46 =&gt; 50</c>; <c>46..67 =&gt; ((ilvl * 50 - 2300) / 22) + 50</c>;
+    /// <c>68+ =&gt; min(500, ((ilvl * 100 - 6800) / 4) + 100)</c>.</item>
+    /// </list>
     /// </summary>
     public static long EstimateDisenchantDust(Item item, ItemCatalog.BaseType type)
     {
         int ilvl = Math.Clamp(item.ItemLevel > 0 ? item.ItemLevel : type.DropLevel, 1, 100);
-        double qualityMult = 1.0 + Math.Clamp((int)item.Quality, 0, 30) * 0.02;
-        double corruptMult = item.Corrupted ? 1.25 : 1.0;
-        double influenceMult = item.Influences != 0 ? 1.50 : 1.0;
+        long baseDust;
 
         if (item.Rarity == ItemRarity.Unique)
         {
-            double tableVal = MapOreTables.UniqueDisenchantBaseValue(item.NameWords) ?? 1200.0;
-            double levelFactor = Math.Max(0.25, ilvl / 84.0);
-            return Math.Max(100L, (long)Math.Round(tableVal * levelFactor * qualityMult * corruptMult * influenceMult));
+            double? tableVal = MapOreTables.UniqueDisenchantBaseValue(item.NameWords);
+            baseDust = tableVal is > 0 ? (long)Math.Round(tableVal.Value * 500.0) : 500L;
+        }
+        else
+        {
+            long sum = 0;
+            int explicitCount = 0;
+            var modCatalog = Items?.Mods;
+            foreach (var mod in item.Mods)
+            {
+                if (mod.Section != ModSection.Explicit) continue;
+                explicitCount++;
+                int reqLevel = modCatalog?.ByHash(mod.Hash)?.Level is > 0 and int ml ? Math.Clamp(ml, 1, 100) : ilvl;
+                sum += MapOreTables.BaseOreAmount(reqLevel); // VillageBalancePerLevelShared.__col6 (Disenchant Mod Dust base)
+            }
+            if (explicitCount == 0)
+            {
+                // Unidentified/synthetic fallback: approximate expected explicit mod count by rarity.
+                int fallbackMods = item.Rarity switch
+                {
+                    ItemRarity.Rare => 4,
+                    ItemRarity.Magic => 2,
+                    _ => 1,
+                };
+                sum = (long)MapOreTables.BaseOreAmount(ilvl) * fallbackMods;
+            }
+            baseDust = sum;
         }
 
-        double baseByLevel = Math.Max(40.0, MapOreTables.BaseDustScale(ilvl) * 0.12);
-        double rarityMult = item.Rarity switch
-        {
-            ItemRarity.Magic => 1.8,
-            ItemRarity.Rare => 3.2,
-            _ => 1.0,
-        };
-        double sizeMult = Math.Max(1.0, (type.Width * type.Height) / 4.0);
-        return Math.Max(25L, (long)Math.Round(baseByLevel * rarityMult * sizeMult * qualityMult * corruptMult * influenceMult));
+        int influenceCount = System.Numerics.BitOperations.PopCount((uint)item.Influences);
+        int corruptedImplicits = item.Corrupted ? item.Mods.Count(m => m.Section == ModSection.Implicit) : 0;
+        long bonusPct = Math.Clamp((int)item.Quality, 0, 30) * 2L + influenceCount * 50L + corruptedImplicits * 50L;
+
+        long ilvlMult = ilvl < 46 ? 50L
+            : ilvl < 68 ? ((ilvl * 50L - 2300L) / 22L) + 50L
+            : Math.Min(500L, ((ilvl * 100L - 6800L) / 4L) + 100L);
+
+        long finalDust = (((baseDust * (100L + bonusPct)) / 100L) * ilvlMult) / 100L;
+        return Math.Max(1L, finalDust);
     }
 }
