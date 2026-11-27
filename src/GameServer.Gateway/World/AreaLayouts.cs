@@ -162,7 +162,7 @@ public static class AreaLayouts
         // An area the port reproduces is generated here from the seed; any other needs the client's capture.
         if (ServerLevels.For(id, seed) is { } generated)
             return WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height,
-                SightOf(generated.Projectile, generated.Width, generated.Height), generated.Start, generated.FeatureAreas) with
+                SightOf(generated.Projectile, generated.Width, generated.Height), generated.Start, generated.FeatureAreas, generated.Entrance) with
             {
                 CellHeights = generated.Heights,
                 EntranceFrom = (from, entrance) => AreaTransitionCatalog.EntrancePoint(hash, generated.Entrances, from, entrance),
@@ -173,16 +173,17 @@ public static class AreaLayouts
     }
 
     static AreaLayout WithCells(ushort hash, string id, uint seed, byte[]? cells, int w, int h, Func<int, int, int>? sight,
-        (int X, int Y, float Angle)? start = null, IReadOnlyList<(int X0, int Y0, int X1, int Y1)>? featureAreas = null)
+        (int X, int Y, float Angle)? start = null, IReadOnlyList<(int X0, int Y0, int X1, int Y1)>? featureAreas = null,
+        (int X, int Y, float Angle)? entrance = null)
     {
-        var layout = WithTransitions(hash, id, seed, cells, w, h, start, featureAreas);
+        var layout = WithTransitions(hash, id, seed, cells, w, h, start, featureAreas, entrance);
         return layout with { Effects = AreaTransitionCatalog.Effects(id, seed), Sight = sight };
     }
 
     /// <param name="start">The start a terrain plugin marks (<see cref="ServerLevels.Level.Start"/>): the spawn, without
     /// the room fit.</param>
     static AreaLayout WithTransitions(ushort hash, string id, uint seed, byte[]? cells, int w, int h, (int X, int Y, float Angle)? start = null,
-        IReadOnlyList<(int X0, int Y0, int X1, int Y1)>? featureAreas = null)
+        IReadOnlyList<(int X0, int Y0, int X1, int Y1)>? featureAreas = null, (int X, int Y, float Angle)? entrance = null)
     {
         var notes = new List<string>();
         var transitions = AreaTransitionCatalog.For(hash, id, seed, notes);
@@ -198,9 +199,10 @@ public static class AreaLayouts
         }
         if (cells is not null)
         {
-            // The area's start point (a room's "default", e.g. The Twilight Strand's beach), else the deepest cell.
+            // The area's start point (a room's "default", e.g. The Twilight Strand's beach), else the generator's entrance room, else the deepest cell.
             if (start is null && AreaPopulation.LoadPoints(id, seed, []).FirstOrDefault(p => p.Name == "default") is { } point)
                 start = (point.X, point.Y, point.Angle);
+            start ??= entrance;
             var walkable = Walkable(cells, w, h);
             (int X, int Y) spawn;
             if (start is { } marker)
