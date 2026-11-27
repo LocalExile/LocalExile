@@ -2466,9 +2466,14 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   These observations establish projectile and impact behavior; the later captures above verify variant selection.
 - **Rows the name rules miss** (`SkillCatalog.ProjectileFallbacks`): Tornado Shot fires `TornadoShotArrow`, Split
   Arrow `SplitArrowDefault`, Kinetic Bolt `ZigZagWandProjectile` and Ice Shot `IceArrow`; before, every use was
-  refused and the server walked on while the client stopped. Ice Shot's cone splash is not modelled.
+  refused and the server walked on while the client stopped.
+- **Ice Shot**: the cone originates at the struck actor and excludes it. Penetration creates two cones perpendicular to
+  the incoming arrow. The 3.29.3c impact handlers at `0x1414ffdd0` and `0x141332e40` select art by angle modifier and scale
+  it by radius. The server estimates the base damage angle at 90 degrees before applying the gem's angle modifier.
 - **Lightning Arrow**: each hit calls secondary strikes on up to 3 nearby enemies within 18 cells (`ContactTargets`,
   `lightning_arrow_maximum_number_of_extra_targets`), scaled by area of effect.
+- **Lightning Arrow of Electrocution**: a completed enemy hit attaches an arrow. Its additional strikes use the
+  original flight's attack inputs and the target's current state. The gem's attachment cap is shared per enemy.
 - **Rolling Magma**: its base radius 14 and the 16 cells between impacts are estimates, not read from the client; its
   slower bounces (375 ms each) make a bounce's hits land about 0.1 s early.
 - **Tornado Shot's secondaries**: each primary arrow pierces its contacts and emits three `TornadoShotSecondaryArrow`

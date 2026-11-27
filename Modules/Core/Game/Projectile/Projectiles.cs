@@ -237,8 +237,11 @@ public static partial class Game
                         DrainPendingExplosiveDetonations();
                         DrainEarthshatterDetonations();
                         DrainInfernalBlowDeaths();
+                        DrainInfernalCryDeaths();
                         TickChannelTriggers(Player, this, AreaTime(Player));
                         Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
+                        ReconcileBladestorms();
+                        ReconcileTrarthus();
                     }
                     finally
                     {
@@ -261,7 +264,10 @@ public static partial class Game
                     DrainPendingExplosiveDetonations();
                     DrainEarthshatterDetonations();
                     DrainInfernalBlowDeaths();
+                    DrainInfernalCryDeaths();
                     Runtime.AdvanceTo(at);
+                    ReconcileBladestorms();
+                    ReconcileTrarthus();
                 }
                 finally
                 {
@@ -341,10 +347,15 @@ public static partial class Game
             ClearPlacedVolatileOrbs();
             ClearCremationGeysers();
             ClearEnsnares();
+            ClearElectrocutionArrows();
+            ClearStormRain();
+            ClearConflagration();
             ClearExplosiveFuses();
             RetireBannerLocked(Player);
             ClearDivineBlastOrbs();
             ClearConvictionWaves();
+            ClearBladestorms();
+            ClearTrarthus();
             kineticAnomalies?.Clear();
             while (somaticShells is { Count: > 0 }) RemoveSomaticShell(somaticShells[^1]);
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
@@ -941,7 +952,7 @@ public static partial class Game
                 chainsMore *= Math.Max(0, 1 + (double)shot.CompletedChainDamagePercent
                     * (contact.Projectile.Profile.Chain - contact.Projectile.ChainsRemaining) / 100);
             double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
-            double ailmentMore = chainsMore * returnMore * OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions);
+            double ailmentMore = chainsMore * returnMore * ExertedAttackMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage);
             if (ailmentMore != 1)
                 shot = shot with
                 {
@@ -970,7 +981,7 @@ public static partial class Game
             var rolled = WithConditionalSupportDamageLocked(Player, shot.SkillStats, !shot.Spell, target,
                 GameEvents.WithOutgoingDamage(Player, player, target,
                     damageRoll.RollBeforeCritical(packet, random, criticalDoubleDamage)), at);
-            rolled = WithOverexertion(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions);
+            rolled = WithExertedAttackDamage(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage);
             bool secondForm = contact.Projectile.Form > 0;
             var formCrit = secondForm ? shot.SecondFormOptions : null;
             int chance = secondForm && shot.SecondFormCriticalChance is int second
@@ -1088,6 +1099,13 @@ public static partial class Game
             }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
+            if (!immune && hit.Value.Life > 0)
+            {
+                if (shot.TrarthusBurn is { } burn)
+                    ApplyTrarthusBurn(Player, contact.Target.Id, target, burn, at);
+                if (shot.ConflagrationBurn is { } conflagration)
+                    ApplyConflagrationBurn(Player, contact.Target.Id, target, conflagration, at);
+            }
             if (!immune && hit.Value.Life > 0 && !shot.Spell && shot.MaimChance > 0)
                 TryMaimOnHitLocked(target, shot.MaimChance, 0, at, contact.Projectile.ReactionRandomSource);
             if (!immune && hit.Value.Life > 0 && shot.Ignite.CanIgnite(rolled))
@@ -1100,7 +1118,8 @@ public static partial class Game
             if (shot.ActualCaster is null)
                 RageOnHitWithWeaponLocked(Player, attack: !shot.Spell, melee: false, critical,
                     shot.FromTrapOrMine || shot.FromTotem ? null : shot.WeaponClass, shot.SkillStats,
-                    contact.Projectile.ReactionRandomSource, player);
+                    contact.Projectile.ReactionRandomSource, player,
+                    target: !shot.FromTrapOrMine && !shot.FromTotem ? target : null);
             if (shot.ActualCaster is null) ChargesOnHit(Player, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false,
                 primary: shot.FirstHit?.Claim() ?? true, skillStats: shot.SkillStats);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
@@ -1139,6 +1158,7 @@ public static partial class Game
                 LeaveKnifeBlade(value);
                 ExplosiveArrowAtEnd(value);
                 EnsnaringArrowAtEnd(value);
+                ElectrocutionAtEnd(value);
                 if (value.Reason == ProjectileEndReason.Landing && p.Use.Payload is ProjectileOffense { Unearth: { } corpse })
                     LandUnearth(corpse, (x, y));
             }

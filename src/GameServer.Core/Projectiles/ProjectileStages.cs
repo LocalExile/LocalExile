@@ -157,11 +157,30 @@ public sealed partial class ProjectileRuntime
     public void Impact(ProjectileUse use, ProjectileVector centre, ProjectileAreaRecipe area)
         { Area(ImpactEntity(use, centre), area); removals++; }
 
+    /// <summary>Resolve area hits within halfWidth of the segment. Distance modifiers use the path to its start.</summary>
+    public void ImpactAlong(ProjectileUse use, ProjectileVector start, ProjectileVector end, double halfWidth, string stage)
+    {
+        var halfSegment = (end - start) * .5;
+        var impact = ImpactEntity(use, start);
+        ResolveArea(impact, new(stage, halfWidth), start + halfSegment, null, impact.Id, halfSegment);
+        removals++;
+    }
+
     /// <summary>Resolve a staged contact against one selected target without a horizontal flight.</summary>
     public ProjectileHitResult ImpactTarget(ProjectileUse use, ProjectileActor target, string stage)
     {
         var result = Damage(ImpactEntity(use, target.Position(Now)), target, stage);
         removals++; // The impact group is finished and was never active.
+        return result;
+    }
+
+    /// <summary>Resolve a fresh hit from a completed flight, retaining its distance and continuation modifiers.</summary>
+    public ProjectileHitResult RepeatContact(ProjectileEntity flight, ProjectileActor target, string stage)
+    {
+        var contact = flight.AreaSnapshot();
+        contact.Position = target.Position(Now);
+        var result = Damage(contact, target, stage, group: ++sequence, rule: new());
+        removals++;
         return result;
     }
 
@@ -172,7 +191,8 @@ public sealed partial class ProjectileRuntime
             { Distance = (centre - use.Origin).Length };
     }
 
-    void Area(ProjectileEntity p, ProjectileAreaRecipe recipe, ProjectileActorKey? victim = null)
+    void Area(ProjectileEntity p, ProjectileAreaRecipe recipe, ProjectileActorKey? victim = null,
+        ProjectileVector? contactCentre = null)
     {
         var context = recipe.Delay > 0 || recipe.Interval > 0 ? p.AreaSnapshot() : p;
         int count = recipe.Count;
@@ -180,13 +200,14 @@ public sealed partial class ProjectileRuntime
         if (recipe.ExtraCountChancePercent is int chance && chance > (float)(p.Random.NextDouble() * 100)) count++;
         double sector = Math.Tau / Math.Max(1, count);
         double rotation = recipe.SectorPlacement ? p.Random.NextDouble() * Math.Tau : 0;
-        List<(ProjectileVector Centre, long Id)>? timed = recipe.UpdateTimer ? [] : null;
+        List<(ProjectileVector Centre, long Id, double AxisRotation)>? timed = recipe.UpdateTimer ? [] : null;
         int areaIndex = 0;
         for (int i = 0; i < count; i++)
         {
             // Independent area events can overlap; only the terminal collision victim shares direct admission.
             long areaId = ++sequence;
-            var centre = p.Position;
+            var centre = contactCentre ?? p.Position;
+            double axisRotation = recipe.ConeAxisRotation + i * recipe.ConeAxisStep;
             if (recipe.Offset > 0)
             {
                 double minimum = Math.Clamp(recipe.MinimumOffset, 0, recipe.Offset);
@@ -214,14 +235,14 @@ public sealed partial class ProjectileRuntime
             }
             if (timed is not null)
             {
-                timed.Add((centre, areaId));
+                timed.Add((centre, areaId, axisRotation));
                 continue;
             }
             // Rejected centres consume their spatial sample, but no time in the surviving sequence.
             long at = checked(Now + recipe.Delay + areaIndex++ * recipe.Interval);
             if (at == Now)
             {
-                ResolveArea(context, recipe, centre, victim, areaId);
+                ResolveArea(context, recipe, centre, victim, areaId, axisRotation: axisRotation);
                 removals++; // Resolved at once: this area group was never active.
             }
             else
@@ -233,7 +254,7 @@ public sealed partial class ProjectileRuntime
                     // pendingAreas, so resolving here would hit for a dead group and leave
                     // orphaned ledger entries behind. Same guard as StartAreaTimer.
                     if (!pendingAreas.ContainsKey(areaId)) return;
-                    try { ResolveArea(context, recipe, centre, victim, areaId); }
+                    try { ResolveArea(context, recipe, centre, victim, areaId, axisRotation: axisRotation); }
                     finally { if (pendingAreas.Remove(areaId)) removals++; }
                 });
             }
@@ -245,7 +266,7 @@ public sealed partial class ProjectileRuntime
     /// emits exactly one area and adds the interval, keeping any overdue time. The first update is immediate, and a
     /// later update retires the group after its last area. Omitted centres leave no time slot.</summary>
     void StartAreaTimer(ProjectileEntity context, ProjectileAreaRecipe recipe,
-        List<(ProjectileVector Centre, long Id)> centres, ProjectileActorKey? victim)
+        List<(ProjectileVector Centre, long Id, double AxisRotation)> centres, ProjectileActorKey? victim)
     {
         long groupId = ++sequence;
         var clock = new ProjectileAreaTimer(recipe.Delay, recipe.Interval, centres.Count);
@@ -261,20 +282,28 @@ public sealed partial class ProjectileRuntime
                 if (pendingAreas.Remove(groupId)) removals++;
                 return;
             }
-            if (index is int k) ResolveArea(context, recipe, centres[k].Centre, victim, centres[k].Id);
+            if (index is int k)
+            {
+                var (centre, id, axisRotation) = centres[k];
+                ResolveArea(context, recipe, centre, victim, id, axisRotation: axisRotation);
+            }
             Schedule((Now / TickQuanta + 1) * TickQuanta, Update);
         }
         Update();
     }
 
     void ResolveArea(ProjectileEntity p, ProjectileAreaRecipe recipe, ProjectileVector centre,
-        ProjectileActorKey? victim, long areaId)
+        ProjectileActorKey? victim, long areaId, ProjectileVector halfSegment = default, double axisRotation = 0)
     {
         double radius = recipe.RadiusForTravel?.Invoke(p.Distance)
             ?? recipe.RadiusForGroundBounce?.Invoke(p.GroundBounces) ?? recipe.Radius;
         world.Publish(new(ProjectileEventKind.Area, p, Now, centre, Radius: radius, Stage: recipe.Stage));
-        var targets = ActorsInOrder(world.ActorsNear(centre, radius + 2, Now), generations: true, out int listed);
+        double lengthSquared = halfSegment.Dot(halfSegment);
+        double halfLength = lengthSquared > 0 ? Math.Sqrt(lengthSquared) : 0;
+        double inverseLengthSquared = lengthSquared > 0 ? 1 / lengthSquared : 0;
+        var targets = ActorsInOrder(world.ActorsNear(centre, radius + halfLength + 2, Now), generations: true, out int listed);
         double coneEdge = recipe.ConeHalfAngle > 0 ? Math.Cos(recipe.ConeHalfAngle) : -1;
+        var axis = coneEdge > -1 && axisRotation != 0 ? p.Direction.Rotate(axisRotation) : p.Direction;
         try
         {
             for (int i = 0; i < listed; i++)
@@ -283,10 +312,12 @@ public sealed partial class ProjectileRuntime
                 if (target.Team == p.Use.Team || target.Key == p.Use.Owner
                     || (recipe.ExcludeContactTarget && target.Key == victim)) continue;
                 var delta = target.Position(Now) - centre;
+                if (inverseLengthSquared > 0)
+                    delta -= halfSegment * Math.Clamp(delta.Dot(halfSegment) * inverseLengthSquared, -1, 1);
                 double limit = radius + target.Radius;
                 if (Math.Abs(delta.X) <= limit && Math.Abs(delta.Y) <= limit
                     && delta.X * delta.X + delta.Y * delta.Y <= limit * limit
-                    && (coneEdge <= -1 || delta.Dot(p.Direction) >= coneEdge * delta.Length))
+                    && (coneEdge <= -1 || delta.Dot(axis) >= coneEdge * delta.Length))
                 {
                     if (target.Key == victim)
                         Damage(p, target, recipe.Stage, multiplier: recipe.Multiplier, admissionStage: "direct", isArea: true);
