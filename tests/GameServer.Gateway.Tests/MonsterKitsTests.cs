@@ -40,7 +40,7 @@ public sealed class MonsterKitsTests
         Assert.Equal(uncappedTemplate.BaseKit.Count, uncappedTemplate.BaseSkills!.Count);
 
         var (ordKit, _, _) = MonsterKits.ForOrdinary(player, uncapped!, 70, -1, MonsterModEffects.None, applyAuraStats: false);
-        Assert.Same(uncappedTemplate.BaseKit, ordKit);
+        Assert.Same(uncappedTemplate.UnmoddedKit, ordKit);
         var reusedSkills = MonsterKits.SkillsForOrdinary(player, uncapped!, 70, ordKit);
         Assert.Same(uncappedTemplate.BaseSkills, reusedSkills);
         var (dmgModKit, _, _) = MonsterKits.ForOrdinary(player, uncapped!, 70, -1, MonsterModEffects.None, mapBossDamage: 2.0, applyAuraStats: false);

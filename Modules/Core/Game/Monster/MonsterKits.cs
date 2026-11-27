@@ -24,7 +24,8 @@ public static class MonsterKits
         IReadOnlyDictionary<uint, int> AuraStats,
         IReadOnlyList<ushort> AuraRows,
         bool HasMeleeFallback,
-        IReadOnlyList<GrantedSkill>? BaseSkills = null);
+        IReadOnlyList<GrantedSkill>? BaseSkills = null,
+        IReadOnlyList<MonsterKitSkill>? UnmoddedKit = null);
 
     /// <summary>Pre-resolved on-death skill specification (Porcupine Goliath spine nova, death explosions, chilled/caustic ground, on-death curses).</summary>
     public sealed record DeathSkillSpec(
@@ -96,14 +97,15 @@ public static class MonsterKits
         IReadOnlyList<MonsterKitSkill> kit)
     {
         var template = TemplateFor(player, variety, level);
-        if (template.BaseSkills is not { } baseSkills || baseSkills.Count != kit.Count || template.BaseKit.Count != kit.Count)
+        var unmodded = template.UnmoddedKit ?? template.BaseKit;
+        if (template.BaseSkills is not { } baseSkills || baseSkills.Count != kit.Count || unmodded.Count != kit.Count)
             return BossKits.SkillsOf(player, variety, level, kit);
-        if (ReferenceEquals(kit, template.BaseKit))
+        if (ReferenceEquals(kit, unmodded))
             return baseSkills;
 
         bool allSame = true;
         for (int i = 0; i < kit.Count; i++)
-            if (!SameWireSkill(kit[i], template.BaseKit[i])) { allSame = false; break; }
+            if (!SameWireSkill(kit[i], unmodded[i])) { allSame = false; break; }
         if (allSame) return baseSkills;
 
         var catalog = SkillsFor(player);
@@ -111,7 +113,7 @@ public static class MonsterKits
         for (int i = 0; i < kit.Count; i++)
         {
             var entry = kit[i];
-            if (SameWireSkill(entry, template.BaseKit[i]))
+            if (SameWireSkill(entry, unmodded[i]))
             {
                 skills.Add(baseSkills[i]);
                 continue;
@@ -164,8 +166,8 @@ public static class MonsterKits
         if (template.BaseKit.Count == 0 || (template.BaseKit.Count == 1 && template.BaseKit[0].Effect == defaultEffect))
             return ([], template.AuraStats, template.AuraRows);
         var effectiveMods = applyAuraStats && template.AuraStats.Count > 0 ? mods.Combine(template.AuraStats) : mods;
-        if (effectiveMods.Ids.Count == 0 && mapBossDamage == 1.0)
-            return (template.BaseKit, template.AuraStats, template.AuraRows);
+        if (effectiveMods.Ids.Count == 0 && mapBossDamage == 1.0 && template.UnmoddedKit is { } unmodded)
+            return (unmodded, template.AuraStats, template.AuraRows);
         return (ApplyMods(template.BaseKit, effectiveMods, level, mapBossDamage), template.AuraStats, template.AuraRows);
     }
 
@@ -437,8 +439,10 @@ public static class MonsterKits
 
         // Pre-build base GrantedSkill wire records once per (Variety.Row, Level) for H4 zero-alloc Normal spawning.
         // Strictly 1:1 with finalKit (BossKits.SkillsOf invariant); S3 0x4400+ children are appended by MonsterCombos.WithChildSkills.
-        var baseSkills = finalKit.Length > 0 ? BossKits.SkillsOf(player, variety, level, finalKit) : [];
-        return new(finalKit, deathSkills, auraStats, auraRows, meleeFallback is not null, baseSkills);
+        // The kit as an unmodded spawn gets it: ApplyMods rounds the hit (MonsterModEffects.Hit) as main always did.
+        var unmoddedKit = finalKit.Length > 0 ? ApplyMods(finalKit, MonsterModEffects.None, level, 1.0) : finalKit;
+        var baseSkills = finalKit.Length > 0 ? BossKits.SkillsOf(player, variety, level, unmoddedKit) : [];
+        return new(finalKit, deathSkills, auraStats, auraRows, meleeFallback is not null, baseSkills, unmoddedKit);
     }
 
     static readonly IReadOnlyDictionary<uint, int> EmptyStats = new Dictionary<uint, int>();
