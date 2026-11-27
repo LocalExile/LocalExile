@@ -44,43 +44,4 @@ public static class SocketedGemBonuses
         }
         return (level, quality);
     }
-
-    public static void ApplySkillStats(SkillCatalog skills, int effect, IReadOnlyDictionary<uint, int> local,
-        Dictionary<uint, int> own)
-    {
-        void Add(uint input, uint output, int sign = 1)
-        {
-            int value = local.GetValueOrDefault(input);
-            if (value != 0)
-                own[output] = ActorScale.Saturate(own.GetValueOrDefault(output) + (long)value * sign);
-        }
-
-        Add(Stat.LocalDisplaySocketedGemsChainXAdditionalTimes, Stat.NumberOfAdditionalChainsForProjectiles);
-        Add(Stat.LocalDisplaySocketedSkillsFork, Stat.ProjectilesFork);
-        // The old display key backs the shield's current generic reservation efficiency modifier.
-        Add(Stat.LocalDisplaySocketedGemsHaveManaReservationPlusPct, Stat.BaseReservationEfficiencyPlusPct, sign: -1);
-
-        uint damage;
-        if (skills.IsAttack(effect))
-        {
-            Add(Stat.LocalDisplaySocketedAttacksAdditionalCriticalStrikeChance, Stat.AttackAdditionalCriticalStrikeChancePermyriad);
-            Add(Stat.LocalDisplaySocketedAttacksCriticalStrikeMultiplierPlus, Stat.BaseCriticalStrikeMultiplierPlus);
-            Add(Stat.LocalDisplaySocketedAttacksManaCostPlus, Stat.SkillManaCostPlus);
-            damage = Stat.LocalDisplaySocketedAttackDamagePlusPctFinal;
-        }
-        else if (skills.IsSpell(effect))
-        {
-            Add(Stat.LocalDisplaySocketedSpellsAdditionalCriticalStrikeChance, Stat.SpellAdditionalCriticalStrikeChancePermyriad);
-            Add(Stat.LocalDisplaySocketedSpellsCriticalStrikeMultiplierPlus, Stat.BaseCriticalStrikeMultiplierPlus);
-            damage = Stat.LocalDisplaySocketedSpellDamagePlusPctFinal;
-        }
-        else return;
-
-        if (local.GetValueOrDefault(damage) is int more and not 0)
-        {
-            double previous = 1 + own.GetValueOrDefault(Stat.ActiveSkillDamagePlusPctFinal) / 100d;
-            own[Stat.ActiveSkillDamagePlusPctFinal] = (int)Math.Clamp(
-                Math.Round(100 * (previous * (1 + more / 100d) - 1)), int.MinValue, int.MaxValue);
-        }
-    }
 }

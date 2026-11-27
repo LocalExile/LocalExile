@@ -168,7 +168,6 @@ public static partial class Game
             + GemQualityBonus(player, selected.Place.Gem);
         var own = SkillsFor(player).EffectStats(selected.Effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         ApplySupportStats(player, own, supports);
-        SocketedGemBonuses.ApplySkillStats(SkillsFor(player), selected.Effect, local, own);
         ApplySocketedGolemEquipment(player, selected.Effect, host, local, own);
         AddIntensityBaseStats(player, own);
         if (CrueltySupportedStat is var crueltyFlag && own.GetValueOrDefault(crueltyFlag) != 0
