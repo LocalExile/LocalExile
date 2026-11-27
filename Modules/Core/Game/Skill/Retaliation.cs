@@ -6,39 +6,45 @@ public static partial class Game
     const string DivineRetributionOpportunity = "divine_retribution_opportunity";
     const string VengefulCryEffect = "VengefulCry";
     const string VengefulCryOpportunity = "vengeful_cry_opportunity";
-    const ushort DivineRetributionReadyBuff = 2470, VengefulCryReadyBuff = 2471;
+    readonly record struct RetaliationGate(string Event, ushort Buff, bool OnBlock = true);
 
-    static string? RetaliationOpportunity(string? effect) => effect switch
+    static RetaliationGate? RetaliationOpportunity(string? effect) => effect switch
     {
-        DivineRetributionEffect => DivineRetributionOpportunity,
-        VengefulCryEffect => VengefulCryOpportunity,
+        DivineRetributionEffect => new(DivineRetributionOpportunity, 2470),
+        VengefulCryEffect => new(VengefulCryOpportunity, 2471, OnBlock: false),
+        "CrushingFist" => new("crushing_fist_opportunity", 2469),
+        "GlacialShieldSwipe" => new("glacial_shield_swipe_opportunity", 2468),
+        "Swordstorm" => new("swordstorm_opportunity", 2472),
+        "Eviscerate" => new("eviscerate_opportunity", 2473),
         _ => null,
     };
 
     // The invisible BuffDefinitions rows unlock the native skill buttons for the same window the server validates.
-    static void OpenRetaliationWindow(Player player, string effect, string opportunity, ushort row, double now)
+    static void OpenRetaliationWindows(Player player, bool blocked, double now)
     {
         if (player.PlayerLife == 0) return;
-        player.RecentEvents.Record(opportunity, now);
+        string originalGate = blocked ? DivineRetributionOpportunity : VengefulCryOpportunity;
+        player.RecentEvents.Record(originalGate, now);
         var catalog = SkillsFor(player);
         foreach (var gem in GemSkillEffects(player))
         {
-            if (catalog.EffectId(gem.Effect) != effect || catalog.ActionHash(gem.Effect) is not ushort action) continue;
+            if (RetaliationOpportunity(catalog.EffectId(gem.Effect)) is not { } gate
+                || gate.OnBlock != blocked || catalog.ActionHash(gem.Effect) is not ushort action) continue;
             double duration = RetaliationWindowSeconds(player, SupportedSkill(player, gem.Id).Stats);
-            if (duration > 0)
-                player.Area.Buffs.Set(player.Id, BuffRows.Spec(row, player.Id, null, duration, tag: gem.Id) with
-                {
-                    SourceSkill = gem.Id,
-                    ActiveSkill = (gem.Id, action),
-                });
+            if (duration <= 0) continue;
+            if (gate.Event != originalGate) player.RecentEvents.Record(gate.Event, now);
+            player.Area.Buffs.Set(player.Id, BuffRows.Spec(gate.Buff, player.Id, null, duration, tag: gem.Id) with
+            {
+                SourceSkill = gem.Id,
+                ActiveSkill = (gem.Id, action),
+            });
         }
     }
 
-    static void SpendRetaliationWindow(Player player, string opportunity)
+    static void SpendRetaliationWindow(Player player, RetaliationGate gate)
     {
-        player.RecentEvents.Forget(opportunity);
-        player.Area.Buffs.ClearRow(player.Id,
-            opportunity == DivineRetributionOpportunity ? DivineRetributionReadyBuff : VengefulCryReadyBuff);
+        player.RecentEvents.Forget(gate.Event);
+        player.Area.Buffs.ClearRow(player.Id, gate.Buff);
     }
 
     static bool RetaliationReady(Player player, ushort skillId, string key, double now)

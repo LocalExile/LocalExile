@@ -305,9 +305,9 @@ public static partial class Game
             }
             if (skillId is ushort banner && BannerAuraRow(SkillsFor(player).EffectId(effect)) != 0
                 && !CanUseBanner(player, banner)) return false;
-            string? opportunity = RetaliationOpportunity(effectId);
-            if (opportunity is not null && (triggered || skillId is not ushort retaliationSkill
-                || !RetaliationReady(player, retaliationSkill, opportunity, AreaTime(player))))
+            var opportunity = RetaliationOpportunity(effectId);
+            if (opportunity is { } retaliation && (triggered || skillId is not ushort retaliationSkill
+                || !RetaliationReady(player, retaliationSkill, retaliation.Event, AreaTime(player))))
                 return false;
             if (admit is not null && !admit()) return false;
             int? totemPlacements = null;
@@ -359,7 +359,7 @@ public static partial class Game
                 paid = (mana, life);
             }
             else if (reserve && bypass is { } unpaidBypass && !ChargesOf(player).Spend(unpaidBypass)) return false;
-            if (reserve && opportunity is not null && !retainRetaliationUse) SpendRetaliationWindow(player, opportunity);
+            if (reserve && opportunity is { } spent && !retainRetaliationUse) SpendRetaliationWindow(player, spent);
             // Snapshot the charges still held after paying any cooldown bypass. A later charge gain or expiry
             // must not change the attack already admitted by this ticket.
             int? enduranceCharges = null;
