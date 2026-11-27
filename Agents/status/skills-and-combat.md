@@ -458,6 +458,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing. Eligible placements can summon
   two totems. Skill bars without a saved attack-in-place mask use each bound skill's default.
 - Retained Royale Artillery Ballista gems place a bow totem whose mortar volley uses the gem's own arrow count and range.
+- Siege Ballista of Trarthus places a formation within the active totem limit. Each totem fires once at the placement aim and then expires.
 - Shockwave Totem of Authority centres each nova on its owner's position when the cast releases.
   A lockstep non-spell totem placement's hold takes the client's own Move, as GGG's servers do.
   two totems.
