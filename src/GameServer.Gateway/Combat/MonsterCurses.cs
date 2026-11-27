@@ -1,6 +1,8 @@
 /// <summary>Recipient-owned curse slots. No module callbacks or catalogue mutations survive a reload.</summary>
 public sealed class MonsterCurses(Action? changed = null)
 {
+    public sealed record EndTrigger(ushort Skill, int Effect, GemSourceLifetimes.SourceLifetime Source);
+
     public sealed record Curse(uint Caster, string Effect, ushort Skill, ushort Row, ushort Buff,
         double Applied, double Until, bool Aura, bool Mark, IReadOnlyDictionary<uint, int> Stats)
     {
@@ -14,6 +16,7 @@ public sealed class MonsterCurses(Action? changed = null)
         public IReadOnlyDictionary<uint, int>? AmplifiedStats { get; init; }
         public int ExpandedCapacity { get; init; }
         public (int Radius, double Seconds, int FireArt, int CausticArt)? AlchemistGround { get; init; }
+        public EndTrigger? TriggerOnEnd { get; init; }
     }
     public readonly Dictionary<(uint Caster, string Effect), Curse> All = [];
     public readonly Dictionary<(uint Caster, string Effect), Curse> Presented = [];
@@ -21,6 +24,7 @@ public sealed class MonsterCurses(Action? changed = null)
     public int Version, PresentedVersion;
     Dictionary<uint, int> stats = [];
     bool hasCursedDamageTaken, hasCriticalPrevention, hasExpandedCurse;
+    List<Curse>? endedTriggers;
 
     public bool HasActive(double now)
     {
@@ -58,9 +62,12 @@ public sealed class MonsterCurses(Action? changed = null)
     public void Put(Curse curse, int limit)
     {
         if (limit < 1 && curse.ExpandedCapacity < 1) return;
-        All[(curse.Caster, curse.Effect)] = curse;
+        var key = (curse.Caster, curse.Effect);
+        if (All.GetValueOrDefault(key) is { TriggerOnEnd: not null } previous && previous.Until <= curse.Applied)
+            (endedTriggers ??= []).Add(previous);
+        All[key] = curse;
         if (curse.Mark)
-            foreach (var old in All.Values.Where(c => c.Mark && c.Effect != curse.Effect).ToArray()) All.Remove((old.Caster, old.Effect));
+            foreach (var old in All.Values.Where(c => c.Mark && c.Effect != curse.Effect).ToArray()) End((old.Caster, old.Effect));
         if (All.Count > limit)
         {
             var ordinaryCurses = All.Values.Where(c => c.ExpandedCapacity == 0);
@@ -68,7 +75,7 @@ public sealed class MonsterCurses(Action? changed = null)
                 : ordinaryCurses.Select(c => c.Effect).ToHashSet();
             if (curse.ExpandedCapacity == 0)
                 foreach (var old in ordinaryCurses.Where(c => !ordinary.Contains(c.Effect)).ToArray())
-                    All.Remove((old.Caster, old.Effect));
+                    End((old.Caster, old.Effect), curse);
 
             // The extra slots belong to the emitter that granted them. Ordinary spells still use the caster's limit.
             if (hasExpandedCurse || curse.ExpandedCapacity > 0)
@@ -77,7 +84,7 @@ public sealed class MonsterCurses(Action? changed = null)
                     int specialSlots = Math.Max(0, emitter.Max(c => c.ExpandedCapacity) - ordinary.Count);
                     var keep = PreferredEffects(emitter.Where(c => !ordinary.Contains(c.Effect)), specialSlots);
                     foreach (var old in emitter)
-                        if (!ordinary.Contains(old.Effect) && !keep.Contains(old.Effect)) All.Remove((old.Caster, old.Effect));
+                        if (!ordinary.Contains(old.Effect) && !keep.Contains(old.Effect)) End((old.Caster, old.Effect), curse);
                 }
         }
         Rebuild();
@@ -89,9 +96,28 @@ public sealed class MonsterCurses(Action? changed = null)
             .Take(capacity).Select(g => g.Key).ToHashSet();
 
     public void Remove(uint caster, string effect)
-    { if (All.Remove((caster, effect))) Rebuild(); }
+    { if (End((caster, effect))) Rebuild(); }
 
-    public void Clear() { if (All.Count > 0) { All.Clear(); Rebuild(); } }
+    bool End((uint Caster, string Effect) key, Curse? uncommitted = null)
+    {
+        if (!All.Remove(key, out var curse)) return false;
+        if (curse.TriggerOnEnd is not null && !ReferenceEquals(curse, uncommitted))
+            (endedTriggers ??= []).Add(curse);
+        return true;
+    }
+
+    public List<Curse>? DrainEndTriggers()
+    {
+        var ended = endedTriggers;
+        endedTriggers = null;
+        return ended;
+    }
+
+    public void Clear()
+    {
+        endedTriggers = null;
+        if (All.Count > 0) { All.Clear(); Rebuild(); }
+    }
 
     public void Expire(double now)
     {
@@ -99,7 +125,7 @@ public sealed class MonsterCurses(Action? changed = null)
         foreach (var c in All.Values.Where(c => c.Until <= now || c.AmplifiesAt <= now).ToArray())
         {
             var key = (c.Caster, c.Effect);
-            if (c.Until <= now) changed |= All.Remove(key);
+            if (c.Until <= now) changed |= End(key);
             else if (c.AmplifiedStats is { } amplified)
             {
                 All[key] = c with { Stats = amplified, AmplifiesAt = double.PositiveInfinity, AmplifiedStats = null };

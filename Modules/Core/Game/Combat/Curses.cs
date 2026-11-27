@@ -83,17 +83,17 @@ public static partial class Game
 
     static bool ApplyCurseLocked(Player player, SpawnedMonster monster, ushort skill, double now, bool aura,
         SupportedGem? captured, IReadOnlyDictionary<uint, int>? sources, int addedEffect, double effectMultiplier,
-        bool fromPlacement = false)
+        bool fromPlacement = false, MonsterCurses.EndTrigger? endTrigger = null)
     {
         var gem = captured ?? SupportedSkill(player, skill);
         return gem.RequirementsMet && ApplyCurseDataLocked(player, monster, skill, SkillsFor(player).EffectId(gem.Effect) ?? "",
-            gem.Stats, now, aura, sources, addedEffect, effectMultiplier, fromPlacement: fromPlacement);
+            gem.Stats, now, aura, sources, addedEffect, effectMultiplier, fromPlacement: fromPlacement, endTrigger: endTrigger);
     }
 
     static bool ApplyCurseDataLocked(Player player, SpawnedMonster monster, ushort skill, string effect,
         IReadOnlyDictionary<uint, int> curseStats, double now, bool aura, IReadOnlyDictionary<uint, int>? sources,
         int addedEffect = 0, double effectMultiplier = 1, uint? casterId = null, int additionalCapacity = 0, uint? auraSource = null,
-        bool fromPlacement = false)
+        bool fromPlacement = false, MonsterCurses.EndTrigger? endTrigger = null)
     {
         if (!CurseCatalog.All.TryGetValue(effect, out var definition) || casterId is null && ExternalTemporalChains(player, effect)
             || monster.Dead || monster.Life == 0 || !monster.Hostile) return false;
@@ -148,6 +148,7 @@ public static partial class Game
             AmplifiesAt = amplify == 0 ? double.PositiveInfinity : now + (until - now) / 2,
             AmplifiedStats = amplify == 0 ? null : RecipientStats(amplify),
             AlchemistGround = effect == "AlchemistsMark" ? AlchemistGroundFor(player, curseStats, playerStats) : null,
+            TriggerOnEnd = endTrigger,
         };
         monster.Curses.Put(curse, limit);
         if (!ReferenceEquals(monster.Curses.All.GetValueOrDefault((curse.Caster, curse.Effect)), curse)) return false;
@@ -324,6 +325,7 @@ public static partial class Game
                 ApplyCurseLocked(player, marked, skill, now, false, gem, playerStats);
             return;
         }
+        var doomBlast = DoomBlastForCastLocked(player, gem);
         int radius = CurseRadius(player, skill, false, gem, playerStats);
         var centres = cascadeFrom is { } from ? SpellCascadeAreas(player, gem.Effect, gem.Stats, from, aim, radius) : [];
         centres.Insert(0, aim);
@@ -334,7 +336,7 @@ public static partial class Game
             foreach (var centre in centres)
                 foreach (var (id, monster) in player.Area.MonstersNear(centre, radius))
                     if (Dist(monster.Walk.Position(now), centre) <= radius && applied.Add(id))
-                        ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats);
+                        ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats, 0, 1, endTrigger: doomBlast);
             return;
         }
 
@@ -346,7 +348,7 @@ public static partial class Game
             foreach (var centre in centres)
                 if (Dist(position, centre) <= radius)
                 {
-                    ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats);
+                    ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats, 0, 1, endTrigger: doomBlast);
                     break;
                 }
         }
@@ -369,6 +371,7 @@ public static partial class Game
         monster.Curses.Remove(curse.Caster, curse.Effect);
         if (monster.Curses.Presented.Remove((curse.Caster, curse.Effect), out var presented))
             player.Area.Buffs.Clear(id, presented.Row, presented.Caster, tag: presented.Buff);
+        if (curse.TriggerOnEnd is not null) monster.PresentationChanged?.Invoke();
     }
 
     static bool WitchbaneImmunityActive(Player player, double now) =>
@@ -448,6 +451,7 @@ public static partial class Game
                             U68: double.IsFinite(curse.Until) ? Buff.Seconds(curse.Until - now) : null));
                         m.Curses.Presented[(curse.Caster, curse.Effect)] = curse;
                     }
+                ReleaseEndedDoomBlastsLocked(player, m, now);
             }
         }
         bool anyActiveCurse = m.HasCurses && m.Curses.All.Count > 0;

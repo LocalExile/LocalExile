@@ -91,6 +91,7 @@ public static partial class Game
         if (gem.Effect >= 0)
         {
             string effect = Skills.EffectId(gem.Effect) ?? "";
+            if (IsDoomBlastEffect(effect)) return "Doom Blast triggers when a supported hex ends";
             if (effect == SummonSacredWispEffect) return "Sacred Wisps are summoned by a supported wand hit";
             if (IsRelicSkill(effect)) return "Summon Elemental Relic triggers automatically; manual use is unavailable";
         }
