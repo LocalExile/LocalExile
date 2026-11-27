@@ -132,6 +132,64 @@ public sealed class AttackAddedInputTests : IDisposable
     }
 
     [Fact]
+    public void Unarmed_default_attacks_use_the_same_equipment_speed_on_the_server_and_in_the_skill_record()
+    {
+        Set(Stat.ClawAttackSpeedPlusPct, 20);
+        var items = Game.ItemsOf(player);
+        var catalogue = new UniqueCatalog(Program.Items);
+        var curse = Assert.IsType<Item>(catalogue.Create("Rigwald's Curse", new Random(7)));
+        var chest = Assert.IsType<UniqueCatalog.Definition>(catalogue.Find("Seven Teachings"));
+        var teachings = Assert.IsType<Item>(catalogue.Create(chest with
+        { Ranges = [new("UnarmedMoreMeleeAttackSpeedUnique__1", 0, 7, 7)] }, new Random(7)));
+        items.Add(PlayerInventories.Helmet, 0, 0, Make("Iron Hat") with
+        {
+            Sockets = [new(SocketColour.White, Make("Infernal Blow")), new(SocketColour.White, Make("Shield Charge")),
+                new(SocketColour.White, Make("Explosive Concoction"))],
+            Links = [1, 1, 1],
+        });
+        items.Add(PlayerInventories.Offhand1, 0, 0, Make("Splintered Tower Shield"));
+
+        int DefaultAttackSpeed()
+        {
+            player.Pools = Game.PoolsFor(player, 100);
+            var stats = Game.CharacterPlayerStats(player);
+            var final = Game.FinalPlayerStatsCore(player).ToList();
+            Assert.Contains((Stat.MainHandAttackSpeedPlusPct, player.Pools.AttackSpeedPct), final);
+            var attack = Assert.Single(Game.PlayerDefaultSkills(player, final, stats), skill => skill.Id == SkillCatalog.FirstSkillId);
+            int published = Assert.Single(attack.Stats!, stat => stat.Key == Stat.MainHandAttackSpeedPlusPct).Value;
+            double seconds = Math.Max(Program.TickSeconds, Game.WeaponFor(player).AttackMs / 1000d / (1 + published / 100d));
+            Assert.Equal(seconds, Game.DefaultAttackSeconds(player, AttackHand.Main, stats), precision: 9);
+            return published;
+        }
+
+        var attacks = Game.GemSkillEffects(player).ToDictionary(g => g.Name!, g => g.Id);
+        ushort melee = attacks["Infernal Blow"], shieldCharge = attacks["Shield Charge"], concoction = attacks["Explosive Concoction"];
+        double ShieldTime() => Game.SupportedOffHandAttackSeconds(player, shieldCharge,
+            Assert.IsType<SkillCatalog.Unarmed>(Game.ShieldWeapon(player, shieldCharge)));
+
+        Assert.Equal(10, DefaultAttackSpeed());
+        int meleeSpeed = Game.SupportedMainHandAttackSpeedPct(player, melee);
+        double shieldTime = ShieldTime(), concoctionTime = Game.SupportedAttackSeconds(player, concoction);
+        var amulet = items.Add(PlayerInventories.Amulet, 0, 0, curse);
+        Assert.Equal(32, DefaultAttackSpeed());
+        Assert.Equal(meleeSpeed + 22, Game.SupportedMainHandAttackSpeedPct(player, melee));
+        double amuletMeleeTime = Game.SupportedAttackSeconds(player, melee);
+        var body = items.Add(PlayerInventories.BodyArmour, 0, 0, teachings);
+        Assert.Equal(41, DefaultAttackSpeed());
+        Assert.True(Game.SupportedAttackSeconds(player, melee) < amuletMeleeTime);
+        Assert.Equal(shieldTime, ShieldTime(), precision: 9);
+        Assert.Equal(concoctionTime, Game.SupportedAttackSeconds(player, concoction), precision: 9);
+        var claw = items.Add(PlayerInventories.Weapon1, 0, 0, Make("Nailed Fist"));
+        Assert.Equal(20, DefaultAttackSpeed());
+        items.Remove(PlayerInventories.Amulet, amulet.Id);
+        Assert.Equal(20, DefaultAttackSpeed());
+        items.Remove(PlayerInventories.Weapon1, claw.Id);
+        Assert.Equal(18, DefaultAttackSpeed());
+        items.Remove(PlayerInventories.BodyArmour, body.Id);
+        Assert.Equal(10, DefaultAttackSpeed());
+    }
+
+    [Fact]
     public void Equipped_attack_additions_preserve_weapon_scope_and_added_effectiveness()
     {
         Varunastra_keeps_the_additions_on_its_own_hand();

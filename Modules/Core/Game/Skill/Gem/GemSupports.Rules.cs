@@ -679,13 +679,13 @@ public static partial class Game
         var stats = new Dictionary<uint, int>(SupportedStats(player, skillId));
         int Get(uint k) => stats.GetValueOrDefault(k);
         var gem = SupportedSkill(player, skillId);
+        var skills = SkillsFor(player);
+        var profile = WeaponProfileFor(player);
+        bool unarmedMelee = offHand is null && profile.Unarmed && skills.IsMelee(gem.Effect) && !skills.RequiresShield(gem.Effect);
         if (Stat.AttackSpeedPlusPct is var raw && Stat.MainHandAttackSpeedPlusPct is var final)
         {
-            var profile = WeaponProfileFor(player);
             double factor = 1 + InherentAttackSpeedMore(profile, Get) / 100d;
-            int skillSpeed = gem.Stats.GetValueOrDefault(raw) + TaggedAttackAndCastSpeedPct(SkillsFor(player), gem.Effect, Get);
-            if (profile.Unarmed && offHand is null && SkillsFor(player).IsMelee(gem.Effect))
-                skillSpeed = ActorScale.Saturate((long)skillSpeed + UnarmedClawAttackSpeed(Get));
+            int skillSpeed = gem.Stats.GetValueOrDefault(raw) + TaggedAttackAndCastSpeedPct(skills, gem.Effect, Get);
             if (Get(Stat.AttackSpeedPlusPctWithMovementSkills) is int movementSpeed and not 0
                 && SkillsFor(player).IsMovement(gem.Effect))
                 skillSpeed = ActorScale.Saturate((long)skillSpeed + movementSpeed);
@@ -694,7 +694,10 @@ public static partial class Game
                 skillSpeed += stanceSpeed;
             if (Supports.Of(gem.Effect)?.Types.Contains(120) == true)
                 skillSpeed += Get(Stat.RetaliationSkillSpeedPlusPct);
-            stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(skillSpeed * factor);
+            int skillSpeedAfterMore = (int)Math.Round(skillSpeed * factor);
+            long increase = unarmedMelee
+                ? ResolvedUnarmedAttackSpeedIncrease(player.Pools, Get, skillSpeed, skillSpeedAfterMore) : skillSpeedAfterMore;
+            stats[final] = ActorScale.Saturate(Get(final) + increase);
             // "Chain Hook and Shield Charge have X% increased Attack Speed per 10 Rampage Kills".
             if (SkillsFor(player).EffectId(gem.Effect) is { } effectId
                 && (effectId.StartsWith("ChainHook", StringComparison.Ordinal)
@@ -717,9 +720,8 @@ public static partial class Game
             * Math.Max(.01, 1 + Get(Stat.SupportPulveriseAttackSpeedPlusPctFinal) / 100.0)
             // Vicious Projectiles: "10% less Attack Speed".
             * Math.Max(.01, 1 + Get(Stat.SupportProjectileAttackSpeedPlusPctFinal) / 100.0);
-        if (Get(Stat.UniqueBodyArmourUnarmedMeleeAttackSpeedPlusPctFinal) is not 0 and var unarmedMeleeSpeed
-            && WeaponProfileFor(player).Unarmed && SkillsFor(player).IsMelee(gem.Effect))
-            more *= Math.Max(.01, 1 + unarmedMeleeSpeed / 100d);
+        if (unarmedMelee && Get(Stat.UniqueBodyArmourUnarmedMeleeAttackSpeedPlusPctFinal) is not 0 and var unarmedMeleeSpeed)
+            more *= UnarmedMeleeAttackSpeedMultiplier(unarmedMeleeSpeed);
         if (proxy)
             more *= Math.Max(.01, 1 + Get(Stat.SupportAttackTotemAttackSpeedPlusPctFinal) / 100d)
                 * Math.Max(.01, 1 + Get(Stat.SupportFocusedBallistaTotemAttackSpeedPlusPctFinal) / 100d);
