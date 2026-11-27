@@ -10,6 +10,15 @@ namespace GameServer.Modules.Legion;
 /// </summary>
 static class LegionRewards
 {
+    /// <summary>GUESS: the Domain's end rewards. Timeless Jewel rolls per slain General (one per DomainKillsPerJewelRoll kills, at most DomainJewelMaxRolls)
+    /// and their percent chance; the Enshrouding Crystal chance; the reward rows
+    /// and items per row; the generic loot from the kills; the cap on the drops.</summary>
+    const int DomainJewelMaxRolls = 4, DomainKillsPerJewelRoll = 2, DomainJewelBasePct = 25,
+        DomainJewelPerKillPct = 5, DomainJewelKillCapPct = 25, DomainJewelMaxPct = 85;
+    const int DomainCrystalBasePct = 20;
+    const int DomainRewardRowsBase = 36;
+    const double DomainGenericBase = 1.2;
+    const int DomainGenericMax = 40, DomainRarityBase = 150, DomainMaxDrops = 140;
     /// <summary>GUESS: the items each reward type gives on a sergeant.</summary>
     const int ItemsPerReward = 2;
     /// <summary>GUESS: a sergeant drops splinters of its faction with this percent chance, a stack of this range; normal soldiers (tiers 0, 1) drop none (3.29).</summary>
@@ -28,14 +37,14 @@ static class LegionRewards
     const int ChestItemsPerReward = 3, HoardItemsPerReward = 4;
     const int ChestSplinterChance = 60, ChestSplinterMin = 4, ChestSplinterMax = 10, HoardSplinterChance = 100, HoardSplinterMin = 10, HoardSplinterMax = 20;
 
-    /// <summary>The faction's splinter, Enshrouding Crystal (BaseItemTypes ids) and Timeless Jewel (unique name), by LegionFactions Id. Afarud uses Maraketh's.</summary>
-    static readonly Dictionary<string, (string Splinter, string Crystal, string Jewel)> Factions = new()
+    /// <summary>The faction's splinter, Timeless Emblem, Enshrouding Crystal (BaseItemTypes ids) and Timeless Jewel (unique name), by LegionFactions Id. Afarud uses Maraketh's.</summary>
+    static readonly Dictionary<string, (string Splinter, string Emblem, string Crystal, string Jewel)> Factions = new()
     {
-        ["Karui"] = ("Metadata/Items/Currency/CurrencyLegionKaruiShard", "Metadata/Items/Currency/LegionCocoonGloves", "Lethal Pride"),
-        ["Maraketh"] = ("Metadata/Items/Currency/CurrencyLegionMarakethShard", "Metadata/Items/Currency/LegionCocoonBodyArmour", "Brutal Restraint"),
-        ["EternalEmpire"] = ("Metadata/Items/Currency/CurrencyLegionEternalEmpireShard", "Metadata/Items/Currency/LegionCocoonBoots", "Elegant Hubris"),
-        ["Templar"] = ("Metadata/Items/Currency/CurrencyLegionTemplarShard", "Metadata/Items/Currency/LegionCocoonShield", "Militant Faith"),
-        ["Vaal"] = ("Metadata/Items/Currency/CurrencyLegionVaalShard", "Metadata/Items/Currency/LegionCocoonHelmet", "Glorious Vanity"),
+        ["Karui"] = ("Metadata/Items/Currency/CurrencyLegionKaruiShard", "Metadata/Items/MapFragments/CurrencyLegionFragmentKarui", "Metadata/Items/Currency/LegionCocoonGloves", "Lethal Pride"),
+        ["Maraketh"] = ("Metadata/Items/Currency/CurrencyLegionMarakethShard", "Metadata/Items/MapFragments/CurrencyLegionFragmentMaraketh", "Metadata/Items/Currency/LegionCocoonBodyArmour", "Brutal Restraint"),
+        ["EternalEmpire"] = ("Metadata/Items/Currency/CurrencyLegionEternalEmpireShard", "Metadata/Items/MapFragments/CurrencyLegionFragmentEternal", "Metadata/Items/Currency/LegionCocoonBoots", "Elegant Hubris"),
+        ["Templar"] = ("Metadata/Items/Currency/CurrencyLegionTemplarShard", "Metadata/Items/MapFragments/CurrencyLegionFragmentTemplar", "Metadata/Items/Currency/LegionCocoonShield", "Militant Faith"),
+        ["Vaal"] = ("Metadata/Items/Currency/CurrencyLegionVaalShard", "Metadata/Items/MapFragments/CurrencyLegionFragmentVaal", "Metadata/Items/Currency/LegionCocoonHelmet", "Glorious Vanity"),
     };
 
     const string StackedDeck = "Metadata/Items/DivinationCards/DivinationCardDeck";
@@ -223,11 +232,11 @@ static class LegionRewards
         _ => false,
     };
 
-    /// <summary>Scales a drop or splinter count by the league's <see cref="LeagueRules.ItemDropMultiplier"/> (1.0 in Standard, 0.2 in Ruthless).</summary>
+    /// <summary>Scales a drop or splinter count by a positive multiplier with fractional rounding (supports both Ruthless &lt; 1 and Eternal Conflict &gt; 1).</summary>
     static int ScaleCount(int baseCount, double multiplier, Random rng, int minimum = 0)
     {
         if (baseCount <= 0) return 0;
-        if (!double.IsFinite(multiplier) || multiplier >= 1.0) return baseCount;
+        if (!double.IsFinite(multiplier) || Math.Abs(multiplier - 1.0) < 1e-9) return baseCount;
         if (multiplier <= 0) return minimum;
         double scaled = baseCount * multiplier;
         int whole = (int)Math.Floor(scaled);
@@ -235,10 +244,12 @@ static class LegionRewards
         return Math.Max(minimum, whole);
     }
 
-    /// <summary>The items of an opened chest by its reward types, plus its faction's splinters (factionId null: none); respects league drop scaling.</summary>
+    /// <summary>The items of an opened chest by its reward types, plus its faction's splinters (factionId null: none);
+    /// honors league drop scaling, splinter duplication, additional splinter chance, and Emblematic emblem upgrades.</summary>
     public static List<Item> Chest(Player player, int[] rewards, string? factionId, bool hoard, int level, Random rng)
     {
         var rules = Program.LeagueFor(player).Rules;
+        var stats = LegionMonolith.AreaStats(player);
         var made = new List<Item>();
         var stacks = new List<(string Item, int Count)>();
         foreach (int row in rewards)
@@ -250,14 +261,19 @@ static class LegionRewards
         {
             int splinters = ScaleCount(rng.Next(hoard ? HoardSplinterMin : ChestSplinterMin, (hoard ? HoardSplinterMax : ChestSplinterMax) + 1),
                 rules.ItemDropMultiplier, rng, minimum: hoard ? 1 : 0);
-            if (splinters > 0) AddSplinter(stacks, factionId, splinters);
+            if (splinters > 0) AddSplinters(stacks, factionId, splinters, stats, isChest: true, isGeneral: false, rng);
         }
         var catalog = global::Game.ItemsFor(player);
+        ExpandStacks(catalog, stacks, level, made);
+        return made;
+    }
+
+    static void ExpandStacks(ItemCatalog catalog, List<(string Item, int Count)> stacks, int level, List<Item> made)
+    {
         foreach (var (id, count) in stacks)
             if (catalog.Find(id) is { Supported: true } type)
                 for (int left = count; left > 0; left -= Math.Max(1, (int)type.MaxStack))
                     made.Add(ItemCatalog.Create(type) with { ItemLevel = (byte)level, StackSize = (ushort)Math.Min(left, Math.Max(1, (int)type.MaxStack)) });
-        return made;
     }
 
     /// <summary>The kinds picked from the catalog's own pool, not rolled by a container (the tests read them).</summary>
@@ -280,47 +296,169 @@ static class LegionRewards
     static bool warned;
 
     /// <summary>GameEvents.MonsterKilled: a fighter's reward symbols end at its death (the area's Buffs end them only at removal). Only reads the entry:
-    /// Drops may have run first and taken it, and then cleared them itself.</summary>
-    public static Task Killed(MonsterKill kill)
+    /// Drops may have run first and taken it, and then cleared them and scheduled the General's Defeat line itself.</summary>
+    public static async Task Killed(MonsterKill kill)
     {
-        if (LegionStasis.AnyFighter && LegionStasis.FighterOf(kill.Player, kill.Monster.ObjectId, remove: false) is { Rewards.Length: > 0 })
-            kill.Player.Area.Buffs.ClearRow(kill.Monster.ObjectId, LegionStasis.RewardBuff);
-        return Task.CompletedTask;
+        if (!LegionStasis.AnyFighter || LegionGenerals.IsMount(kill.Player, kill.Monster.ObjectId)
+            || LegionStasis.FighterOf(kill.Player, kill.Monster.ObjectId, remove: false) is not { } fighter) return;
+        if (fighter.Rewards.Length > 0) kill.Player.Area.Buffs.ClearRow(kill.Monster.ObjectId, LegionStasis.RewardBuff);
+        if (fighter.Tier == 3 && LegionStasis.TryClaimDefeat(kill.Player, kill.Monster.ObjectId))
+            await LegionSpeech.Say(kill.Player, kill.Monster.VarietyId, "Defeat");
     }
 
     /// <summary>GameEvents.Drops: the common path is a volatile flag, then one lookup in the area's table.</summary>
     public static void Drops(DropRoll drop)
     {
-        if (!LegionStasis.AnyFighter || LegionStasis.FighterOf(drop.Player, drop.Monster.ObjectId, remove: true) is not { } fighter) return;
+        // A mount's death is not the general's: its fighter entry passes to the form on foot (LegionGenerals).
+        if (!LegionStasis.AnyFighter || LegionGenerals.IsMount(drop.Player, drop.Monster.ObjectId)
+            || LegionStasis.FighterOf(drop.Player, drop.Monster.ObjectId, remove: true) is not { } fighter) return;
         var player = drop.Player;
         if (fighter.Rewards.Length > 0) player.Area.Buffs.ClearRow(drop.Monster.ObjectId, LegionStasis.RewardBuff);
+        // Projectile kills run Drops before MonsterKilled (taking the fighter entry first): play the General's Defeat line here when unclaimed.
+        if (fighter.Tier == 3 && LegionStasis.TryClaimDefeat(player, drop.Monster.ObjectId))
+        {
+            var inst = player.Instance;
+            string? varietyId = drop.Monster.VarietyId;
+            global::Game.SendAfter(player, 0, () =>
+                LegionMonolith.LiveRunner(player, inst) is { } runner ? LegionSpeech.Say(runner, varietyId, "Defeat") : Task.CompletedTask);
+        }
         if (!GameEvents.AllowsLoot(player) || Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
         var rules = Program.LeagueFor(player).Rules;
+        var stats = LegionMonolith.AreaStats(player);
         var rng = global::Game.AreaRng(player);
         int level = Math.Clamp(drop.Monster.Level, 1, 100);
-        drop.Quantity *= fighter.RewardFactor;
+        int bonusRarity = fighter.Tier == 2 ? Math.Max(0, fighter.SergeantRarityPct) : 0;
+        if (bonusRarity > 0) drop.Rarity *= 1.0 + bonusRarity / 100.0;
+        // Eternal Conflict (ScarabLegionNew5): repeated break-outs scale both drop quantity and Legion reward/splinter rolls.
+        double rewardFactor = Math.Max(1.0, fighter.RewardFactor);
+        drop.Quantity *= rewardFactor;
         foreach (int row in fighter.Rewards)
         {
-            int count = ScaleCount(ItemsPerReward, rules.ItemDropMultiplier * fighter.RewardFactor, rng);
-            if (count > 0) RollReward(player, drop.Made, drop.Stacks, row, level, count, rng);
+            int count = ScaleCount(ItemsPerReward, rules.ItemDropMultiplier * rewardFactor, rng);
+            if (count > 0) RollReward(player, drop.Made, drop.Stacks, row, level, count, rng, bonusRarity);
         }
         // Splinters: sergeants and the general only (the chests: LegionRewards.Chest).
         if (fighter.Tier == 2 && rng.Next(100) < SergeantSplinterChance)
         {
-            int splinters = ScaleCount(rng.Next(SergeantSplinterMin, SergeantSplinterMax + 1), rules.ItemDropMultiplier * fighter.RewardFactor, rng);
-            if (splinters > 0) AddSplinter(drop.Stacks, fighter.FactionId, splinters);
+            int splinters = ScaleCount(rng.Next(SergeantSplinterMin, SergeantSplinterMax + 1), rules.ItemDropMultiplier * rewardFactor, rng);
+            if (splinters > 0) AddSplinters(drop.Stacks, fighter.FactionId, splinters, stats, isChest: false, isGeneral: false, rng);
         }
         else if (fighter.Tier == 3)
         {
-            int splinters = ScaleCount(rng.Next(GeneralSplinterMin, GeneralSplinterMax + 1), rules.ItemDropMultiplier * fighter.RewardFactor, rng, minimum: 1);
-            AddSplinter(drop.Stacks, fighter.FactionId, splinters);
+            int splinters = ScaleCount(rng.Next(GeneralSplinterMin, GeneralSplinterMax + 1), rules.ItemDropMultiplier * rewardFactor, rng, minimum: 1);
+            AddSplinters(drop.Stacks, fighter.FactionId, splinters, stats, isChest: false, isGeneral: true, rng);
             if (Factions.TryGetValue(fighter.FactionId == "Faridun" ? "Maraketh" : fighter.FactionId, out var f))
             {
                 if (level >= CrystalMinLevel && MapDevices.IsMapArea(player.Layout.Hash) && rng.Next(100) < GeneralCrystalChance) drop.Stacks.Add((f.Crystal, 1));
-                if (rng.Next(1000) < GeneralJewelPermille && global::Game.UniquesFor(player) is { } uniques && uniques.Find(f.Jewel) is { } jewel
-                    && uniques.Create(jewel, rng) is { } item) drop.Made.Add(item with { ItemLevel = (byte)level, Identified = false });
+                if (rng.Next(1000) < GeneralJewelPermille && CreateTimelessJewel(global::Game.ItemsFor(player), fighter.FactionId, level, rng) is { } jewel)
+                    drop.Made.Add(jewel);
             }
         }
+    }
+
+    /// <summary>Adds faction splinters with all Phase 4 Atlas/Scarab/Idol modifiers: General splinter scaling,
+    /// additional splinter chance, monster/chest duplication, and Emblematic splinter-to-emblem conversion.</summary>
+    internal static void AddSplinters(List<(string Item, int Count)> stacks, string factionId, int count,
+        IReadOnlyDictionary<uint, int> stats, bool isChest, bool isGeneral, Random rng)
+    {
+        if (count <= 0 || !Factions.TryGetValue(factionId == "Faridun" ? "Maraketh" : factionId, out var f)) return;
+        if (isGeneral)
+        {
+            int genPct = stats.GetValueOrDefault(Stat.MapLegionGeneralsSplinterDropAmountPlusPct);
+            if (genPct != 0) count = Math.Max(1, (int)Math.Round(count * Math.Max(0, 100 + genPct) / 100.0));
+        }
+        int extraChance = stats.GetValueOrDefault(Stat.MapLegionMonstersChestsAdditionalSplinterChancePct);
+        if (extraChance > 0)
+        {
+            count += extraChance / 100;
+            if (rng.Next(100) < extraChance % 100) count++;
+        }
+        bool alwaysDupe = !isChest && stats.GetValueOrDefault(Stat.MapLegionMonsterSplinterEmblemDropsDuplicated) > 0;
+        int dupePct = stats.GetValueOrDefault(Stat.MapLegionMonsterChestSplinterDropsDuplicatedChancePct)
+            + stats.GetValueOrDefault(isChest ? Stat.MapLegionChestOnlySplinterDropsDuplicatedChancePct : Stat.MapLegionMonsterOnlySplinterDropsDuplicatedChancePct);
+        if (alwaysDupe || (dupePct > 0 && rng.Next(100) < Math.Clamp(dupePct, 0, 100)))
+            count *= 2;
+        int emblemPermyriad = stats.GetValueOrDefault(Stat.MapReplaceLegionSplinterWithLegionFragmentChancePermyriad);
+        if (emblemPermyriad > 0)
+        {
+            int emblems = 0;
+            for (int i = 0; i < count; i++)
+                if (rng.Next(10000) < emblemPermyriad) emblems++;
+            int remaining = count - emblems;
+            if (emblems > 0) stacks.Add((f.Emblem, emblems));
+            if (remaining > 0) stacks.Add((f.Splinter, remaining));
+            return;
+        }
+        stacks.Add((f.Splinter, count));
+    }
+
+    /// <summary>Creates a faction-matched unidentified Timeless Jewel with random conqueror and seed via <see cref="TimelessJewelCatalog"/>.</summary>
+    public static Item? CreateTimelessJewel(ItemCatalog items, string factionId, int level, Random rng)
+    {
+        if (!Factions.TryGetValue(factionId == "Faridun" ? "Maraketh" : factionId, out var f)) return null;
+        if (TimelessJewelCatalog.Find(f.Jewel) is not { Conquerors.Length: > 0 } entry) return null;
+        var conqueror = entry.Conquerors[rng.Next(entry.Conquerors.Length)];
+        if (TimelessJewelCatalog.Create(items, entry.Name, conquerorIndex: conqueror.Index, random: rng) is not { } item) return null;
+        return item with { ItemLevel = (byte)Math.Clamp(level, 1, 100), Identified = false };
+    }
+
+    /// <summary>Generates the complete end-of-encounter loot burst for the Domain of Timeless Conflict: faction-matched
+    /// Timeless Jewels, Enshrouding Crystals, accumulated Sergeant/General reward
+    /// symbol pools, and diminishing-returns kill loot (unaffected by player IIR/IIQ, scaled by league drop rules).</summary>
+    public static List<Item> RollDomainRewards(Player player, IReadOnlyList<int> rewardRows,
+        IReadOnlyDictionary<string, int> generalKills, int totalKills, int factionCount, int level, Random rng)
+    {
+        var rules = Program.LeagueFor(player).Rules;
+        var catalog = global::Game.ItemsFor(player);
+        var drops = global::Game.DropsFor(player);
+        var made = new List<Item>();
+        var stacks = new List<(string Item, int Count)>();
+        int clampedLevel = Math.Clamp(level, 1, 100);
+
+        // 1. Timeless Jewels & Enshrouding Crystals from defeated faction Generals.
+        int jewelsDropped = 0;
+        var killedFactions = generalKills.Where(kv => kv.Value > 0).ToList();
+        foreach (var (factionId, kills) in killedFactions)
+        {
+            int rolls = Math.Min(DomainJewelMaxRolls, Math.Max(1, (kills + 1) / DomainKillsPerJewelRoll));
+            int jewelPct = Math.Clamp(DomainJewelBasePct + Math.Min(DomainJewelKillCapPct, kills * DomainJewelPerKillPct), 0, DomainJewelMaxPct);
+            for (int r = 0; r < rolls; r++)
+            {
+                if (rng.Next(100) < jewelPct && CreateTimelessJewel(catalog, factionId, clampedLevel, rng) is { } jewel)
+                {
+                    made.Add(jewel);
+                    jewelsDropped++;
+                }
+            }
+            if (Factions.TryGetValue(factionId == "Faridun" ? "Maraketh" : factionId, out var f))
+            {
+                if (rng.Next(100) < DomainCrystalBasePct) stacks.Add((f.Crystal, 1));
+            }
+        }
+        // Guarantee at least one Timeless Jewel on 4-way/5-way runs when at least one General was slain.
+        if (jewelsDropped == 0 && killedFactions.Count > 0 && factionCount >= 4)
+        {
+            var top = killedFactions.OrderByDescending(kv => kv.Value).First();
+            if (CreateTimelessJewel(catalog, top.Key, clampedLevel, rng) is { } guaranteed) made.Add(guaranteed);
+        }
+
+        // 2. Accumulated Sergeant & General reward rows (capped to keep final burst crisp and responsive).
+        int maxRewardRows = Math.Min(rewardRows.Count, DomainRewardRowsBase);
+        for (int i = 0; i < maxRewardRows; i++)
+        {
+            int count = ScaleCount(1, rules.ItemDropMultiplier, rng, minimum: rules.ItemDropMultiplier >= 1.0 ? 1 : 0);
+            if (count > 0) RollReward(player, made, stacks, rewardRows[i], clampedLevel, count, rng);
+        }
+
+        // 3. Diminishing-returns generic loot from total army kills.
+        int genericCount = ScaleCount((int)Math.Clamp(Math.Round(Math.Sqrt(Math.Max(0, totalKills)) * DomainGenericBase), 0, DomainGenericMax),
+            rules.ItemDropMultiplier, rng);
+        if (genericCount > 0)
+            made.AddRange(drops.Container(clampedLevel, genericCount, DomainRarityBase, rng).Select(d => d.Item));
+
+        ExpandStacks(catalog, stacks, clampedLevel, made);
+        if (made.Count > DomainMaxDrops) made.RemoveRange(DomainMaxDrops, made.Count - DomainMaxDrops);
+        return made;
     }
 
     static void AddSplinter(List<(string Item, int Count)> stacks, string factionId, int count)
@@ -332,7 +470,7 @@ static class LegionRewards
     public static void Splinter(List<(string Item, int Count)> stacks, string factionId, int min, int max, Random rng) =>
         AddSplinter(stacks, factionId, rng.Next(min, max + 1));
 
-    static void RollReward(Player player, List<Item> made, List<(string Item, int Count)> stacks, int row, int level, int count, Random rng)
+    static void RollReward(Player player, List<Item> made, List<(string Item, int Count)> stacks, int row, int level, int count, Random rng, int bonusRarity = 0)
     {
         var catalog = global::Game.ItemsFor(player);
         var drops = global::Game.DropsFor(player);
@@ -420,7 +558,7 @@ static class LegionRewards
                     "armour" => t => t.Class is "Body Armour" or "Helmet" or "Gloves" or "Boots" or "Shield",
                     _ => t => ItemDrops.EquipmentClasses.Contains(t.Class) && (t.Components.Contains("Weapon") || t.Class == "Quiver"),
                 };
-                int rarity = (int)Math.Round(EquipmentRewardRarity * Math.Max(0, rules.EquipmentRarityMultiplier));
+                int rarity = (int)Math.Round((EquipmentRewardRarity + bonusRarity) * Math.Max(0, rules.EquipmentRarityMultiplier));
                 foreach (var d in drops.Container(level, count, rarity, rng, accepts))
                 {
                     var item = d.Item;
@@ -432,7 +570,7 @@ static class LegionRewards
                 return;
             }
             case "generic":
-                made.AddRange(Items(drops.Container(level, count, 100, rng)));
+                made.AddRange(Items(drops.Container(level, count, 100 + bonusRarity, rng)));
                 return;
         }
         // The classes picked from the catalog's own list (cached per catalog, sorted by effective drop level).
