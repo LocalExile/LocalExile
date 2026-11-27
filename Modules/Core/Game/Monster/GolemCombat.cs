@@ -1014,11 +1014,7 @@ public static partial class Game
         target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
             n => target.Effects[n], AreaRng(player), ailmentArea);
         CommitMinionHitLocked(player, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}", stun, g.Monster, g.Own, g);
-        if (critical && RandomRolls.Chance(GolemStat(supported.Stats, Stat.AddPowerChargeOnCriticalStrikePct), 100, random))
-            GrantMinionChargeLocked(player, g, ChargeType.Power, 1, now);
-        if (hit.Life == 0 && target.Ailments.FrozenAtDeath(now)
-            && RandomRolls.Chance(GolemStat(supported.Stats, Stat.ChanceToGainFrenzyChargeOnKillingFrozenEnemyPct), 100, random))
-            GrantMinionChargeLocked(player, g, ChargeType.Frenzy, 1, now);
+        MinionHitChargesLocked(player, g, target, supported.Stats, critical, hit.Life == 0, now, random);
         if (g.Definition.Kind == "Spectre" && damage > 0) SpectreRoleOnHitLocked(player, g, a, id, target, now);
         SpectreShockExplosionLocked(player, g, a, target, to, now);
         if (!target.Dead)
@@ -1088,6 +1084,31 @@ public static partial class Game
         return effects[Stat.HitsIgnoreEnemyMonsterPhysicalDamageReduction] != 0
             || skill?.GetValueOrDefault(Stat.HitsIgnoreEnemyMonsterPhysicalDamageReduction) > 0
             || RandomRolls.Chance(ActorScale.Saturate((long)effects[chance] + (skill?.GetValueOrDefault(chance) ?? 0)), 100, random);
+    }
+
+    internal static void MinionHitChargesLocked(Player owner, GolemState.Golem fighter, SpawnedMonster target,
+        IReadOnlyDictionary<uint, int> skillStats, bool critical, bool killed, double now, Random random)
+    {
+        if (critical && RandomRolls.Chance(GolemStat(skillStats, Stat.AddPowerChargeOnCriticalStrikePct), 100, random))
+            GrantMinionChargeLocked(owner, fighter, ChargeType.Power, 1, now);
+        if (!killed) return;
+        if (!ItemEffectRules.Enabled)
+        {
+            if (target.Ailments.FrozenAtDeath(now)
+                && RandomRolls.Chance(GolemStat(skillStats, Stat.ChanceToGainFrenzyChargeOnKillingFrozenEnemyPct), 100, random))
+                GrantMinionChargeLocked(owner, fighter, ChargeType.Frenzy, 1, now);
+            return;
+        }
+
+        ChargeEvent.Kill? kill = null;
+        foreach (var rule in ItemEffectRules.Current.MinionKillCharges)
+        {
+            int chance = GolemStat(skillStats, rule.Stat);
+            if (chance <= 0) continue;
+            kill ??= new(target.Rarity, target.Ailments.FrozenAtDeath(now), target.Poisons.StacksAtDeath(now));
+            if (rule.When(kill, default) && RandomRolls.Chance(chance, 100, random))
+                GrantMinionChargeLocked(owner, fighter, rule.Type!.Value, 1, now);
+        }
     }
 
     public static int GolemCriticalChance(GolemState.Ability ability, MonsterModSet mods, int additionalIncrease = 0)

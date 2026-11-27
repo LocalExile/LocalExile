@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 using GameServer.Storage;
 
 namespace GameServer.Gateway.Tests;
@@ -139,6 +140,71 @@ public sealed class ChargeWorldRuleTests
         charges.Step(2, Chance, () => default, alive: true, moving: false, inTown: false, new Random(1));
         Assert.Equal(1, charges.Effective(ChargeType.Frenzy));
         Assert.Equal(0, charges.Effective(ChargeType.Power));
+    }
+
+    [Fact]
+    public void Ice_Bite_uses_the_minions_supported_skill_and_the_same_world_rule_as_the_player()
+    {
+        InTestWorld(edit =>
+        {
+            using var fixture = new TriggeredSummonTests.Fixture();
+            var player = fixture.Player;
+            var amulet = Game.Uniques.Create("Maligaro's Cruelty", new Random(1))!;
+            Game.ItemsOf(player).Add(PlayerInventories.Amulet, 0, 0, amulet);
+            ushort unlinked = Assert.Single(fixture.Equip(("Summon Stone Golem", 20)));
+            var unlinkedStats = Game.SupportedSkill(player, unlinked).Stats;
+            ushort source = Assert.Single(fixture.Equip(("Summon Stone Golem", 20), ("Ice Bite Support", 20),
+                ("Power Charge On Critical Support", 20)));
+            var stats = Game.SupportedSkill(player, source).Stats;
+            int frenzy = stats[Stat.ChanceToGainFrenzyChargeOnKillingFrozenEnemyPct];
+            int power = stats[Stat.AddPowerChargeOnCriticalStrikePct];
+            Assert.InRange(frenzy, 1, 99);
+            Assert.InRange(power, 1, 99);
+            Assert.True(Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.GainPowerChargeOnKillVsEnemiesWithLessThan5PoisonsPct) > 0);
+
+            var body = new SpawnedMonster("golem", new(100, 100, 0), 0, 0, 100);
+            var fighter = new GolemState.Golem(901, body, Game.GolemData.Find("SummonStoneGolem")!, source);
+            var target = new SpawnedMonster("enemy", new(103, 100, 0), 0, 0, 100) { Hostile = true };
+            void Check(bool critical, bool killed, IReadOnlyDictionary<uint, int> skill, int expectedFrenzyChance)
+            {
+                for (int seed = 0; seed < 64; seed++)
+                {
+                    var expected = new Random(seed);
+                    var actual = new Random(seed);
+                    bool gainPower = critical && RandomRolls.Chance(skill.GetValueOrDefault(Stat.AddPowerChargeOnCriticalStrikePct), 100, expected);
+                    bool gainFrenzy = RandomRolls.Chance(expectedFrenzyChance, 100, expected);
+                    fighter.CombatCharges = null;
+                    Game.MinionHitChargesLocked(player, fighter, target, skill, critical, killed, 1, actual);
+                    Assert.Equal(gainPower ? 1 : 0, fighter.CombatCharges?.Held(ChargeType.Power) ?? 0);
+                    Assert.Equal(gainFrenzy ? 1 : 0, fighter.CombatCharges?.Held(ChargeType.Frenzy) ?? 0);
+                    Assert.Equal(expected.Next(), actual.Next());
+                }
+                Assert.False(Game.ChargesOf(player).Pending);
+            }
+            void PlayerCanGain(bool expected)
+            {
+                var gains = ChargeGains.Roll(new ChargeEvent.Kill(MonsterRarity.Normal, Frozen: true),
+                    key => key == Stat.ChanceToGainFrenzyChargeOnKillingFrozenEnemyPct ? 100 : 0, default, new Random(1));
+                Assert.Equal(expected, gains.Any(g => g.Type == ChargeType.Frenzy));
+            }
+            Check(false, true, stats, 0);
+            target.Ailments.Shatter();
+            Check(false, false, stats, 0);
+            Check(true, true, stats, frenzy);
+            Check(false, true, unlinkedStats, 0);
+            PlayerCanGain(true);
+
+            edit("UPDATE fx_rules SET enabled = 0 WHERE id = 'charge_on_kill_vs_frozen_2_frenzy';");
+            Check(true, true, stats, ItemEffectRules.Enabled ? 0 : frenzy);
+            PlayerCanGain(!ItemEffectRules.Enabled);
+
+            edit("""
+                UPDATE fx_rules SET enabled = 1 WHERE id = 'charge_on_kill_vs_frozen_2_frenzy';
+                DELETE FROM fx_rule_when WHERE rule = 'charge_on_kill_vs_frozen_2_frenzy' AND ord = 1;
+                """);
+            Check(true, true, stats, ItemEffectRules.Enabled ? 0 : frenzy);
+            PlayerCanGain(true);
+        });
     }
 
     static void InTestWorld(Action<Action<string>> test)
