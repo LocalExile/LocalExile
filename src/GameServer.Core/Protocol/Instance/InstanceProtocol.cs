@@ -883,12 +883,59 @@ public static class InstanceProtocol
             // Custom mod envelope (non-retail): u16 BE 0xF7E0, u32 BE payloadLen (<= ModEnvelopeMaxPayload), payload bytes.
             case ModEnvelopeId:
                 return MeasureModEnvelope(data, out length);
+            // The Trade Market panel's requests: u16 id, u8, u32 BE request number (writer 0x14085f290), then
+            // 0x01e2 CompactUInt(len), len bytes (0x14085f360); 0x01e4 CompactUInt(len), len bytes, u16 BE len, len bytes
+            // (0x1408c0f40); 0x01e6 u16 BE len, len bytes (0x1408c1070); 0x01e8 / 0x01ea u16 BE len, len bytes, u8 (0x1408c1230).
+            case 0x01e2 or 0x01e4 or 0x01e6 or 0x01e8 or 0x01ea:
+                return MeasureTradeMarket(id, data, out length);
             default:
                 if (KnownClientLength(id) is int fixedLen) { length = fixedLen; return WireMeasure.Ok; }
                 length = 0;
                 return WireMeasure.Invalid;
         }
     }
+
+    /// <summary>Largest CompactUInt part of a Trade Market request (0x01e2 / 0x01e4) that is framed; a larger one is
+    /// malformed. The search carries an LZ4-packed search JSON of a few hundred bytes.</summary>
+    const uint TradeMarketMaxPayload = 0x200000;
+
+    /// <summary>Measures a C→S Trade Market request (0x01e2, 0x01e4, 0x01e6, 0x01e8, 0x01ea): the 7-byte header, then the
+    /// parts the request's writer adds (see <see cref="TryClientMessageLength"/>).</summary>
+    static WireMeasure MeasureTradeMarket(ushort id, ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        int pos = 7;
+        if (data.Length < pos) return WireMeasure.Incomplete;
+        if (id is 0x01e2 or 0x01e4)
+        {
+            if (data.Length < pos + 1) return WireMeasure.Incomplete;
+            int lengthBytes = CompactUIntLength(data[pos]);
+            if (data.Length < pos + lengthBytes) return WireMeasure.Incomplete;
+            uint n = ReadCompactUInt(data[pos..]);
+            if (n > TradeMarketMaxPayload) return WireMeasure.Invalid;
+            pos += lengthBytes + (int)n;
+        }
+        if (id != 0x01e2)
+        {
+            if (data.Length < pos + 2) return WireMeasure.Incomplete;
+            pos += 2 + BinaryPrimitives.ReadUInt16BigEndian(data[pos..]);
+            if (id is 0x01e8 or 0x01ea) pos += 1;
+        }
+        if (data.Length < pos) return WireMeasure.Incomplete;
+        length = pos;
+        return WireMeasure.Ok;
+    }
+
+    static int CompactUIntLength(byte first) => first < 0x80 ? 1 : first < 0xc0 ? 2 : first < 0xe0 ? 3 : first < 0xf0 ? 4 : 5;
+
+    static uint ReadCompactUInt(ReadOnlySpan<byte> b) => CompactUIntLength(b[0]) switch
+    {
+        1 => b[0],
+        2 => (uint)((b[0] & 0x3f) << 8 | b[1]),
+        3 => (uint)((b[0] & 0x1f) << 16 | b[1] << 8 | b[2]),
+        4 => (uint)((b[0] & 0x0f) << 24 | b[1] << 16 | b[2] << 8 | b[3]),
+        _ => (uint)(b[1] << 24 | b[2] << 16 | b[3] << 8 | b[4]),
+    };
 
     static WireMeasure FromNullableLength(int? len, out int length)
     {
