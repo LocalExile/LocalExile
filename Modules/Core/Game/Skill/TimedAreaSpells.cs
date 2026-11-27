@@ -40,15 +40,9 @@ public static partial class Game
                         {
                             var at = Player.Walk.Position(ProjectileWorldTime(Player));
                             // Repeats add blades to the same vortex. Its subsequent hits use the blade count.
-                            // A monster is hit when its body reaches into the vortex (radius plus its size, as the client
-                            // draws the blades at the full radius) and no wall stands between it and the caster.
-                            var monsters = Player.Area.Monsters;
-                            bool Reaches(uint id, (int X, int Y) p) => monsters.TryGetValue(id, out var m)
-                                && Math.Sqrt((double)(p.X - at.X) * (p.X - at.X) + (double)(p.Y - at.Y) * (p.Y - at.Y))
-                                    <= radius + Math.Max(0, LivingCollision.Size(m))
-                                && MeleeArcSight(Player, at, p);
                             var task = AreaSkillHitForUse(null, Player, gem.Id, gem, at, at, immediate: true, sequence: sequence,
-                                radiusOverride: radius + BladeVortexSizeReach, targetFilter: Reaches,
+                                radiusOverride: radius + BladeVortexSizeReach,
+                                targetFilter: (id, p) => BladeVortexReaches(Player, at, radius, id, p),
                                 sacrifice: sacrifice, triggeredCurrent: Current, scheduledSession: this,
                                 extraCriticalIncrease: critIncrease, hitAndAilmentMore: scale);
                             if (!task.IsCompleted) throw new InvalidOperationException("Blade Vortex contact must not yield.");

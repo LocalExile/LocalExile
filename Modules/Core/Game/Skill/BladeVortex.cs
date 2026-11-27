@@ -4,6 +4,13 @@ public static partial class Game
 {
     const int BladeVortexSizeReach = 16;   // the widest monster body a vortex hit looks past its radius for
 
+    // A monster is hit when its body reaches into the vortex (radius plus its size, as the client
+    // draws the blades at the full radius) and no wall stands between it and the caster.
+    static bool BladeVortexReaches(Player player, (int X, int Y) origin, int radius, uint id, (int X, int Y) p) =>
+        player.Area.Monsters.TryGetValue(id, out var m)
+        && Dist(origin, p) <= radius + Math.Max(0, LivingCollision.Size(m))
+        && MeleeArcSight(player, origin, p);
+
     static bool IsBladeVortex(string? effect) => effect is
         "BladeVortex" or "BladeVortexAltX" or "BladeVortexAltY" or "BladeVortexRoyale" or "NewNewBladeVortex";
 
@@ -24,7 +31,6 @@ public static partial class Game
             public ushort ActorSkill;
             public (ushort Id, ushort Action)? Active;
             public long CounterEnd;
-            public double CounterSeconds;
         }
 
         readonly Dictionary<uint, BladeVortexRun> bladeVortices = [];
@@ -81,7 +87,7 @@ public static partial class Game
             run.Art = (uint)Math.Max(0, artVariation);
             run.ActorSkill = actorSkill;
             run.Active = active;
-            SyncBladeVortexBuffs(actor, run, newest: true);
+            SyncBladeVortexBuffs(actor, run);
 
             UpdateBladeVortexInterval(run);
             ScheduleBladeVortex(actor, run, row);
@@ -96,7 +102,7 @@ public static partial class Game
             int before = run.Blades.Count;
             while (run.Blades.TryPeek(out _, out long expiry) && expiry <= Runtime.Now)
                 run.Blades.Dequeue();
-            if (run.Blades.Count != before) SyncBladeVortexBuffs(actor, run, newest: false);
+            if (run.Blades.Count != before) SyncBladeVortexBuffs(actor, run);
         }
 
         void UpdateBladeVortexInterval(BladeVortexRun run)
@@ -155,7 +161,7 @@ public static partial class Game
                 run.Blades.Enqueue(tag, expiry);
                 return true;
             }
-            SyncBladeVortexBuffs(actor, run, newest: false);
+            SyncBladeVortexBuffs(actor, run);
             RemoveExpiredBladeVortex(actor, run, row);
             if (run.Blades.Count == 0)
                 bladeVortices.Remove(actor);
@@ -171,15 +177,16 @@ public static partial class Game
         {
             if (!bladeVortices.Remove(actor, out var run)) return;
             run.Blades.Clear();
-            SyncBladeVortexBuffs(actor, run, newest: false);
+            SyncBladeVortexBuffs(actor, run);
         }
 
         // One new_new_blade_vortex instance for the vortex, its stacks the blade count: its NewBladeVortexBuff
         // (3.29.3c 0x1417befa0) draws one ring of blades, the skin from its first value (skill_art_variation, read by
         // 0x141cbfda0), the ring art sized to the vortex radius when its list entry is not 1, and as many blades as the
         // actor's current_number_of_spinning_blades (the row's Current_StatsKey). blade_vortex_counter is the icon: the
-        // count and a countdown to the last blade's end (a later end restarts it on a new instance).
-        void SyncBladeVortexBuffs(uint actor, BladeVortexRun run, bool newest)
+        // count and a countdown to the last blade's end (a changed end restarts it on a new instance; stack drops keep
+        // the instance in place).
+        void SyncBladeVortexBuffs(uint actor, BladeVortexRun run)
         {
             ushort row = BuffRows.Find("new_new_blade_vortex"), counter = BuffRows.Find("blade_vortex_counter");
             int count = run.Blades.Count;
@@ -198,14 +205,13 @@ public static partial class Game
             });
             if (counter == 0) return;
             long last = run.Blades.UnorderedItems.Max(b => b.Priority);
-            if (run.CounterEnd == 0 || newest && last > run.CounterEnd)
-            {
-                run.CounterEnd = last;
-                run.CounterSeconds = (last - Runtime.Now) / (double)ProjectileRuntime.Time(1);
-            }
-            Player.Area.Buffs.Set(actor, BuffRows.Spec(counter, actor, null, run.CounterSeconds) with
+            bool deadlineChanged = run.CounterEnd == 0 || last != run.CounterEnd;
+            if (deadlineChanged) run.CounterEnd = last;
+            double remaining = Math.Max(0, (last - Runtime.Now) / (double)ProjectileRuntime.QuantaPerSecond);
+            Player.Area.Buffs.Set(actor, BuffRows.Spec(counter, actor, null, remaining) with
             {
                 SourceSkill = run.ActorSkill, ActiveSkill = run.Active, Stacks = (ushort)count,
+                KeepInstance = !deadlineChanged,
             });
         }
 

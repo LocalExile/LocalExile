@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Diagnostics;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -32,9 +33,6 @@ public static partial class Game
         if (!kill.PlayerKill) return;
         var player = kill.Player;
         double now = AreaTime(player);
-        if (ReservationAura(player, "HeraldOfIce") is not null)
-            Console.WriteLine($"[gateway] {player.Connection.Remote} herald of ice: kill of {kill.VarietyId} at ({kill.At.X}, {kill.At.Y}), "
-                + $"shattered {kill.Monster.Ailments.Shattered}, frozen {kill.Monster.Ailments.FrozenAtDeath(now)}");
         foreach (var aura in player.Auras.Values)
             if (player.PlayerLife > 0 && (aura.EffectId == "HeraldOfPurity"
                 || aura.EffectId == "HeraldOfAsh" && kill.Monster.Overkill > 0
@@ -483,9 +481,10 @@ public static partial class Game
         double radius = ReservationRadius(player, aura, 12, skill, CharacterPlayerStats(player));
         int variation = SkillArtVariation(player, GemSkillEffects(player).FirstOrDefault(g => g.Id == aura.SkillId).Gem);
         string? art = Art.Animated("herald_of_ice_impact", variation) ?? Art.Animated("herald_of_ice_impact", 0);
-        Console.WriteLine($"[gateway] {player.Connection.Remote} herald of ice explosion at ({at.X}, {at.Y}), radius {radius:0.#} (base {ReservationStat(player, aura, Stat.ActiveSkillBaseAreaOfEffectRadius)}, "
-            + $"+{skill.Stats.GetValueOrDefault(Stat.ActiveSkillBaseRadiusPlus)}, area {skill.Stats.GetValueOrDefault(Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal)}% radius), "
-            + $"skin variation {variation}: art {art ?? "none"}");
+        if (ServerTrace.Skills)
+            Console.WriteLine($"[gateway] {player.Connection.Remote} herald of ice explosion at ({at.X}, {at.Y}), radius {radius:0.#} (base {ReservationStat(player, aura, Stat.ActiveSkillBaseAreaOfEffectRadius)}, "
+                + $"+{skill.Stats.GetValueOrDefault(Stat.ActiveSkillBaseRadiusPlus)}, area {skill.Stats.GetValueOrDefault(Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal)}% radius), "
+                + $"skin variation {variation}: art {art ?? "none"}");
         if (art is null) return;
         uint obj = player.TakeObjectId();
         float scale = AreaArtScale(radius, art);
@@ -497,7 +496,7 @@ public static partial class Game
         SendAfter(player, 2.0, async () =>
         {
             if (player.Closed || player.LeavingArea || player.ProjectileEpoch != epoch) return;
-            await Send(player, InstanceProtocol.RemoveObject(obj), null);
+            await SendWorldRemoval(player, obj, null);
         });
     }
 
