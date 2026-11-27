@@ -496,6 +496,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Searing Bond totems burn enemies along their links, and Searing Bond of Detonation leaves a timed area burn at cap.
 - Artillery Ballista's mortar volleys, including Cross Strafe and Focus Fire (checked offline).
   Docs: [11](../docs/protocol/11-skills.md) §10g.
+- Ballista and Spell Totem Support totems take the client's model for the skill, Rain of Arrows places as a ballista,
+  and players walk through their own totems and minions, which still block enemies.
 - Minions inherit spell suppression chance and the minion damage over time multiplier from their owner.
 - Holy Flame Totem and its Ire variant use their native projectiles. Leaving the area retires totem objects and their
   ground effects.

@@ -782,6 +782,7 @@ public static partial class Game
         uint wireLife = Math.Max(1u, owned is null ? life : initialLife);
         ushort animationSeed = (ushort)(((id * 2654435761u) ^ ((uint)variety.Hash16 << 16)) >> 16);
         if (animationSeed == 0) animationSeed = 1;
+        bool isAlliedMinion = friendly && !instanceOwned && !scripted && owned is not null;
         var monster = new MonsterObject(x, y, wireLife, variety.ComponentsOrBase, ao, rarity, name, states, BossKits.StartState(variety, SolarisLunaris.StartState(player, variety, MonsterEmerge.CreateState(variety, emerge, waits))), team,
             skills, stats)
         {
@@ -793,6 +794,7 @@ public static partial class Game
             AnimationSeed = animationSeed,
             HasDialogue = waitingForBanditChoice,
             Blocking = !nonBlocking && variety.PositionedBlocking,
+            IsMinion = isAlliedMinion,
             CurrentAction = currentAction,
             Parent = attachTo?.Parent ?? 0, Bone = attachTo?.Bone ?? "<root>",
             AttachKind = attachTo?.Kind ?? EffectObject.AttachWithoutRotation, AttachFlags = attachTo?.Flags ?? 0,
@@ -888,6 +890,7 @@ public static partial class Game
                 SkillIds = skillIds, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
                 Scripted = scripted || !friendly && atlas,
                 NonBlocking = nonBlocking || noBodyUntilReleased,
+                AlliedMinion = isAlliedMinion,
                 Life = initialLife, Stage = stageSkill is null ? null : stage, States = monster.StateMachine,
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, SpeedRoll = speedRoll,
                 Threshold = QuestsOf(player).ThresholdOf(player.Layout.Id, variety.Id),

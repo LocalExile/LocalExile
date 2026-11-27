@@ -201,7 +201,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   AI and correction passes share indexed body snapshots; surround reservations use spatial queries and cached rings.
   Queue age, send/wire/socket timings and hot combat-lock timings are measured independently of tick latency.
   Stuns and freezes hold the walk and the newest click until they end; a speed change restarts the segment in progress;
-  an attack follows its target to the swing; totems and the tutorial chest block paths.
+  an attack follows its target to the swing; the tutorial chest blocks paths; players walk through their own totems
+  and minions, which still block monsters.
   Dash can cross visible gaps in either direction and continues walking from its landing on the far side.
   Melee hits land at the swing clip's contact keyframe.
   Resync (S→C 0x128): sent on every stun, after a movement skill, on the client's own request (C→S 0x16 command 8) and by `/oos`;
