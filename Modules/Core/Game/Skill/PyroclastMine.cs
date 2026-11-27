@@ -72,8 +72,8 @@ public static partial class Game
             At = mine.At,
             Radius = () => radius,
             Reach = id => area.Monsters.GetValueOrDefault(id.Value) is
-                { Hostile: true, Dead: false, Life: > 0, OwnerId: null } monster
-                && (!pyroclast || monster.Mods.Effects[Stat.ImmuneToExposure] == 0) ? 0 : null,
+                { Dead: false, Life: > 0, OwnerId: null } monster
+                && (!pyroclast || monster.Hostile && monster.Mods.Effects[Stat.ImmuneToExposure] == 0) ? 0 : null,
             Entered = id =>
             {
                 if (area.Monsters.GetValueOrDefault(id.Value) is { } target)
