@@ -69,12 +69,15 @@ public static partial class Game
     {
         var gem = SupportedSkill(player, source);
         bool Live() => current() && SameTriggerSource(gem, SupportedSkill(player, source));
-        if (!gem.RequirementsMet || !IsVaalMinion(SkillsFor(player).EffectId(gem.Effect))
+        string? effect = SkillsFor(player).EffectId(gem.Effect);
+        if (!gem.RequirementsMet || !IsVaalMinion(effect)
             || VaalMinionProxyDisabled(player, gem.Effect, source) is not null || !Live()) return false;
+        if (effect == "VaalAnimateWeapon")
+            return await ReleaseVaalWeapons(player, source, gem, aim, Live);
         double now = AreaTime(player);
         double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, Stat.BaseSkillEffectDuration),
             n => GolemStat(CharacterPlayerStats(player), n), n => GolemStat(gem.Stats, n), DurationKinds(player, gem.Effect));
-        if (SkillsFor(player).EffectId(gem.Effect) == "VaalSummonSkeletons")
+        if (effect == "VaalSummonSkeletons")
         {
             var definition=SummonData.Find("VaalSummonSkeletons")!;
             foreach (var (stat,body,variants) in new[] { ("melee","Melee",2), ("archer","Ranged",2), ("mage","Spellcaster",3), ("leader","General",4) })
@@ -86,8 +89,6 @@ public static partial class Game
                 }
             return true;
         }
-        if (SkillsFor(player).EffectId(gem.Effect) == "VaalAnimateWeapon")
-            return await ReleaseVaalWeapons(player, source, gem, aim, duration, Live);
         var plan = VaalAscension(player, gem, target);
         if (plan.Limit<=0) return false;
         if (plan.Refresh is { } refreshed)
