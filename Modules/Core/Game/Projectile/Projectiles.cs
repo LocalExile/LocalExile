@@ -371,7 +371,7 @@ public static partial class Game
             ClearConvictionWaves();
             ClearBladestorms();
             ClearTrarthus();
-            kineticAnomalies?.Clear();
+            ClearKineticAnomalies();
             while (somaticShells is { Count: > 0 }) RemoveSomaticShell(somaticShells[^1]);
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
             EndSacredWisps(retire: true);
@@ -1074,6 +1074,10 @@ public static partial class Game
                 target.Walk.Position(at), at);
             else if (!shot.FromTrapOrMine)
                 ArcaneSurgeOnSpellHitLocked(Player, player, target);
+            if (shot.KineticFluxDriver is { } driver && ownHit && !immune && target.Hostile
+                && (critical || hit.Value.Life == 0))
+                TriggerKineticFluxLocked(Player, this, shot.SourceSkill, driver, critical, hit.Value.Life == 0,
+                    target.Walk.Position(at), at);
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stat.BaseKilledMonsterDroppedItemQuantityPlusPct is var quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);

@@ -80,6 +80,8 @@ public static partial class Game
             return "Call the Pyre triggers on supported melee hits against ignited enemies";
         if (GolemStat(gem.Stats, Stat.TriggeredByBonespireSupport) != 0)
             return "Seize the Flesh triggers on use of a supported warcry";
+        if (GolemStat(gem.Stats, Stat.TriggeredByKineticInstabilitySupport) != 0)
+            return "Kinetic Flux triggers from attacks supported by Kinetic Instability";
         if (gem.WornGrant is { EffectId: GoreShockwaveEffect })
             return "Gore Shockwave triggers on melee hits with at least 150 Strength";
         if (GolemStat(gem.Stats, Stat.TriggeredByDivineCry) != 0)

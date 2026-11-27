@@ -1,3 +1,4 @@
+using GameServer.Core.Diagnostics;
 using GameServer.Core.Projectiles;
 
 public static partial class Game
@@ -96,23 +97,27 @@ public static partial class Game
 
     public sealed partial class ProjectileSession
     {
-        sealed record KineticAnomaly(ProjectileUse Use, ProjectileVector At, int Radius, long Until, Action Remove);
+        sealed record KineticAnomaly(ProjectileUse Use, ProjectileVector At, int Radius, long Until, string Stage, Action Remove);
         List<KineticAnomaly>? kineticAnomalies;
 
-        internal void PlantKineticAnomaly(ProjectileUse use, ProjectileVector at, int radius, double duration, int limit)
+        internal void PlantKineticAnomaly(ProjectileUse use, ProjectileVector at, int radius, double duration, int limit,
+            string stage = KineticAnomalyEffect)
         {
             var orbs = kineticAnomalies ??= [];
             bool idle = orbs.Count == 0;
-            while (orbs.Count >= limit)
+            int removeCount = orbs.Count(o => o.Stage == stage) - limit + 1;
+            for (int i = 0; i < orbs.Count && removeCount > 0;)
             {
-                orbs[0].Remove();
-                orbs.RemoveAt(0);
+                if (orbs[i].Stage != stage) { i++; continue; }
+                RemoveKineticAnomaly(orbs[i], "limit");
+                orbs.RemoveAt(i);
+                removeCount--;
             }
             long lifetime = ProjectileRuntime.Time(duration);
             Action remove = () => { };
             Effect((int)Math.Round(at.X), (int)Math.Round(at.Y), KineticRainOrb, lifetime, radius,
                 startClip: 0, captureRemoval: retire => remove = retire);
-            orbs.Add(new(use, at, radius, Runtime.Now + lifetime, remove));
+            orbs.Add(new(use, at, radius, Runtime.Now + lifetime, stage, remove));
             if (idle) Runtime.Schedule(Runtime.Now + ProjectileRuntime.TickQuanta, CheckKineticAnomalies);
         }
 
@@ -128,10 +133,24 @@ public static partial class Game
                 bool hit = active && HasKineticAnomalyTarget(orb, now);
                 if (active && !hit) { i++; continue; }
                 orbs.RemoveAt(i);
-                orb.Remove();
-                if (hit) Runtime.Impact(orb.Use, orb.At, new(KineticAnomalyEffect, orb.Radius));
+                RemoveKineticAnomaly(orb, hit ? "burst" : canTrigger ? "expiry" : "retire");
+                if (hit) Runtime.Impact(orb.Use, orb.At, new(orb.Stage, orb.Radius));
             }
             if (orbs.Count > 0) Runtime.Schedule(now + ProjectileRuntime.TickQuanta, CheckKineticAnomalies);
+        }
+
+        void RemoveKineticAnomaly(KineticAnomaly orb, string reason)
+        {
+            orb.Remove();
+            if (ServerTrace.Skills && orb.Stage == KineticFluxStage)
+                Console.WriteLine($"[gateway] {Player.Connection.Remote} kinetic flux remove reason={reason} at={Runtime.Now} cell={orb.At}");
+        }
+
+        void ClearKineticAnomalies()
+        {
+            if (kineticAnomalies is not { } orbs) return;
+            foreach (var orb in orbs) RemoveKineticAnomaly(orb, "retire");
+            orbs.Clear();
         }
 
         bool HasKineticAnomalyTarget(KineticAnomaly orb, long now)

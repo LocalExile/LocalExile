@@ -572,6 +572,9 @@ public static partial class Game
                 required: trackTrajectoryDamage),
             MirageSource = totem is null && Own(Stat.SupportMirageArcherBaseDuration) > 0 ? SupportedSkill(player, skillId) : null,
             CriticalTrigger = spell ? null : CaptureCriticalTriggerSource(player, skillId),
+            KineticFluxDriver = !spell && totem is null && from is null && sacrifice?.Triggered != true
+                && (Own(Stat.SupportKineticInstabilityChanceToCreateInstabilityOnCriticalStrikePct) > 0
+                    || Own(Stat.SupportKineticInstabilityChanceToCreateInstabilityOnKillPct) > 0) ? admittedGem : null,
             Penetration = Penetration.Of(playerStats, Stats, !spell, own, local), ResistanceMods = HitResistMods(playerStats, own),
             ImpaleSettings = WeaponImpaleSettings(playerStats, Stats, !spell, own, attackSource),
             CriticalImpaleSettings = WeaponImpaleSettings(playerStats, Stats, !spell, own, attackSource, critical: true),

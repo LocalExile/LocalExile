@@ -337,6 +337,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Thunderstorm blinds inside the storm, grows while occupied, and releases Thunderburst on a timely full-stage exit.
 - Kinetic Fusillade and Detonation refresh their capped hover queues and discharge in sequence.
   See [projectile skills](../docs/game/projectile-skills.md).
+- Kinetic Instability supports place Kinetic Flux on the linked wand attack's killing hit or, for Greater, its critical hit.
 - Scourge Arrow and its Royale variant plant pods on release based on channel stages; Scourge Arrow of Menace plants
   a pod per arrow. See [projectile skills](../docs/game/projectile-skills.md).
 - Somatic Shell absorbs other hits and transfers on depletion. Its own skill damage bypasses existing shells.
