@@ -15,10 +15,11 @@ public static partial class Game
     sealed record FormationTarget((int X, int Y) At);
     static readonly RuleTable<TotemState.Totem, FormationTarget> FormationTargets = new();
     public static bool SpellTotemEffect(Player player, int effect) => SkillsFor(player).IsSpell(effect)
-        && !SkillsFor(player).IsAttack(effect) && !SkillsFor(player).IsTravel(effect)
+        && !SkillsFor(player).IsAttack(effect) && (!SkillsFor(player).IsTravel(effect)
+            || SkillsFor(player).EffectId(effect) == BodyswapSacrificeEffect)
         && Supports.Of(effect)?.Types.Contains(47) != true
         && (TotemSummon(player, effect) is not null || GolemData.Find(SkillsFor(player).EffectId(effect)) is not null
-            || SkillsFor(player).EffectId(effect) == BloodOfferingEffect
+            || SkillsFor(player).EffectId(effect) is BloodOfferingEffect or BodyswapSacrificeEffect
             || CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(effect) ?? "")
             || (ArcProxyEffect(SkillsFor(player).EffectId(effect)) || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
                 || ShockNovaEffect(SkillsFor(player).EffectId(effect)) || GlacialCascadeEffect(SkillsFor(player).EffectId(effect))
@@ -282,6 +283,11 @@ public static partial class Game
             if (effect == BloodOfferingEffect)
             {
                 ScheduleBloodOfferingTotem(player, totem, range, now, bytes);
+                continue;
+            }
+            if (effect == BodyswapSacrificeEffect)
+            {
+                ScheduleBodyswapTotem(player, totem, now, bytes);
                 continue;
             }
             bool daggerDetonation = effect == BladeBlastDaggerDetonation;

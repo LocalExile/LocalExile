@@ -51,12 +51,13 @@ public static partial class Game
         }
 
         internal void ApplyCorpseExplosion(ushort skill, uint life, (int X, int Y) at, int radius, double now,
-            PlacedAreaHit? placement = null, double more = 1, bool minionExplosion = false)
+            PlacedAreaHit? placement = null, double more = 1, bool minionExplosion = false, bool totem = false)
         {
             var owner = CharacterPlayerStats(Player);
             var supported = SupportedSkill(Player, skill);
             var device = placement?.Device;
-            var caster = device is { } proxy ? proxy.Offense?.Caster ?? TotemCasterStats(owner) : owner;
+            bool playerHit = device is null && !totem;
+            var caster = device?.Offense?.Caster ?? (playerHit ? owner : TotemCasterStats(owner));
             var own = device?.Own ?? supported.Stats;
             var combined = MergeSkillStats(caster, own);
             int Get(uint stat) => GolemStat(combined, stat);
@@ -92,14 +93,13 @@ public static partial class Game
                 int chaos = MonsterHitChaosDamage(monster, resisted, spell: false, now, damage,
                     device is null ? 0 : BearTrapDamageTaken(monster, now));
                 if (ApplyTypedMonsterHitLocked(Player, monster, damage, chaos,
-                        playerStats: device is null ? caster : null, allyAt: device is null ? null : at) is not { } accepted) continue;
+                        playerStats: playerHit ? caster : null, allyAt: playerHit ? null : at) is not { } accepted) continue;
                 if (device?.Mine == true) LeechPlacedMineHitLocked(Player, monster, resisted, spell: false, damage, now, owner, id);
                 if (accepted.StageStarts)
                 {
                     CommitProjectileBossStage(this, id, monster, Runtime.Now);
                     accepted = accepted with { StageStarts = false };
                 }
-                bool playerHit = device is null;
                 if (!monster.Dead && damage > 0)
                 {
                     bool previousSecondary = Player.Reservations.Secondary;

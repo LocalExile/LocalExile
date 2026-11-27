@@ -19,7 +19,7 @@ public static partial class Game
     {
         if (SkillsFor(player).IsRetaliation(gem.Effect)) return false;
         string? payload = SkillsFor(player).EffectId(gem.Effect);
-        if (TriggerChaosDebuff(payload)) return true;
+        if (TriggerChaosDebuff(payload) || payload == BodyswapSacrificeEffect) return true;
         if (SpatialSpellEffect(payload)) return SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality).CanHit;
         if (TriggerGuardSpell(player, gem) || TriggerSummonSpell(player, gem)
             || TriggerBrandSpell(player, gem.Effect) || MinionUtility(SkillsFor(player).EffectId(gem.Effect))) return true;
@@ -41,6 +41,8 @@ public static partial class Game
         var skill = GemSkillEffects(player).FirstOrDefault(g => g.Id == id);
         if (skill.Name is null || !TriggerPayloadAvailable(player, gem)) return null;
         uint preferredTarget = triggerTarget != 0 ? triggerTarget : brandedTarget?.ObjectId ?? 0;
+        if (SkillsFor(player).EffectId(gem.Effect) == BodyswapSacrificeEffect)
+            return PrepareTriggeredBodyswap(player, session, skill, gem, aim, preferredTarget, current);
         if (TriggerGuardSpell(player, gem))
             return GuardAvailableForTrigger(player, AreaTime(player))
                 ? () => StartTriggeredGuard(player, session, id, AreaTime(player)) : null;

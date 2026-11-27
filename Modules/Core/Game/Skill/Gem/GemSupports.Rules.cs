@@ -989,7 +989,10 @@ public static partial class Game
             : DamageStats.RawAdded(spellBase, Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
         if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.SpellBaseFireDamagePctMaximumLife) is int lifePct and > 0)
         {
-            double fire = (long)player.PlayerMaxLife * lifePct / 100d;
+            uint life = skills.EffectId(gem.Effect) == BodyswapSacrificeEffect
+                ? projectileTotemLife ?? (placed.Trap || placed.Mine ? 1u : player.PlayerMaxLife)
+                : player.PlayerMaxLife;
+            double fire = (long)life * lifePct / 100d;
             raw = raw.Add(GameServer.Core.World.DamageType.Fire, new(fire, fire));
         }
         if (!attack && !secondary && Get(Stat.KeystoneBattlemage) != 0
