@@ -263,6 +263,22 @@ public static class MonsterCombos
     public static bool IsComboChild(SkillCatalog catalog, MonsterCatalog.Variety? variety, int effect) =>
         For(catalog, variety).BoundChildren.Contains(effect);
 
+    /// <summary>The child effects that the combo parents among <paramref name="effects"/> fire, counting only the
+    /// parents that build (<see cref="BuildParentAttack"/>). A child whose parent is missing or fails to build stays a
+    /// skill of its own.</summary>
+    public static HashSet<int>? ChildrenOfBuiltParents(Player player, MonsterCatalog.Variety variety, byte level,
+        IReadOnlyList<int> effects)
+    {
+        var catalog = SkillsFor(player);
+        if (!For(catalog, variety).HasAny) return null;
+        HashSet<int>? children = null;
+        foreach (int effect in effects)
+            if (HasCombo(catalog, variety, effect)
+                && BuildParentAttack(player, variety, level, effect, 0, new()) is { ComboSteps: { } steps })
+                foreach (var step in steps) (children ??= []).Add(step.ChildEffect);
+        return children;
+    }
+
     /// <summary>Deduplicates raw <c>.ao</c>/<c>.amd</c> clip events by <c>(name, ms, roundedPos)</c>, removing exact
     /// duplicate tracks (e.g., LegionTemplarGeneral <c>projectile_shield_throw_01</c> 62 → 31, Hyrri <c>leap_attack_01</c>
     /// 30 → 10) while preserving simultaneous multi-position launches at the same millisecond.</summary>

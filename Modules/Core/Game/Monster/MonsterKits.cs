@@ -52,7 +52,8 @@ public static class MonsterKits
     static bool IsGenericMelee(string? effectId) =>
         effectId is "Melee" or "MeleeAtAnimationSpeed" or "MeleeAtAnimationSpeedUnique" or "MeleeAtAnimationSpeedFireUnique";
 
-    static bool IsExcludedOrdinaryEffect(SkillCatalog catalog, MonsterCatalog.Variety variety, int effect, string? id)
+    static bool IsExcludedOrdinaryEffect(SkillCatalog catalog, MonsterCatalog.Variety variety, int effect, string? id,
+        bool comboParent = false)
     {
         if (effect < 0 || string.IsNullOrEmpty(id)) return true;
         if (MonsterKitHooks.HasEffectFilters && !MonsterKitHooks.AllowEffect(variety, effect, id))
@@ -61,22 +62,18 @@ public static class MonsterKits
             return true;
         if (catalog.HasType(effect, "Triggered") || catalog.HasType(effect, "RemoteMined"))
             return true;
-        // S3 bound combo children stay out of top-level AI selection (while staying registered in 0x2bb for 0x1ce).
-        // Never blanket-exclude Animation == NULL: 74.4% of monster GEs (Melee, MonsterFireball, etc.) have Animation = NULL.
-        if (MonsterCombos.IsComboChild(catalog, variety, effect))
+        // Skip skills flagged skill_unusable (they are script/death-only), combo parents included.
+        if (catalog.EffectStats(effect, 1).Any(s => s.Item1 == Stat.SkillUnusable && s.Item2 != 0))
             return true;
-        // Bound EmptyAction* combo parents are real castable combo openers on non-controller varieties.
-        if (SkillCatalog.IsEmptyAction(effect))
-            return !MonsterCombos.HasCombo(catalog, variety, effect);
+        // A bound EmptyAction* combo parent is a castable combo opener; one without a combo plays as it did before.
+        // Its children leave the kit in BuildTemplate, and only once the parent has built.
+        if (comboParent)
+            return false;
         if (id.StartsWith("GS", StringComparison.Ordinal) || id.StartsWith("GT", StringComparison.Ordinal)
-            || id.StartsWith("EAS", StringComparison.Ordinal) || id.StartsWith("EAA", StringComparison.Ordinal)
-            || id.StartsWith("GA", StringComparison.Ordinal))
+            || id.StartsWith("EAS", StringComparison.Ordinal) || id.StartsWith("GA", StringComparison.Ordinal))
             return true;
         for (int i = 0; i < ExcludedOrdinaryTokens.Length; i++)
             if (id.Contains(ExcludedOrdinaryTokens[i], StringComparison.Ordinal)) return true;
-        // Skip skills flagged skill_unusable / trigger-only.
-        if (catalog.HasTriggerOnlyStat(effect, 1))
-            return true;
         return false;
     }
 
@@ -253,10 +250,12 @@ public static class MonsterKits
         {
             if (!seen.Add(effect)) continue;
             string? id = catalog.EffectId(effect);
-            if (IsExcludedOrdinaryEffect(catalog, variety, effect, id)) continue;
+            bool comboParent = SkillCatalog.IsEmptyAction(effect) && MonsterCombos.HasCombo(catalog, variety, effect);
+            if (IsExcludedOrdinaryEffect(catalog, variety, effect, id, comboParent)) continue;
 
-            // 0. S3 EmptyAction* combo parent (fires bound children on clip events via 0x1ce / 0x2bb)
-            if (SkillCatalog.IsEmptyAction(effect) && MonsterCombos.HasCombo(catalog, variety, effect))
+            // 0. S3 EmptyAction* combo parent (fires bound children on clip events via 0x1ce / 0x2bb); one whose combo
+            // does not build plays as any other skill.
+            if (comboParent)
             {
                 int comboLvl = catalog.MaxLevelAt(effect, level);
                 double comboCd = catalog.CooldownMs(effect, comboLvl) / 1000d;
@@ -264,8 +263,9 @@ public static class MonsterKits
                 {
                     comboCd = Math.Max(comboCd, Math.Max(comboAttack.Seconds + 1.5, 4.0));
                     primaries.Add((1, new MonsterKitSkill(effect, comboAttack, comboCd)));
+                    continue;
                 }
-                continue;
+                if (IsExcludedOrdinaryEffect(catalog, variety, effect, id)) continue;
             }
 
             // 1. Utility / Movement / Curse / Self-buff / Rally skills (MonsterSkills.UseOf)
@@ -393,6 +393,18 @@ public static class MonsterKits
                 // Non-generic melee attack (Cleave, Ground Slam, Puncture, Molten Strike, etc.)
                 primaries.Add((1, new MonsterKitSkill(effect, shaped, Math.Max(0, cd))));
             }
+        }
+
+        // A built combo parent fires its children from its clip events: they leave the kit (they stay registered in
+        // 0x2bb for 0x1ce). A child whose parent did not build keeps its own slot.
+        HashSet<int>? bound = null;
+        foreach (var (_, skill) in primaries)
+            if (skill.Attack.ComboSteps is { } steps)
+                foreach (var step in steps) (bound ??= []).Add(step.ChildEffect);
+        if (bound is not null)
+        {
+            primaries.RemoveAll(p => bound.Contains(p.Skill.Effect));
+            if (meleeFallback is not null && bound.Contains(meleeFallback.Effect)) meleeFallback = null;
         }
 
         if (primaries.Count == 0)
