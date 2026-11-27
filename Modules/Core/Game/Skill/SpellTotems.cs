@@ -378,7 +378,7 @@ public static partial class Game
                             await CastSummon(player, totem.SkillId, summon, aim,
                                 summonTarget, player.ActionInterruptionGeneration, Current, triggered: true, playerConsumesCorpse: false);
                         else await CastGolem(player, totem.SkillId, golem!, aim,
-                            player.ActionInterruptionGeneration, Current, triggered: true);
+                            player.ActionInterruptionGeneration, Current, triggered: true, casterAt: totem.At);
                     });
                 });
                 continue;
