@@ -127,6 +127,9 @@ public sealed class NpcCatalog
         public string? OpensScreen => System.Text.RegularExpressions.Regex.Match(Scripts, @"SendOpenScreen\(\s*(\w+)\s*\)") is { Success: true } m
             ? m.Groups[1].Value : null;
 
+        /// <summary><c>triggerer.GoToKingsmarch()</c>: the row transfers the player to the Kingsmarch hub area.</summary>
+        public bool GoToKingsmarch => Scripts.Contains("GoToKingsmarch(", StringComparison.Ordinal);
+
         /// <summary><c>StartTimer()</c> in Script2 (Act 3 Fairgraves NPCTalk 502): starts the NPC's scripted countdown timer.</summary>
         public bool StartsTimer => Script2.Contains("StartTimer(", StringComparison.Ordinal);
 

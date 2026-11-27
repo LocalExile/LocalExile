@@ -411,6 +411,27 @@ public static class GameEvents
     /// <summary>Whether anything subscribes to client messages with this opcode.</summary>
     public static bool WantsPacket(ushort opcode) => Packets.TryGetValue(opcode, out var packet) && packet.Any;
 
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<byte, GameEvent<Func<Player, ReadOnlyMemory<byte>, Task<bool>>>> RulesetActions = new();
+
+    /// <summary>A client ruleset action (<c>C→S 0x02ca</c>) for <paramref name="rulesetId"/> (the <c>Rulesets.dat</c> row).
+    /// Subscribers receive only that ruleset's payload bytes and return true when handled, never hijacking other rulesets.</summary>
+    public static GameEvent<Func<Player, ReadOnlyMemory<byte>, Task<bool>>> RulesetAction(byte rulesetId) =>
+        RulesetActions.GetOrAdd(rulesetId, _ => new());
+
+    /// <summary>Dispatches a <c>C→S 0x02ca</c> ruleset payload to subscribers registered for <paramref name="rulesetId"/>.
+    /// Returns true as soon as one subscriber consumes it.</summary>
+    public static async Task<bool> RunRulesetAction(Player player, byte rulesetId, ReadOnlyMemory<byte> payload)
+    {
+        if (!RulesetActions.TryGetValue(rulesetId, out var evt) || !evt.Any) return false;
+        foreach (var (owner, run) in evt.Subscribers(player))
+        {
+            bool handled = false;
+            if (await GameEventOwners.Guard(owner, $"RulesetAction(0x{rulesetId:x2})", async () => handled = await run(player, payload)) && handled)
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>A chat command, <c>/name args…</c>, through <see cref="CommandsBuilding"/>. The Gateway's own commands, and those added
     /// before it, keep their name. One that throws tells the player it failed, and the error is in the Gateway's log.</summary>
     public static IDisposable Command(string owner, string name, string usage, Func<Player, string[], Task> run, params string[] arguments) =>
@@ -776,6 +797,18 @@ public static class GameEvents
     public static readonly GameEvent<Func<Player, int, Task>> PlayerLevelUp = new();
     /// <summary>Request opening a town portal at (x, y) on behalf of a player (e.g., on-death or item effects); true when handled.</summary>
     public static readonly GameEvent<Func<Player, int, int, string, Task<bool>>> PortalRequested = new();
+
+    /// <summary>An NPCTalk row's end script ran (e.g. a custom script verb or screen action); return true when handled.</summary>
+    public static readonly GameEvent<Func<Player, uint, SpawnedNpc, NpcCatalog.Talk, Task<bool>>> NpcTalkScript = new();
+
+    /// <summary>A player inventory row was modified by a client pickup, placement, or merge (post-mutation notification).</summary>
+    public static readonly GameEvent<Func<Player, byte, Task>> InventoryChanged = new();
+
+    /// <summary>A map resource deposit or drop was claimed by a player; return true when converted/intercepted so the default credit is skipped.</summary>
+    public static readonly GameEvent<Func<MapResourceClaim, Task<bool>>> MapResourceClaimed = new();
+
+    /// <summary>A rolled monster drop item is about to be placed on the ground; return true when converted/consumed so it is not dropped.</summary>
+    public static readonly GameEvent<Func<MonsterDropConversion, bool>> MonsterDropItemConverted = new();
 
     public static async Task<bool> AnyNpcTalk(Player player, uint id, SpawnedNpc npc)
     {
@@ -1199,6 +1232,49 @@ public static class GameEvents
             if (subscriber.Rank != GameEventOwners.ModRank) continue;
             bool allowed = false;
             if (GameEventOwners.Guard(subscriber.Owner, nameof(MapDeviceAcceptsItem), () => allowed = subscriber.Run(null, typeHash, itemClass)) && allowed)
+                return true;
+        }
+        return false;
+    }
+
+    public static async Task<bool> RunNpcTalkScript(Player player, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk)
+    {
+        if (!NpcTalkScript.Any) return false;
+        foreach (var (owner, run) in NpcTalkScript.Subscribers(player))
+        {
+            bool handled = false;
+            if (await GameEventOwners.Guard(owner, nameof(NpcTalkScript), async () => handled = await run(player, npcId, npc, talk)) && handled)
+                return true;
+        }
+        return false;
+    }
+
+    public static async Task RunInventoryChanged(Player player, byte row)
+    {
+        if (!InventoryChanged.Any) return;
+        foreach (var (owner, run) in InventoryChanged.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(InventoryChanged), () => run(player, row));
+    }
+
+    public static async Task<bool> AnyMapResourceClaimed(MapResourceClaim claim)
+    {
+        if (!MapResourceClaimed.Any) return false;
+        foreach (var (owner, run) in MapResourceClaimed.Subscribers(claim.Player))
+        {
+            bool converted = false;
+            if (await GameEventOwners.Guard(owner, nameof(MapResourceClaimed), async () => converted = await run(claim)) && converted)
+                return true;
+        }
+        return false;
+    }
+
+    public static bool AnyMonsterDropItemConverted(MonsterDropConversion conversion)
+    {
+        if (!MonsterDropItemConverted.Any) return false;
+        foreach (var (owner, run) in MonsterDropItemConverted.Subscribers(conversion.Player))
+        {
+            bool converted = false;
+            if (GameEventOwners.Guard(owner, nameof(MonsterDropItemConverted), () => converted = run(conversion)) && converted)
                 return true;
         }
         return false;

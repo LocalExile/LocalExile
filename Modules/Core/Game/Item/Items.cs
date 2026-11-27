@@ -114,6 +114,7 @@ public static partial class Game
             await SendPassiveJewelStats(player);
             if (spentClusterRemoval) await SendPassives(player);
         }
+        await GameEvents.RunInventoryChanged(player, row);
     }
 
     // C→S 0x30: the held gem goes into a socket. The cursor loses it (and holds the gem that was in the socket, if any); the
@@ -2210,6 +2211,7 @@ public static partial class Game
             await SendPassiveJewelStats(player);
             if (spentClusterRemoval) await SendPassives(player);
         }
+        await GameEvents.RunInventoryChanged(player, done.Row);
     }
 
     // Shift held on a 0x4a: flag bit 2 (the sender's param 7; live 2026-10-19, Flags = 4 with Shift, 0 without).
@@ -2225,6 +2227,7 @@ public static partial class Game
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [done.Held.Id], done.Rest is { } rest ? [rest] : []),
             $"0x00bf cursor: " + (done.Rest is { } r ? $"stack {r.Id} now {r.Item.StackSize}" : $"remove item {done.Held.Id} (merged)"));
+        await GameEvents.RunInventoryChanged(player, done.Row);
     }
 
     // C→S 0x2a: put the held item into an inventory cell (PlayerInventories.Place). The target inventory gets one 0xbf (the
@@ -2329,6 +2332,7 @@ public static partial class Game
             await SendPassiveJewelStats(player);
             if (spentClusterRemoval) await SendPassives(player);
         }
+        await GameEvents.RunInventoryChanged(player, done.Row);
     }
 
     static void CompletePassiveJewelMutationLocked(Player player, IReadOnlyList<PlayerSkillSource> sourcesBefore)

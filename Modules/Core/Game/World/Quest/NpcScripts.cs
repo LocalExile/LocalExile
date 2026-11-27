@@ -10,12 +10,25 @@ using GameServer.Core.Protocol.Login;
 //   Script2): what happens when the row's talk ends (or at once for a row without text).
 public static partial class Game
 {
-    // S→C 0x7b kinds of the screens the scripts open (the client's screen table at 0x142fd89f0, campaign/pantheon.md §3).
-    public static readonly Dictionary<string, byte> ScriptScreens = new(StringComparer.Ordinal) { ["PantheonScreen"] = 0x14 };
+    // S→C 0x7b kinds of the screens the scripts open (the client's screen table at 0x142fcd700 / 0x14216bb74).
+    public static readonly Dictionary<string, byte> ScriptScreens = new(StringComparer.Ordinal)
+    {
+        ["PantheonScreen"] = 0x14,
+        ["KalguurRecombinatorWindow"] = InstanceVillage.RecombinatorWindowUi,
+        ["KalguurRecruitmentWindow"] = InstanceVillage.RecruitmentWindowUi,
+        ["KalguurTownMapWindow"] = InstanceVillage.TownMapWindowUi,
+        ["KalguurMineWindow"] = InstanceVillage.MineWindowUi,
+        ["KalguurPortWindow"] = InstanceVillage.PortWindowUi,
+        ["KalguurFarmWindow"] = InstanceVillage.FarmWindowUi,
+        ["KalguurBlackSmithWindow"] = InstanceVillage.BlackSmithWindowUi,
+        ["KalguurDisenchantingWindow"] = InstanceVillage.DisenchantingWindowUi,
+        ["KalguurMapRunnersWindow"] = InstanceVillage.MapRunnersWindowUi,
+        ["KalguurFishingWindow"] = InstanceVillage.FishingWindowUi,
+    };
 
     /// <summary>Whether the row does something when its talk ends (or at once without a talk).</summary>
     public static bool EndsWithScript(NpcCatalog.Talk talk) =>
-        talk.NextChat is not null || talk.FinishesChat || talk.AreaTransition is not null || talk.OpensScreen is not null;
+        talk.NextChat is not null || talk.FinishesChat || talk.AreaTransition is not null || talk.OpensScreen is not null || talk.GoToKingsmarch;
 
     // The row's world changes, when it is chosen: the NPC's own Transitionable steps on (Dialla withers, NPCTalk 534) and the
     // objects of the named types transition (Quests.OnScriptTransition: transitions a quest shows, objects it changes).
@@ -112,13 +125,22 @@ public static partial class Game
                 $"0x0084 npc 0x{npcId:x} {npc.Npc.Name} talks on: NPCTalk row {page.Row} (index {page.Index}, DoNPCChat)");
             return true;
         }
-        if (!talk.FinishesChat && talk.AreaTransition is null && talk.OpensScreen is null) return false;
+        if (!talk.FinishesChat && talk.AreaTransition is null && talk.OpensScreen is null && !talk.GoToKingsmarch) return false;
         player.TalkingTo = 0;
         player.InNpcTalk = false;
         player.NpcFinishFlag = null;
         player.NpcFinishLeagueFlag = null;
         player.NpcTalkScript = null;
         await Send(player, InstanceNpcs.Talk(0), $"0x0084 object 0: {npc.Npc.Name}'s dialogue ends (FinishNPCChat, NPCTalk {talk.Row})");
+        if (await GameEvents.RunNpcTalkScript(player, npcId, npc, talk)) return true;
+        if (talk.GoToKingsmarch)
+        {
+            if (AreaTransitionCatalog.HashOf(WaypointCatalog.Kingsmarch) is { } kingsmarch)
+                await ChangeArea(player, new PendingTransfer(kingsmarch, 0, false, AtSpawn: true),
+                    $"{npc.Npc.Name}: {talk.Option} (GoToKingsmarch)");
+            else Console.WriteLine($"[gateway] {player.Connection.Remote} NPCTalk {talk.Row}: GoToKingsmarch() area {WaypointCatalog.Kingsmarch} is not in client.db's area_transitions");
+            return true;
+        }
         if (talk.OpensScreen is { } screen)
         {
             if (ScriptScreens.TryGetValue(screen, out byte kind))
