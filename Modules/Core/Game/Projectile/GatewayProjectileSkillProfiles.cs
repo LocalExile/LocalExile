@@ -56,10 +56,12 @@ public static class GatewayProjectileSkillProfiles
     public static ProjectileProfile Resolve(string effect, string metadata, Func<uint, int> get, double speed, bool attack,
         bool arrows = false)
     {
+        if (effect == Game.SpectrumHitEffect && !arrows) metadata = "Metadata/Projectiles/ElementalHitWandCombined";
         var p = GatewayProjectileDefaults.Create(metadata, get, speed, arrows) with
         {
             CannotReturn = CannotReturn.Contains(effect), ReturnOnDistance = effect != "FreezingPulse"
         };
+        if (effect == Game.SpectrumHitEffect) p = p with { ContactArea = Game.ElementalHitBurst(0) };
         if (IsKineticBlast(effect))
         {
             bool clustering = effect == "KineticBlastAltX";
@@ -319,7 +321,7 @@ public static class GatewayProjectileSkillProfiles
         if (IsKineticBolt(effect)) p = WithKineticBoltLegs(p);
         if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
-        if (p.ContactArea is { } contact && !IsIceShot(effect)) p = p with { EndArea = contact };
+        if (p.ContactArea is { RequiresEnemyHit: false } contact && !IsIceShot(effect)) p = p with { EndArea = contact };
         return ScaleAreas(p, effect, get, spell: !attack);
     }
 
@@ -498,6 +500,8 @@ public static class GatewayProjectileSkillProfiles
         if (IsLightningArrow(effect) && p.ContactTargets is { } targets)
             return p with { ContactTargets = targets with
                 { Radius = SkillArea.Radius(Value(Stat.ActiveSkillBaseAreaOfEffectRadius, 18), get, spell) } };
+        if (effect == Game.SpectrumHitEffect && p.ContactArea is { } spectrum)
+            return p with { ContactArea = spectrum with { Radius = SkillArea.Radius(SkillArea.BaseRadius(effect, get), get, spell) } };
         if (IsIceShot(effect) && p.ContactArea is { } iceCone)
         {
             int AreaStat(uint key) => key == SkillArea.BaseIncreased

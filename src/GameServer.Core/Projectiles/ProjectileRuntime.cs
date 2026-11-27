@@ -455,7 +455,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             var result = Damage(p, target, terminal?.Stage ?? "direct", multiplier: terminal?.Multiplier ?? 1,
                 admissionStage: "direct", isArea: terminal is not null);
             if (result == ProjectileHitResult.Miss) return;
-            if (contactArea is not null)
+            if (contactArea is not null && (!contactArea.RequiresEnemyHit || result == ProjectileHitResult.Hit))
                 Area(p, contactArea, contactArea.ExcludeContactTarget ? target.Key : null, centre);
             if (result == ProjectileHitResult.Hit && p.Profile.ContactTargets is { } strikes)
                 TargetedHits(p, target, strikes);
@@ -486,7 +486,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         else if (c.End == ProjectileEndReason.Terrain)
         {
             if (AllowsTerminalArea(p) && (p.Phase == 0 || p.Profile.ContactAreaOnReturn)
-                && p.Profile.ContactArea is { } area) Area(p, area);
+                && p.Profile.ContactArea is { RequiresEnemyHit: false } area) Area(p, area);
             if (p.Profile.SplitOnTerrain && !p.Profile.CannotSplit && p.Split > 0)
             {
                 p.Position += c.Normal * .001; // Children start on the incident side of the blocking surface.

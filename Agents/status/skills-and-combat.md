@@ -206,6 +206,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Ice Spear uses a distance-based second form, and Splitting's children enter it at contact. Trarthus Spectral Throw
   returns to its trap site.
 - Spectral Helix uses the client's stepped spiral and reverses at terrain. Trarthus starts each spiral at its triggering trap.
+- Elemental Hit of the Spectrum bursts around a successful projectile hit and counts ailments on each victim. Prismatic clones burst with their own radius and rolled element.
 - Vaal souls (#308), Vaal Ground Slam's radial wave, Vaal Fireball, Vaal Spark and Vaal Discipline (allied recharge).
   Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).

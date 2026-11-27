@@ -532,6 +532,8 @@ public static partial class Game
             DamageIncreasePerChain = damagePerChain,
             DamageIncreasePerPierce = damagePerPierce,
             DamageMoreAfterPierce = Get(Stat.ProjectileDamagePlusPctFinalIfPiercedEnemy),
+            DamageMorePerElementalAilment = effect == SpectrumHitEffect
+                ? Get(Stat.ElementalHitDamagePlusPctFinalPerEnemyElementalAilment) : 0,
             Spider = hitInputs is null ? null : CaptureSpiderDamage(player, hitInputs,
                 AddedEffectiveness(player, gem.Effect, gem.Level), context: false, local: local,
                 bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off,

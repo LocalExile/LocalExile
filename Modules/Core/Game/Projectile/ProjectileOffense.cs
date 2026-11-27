@@ -104,6 +104,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public double ReturnMultiplier { get; init; } = 1;
     public int DamageMorePerGroundBounce { get; init; }
     public int DamageMoreAfterPierce { get; init; }
+    public int DamageMorePerElementalAilment { get; init; }
     internal sealed class LancingSteelHitSeries(double repeatMultiplier)
     {
         public readonly HashSet<ProjectileActorKey> Targets = [];

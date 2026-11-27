@@ -37,6 +37,8 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
     double Multiplier = 1, ProjectileHitScope Scope = ProjectileHitScope.Projectile)
 {
     public bool ExcludeContactTarget { get; init; }
+    /// <summary>A contact area that needs a successful enemy hit and never triggers on terrain.</summary>
+    public bool RequiresEnemyHit { get; init; }
     /// <summary>Radius sampled with the number of completed ground bounces at the impact.</summary>
     public Func<int, double>? RadiusForGroundBounce { get; init; }
     /// <summary>Radius sampled with the projectile's total travelled distance in cells at the impact.</summary>

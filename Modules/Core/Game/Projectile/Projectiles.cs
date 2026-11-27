@@ -952,7 +952,10 @@ public static partial class Game
                 chainsMore *= Math.Max(0, 1 + (double)shot.CompletedChainDamagePercent
                     * (contact.Projectile.Profile.Chain - contact.Projectile.ChainsRemaining) / 100);
             double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
-            double ailmentMore = chainsMore * returnMore * ExertedAttackMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage);
+            double elementalMore = shot.DamageMorePerElementalAilment == 0 ? 1
+                : ElementalHitDamageMore(shot.DamageMorePerElementalAilment, ElementalHitAilmentsOn(target, at));
+            double ailmentMore = chainsMore * returnMore * elementalMore
+                * ExertedAttackMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage);
             if (ailmentMore != 1)
                 shot = shot with
                 {
@@ -964,7 +967,7 @@ public static partial class Game
                 shot = shot.ScaleDamage(Math.Max(0, 1 + shot.DamageMorePerGroundBounce * (double)contact.Projectile.GroundBounces / 100));
             if (shot.DamageMoreAfterPierce != 0 && contact.Projectile.EnemiesPierced > 0)
                 shot = shot.ScaleDamage(Math.Max(0, 1 + shot.DamageMoreAfterPierce / 100d));
-            double more = contact.Multiplier * (contact.Phase > 0 ? shot.ReturnMultiplier : 1);
+            double more = contact.Multiplier * returnMore * elementalMore;
             if (ReferenceEquals(shot.BrandedTarget, target))
                 more *= Math.Max(0, 1 + GolemStat(shot.SkillStats, Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);
             if (!shot.Spell && shot.FarShot) more *= WardBreakEffects.FarShot(contact.Projectile.Distance);
