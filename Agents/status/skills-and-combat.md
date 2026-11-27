@@ -72,6 +72,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Aura-dependent recovery, mana-spent charges and the wearer's Withered hit modifiers resolve on the server.
 - The equipped weapon and the target's pre-hit ailments govern qualified hit recovery and debuffs.
 - Recent critical strikes can grant Tailwind, and refreshed chills continue Glacial Cage's damage scaling.
+- Missing Energy Shield can grant 150% armour to eligible hits. Docs: [20](../docs/protocol/20-damage.md).
 - Frost Shield and Sigil of Power run staged areas. Docs: [11](../docs/protocol/11-skills.md).
 - Supreme Ego changes the caster's aura reservation, effect and recipients. Docs: [11](../docs/protocol/11-skills.md).
 - Native keystone damage shifts, charge replacement and Ward rules have server consumers (live combat checks pending).

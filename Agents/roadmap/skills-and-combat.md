@@ -129,6 +129,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   - Remaining weapon-scoped fire per Strength, lightning per Dexterity/Intelligence and spell per-Intelligence added damage.
   - Monster skills beyond the first granted effect (ranged, spells).
   - Player stun: ES avoidance, substituted thresholds, conditional defences and monster-specific modifiers.
+  - Verify the missing-Energy-Shield Armour Mastery against incoming physical hits in the supported client.
   - Criticals: other conditional more chance, guaranteed-critical effects, off-hand chance/multiplier publication and
     execution, Focus/curse lifecycles. The off-hand range/timing publication has no critical fields: do not infer
     completion from its other weapon fields.
