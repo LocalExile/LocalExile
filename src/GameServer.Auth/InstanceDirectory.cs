@@ -45,9 +45,11 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
             if (Volatile.Read(ref _disposed) != 0) return null;
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
             linked.CancelAfter(timeout);
-            await _gate.WaitAsync(linked.Token);
+            bool acquired = false;
             try
             {
+                await _gate.WaitAsync(linked.Token);
+                acquired = true;
                 if (Volatile.Read(ref _disposed) != 0) return null;
                 byte[] line = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(request, InstanceControl.Json) + "\n");
                 await stream.WriteAsync(line, linked.Token);
@@ -56,6 +58,10 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
                 if (reply is null) { Dispose(); return null; }
                 return JsonSerializer.Deserialize<ControlResponse>(reply, InstanceControl.Json);
             }
+            catch (OperationCanceledException) when (!acquired)
+            {
+                return null;
+            }
             catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException or OperationCanceledException or JsonException)
             {
                 Dispose();
@@ -63,8 +69,11 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
             }
             finally
             {
-                if (Volatile.Read(ref _disposed) == 0) _gate.Release();
-                else try { _gate.Release(); } catch (ObjectDisposedException) { }
+                if (acquired)
+                {
+                    if (Volatile.Read(ref _disposed) == 0) _gate.Release();
+                    else try { _gate.Release(); } catch (ObjectDisposedException) { }
+                }
             }
         }
 

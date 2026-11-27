@@ -252,6 +252,10 @@ public sealed class GameEventsTests
                 ctx.StartingLevel = 68;
                 ctx.SuppressStartKit = true;
             }
+            else if (ctx.CreationOptions.TryGetValue("suppress_only", out var s) && s == "1")
+            {
+                ctx.SuppressStartKit = true;
+            }
             else if (ctx.CreationOptions.TryGetValue("boost_level", out var lvlText) && int.TryParse(lvlText, out int lvl))
             {
                 ctx.StartingLevel = lvl;
@@ -306,6 +310,24 @@ public sealed class GameEventsTests
             Assert.False(keepReply.SuppressStartKit);
             Assert.Null(CharacterSaves.Load(keepKitName));
             Assert.Equal(10, CharacterSaves.LevelOf(null, 10));
+
+            // 2b. SuppressStartKit = true with no StartingLevel must not inherit stale in-memory UnsavedExperience.
+            string recycledName = "Recyc" + suffix;
+            CharacterSaves.AddExperience(recycledName, 0, _ => 999999u);
+            var recycReply = await GatewayControl.HandleCharacterCreatedAsync(new ControlRequest
+            {
+                Op = "character_created",
+                Account = accountName,
+                CharacterId = Guid.NewGuid(),
+                Character = recycledName,
+                Class = (int)GameServer.Core.Accounts.CharacterClass.Witch,
+                League = "Standard",
+                CreationOptions = new() { ["suppress_only"] = "1" },
+            }, testLeague);
+            Assert.True(recycReply.Ok);
+            Assert.Null(CharacterSaves.Load(recycledName)?.Experience);
+            PlayerInventories.Forget(recycledName);
+            CharacterSaves.ForgetExperience(recycledName);
 
             // 3. League/SSF/HC-death isolation on CharacterSaves.GetLeagueCharacters.
             var store = new GameServer.Storage.SqliteAccountStore(Saves.Db);

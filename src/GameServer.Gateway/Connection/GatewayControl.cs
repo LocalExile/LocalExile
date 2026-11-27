@@ -33,7 +33,11 @@ public static class GatewayControl
                 await stream.FlushAsync(ct);
 
                 string? ack = await reader.ReadLineAsync(ct);
-                if (ack is null) continue;
+                if (ack is null)
+                {
+                    await DelayQuietly(TimeSpan.FromSeconds(1), ct);
+                    continue;
+                }
                 var ackResponse = JsonSerializer.Deserialize<ControlResponse>(ack, InstanceControl.Json);
                 if (ackResponse is not { Ok: true })
                 {
@@ -121,8 +125,8 @@ public static class GatewayControl
             uint? experience = clampedLevel is > 1 ? CharacterStats.ExperienceFor(clampedLevel.Value) : null;
             Saves.Atomically(() =>
             {
+                CharacterSaves.ForgetExperience(ctx.Name);
                 var existing = CharacterSaves.Load(ctx.Name);
-                if (experience is not null) CharacterSaves.ForgetExperience(ctx.Name);
                 var merged = (existing ?? new CharacterSaves.Save([])) with
                 {
                     Inventories = existing?.Inventories ?? [],
