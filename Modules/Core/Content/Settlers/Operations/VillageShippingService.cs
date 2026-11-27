@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Modules.Settlers.Operations;
@@ -9,13 +10,26 @@ namespace GameServer.Modules.Settlers.Operations;
 /// Implements exact 3.29.3c client formulas verified in <c>Client/Game.exe</c>:
 /// shipment value &amp; dust multiplier (<c>0x1424c60e0</c>), risk % (<c>0x1417698e0</c>), travel time (<c>0x1424c7c10</c>),
 /// <c>VillageShippingFailures</c> rows 1..20 indexing <c>VillageExports</c> 0..15, and port quotas bit-swap (<c>0x1417685b0</c>).
+/// All state reads/mutations flow exclusively through <see cref="IOperationsHost"/> using <c>town-idle</c>'s exact
+/// <c>ShipCargoBlob</c> schema and state enum (<c>3 = Commandeered</c>).
 /// </para>
 /// </summary>
 public sealed class VillageShippingService(IOperationsHost host)
 {
+    // Matches town-idle VillageTownState.TownShip.State enum (0=Idle, 1=Sailing, 2=Returned/RewardsReady, 3=Commandeered).
     public const int ShipStateIdle = 0;
     public const int ShipStateSailing = 1;
-    public const int ShipStateCommandeered = 2;
+    public const int ShipStateCommandeered = 3;
+    const int ShipStateResolving = 4;
+
+    static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    // Exact match to town-idle's VillageTownState.ShipCargoBlob.
+    sealed record ShipCargoBlob(uint[] Exports, uint Elapsed, uint Total);
 
     static readonly string[] CommonCurrencyNames =
     [
@@ -38,6 +52,49 @@ public sealed class VillageShippingService(IOperationsHost host)
         "Exalted Orb", "Divine Orb", "Orb of Annulment", "Sacred Orb", "Fracturing Shard",
         "Mirror Shard",
     ];
+
+    public static string SerializeCargoBlob(uint[] exports, uint elapsed, uint total)
+    {
+        var arr = new uint[OperationsData.ExportCount];
+        Array.Copy(exports, arr, Math.Min(exports.Length, arr.Length));
+        return JsonSerializer.Serialize(new ShipCargoBlob(arr, elapsed, total), JsonOpts);
+    }
+
+    public static uint[] ParseCargo(string cargoJson)
+    {
+        var result = new uint[OperationsData.ExportCount];
+        if (string.IsNullOrWhiteSpace(cargoJson)) return result;
+        try
+        {
+            using var doc = JsonDocument.Parse(cargoJson);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                if ((doc.RootElement.TryGetProperty("exports", out var ex) || doc.RootElement.TryGetProperty("Exports", out ex))
+                    && ex.ValueKind == JsonValueKind.Array)
+                {
+                    int i = 0;
+                    foreach (var el in ex.EnumerateArray())
+                    {
+                        if (i >= result.Length) break;
+                        if (el.TryGetUInt32(out uint v)) result[i] = v;
+                        i++;
+                    }
+                }
+            }
+            else if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                int i = 0;
+                foreach (var el in doc.RootElement.EnumerateArray())
+                {
+                    if (i >= result.Length) break;
+                    if (el.TryGetUInt32(out uint v)) result[i] = v;
+                    i++;
+                }
+            }
+        }
+        catch { }
+        return result;
+    }
 
     /// <summary>Exact shipment value formula (<c>0x1424c60e0</c>).</summary>
     public static (ulong BaseValue, double DustMultiplier, ulong ShipmentValue) ComputeShipmentValue(ReadOnlySpan<uint> exportAmounts)
@@ -128,21 +185,19 @@ public sealed class VillageShippingService(IOperationsHost host)
     {
         OperationsData.EnsureLoaded();
         var (account, league) = VillageStore.ScopeOf(player);
-        var (ships, quotasByPort) = host.WithTownLock(account, league, () =>
+        var (ships, quotasByPort) = host.MutateSnapshot(account, league, snap =>
         {
-            var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
             var ensured = EnsurePortQuotas(snap);
-            if (!ReferenceEquals(ensured, snap)) VillageStore.Save(ensured);
             var byPort = new Dictionary<int, List<VillageStore.PortQuotaRow>>();
             foreach (var q in ensured.PortQuotas)
                 (byPort.TryGetValue(q.PortId, out var l) ? l : byPort[q.PortId] = []).Add(q);
-            return (ensured.Ships.ToList(), byPort);
-        });
+            return (ReferenceEquals(ensured, snap) ? null : ensured, (ensured.Ships.ToList(), byPort));
+        }, persistNow: true);
 
         for (int i = 0; i < OperationsData.ShipCount; i++)
         {
             var ship = ships.FirstOrDefault(s => s.ShipIndex == i);
-            byte portRow = ship is { State: not ShipStateIdle } && ship.PortId is >= 1 and <= OperationsData.PortCount
+            byte portRow = ship is { State: ShipStateSailing or ShipStateCommandeered } && ship.PortId is >= 1 and <= OperationsData.PortCount
                 ? (byte)ship.PortId
                 : InstanceVillage.NoneRow;
             byte failRow = ship is { EventId: > 0 } ? (byte)ship.EventId : InstanceVillage.NoneRow;
@@ -159,7 +214,7 @@ public sealed class VillageShippingService(IOperationsHost host)
         }
     }
 
-    /// <summary>C→S <c>0x02ca</c> subtag <c>0x06</c>: SendShipment.</summary>
+    /// <summary>C→S <c>0x02ca</c> subtag <c>0x06</c>: SendShipment (atomic check + resource deduction + ship launch in one lock).</summary>
     public async Task<bool> HandleSendShipmentAsync(Player player, InstanceVillage.SendShipmentCommand cmd)
     {
         OperationsData.EnsureLoaded();
@@ -167,13 +222,6 @@ public sealed class VillageShippingService(IOperationsHost host)
         if (cmd.PortRow < 1 || cmd.PortRow > OperationsData.PortCount) return true;
 
         var (account, league) = VillageStore.ScopeOf(player);
-        var crew = host.GetWorkersForJob(account, league, (byte)(OperationsData.JobShippingFirst + cmd.ShipIndex));
-        if (crew.Count == 0)
-        {
-            if (player.Commands is { } cmds) await cmds.Reply("Assign at least one sailor to this ship before sending a shipment.");
-            return true;
-        }
-
         var (_, _, shipmentValue) = ComputeShipmentValue(cmd.ExportAmounts);
         if (shipmentValue < OperationsData.MinShipmentValue || shipmentValue > OperationsData.MaxShipmentValue)
         {
@@ -182,21 +230,6 @@ public sealed class VillageShippingService(IOperationsHost host)
             return true;
         }
 
-        // Validate ship is idle and has no blocking uncollected rewards.
-        if (OperationsSubsystem.Rewards.HasAnyRewards(account, league, VillageRewardsService.SourceShipping, cmd.ShipIndex))
-        {
-            if (player.Commands is { } cmds) await cmds.Reply("Claim or discard this ship's previous rewards before sending a new shipment.");
-            return true;
-        }
-        bool shipReady = host.WithTownLock(account, league, () =>
-        {
-            var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
-            var ship = snap.Ships.FirstOrDefault(s => s.ShipIndex == cmd.ShipIndex);
-            return ship is null || ship.State == ShipStateIdle;
-        });
-        if (!shipReady) return true;
-
-        // Build resource deduction list mapping VillageExports 0..15 -> VillageResources rows.
         var costs = new List<(int ResourceId, uint Amount)>();
         var exports = OperationsData.Exports;
         for (int i = 0; i < OperationsData.ExportCount && i < cmd.ExportAmounts.Length; i++)
@@ -207,25 +240,43 @@ public sealed class VillageShippingService(IOperationsHost host)
             costs.Add((resRow, amt));
         }
 
-        if (!host.TrySpendResources(account, league, costs))
-        {
-            if (player.Commands is { } cmds) await cmds.Reply("Not enough resources in Kingsmarch storage for this shipment.");
-            return true;
-        }
-
-        int crewPower = crew.Sum(w => OperationsData.WorkerPowerForRank(w.ShippingRank));
         var settings = host.Settings;
-        int riskPct = ComputeRiskPercent(shipmentValue, cmd.PortRow, crewPower, crew.Count, settings.ShippingRiskMultiplier);
-        var (_, travelSec) = ComputeTravelTime(cmd.PortRow, 0, settings.ShippingSpeedMultiplier);
+        var (progressTarget, travelSec) = ComputeTravelTime(cmd.PortRow, 0, settings.ShippingSpeedMultiplier);
         long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         long arrival = now + travelSec;
-        string cargoJson = JsonSerializer.Serialize(cmd.ExportAmounts);
-        string crewJson = JsonSerializer.Serialize(crew.Select(w => w.WorkerId).ToArray());
+        byte shipJobRow = (byte)(OperationsData.JobShippingFirst + cmd.ShipIndex);
 
-        host.WithTownLock(account, league, () =>
+        var launch = host.MutateSnapshot<(string? Error, int RiskPct)>(account, league, snap =>
         {
-            var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
-            var ships = snap.Ships.Where(s => s.ShipIndex != cmd.ShipIndex).ToList();
+            // Check uncollected rewards, idle ship, assigned crew, and deduct resources ATOMICALLY inside one lock.
+            if (snap.RewardItems.Any(r => r.SourceKind == VillageRewardsService.SourceShipping && r.SourceIndex == cmd.ShipIndex))
+                return (null, ("Claim or discard this ship's previous rewards before sending a new shipment.", 0));
+
+            var ship = snap.Ships.FirstOrDefault(s => s.ShipIndex == cmd.ShipIndex);
+            if (ship is not null && ship.State != ShipStateIdle)
+                return (null, ("This ship is already busy.", 0));
+
+            var crew = new List<(long Id, int ShipRank)>();
+            foreach (var w in snap.Workers)
+            {
+                if (w.Status == 0 && (byte)w.AssignedJob == shipJobRow)
+                {
+                    var (_, _, shipRank) = StandaloneOperationsHost.ParseWorkerRanks(w.SkillsJson);
+                    crew.Add((w.WorkerId, shipRank));
+                }
+            }
+            if (crew.Count == 0)
+                return (null, ("Assign at least one sailor to this ship before sending a shipment.", 0));
+
+            if (!StandaloneOperationsHost.TryDeductResourcesFromSnapshot(snap, costs, out var afterSpend))
+                return (null, ("Not enough resources in Kingsmarch storage for this shipment.", 0));
+
+            int crewPower = crew.Sum(c => OperationsData.WorkerPowerForRank(c.ShipRank));
+            int riskPct = ComputeRiskPercent(shipmentValue, cmd.PortRow, crewPower, crew.Count, settings.ShippingRiskMultiplier);
+            string cargoJson = SerializeCargoBlob(cmd.ExportAmounts, 0, progressTarget);
+            string crewJson = JsonSerializer.Serialize(crew.Select(c => c.Id).ToArray());
+
+            var ships = afterSpend.Ships.Where(s => s.ShipIndex != cmd.ShipIndex).ToList();
             ships.Add(new VillageStore.ShipRow(
                 cmd.ShipIndex,
                 ShipStateSailing,
@@ -240,16 +291,23 @@ public sealed class VillageShippingService(IOperationsHost host)
                 0,
                 false));
             ships.Sort((a, b) => a.ShipIndex.CompareTo(b.ShipIndex));
-            VillageStore.Save(snap with
+
+            var next = afterSpend with
             {
-                Town = snap.Town with { NextShipmentId = snap.Town.NextShipmentId + 1 },
+                Town = afterSpend.Town with { NextShipmentId = afterSpend.Town.NextShipmentId + 1 },
                 Ships = ships,
-            });
+            };
+            return (next, (null, riskPct));
+        }, persistNow: true);
+
+        if (launch.Error is { } err)
+        {
+            if (player.Commands is { } cmds) await cmds.Reply(err);
             return true;
-        });
+        }
 
         await Send(player, InstanceVillage.ShipUpdate(cmd.ShipIndex, cmd.PortRow, InstanceVillage.NoneRow, cmd.ExportAmounts),
-            $"0x02c9 village ShipUpdate(ship={cmd.ShipIndex}, port={cmd.PortRow}, val={shipmentValue}, risk={riskPct}%, eta={travelSec}s)");
+            $"0x02c9 village ShipUpdate(ship={cmd.ShipIndex}, port={cmd.PortRow}, val={shipmentValue}, risk={launch.RiskPct}%, eta={travelSec}s)");
         await host.SyncFullVillageStateAsync(player);
         return true;
     }
@@ -259,18 +317,17 @@ public sealed class VillageShippingService(IOperationsHost host)
     {
         if (cmd.ShipIndex >= OperationsData.ShipCount) return true;
         var (account, league) = VillageStore.ScopeOf(player);
-        bool cancelled = host.WithTownLock(account, league, () =>
+        bool cancelled = host.MutateSnapshot(account, league, snap =>
         {
-            var snap = VillageStore.Load(account, league);
-            if (snap is null) return false;
             var ship = snap.Ships.FirstOrDefault(s => s.ShipIndex == cmd.ShipIndex);
-            if (ship is null || ship.State != ShipStateSailing) return false;
+            if (ship is null || ship.State != ShipStateSailing) return (null, false);
             var ships = snap.Ships.Where(s => s.ShipIndex != cmd.ShipIndex).ToList();
-            ships.Add(new VillageStore.ShipRow(cmd.ShipIndex, ShipStateIdle, 0, 0, 0, 0, 0, "[]", "[]", 0, 0, false));
+            ships.Add(new VillageStore.ShipRow(cmd.ShipIndex, ShipStateIdle, 0, 0, 0, 0, 0,
+                SerializeCargoBlob(new uint[OperationsData.ExportCount], 0, 0), "[]", 0, 0, false));
             ships.Sort((a, b) => a.ShipIndex.CompareTo(b.ShipIndex));
-            VillageStore.Save(snap with { Ships = ships });
-            return true;
-        });
+            return (snap with { Ships = ships }, true);
+        }, persistNow: true);
+
         if (!cancelled) return true;
 
         await Send(player, InstanceVillage.ShipUpdate(cmd.ShipIndex, InstanceVillage.NoneRow, InstanceVillage.NoneRow, new uint[OperationsData.ExportCount]),
@@ -286,11 +343,8 @@ public sealed class VillageShippingService(IOperationsHost host)
         if (cmd.PortRow < 1 || cmd.PortRow > OperationsData.PortCount) return true;
 
         var (account, league) = VillageStore.ScopeOf(player);
-        bool shipEnRoute = host.WithTownLock(account, league, () =>
-        {
-            var snap = VillageStore.Load(account, league);
-            return snap?.Ships.Any(s => s.State == ShipStateSailing && s.PortId == cmd.PortRow) ?? false;
-        });
+        bool shipEnRoute = host.ReadSnapshot(account, league)?.Ships
+            .Any(s => s.State == ShipStateSailing && s.PortId == cmd.PortRow) ?? false;
         if (shipEnRoute)
         {
             if (player.Commands is { } cmds) await cmds.Reply("Cannot reroll port quotas while a ship is en route to that port.");
@@ -303,20 +357,18 @@ public sealed class VillageShippingService(IOperationsHost host)
             return true;
         }
 
-        List<VillageStore.PortQuotaRow> newQuotas = host.WithTownLock(account, league, () =>
+        List<VillageStore.PortQuotaRow> newQuotas = host.MutateSnapshot(account, league, snap =>
         {
-            var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
             int seed = unchecked((int)(snap.Town.ShippingSeed ^ (cmd.PortRow * 7919) ^ DateTimeOffset.UtcNow.Ticks));
             var generated = GeneratePortQuotas(cmd.PortRow, new Random(seed));
             var all = snap.PortQuotas.Where(q => q.PortId != cmd.PortRow).Concat(generated)
                 .OrderBy(q => q.PortId).ThenBy(q => q.QuotaIndex).ToList();
-            VillageStore.Save(snap with
+            return (snap with
             {
                 Town = snap.Town with { ShippingSeed = snap.Town.ShippingSeed + 1 },
                 PortQuotas = all,
-            });
-            return generated;
-        });
+            }, generated);
+        }, persistNow: true);
 
         await Send(player, InstanceVillage.PortQuotas((byte)(cmd.PortRow - 1), BuildQuotaWireSlots(newQuotas)),
             $"0x02c9 village PortQuotas(portIdx={cmd.PortRow - 1}, rerolled)");
@@ -363,15 +415,14 @@ public sealed class VillageShippingService(IOperationsHost host)
             (byte)(OperationsData.JobShippingFirst + shipIdx),
             (byte)(OperationsData.JobLostAtSeaFirst + shipIdx));
 
-        host.WithTownLock(account, league, () =>
+        host.MutateSnapshot(account, league, snap =>
         {
-            var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
             var ships = snap.Ships.Where(s => s.ShipIndex != shipIdx).ToList();
-            ships.Add(new VillageStore.ShipRow(shipIdx, ShipStateIdle, 0, 0, 0, 0, 0, "[]", "[]", 0, 0, false));
+            ships.Add(new VillageStore.ShipRow(shipIdx, ShipStateIdle, 0, 0, 0, 0, 0,
+                SerializeCargoBlob(new uint[OperationsData.ExportCount], 0, 0), "[]", 0, 0, false));
             ships.Sort((a, b) => a.ShipIndex.CompareTo(b.ShipIndex));
-            VillageStore.Save(snap with { Ships = ships });
-            return true;
-        });
+            return (snap with { Ships = ships }, true);
+        }, persistNow: true);
 
         await Send(player, InstanceVillage.ShipUpdate((byte)shipIdx, InstanceVillage.NoneRow, InstanceVillage.NoneRow, new uint[OperationsData.ExportCount]),
             $"0x02c9 village ShipUpdate(ship={shipIdx}, abandoned)");
@@ -388,19 +439,22 @@ public sealed class VillageShippingService(IOperationsHost host)
         await CompleteCommandeeredShipAsync(player, shipIdx, rescueBonus: true);
     }
 
-    /// <summary>Checks arrived voyages on tick / offline catch-up and resolves failures, ambushes, quotas, and rewards.</summary>
+    /// <summary>Atomically claims arrived voyages and resolves failures, ambushes, quotas, and rewards (never double-resolves).</summary>
     public async Task<bool> TickAsync(Player player, double elapsedSeconds)
     {
         OperationsData.EnsureLoaded();
         var (account, league) = VillageStore.ScopeOf(player);
         long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
-        List<VillageStore.ShipRow> arrived = host.WithTownLock(account, league, () =>
+        // Atomically transition arrived Sailing ships -> ShipStateResolving inside one lock so concurrent ticks cannot double-award.
+        List<VillageStore.ShipRow> arrived = host.MutateSnapshot(account, league, snap =>
         {
-            var snap = VillageStore.Load(account, league);
-            if (snap is null) return [];
-            return snap.Ships.Where(s => s.State == ShipStateSailing && s.ArrivalUtc > 0 && now >= s.ArrivalUtc).ToList();
-        });
+            var due = snap.Ships.Where(s => s.State == ShipStateSailing && s.ArrivalUtc > 0 && now >= s.ArrivalUtc).ToList();
+            if (due.Count == 0) return (null, new List<VillageStore.ShipRow>());
+            var dueIds = due.Select(s => s.ShipIndex).ToHashSet();
+            var nextShips = snap.Ships.Select(s => dueIds.Contains(s.ShipIndex) ? s with { State = ShipStateResolving } : s).ToList();
+            return (snap with { Ships = nextShips }, due);
+        }, persistNow: false);
 
         if (arrived.Count == 0) return false;
 
@@ -424,9 +478,9 @@ public sealed class VillageShippingService(IOperationsHost host)
 
         if (ambushChance > 0 && rng.NextDouble() < ambushChance)
         {
-            host.WithTownLock(account, league, () =>
+            var (target, _) = ComputeTravelTime(ship.PortId, 0, 1.0);
+            host.MutateSnapshot(account, league, snap =>
             {
-                var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
                 var ships = snap.Ships.Where(s => s.ShipIndex != ship.ShipIndex).ToList();
                 ships.Add(ship with
                 {
@@ -434,11 +488,11 @@ public sealed class VillageShippingService(IOperationsHost host)
                     EventId = 1,
                     RansomGold = OperationsData.RansomCost,
                     BossPending = true,
+                    CargoJson = SerializeCargoBlob(cargo, target, target),
                 });
                 ships.Sort((a, b) => a.ShipIndex.CompareTo(b.ShipIndex));
-                VillageStore.Save(snap with { Ships = ships });
-                return true;
-            });
+                return (snap with { Ships = ships }, true);
+            }, persistNow: true);
 
             if (OperationsSubsystem.IsVillageArea(player))
             {
@@ -480,27 +534,26 @@ public sealed class VillageShippingService(IOperationsHost host)
                 {
                     long origDur = Math.Max(60, ship.ArrivalUtc - ship.DepartedUtc);
                     long extra = Math.Max(30, origDur * failure.DelayPercent / 100);
-                    host.WithTownLock(account, league, () =>
+                    host.MutateSnapshot(account, league, snap =>
                     {
-                        var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
                         var ships = snap.Ships.Where(s => s.ShipIndex != ship.ShipIndex).ToList();
                         ships.Add(ship with
                         {
+                            State = ShipStateSailing,
                             ArrivalUtc = now + extra,
                             EventId = failure.Row,
                             RiskPercent = 0, // Do not re-roll failure after delay
                         });
                         ships.Sort((a, b) => a.ShipIndex.CompareTo(b.ShipIndex));
-                        VillageStore.Save(snap with { Ships = ships });
-                        return true;
-                    });
+                        return (snap with { Ships = ships }, true);
+                    }, persistNow: true);
+
                     if (OperationsSubsystem.IsVillageArea(player))
                         await Send(player, InstanceVillage.ShipUpdate((byte)ship.ShipIndex, (byte)ship.PortId, (byte)failure.Row, cargo),
                             $"0x02c9 village ShipUpdate(ship={ship.ShipIndex}, delayed +{extra}s)");
                     return;
                 }
 
-                // Apply resource loss to matching VillageExports indices (or all if empty).
                 if (failure.ResourceLostPercent > 0)
                 {
                     if (failure.ExportIndices.Length > 0)
@@ -519,7 +572,6 @@ public sealed class VillageShippingService(IOperationsHost host)
                 if (failure.PortBonusLostPercent > 0)
                     rewardMultiplier *= Math.Max(0.0, (100 - failure.PortBonusLostPercent) / 100.0);
 
-                // Crew loss (rows 15..17).
                 if (failure.CrewMembersLost > 0)
                 {
                     var crew = host.GetWorkersForJob(account, league, (byte)(OperationsData.JobShippingFirst + ship.ShipIndex));
@@ -539,11 +591,14 @@ public sealed class VillageShippingService(IOperationsHost host)
     async Task CompleteCommandeeredShipAsync(Player player, int shipIdx, bool rescueBonus)
     {
         var (account, league) = VillageStore.ScopeOf(player);
-        var ship = host.WithTownLock(account, league, () =>
+        var ship = host.MutateSnapshot<VillageStore.ShipRow?>(account, league, snap =>
         {
-            var snap = VillageStore.Load(account, league);
-            return snap?.Ships.FirstOrDefault(s => s.ShipIndex == shipIdx);
-        });
+            var found = snap.Ships.FirstOrDefault(s => s.ShipIndex == shipIdx && s.BossPending && s.State == ShipStateCommandeered);
+            if (found is null) return (null, null);
+            var ships = snap.Ships.Select(s => s.ShipIndex == shipIdx ? s with { State = ShipStateResolving, BossPending = false } : s).ToList();
+            return (snap with { Ships = ships }, found);
+        }, persistNow: false);
+
         if (ship is null) return;
         uint[] cargo = ParseCargo(ship.CargoJson);
         double bonus = rescueBonus ? 1.35 : 1.0;
@@ -571,15 +626,14 @@ public sealed class VillageShippingService(IOperationsHost host)
             OperationsSubsystem.Rewards.AddRewards(account, league, VillageRewardsService.SourceShipping, ship.ShipIndex, rewards, ItemsFor(player).Mods);
         }
 
-        host.WithTownLock(account, league, () =>
+        host.MutateSnapshot(account, league, snap =>
         {
-            var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
             var ships = snap.Ships.Where(s => s.ShipIndex != ship.ShipIndex).ToList();
-            ships.Add(new VillageStore.ShipRow(ship.ShipIndex, ShipStateIdle, 0, 0, 0, 0, 0, "[]", "[]", failureRow, 0, false));
+            ships.Add(new VillageStore.ShipRow(ship.ShipIndex, ShipStateIdle, 0, 0, 0, 0, 0,
+                SerializeCargoBlob(new uint[OperationsData.ExportCount], 0, 0), "[]", failureRow, 0, false));
             ships.Sort((a, b) => a.ShipIndex.CompareTo(b.ShipIndex));
-            VillageStore.Save(snap with { Ships = ships });
-            return true;
-        });
+            return (snap with { Ships = ships }, true);
+        }, persistNow: true);
 
         if (OperationsSubsystem.IsVillageArea(player))
         {
@@ -599,11 +653,11 @@ public sealed class VillageShippingService(IOperationsHost host)
         string account, string league, int portRow, uint[] cargo)
     {
         if (portRow < 1 || portRow > OperationsData.PortCount) return (1.0, null);
-        return host.WithTownLock(account, league, () =>
+        return host.MutateSnapshot<(double, List<VillageStore.PortQuotaRow>?)>(account, league, snap =>
         {
-            var snap = EnsurePortQuotas(StandaloneOperationsHost.LoadOrCreate(account, league));
-            var portQuotas = snap.PortQuotas.Where(q => q.PortId == portRow).OrderBy(q => q.QuotaIndex).ToList();
-            if (portQuotas.Count == 0) return (1.0, (List<VillageStore.PortQuotaRow>?)null);
+            var ensured = EnsurePortQuotas(snap);
+            var portQuotas = ensured.PortQuotas.Where(q => q.PortId == portRow).OrderBy(q => q.QuotaIndex).ToList();
+            if (portQuotas.Count == 0) return (ReferenceEquals(ensured, snap) ? null : ensured, (1.0, null));
 
             double bonus = 1.0;
             bool changed = false;
@@ -624,26 +678,25 @@ public sealed class VillageShippingService(IOperationsHost host)
                 nextPortQuotas.Add(q with { FulfilledAmount = now });
             }
 
-            // If all 3 quotas for this port are now fulfilled, roll a fresh set of quotas with a completion bonus!
             if (nextPortQuotas.All(q => q.RequiredAmount > 0 && q.FulfilledAmount >= q.RequiredAmount))
             {
                 bonus += 0.25;
-                int seed = unchecked((int)(snap.Town.ShippingSeed ^ (portRow * 3571) ^ DateTimeOffset.UtcNow.Ticks));
+                int seed = unchecked((int)(ensured.Town.ShippingSeed ^ (portRow * 3571) ^ DateTimeOffset.UtcNow.Ticks));
                 nextPortQuotas = GeneratePortQuotas(portRow, new Random(seed));
                 changed = true;
             }
 
-            if (!changed) return (1.0, (List<VillageStore.PortQuotaRow>?)null);
+            if (!changed) return (ReferenceEquals(ensured, snap) ? null : ensured, (1.0, null));
 
-            var all = snap.PortQuotas.Where(q => q.PortId != portRow).Concat(nextPortQuotas)
+            var all = ensured.PortQuotas.Where(q => q.PortId != portRow).Concat(nextPortQuotas)
                 .OrderBy(q => q.PortId).ThenBy(q => q.QuotaIndex).ToList();
-            VillageStore.Save(snap with
+            var next = ensured with
             {
-                Town = snap.Town with { ShippingSeed = snap.Town.ShippingSeed + 1 },
+                Town = ensured.Town with { ShippingSeed = ensured.Town.ShippingSeed + 1 },
                 PortQuotas = all,
-            });
-            return (bonus, nextPortQuotas);
-        });
+            };
+            return (next, (bonus, nextPortQuotas));
+        }, persistNow: true);
     }
 
     static List<Item> GenerateShipmentRewards(
@@ -673,11 +726,9 @@ public sealed class VillageShippingService(IOperationsHost host)
         double cropShare = cropVal / totalResourceVal;
         double oreShare = oreVal / totalResourceVal;
 
-        // Number of reward rolls scales smoothly from 4 (50k min shipment) up to ~48 (50M max shipment).
-        double valueScale = Math.Log10(Math.Max(10_000.0, effectiveValue)) - 3.5; // ~1.2 at 50k, ~4.2 at 50M
+        double valueScale = Math.Log10(Math.Max(10_000.0, effectiveValue)) - 3.5;
         int totalRolls = Math.Clamp((int)Math.Round(valueScale * 9.5 * (hadQuotaBonus ? 1.15 : 1.0)), 3, 48);
 
-        // 1. Active 3.29 Runegrafts (BaseItemTypes 5250-5284, excluding [DNT - UNUSED]).
         if (OperationsData.ActiveRunegrafts.Length > 0)
         {
             double runegraftBudget = (effectiveValue / 250_000.0) * (isKarui ? 0.85 : 1.35);
@@ -691,7 +742,6 @@ public sealed class VillageShippingService(IOperationsHost host)
             }
         }
 
-        // 2. Currency barter rewards (heavily weighted by crops + value tier).
         int currencyRolls = Math.Clamp((int)Math.Round(totalRolls * (0.35 + cropShare * 0.45)), 2, 32);
         var currencyCounts = new Dictionary<uint, (ItemCatalog.BaseType Type, int Count)>();
         for (int i = 0; i < currencyRolls; i++)
@@ -724,7 +774,6 @@ public sealed class VillageShippingService(IOperationsHost host)
             }
         }
 
-        // 3. Equipment & Uniques (heavily weighted by ores/bars & Thaumaturgic Dust multiplier).
         int equipRolls = Math.Clamp((int)Math.Round(totalRolls * (0.20 + oreShare * 0.45)), 1, 16);
         int itemLevel = Math.Clamp(Math.Max(75, (int)player.Pools.Level + 2), 68, 86);
         var equipBases = catalog.All.Where(t =>
@@ -753,14 +802,14 @@ public sealed class VillageShippingService(IOperationsHost host)
         return results;
     }
 
-    int FindCommandeeredShip(string account, string league) => host.WithTownLock(account, league, () =>
+    int FindCommandeeredShip(string account, string league)
     {
-        var snap = VillageStore.Load(account, league);
+        var snap = host.ReadSnapshot(account, league);
         if (snap is null) return -1;
         foreach (var s in snap.Ships)
             if (s.BossPending && s.State == ShipStateCommandeered) return s.ShipIndex;
         return -1;
-    });
+    }
 
     static VillageStore.TownSnapshot EnsurePortQuotas(VillageStore.TownSnapshot snap)
     {
@@ -783,7 +832,6 @@ public sealed class VillageShippingService(IOperationsHost host)
 
     static List<VillageStore.PortQuotaRow> GeneratePortQuotas(int portRow, Random rng)
     {
-        // Choose 3 distinct export indices from 0..14 (bars 5..9 and crops 10..14 are favoured at high quota tier).
         var pool = Enumerable.Range(0, 15).ToList();
         var port = portRow >= 1 && portRow < OperationsData.Ports.Length ? OperationsData.Ports[portRow] : OperationsData.Ports[1];
         double distScale = 1.0 + port.DistanceFromPort / 1200.0;
@@ -817,19 +865,5 @@ public sealed class VillageShippingService(IOperationsHost host)
                 (uint)Math.Clamp(r.FulfilledAmount, 0, 0x0fffffffL));
         }
         return slots;
-    }
-
-    static uint[] ParseCargo(string cargoJson)
-    {
-        var result = new uint[OperationsData.ExportCount];
-        if (string.IsNullOrWhiteSpace(cargoJson)) return result;
-        try
-        {
-            var arr = JsonSerializer.Deserialize<uint[]>(cargoJson);
-            if (arr is not null)
-                Array.Copy(arr, result, Math.Min(arr.Length, result.Length));
-        }
-        catch { }
-        return result;
     }
 }

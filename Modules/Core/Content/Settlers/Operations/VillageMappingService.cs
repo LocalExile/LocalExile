@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Modules.Settlers.Operations;
@@ -8,18 +9,40 @@ namespace GameServer.Modules.Settlers.Operations;
 /// <para>
 /// Implements exact 3.29.3c T1–T17 simulation formulas from <c>Client/Game.exe</c> (<c>0x1424c7140</c>, <c>0x1424c7580</c>,
 /// <c>0x1424c6880</c>), Bandit Lord capture ambush (Sasan in Abandoned Port), and map loot generation into <c>village_reward_items</c>.
+/// All state flows exclusively through <see cref="IOperationsHost"/> using <c>town-idle</c>'s exact <c>MapSummaryBlob</c>
+/// JSON schema and state enum (<c>3 = Kidnapped</c>), with in-memory progress updates (<c>persistNow: false</c>) during active runs.
 /// </para>
 /// </summary>
 public sealed class VillageMappingService(IOperationsHost host)
 {
+    // Matches town-idle VillageTownState.TownMapDevice.State enum (0=Idle, 1=Running, 2=Paused/Done, 3=Kidnapped).
     public const int DeviceStateIdle = 0;
     public const int DeviceStateRunning = 1;
-    public const int DeviceStateKidnapped = 2;
+    public const int DeviceStateKidnapped = 3;
 
     // MapDeviceState StateFlags1 bits: bit 0 = running, bit 1 = pause after current map, bit 2 = failed/lost mapper ack needed.
     public const byte FlagRunning = 0x01;
     public const byte FlagPauseAfterCurrent = 0x02;
     public const byte FlagFailedAckPending = 0x04;
+
+    static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    // Exact match to town-idle's VillageTownState.MapSummaryBlob.
+    sealed record MapSummaryBlob(uint Elapsed, uint Total, byte F1, byte F2, List<byte> Percents, string CurrentMapName, string? Extra);
+
+    // Extra run simulation parameters stored cleanly inside MapSummaryBlob.Extra.
+    sealed record MapRunExtra(
+        int MapTier,
+        int MapIIQ,
+        int MinPct,
+        int MaxPct,
+        int DeathChancePct,
+        double ElapsedProgress,
+        double ProgressPerSecond);
 
     sealed record DeviceSummary(
         string CurrentMapName,
@@ -40,7 +63,7 @@ public sealed class VillageMappingService(IOperationsHost host)
     {
         OperationsData.EnsureLoaded();
         int explicitModCount = 0;
-        int mapIIQ = mapItem.Quality; // Chisel quality adds directly to IIQ
+        int mapIIQ = mapItem.Quality;
         int bonusFromStats = 0;
 
         var bonusByStat = OperationsData.MappingBonusStats;
@@ -102,11 +125,7 @@ public sealed class VillageMappingService(IOperationsHost host)
         {
             if (d.DeviceIndex < 0 || d.DeviceIndex >= states.Length) continue;
             var summary = ParseSummary(d.SummaryJson);
-            byte flags1 = 0;
-            if (d.State == DeviceStateRunning) flags1 |= FlagRunning;
-            if (summary.PauseAfterCurrent) flags1 |= FlagPauseAfterCurrent;
-            if (summary.FailedAckPending) flags1 |= FlagFailedAckPending;
-
+            byte flags1 = BuildFlags1(d.State == DeviceStateRunning, summary.PauseAfterCurrent, summary.FailedAckPending);
             uint target = summary.ProgressTarget > 0 ? summary.ProgressTarget : (uint)Math.Max(0, d.MapDurationSeconds * 100);
             uint elapsed = d.State == DeviceStateRunning
                 ? (uint)Math.Clamp((long)Math.Round(summary.ElapsedProgress), 0, target)
@@ -143,17 +162,15 @@ public sealed class VillageMappingService(IOperationsHost host)
     public async Task SyncCurrentMapNamesAsync(Player player)
     {
         var (account, league) = VillageStore.ScopeOf(player);
-        var names = host.WithTownLock(account, league, () =>
+        var snap = host.ReadSnapshot(account, league);
+        var names = new string[OperationsData.MapDeviceCount];
+        Array.Fill(names, "");
+        if (snap is not null)
         {
-            var snap = VillageStore.Load(account, league);
-            var arr = new string[OperationsData.MapDeviceCount];
-            Array.Fill(arr, "");
-            if (snap is null) return arr;
             foreach (var d in snap.MapDevices)
-                if (d.DeviceIndex >= 0 && d.DeviceIndex < arr.Length && d.State == DeviceStateRunning)
-                    arr[d.DeviceIndex] = ParseSummary(d.SummaryJson).CurrentMapName;
-            return arr;
-        });
+                if (d.DeviceIndex >= 0 && d.DeviceIndex < names.Length && d.State == DeviceStateRunning)
+                    names[d.DeviceIndex] = ParseSummary(d.SummaryJson).CurrentMapName;
+        }
 
         for (int i = 0; i < names.Length; i++)
             await Send(player, InstanceVillage.MapDeviceCurrentMapName((byte)i, names[i]),
@@ -177,12 +194,10 @@ public sealed class VillageMappingService(IOperationsHost host)
         if (cmd.MapDeviceIndex >= OperationsData.MapDeviceCount) return true;
         var (account, league) = VillageStore.ScopeOf(player);
 
-        bool stopped = host.WithTownLock(account, league, () =>
+        bool stopped = host.MutateSnapshot(account, league, snap =>
         {
-            var snap = VillageStore.Load(account, league);
-            if (snap is null) return false;
             var dev = snap.MapDevices.FirstOrDefault(d => d.DeviceIndex == cmd.MapDeviceIndex);
-            if (dev is null || dev.State != DeviceStateRunning) return false;
+            if (dev is null || dev.State != DeviceStateRunning) return (null, false);
             var summary = ParseSummary(dev.SummaryJson);
             var nextSummary = summary with { CurrentMapName = "", PauseAfterCurrent = false, ElapsedProgress = 0, ProgressTarget = 0 };
             var devices = snap.MapDevices.Where(d => d.DeviceIndex != cmd.MapDeviceIndex).ToList();
@@ -192,12 +207,11 @@ public sealed class VillageMappingService(IOperationsHost host)
                 ActiveMapSlot = -1,
                 MapStartedUtc = 0,
                 MapDurationSeconds = 0,
-                SummaryJson = JsonSerializer.Serialize(nextSummary),
+                SummaryJson = SerializeSummary(nextSummary, running: false),
             });
             devices.Sort((a, b) => a.DeviceIndex.CompareTo(b.DeviceIndex));
-            VillageStore.Save(snap with { MapDevices = devices });
-            return true;
-        });
+            return (snap with { MapDevices = devices }, true);
+        }, persistNow: true);
 
         if (stopped)
         {
@@ -214,18 +228,16 @@ public sealed class VillageMappingService(IOperationsHost host)
         if (cmd.MapDeviceIndex >= OperationsData.MapDeviceCount) return true;
         var (account, league) = VillageStore.ScopeOf(player);
 
-        host.WithTownLock(account, league, () =>
+        host.MutateSnapshot(account, league, snap =>
         {
-            var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
             var dev = snap.MapDevices.FirstOrDefault(d => d.DeviceIndex == cmd.MapDeviceIndex)
                 ?? new VillageStore.MapDeviceRow(cmd.MapDeviceIndex, DeviceStateIdle, -1, 0, 0, 0, 0, false, 0, "[]", "{}");
             var summary = ParseSummary(dev.SummaryJson) with { PauseAfterCurrent = cmd.Suspend };
             var devices = snap.MapDevices.Where(d => d.DeviceIndex != cmd.MapDeviceIndex).ToList();
-            devices.Add(dev with { SummaryJson = JsonSerializer.Serialize(summary) });
+            devices.Add(dev with { SummaryJson = SerializeSummary(summary, running: dev.State == DeviceStateRunning) });
             devices.Sort((a, b) => a.DeviceIndex.CompareTo(b.DeviceIndex));
-            VillageStore.Save(snap with { MapDevices = devices });
-            return true;
-        });
+            return (snap with { MapDevices = devices }, true);
+        }, persistNow: true);
 
         await host.SyncFullVillageStateAsync(player);
         return true;
@@ -237,18 +249,16 @@ public sealed class VillageMappingService(IOperationsHost host)
         if (cmd.MapDeviceIndex >= OperationsData.MapDeviceCount) return true;
         var (account, league) = VillageStore.ScopeOf(player);
 
-        host.WithTownLock(account, league, () =>
+        host.MutateSnapshot(account, league, snap =>
         {
-            var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
             var dev = snap.MapDevices.FirstOrDefault(d => d.DeviceIndex == cmd.MapDeviceIndex);
-            if (dev is null) return false;
+            if (dev is null) return (null, false);
             var summary = ParseSummary(dev.SummaryJson) with { FailedAckPending = false };
             var devices = snap.MapDevices.Where(d => d.DeviceIndex != cmd.MapDeviceIndex).ToList();
-            devices.Add(dev with { SummaryJson = JsonSerializer.Serialize(summary) });
+            devices.Add(dev with { SummaryJson = SerializeSummary(summary, running: dev.State == DeviceStateRunning) });
             devices.Sort((a, b) => a.DeviceIndex.CompareTo(b.DeviceIndex));
-            VillageStore.Save(snap with { MapDevices = devices });
-            return true;
-        });
+            return (snap with { MapDevices = devices }, true);
+        }, persistNow: true);
 
         await host.SyncFullVillageStateAsync(player);
         return true;
@@ -293,11 +303,10 @@ public sealed class VillageMappingService(IOperationsHost host)
             (byte)(OperationsData.JobMappingFirst + devIdx),
             (byte)(OperationsData.JobLostMappingFirst + devIdx));
 
-        host.WithTownLock(account, league, () =>
+        host.MutateSnapshot(account, league, snap =>
         {
-            var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
             var dev = snap.MapDevices.FirstOrDefault(d => d.DeviceIndex == devIdx);
-            if (dev is null) return false;
+            if (dev is null) return (null, false);
             var summary = ParseSummary(dev.SummaryJson) with { CurrentMapName = "", ElapsedProgress = 0, ProgressTarget = 0, FailedAckPending = true };
             var devices = snap.MapDevices.Where(d => d.DeviceIndex != devIdx).ToList();
             devices.Add(dev with
@@ -306,12 +315,11 @@ public sealed class VillageMappingService(IOperationsHost host)
                 ActiveMapSlot = -1,
                 BossAmbushPending = false,
                 RansomGold = 0,
-                SummaryJson = JsonSerializer.Serialize(summary),
+                SummaryJson = SerializeSummary(summary, running: false),
             });
             devices.Sort((a, b) => a.DeviceIndex.CompareTo(b.DeviceIndex));
-            VillageStore.Save(snap with { MapDevices = devices });
-            return true;
-        });
+            return (snap with { MapDevices = devices }, true);
+        }, persistNow: true);
 
         await host.SyncFullVillageStateAsync(player);
         return true;
@@ -326,23 +334,18 @@ public sealed class VillageMappingService(IOperationsHost host)
         await ReleaseKidnappedDeviceAsync(player, account, league, devIdx, rescueBonus: true);
     }
 
-    /// <summary>Advances active map devices by <paramref name="elapsedSeconds"/> and completes finished maps.</summary>
+    /// <summary>Advances active map devices in memory (<c>persistNow: false</c>) and flushes SQLite on map completion.</summary>
     public async Task<bool> TickAsync(Player player, double elapsedSeconds)
     {
         OperationsData.EnsureLoaded();
         var (account, league) = VillageStore.ScopeOf(player);
 
-        // Require treasury gold (unless gold burn is disabled via settings) to advance mapping runs.
         if (host.Settings.GoldBurnRateMultiplier > 0 && host.GetTreasuryGold(account, league) == 0)
             return false;
 
-        List<int> activeDevices = host.WithTownLock(account, league, () =>
-        {
-            var snap = VillageStore.Load(account, league);
-            if (snap is null) return [];
-            return snap.MapDevices.Where(d => d.State == DeviceStateRunning).Select(d => d.DeviceIndex).ToList();
-        });
-
+        var snapNow = host.ReadSnapshot(account, league);
+        if (snapNow is null) return false;
+        var activeDevices = snapNow.MapDevices.Where(d => d.State == DeviceStateRunning).Select(d => d.DeviceIndex).ToList();
         if (activeDevices.Count == 0) return false;
 
         bool anyChanged = false;
@@ -352,30 +355,36 @@ public sealed class VillageMappingService(IOperationsHost host)
             int safety = 0;
             while (remaining > 0 && safety++ < 12)
             {
-                var step = host.WithTownLock<(bool Completed, double Left, DeviceSummary? Summary, VillageStore.MapDeviceRow? Device)>(account, league, () =>
-                {
-                    var snap = VillageStore.Load(account, league);
-                    var dev = snap?.MapDevices.FirstOrDefault(d => d.DeviceIndex == devIdx);
-                    if (snap is null || dev is null || dev.State != DeviceStateRunning)
-                        return (false, 0.0, null, null);
-
-                    var summary = ParseSummary(dev.SummaryJson);
-                    double rate = Math.Max(1.0, summary.ProgressPerSecond);
-                    double target = Math.Max(100.0, summary.ProgressTarget);
-                    double next = summary.ElapsedProgress + remaining * rate;
-                    if (next < target)
+                var step = host.MutateSnapshot<(bool Completed, double Left, DeviceSummary? Summary, VillageStore.MapDeviceRow? Device)>(
+                    account,
+                    league,
+                    snap =>
                     {
-                        var updated = summary with { ElapsedProgress = next };
-                        var devices = snap.MapDevices.Where(d => d.DeviceIndex != devIdx).ToList();
-                        devices.Add(dev with { SummaryJson = JsonSerializer.Serialize(updated) });
-                        devices.Sort((a, b) => a.DeviceIndex.CompareTo(b.DeviceIndex));
-                        VillageStore.Save(snap with { MapDevices = devices });
-                        return (false, 0.0, updated, dev);
-                    }
+                        var dev = snap.MapDevices.FirstOrDefault(d => d.DeviceIndex == devIdx);
+                        if (dev is null || dev.State != DeviceStateRunning)
+                            return (null, (false, 0.0, null, null));
 
-                    double usedSec = Math.Max(0.0, (target - summary.ElapsedProgress) / rate);
-                    return (true, Math.Max(0.0, remaining - usedSec), summary, dev);
-                });
+                        var summary = ParseSummary(dev.SummaryJson);
+                        double rate = Math.Max(1.0, summary.ProgressPerSecond);
+                        double target = Math.Max(100.0, summary.ProgressTarget);
+                        double next = summary.ElapsedProgress + remaining * rate;
+                        if (next < target)
+                        {
+                            var updated = summary with { ElapsedProgress = next };
+                            var devices = snap.MapDevices.Where(d => d.DeviceIndex != devIdx).ToList();
+                            devices.Add(dev with { SummaryJson = SerializeSummary(updated, running: true) });
+                            devices.Sort((a, b) => a.DeviceIndex.CompareTo(b.DeviceIndex));
+                            return (snap with { MapDevices = devices }, (false, 0.0, updated, dev));
+                        }
+
+                        double usedSec = Math.Max(0.0, (target - summary.ElapsedProgress) / rate);
+                        // Transition to Idle inside lock so concurrent ticks cannot double-complete the same map.
+                        var devicesDone = snap.MapDevices.Where(d => d.DeviceIndex != devIdx).ToList();
+                        devicesDone.Add(dev with { State = DeviceStateIdle });
+                        devicesDone.Sort((a, b) => a.DeviceIndex.CompareTo(b.DeviceIndex));
+                        return (snap with { MapDevices = devicesDone }, (true, Math.Max(0.0, remaining - usedSec), summary, dev));
+                    },
+                    persistNow: false);
 
                 if (step.Summary is null || step.Device is null) break;
                 anyChanged = true;
@@ -420,11 +429,10 @@ public sealed class VillageMappingService(IOperationsHost host)
         long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         long estDurationSec = Math.Max(1, (long)Math.Ceiling(progressTarget / Math.Max(1.0, progressPerSec)));
 
-        bool started = host.WithTownLock(account, league, () =>
+        bool started = host.MutateSnapshot(account, league, snap =>
         {
-            var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
             var existing = snap.MapDevices.FirstOrDefault(d => d.DeviceIndex == deviceIdx);
-            if (existing is { State: DeviceStateRunning or DeviceStateKidnapped }) return false;
+            if (existing is { State: DeviceStateRunning or DeviceStateKidnapped }) return (null, false);
             var prevSummary = existing is not null ? ParseSummary(existing.SummaryJson) : DefaultSummary();
             var nextSummary = new DeviceSummary(
                 mapName,
@@ -452,15 +460,14 @@ public sealed class VillageMappingService(IOperationsHost host)
                 false,
                 0,
                 JsonSerializer.Serialize(mappers.Select(m => m.WorkerId).ToArray()),
-                JsonSerializer.Serialize(nextSummary)));
+                SerializeSummary(nextSummary, running: true)));
             devices.Sort((a, b) => a.DeviceIndex.CompareTo(b.DeviceIndex));
-            VillageStore.Save(snap with
+            return (snap with
             {
                 Town = snap.Town with { NextMapRunId = snap.Town.NextMapRunId + 1 },
                 MapDevices = devices,
-            });
-            return true;
-        });
+            }, true);
+        }, persistNow: true);
 
         if (started && OperationsSubsystem.IsVillageArea(player))
             await Send(player, InstanceVillage.MapDeviceCurrentMapName((byte)deviceIdx, mapName),
@@ -483,7 +490,6 @@ public sealed class VillageMappingService(IOperationsHost host)
             .FirstOrDefault(i => i.Y == deviceIdx && i.X == dev.ActiveMapSlot)
             ?? inv.Items(PlayerInventories.KalguurMapping).Where(i => i.Y == deviceIdx).OrderBy(i => i.X).FirstOrDefault();
 
-        // Consume the completed map from KalguurMapping1 (row 88).
         if (activeMap is not null && inv.Remove(PlayerInventories.KalguurMapping, activeMap.Id) is { } removed)
         {
             await Send(player, InstanceItems.InventoryChange(
@@ -493,7 +499,6 @@ public sealed class VillageMappingService(IOperationsHost host)
                 $"0x00bf village mapping consumed map {removed.Id} from device {deviceIdx}");
         }
 
-        // Roll Bandit Lord capture ambush (Sasan in Abandoned Port) if no device is already kidnapped.
         bool alreadyKidnapped = FindKidnappedDevice(account, league) >= 0;
         double ambushChance = host.Settings.BossAmbushChanceMultiplier <= 0 || alreadyKidnapped
             ? 0.0
@@ -501,27 +506,26 @@ public sealed class VillageMappingService(IOperationsHost host)
 
         if (ambushChance > 0 && rng.NextDouble() < ambushChance)
         {
-            host.WithTownLock(account, league, () =>
+            host.MutateSnapshot(account, league, snap =>
             {
-                var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
                 var devices = snap.MapDevices.Where(d => d.DeviceIndex != deviceIdx).ToList();
                 devices.Add(dev with
                 {
                     State = DeviceStateKidnapped,
                     BossAmbushPending = true,
                     RansomGold = OperationsData.RansomCost,
+                    SummaryJson = SerializeSummary(summary, running: false),
                 });
                 devices.Sort((a, b) => a.DeviceIndex.CompareTo(b.DeviceIndex));
-                VillageStore.Save(snap with { MapDevices = devices });
-                return true;
-            });
+                return (snap with { MapDevices = devices }, true);
+            }, persistNow: true);
+
             if (OperationsSubsystem.IsVillageArea(player))
                 await Send(player, InstanceVillage.ToastNotificationB(1, (byte)deviceIdx, 1),
                     "0x02c9 village ToastNotificationB(MappersKidnapped)");
             return false;
         }
 
-        // Roll completion % and possible mapper death.
         int lo = Math.Clamp(summary.MinPct, 1, 100);
         int hi = Math.Clamp(Math.Max(lo, summary.MaxPct), 1, 100);
         byte completionPct = (byte)rng.Next(lo, hi + 1);
@@ -538,16 +542,14 @@ public sealed class VillageMappingService(IOperationsHost host)
             }
         }
 
-        // Generate realistic map loot into village_reward_items (sourceKind = 1).
         var loot = GenerateMapRunLoot(player, summary.MapTier, summary.MapIIQ, completionPct, rng);
         OperationsSubsystem.Rewards.AddRewards(account, league, VillageRewardsService.SourceMapping, deviceIdx, loot, ItemsFor(player).Mods);
 
         var nextCompletions = summary.CompletionPercents.Append(completionPct).TakeLast(12).ToArray();
         bool pauseAfter = summary.PauseAfterCurrent;
 
-        host.WithTownLock(account, league, () =>
+        host.MutateSnapshot(account, league, snap =>
         {
-            var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
             var nextSummary = summary with
             {
                 CurrentMapName = "",
@@ -564,12 +566,11 @@ public sealed class VillageMappingService(IOperationsHost host)
                 MapStartedUtc = 0,
                 MapDurationSeconds = 0,
                 CompletionPercent = completionPct,
-                SummaryJson = JsonSerializer.Serialize(nextSummary),
+                SummaryJson = SerializeSummary(nextSummary, running: false),
             });
             devices.Sort((a, b) => a.DeviceIndex.CompareTo(b.DeviceIndex));
-            VillageStore.Save(snap with { MapDevices = devices });
-            return true;
-        });
+            return (snap with { MapDevices = devices }, true);
+        }, persistNow: true);
 
         if (OperationsSubsystem.IsVillageArea(player))
         {
@@ -584,11 +585,10 @@ public sealed class VillageMappingService(IOperationsHost host)
 
     async Task ReleaseKidnappedDeviceAsync(Player player, string account, string league, int devIdx, bool rescueBonus)
     {
-        DeviceSummary? summary = host.WithTownLock(account, league, () =>
+        DeviceSummary? summary = host.MutateSnapshot<DeviceSummary?>(account, league, snap =>
         {
-            var snap = VillageStore.Load(account, league);
-            var dev = snap?.MapDevices.FirstOrDefault(d => d.DeviceIndex == devIdx);
-            if (snap is null || dev is null) return null;
+            var dev = snap.MapDevices.FirstOrDefault(d => d.DeviceIndex == devIdx && d.BossAmbushPending && d.State == DeviceStateKidnapped);
+            if (dev is null) return (null, null);
             var s = ParseSummary(dev.SummaryJson);
             var next = s with { CurrentMapName = "", ElapsedProgress = 0, ProgressTarget = 0, FailedAckPending = false };
             var devices = snap.MapDevices.Where(d => d.DeviceIndex != devIdx).ToList();
@@ -598,12 +598,11 @@ public sealed class VillageMappingService(IOperationsHost host)
                 ActiveMapSlot = -1,
                 BossAmbushPending = false,
                 RansomGold = 0,
-                SummaryJson = JsonSerializer.Serialize(next),
+                SummaryJson = SerializeSummary(next, running: false),
             });
             devices.Sort((a, b) => a.DeviceIndex.CompareTo(b.DeviceIndex));
-            VillageStore.Save(snap with { MapDevices = devices });
-            return s;
-        });
+            return (snap with { MapDevices = devices }, s);
+        }, persistNow: true);
 
         if (summary is not null)
         {
@@ -630,7 +629,6 @@ public sealed class VillageMappingService(IOperationsHost host)
         double factor = (completionPct / 100.0) * (1.0 + Math.Max(0, mapIIQ) / 150.0);
         int dropCount = Math.Clamp((int)Math.Round((4 + tier * 0.65) * factor), 2, 22);
 
-        // 1. Currency drops (stacked cleanly).
         var currencyCounts = new Dictionary<uint, (ItemCatalog.BaseType Type, int Count)>();
         int currRolls = Math.Max(2, (int)Math.Round(dropCount * 0.55));
         for (int i = 0; i < currRolls; i++)
@@ -655,7 +653,6 @@ public sealed class VillageMappingService(IOperationsHost host)
             }
         }
 
-        // 2. Scarabs (1..3 based on tier & completion).
         int scarabRolls = tier >= 11 ? 2 : 1;
         for (int i = 0; i < scarabRolls; i++)
         {
@@ -663,11 +660,9 @@ public sealed class VillageMappingService(IOperationsHost host)
                 results.Add(scarab.Item);
         }
 
-        // 3. Map sustain drop.
         if (rng.NextDouble() < 0.55 * factor && RollMapDropForKill(player, areaLevel, MonsterRarity.Rare, tier, rng, 1.0) is { } mapDrop && mapDrop.Type.Supported)
             results.Add(mapDrop.Item);
 
-        // 4. Equipment & occasional Unique.
         int gearRolls = Math.Clamp(dropCount - currRolls, 1, 8);
         var gearBases = catalog.All.Where(t =>
             t.Supported && !t.Stackable && t.DropLevel <= areaLevel
@@ -693,14 +688,14 @@ public sealed class VillageMappingService(IOperationsHost host)
         return results;
     }
 
-    int FindKidnappedDevice(string account, string league) => host.WithTownLock(account, league, () =>
+    int FindKidnappedDevice(string account, string league)
     {
-        var snap = VillageStore.Load(account, league);
+        var snap = host.ReadSnapshot(account, league);
         if (snap is null) return -1;
         foreach (var d in snap.MapDevices)
             if (d.BossAmbushPending && d.State == DeviceStateKidnapped) return d.DeviceIndex;
         return -1;
-    });
+    }
 
     static (int Tier, string Name) ResolveMapInfo(Item item, ItemCatalog catalog)
     {
@@ -709,11 +704,34 @@ public sealed class VillageMappingService(IOperationsHost host)
         if (item.TypeHash == OperationsData.SpecialTier17MapHash) return (17, name);
         if (bt is not null)
         {
-            // Check explicit tier from Maps table via MapDevice if available, else infer from DropLevel (68=T1..84=T17).
             if (bt.Id.Contains("Tier17", StringComparison.OrdinalIgnoreCase) || bt.DropLevel >= 84) return (17, name);
             if (bt.DropLevel >= 68) return (Math.Clamp(bt.DropLevel - 67, 1, 17), name);
         }
         return (Math.Clamp(item.ItemLevel >= 68 ? item.ItemLevel - 67 : 1, 1, 17), name);
+    }
+
+    static byte BuildFlags1(bool running, bool pauseAfterCurrent, bool failedAckPending)
+    {
+        byte f = 0;
+        if (running) f |= FlagRunning;
+        if (pauseAfterCurrent) f |= FlagPauseAfterCurrent;
+        if (failedAckPending) f |= FlagFailedAckPending;
+        return f;
+    }
+
+    static string SerializeSummary(DeviceSummary s, bool running)
+    {
+        var extra = new MapRunExtra(s.MapTier, s.MapIIQ, s.MinPct, s.MaxPct, s.DeathChancePct, s.ElapsedProgress, s.ProgressPerSecond);
+        uint elapsed = (uint)Math.Clamp((long)Math.Round(s.ElapsedProgress), 0, Math.Max(0, s.ProgressTarget));
+        var blob = new MapSummaryBlob(
+            elapsed,
+            s.ProgressTarget,
+            BuildFlags1(running, s.PauseAfterCurrent, s.FailedAckPending),
+            (byte)(s.PauseAfterCurrent ? 1 : 0),
+            [.. s.CompletionPercents],
+            s.CurrentMapName,
+            JsonSerializer.Serialize(extra, JsonOpts));
+        return JsonSerializer.Serialize(blob, JsonOpts);
     }
 
     static DeviceSummary DefaultSummary() => new("", [], false, false, 1, 0, 50, 100, 1, 0, 0, 100);
@@ -721,7 +739,33 @@ public sealed class VillageMappingService(IOperationsHost host)
     static DeviceSummary ParseSummary(string json)
     {
         if (string.IsNullOrWhiteSpace(json) || json == "{}") return DefaultSummary();
-        try { return JsonSerializer.Deserialize<DeviceSummary>(json) ?? DefaultSummary(); }
+        try
+        {
+            var blob = JsonSerializer.Deserialize<MapSummaryBlob>(json, JsonOpts);
+            if (blob is not null && (blob.Percents is not null || blob.CurrentMapName is not null || blob.Extra is not null))
+            {
+                MapRunExtra? extra = null;
+                if (!string.IsNullOrWhiteSpace(blob.Extra))
+                {
+                    try { extra = JsonSerializer.Deserialize<MapRunExtra>(blob.Extra, JsonOpts); }
+                    catch { }
+                }
+                return new DeviceSummary(
+                    blob.CurrentMapName ?? "",
+                    blob.Percents?.ToArray() ?? [],
+                    (blob.F1 & FlagPauseAfterCurrent) != 0 || blob.F2 != 0,
+                    (blob.F1 & FlagFailedAckPending) != 0,
+                    extra?.MapTier ?? 1,
+                    extra?.MapIIQ ?? 0,
+                    extra?.MinPct ?? 50,
+                    extra?.MaxPct ?? 100,
+                    extra?.DeathChancePct ?? 1,
+                    blob.Total,
+                    extra?.ElapsedProgress ?? blob.Elapsed,
+                    extra?.ProgressPerSecond ?? 100.0);
+            }
+            return JsonSerializer.Deserialize<DeviceSummary>(json) ?? DefaultSummary();
+        }
         catch { return DefaultSummary(); }
     }
 }

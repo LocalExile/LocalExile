@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Modules.Settlers.Operations;
@@ -6,10 +7,15 @@ namespace GameServer.Modules.Settlers.Operations;
 /// Full 3.29.3c Dual-Mode Recombinator (Predictable &amp; Unpredictable modes) backed by <c>RecombinatorInput</c>
 /// (inventory row 92, 8x4: left half x=0..3, right half x=4..7) and <c>RecombinatorOutput</c> (inventory row 93, 4x4).
 /// <para>
-/// Implements exact wire codecs verified in <c>Client/Game.exe</c>:
-/// <c>C→S 0x010b</c> (quick-move), <c>C→S 0x028f</c> (query chance / execute), <c>S→C 0x0293</c> (chance in basis points),
-/// <c>S→C 0x0291</c> (result / animation trigger), and exact gold/dust cost formulas (<c>0x141d6d700</c> + Idol discount
-/// <c>0x141d6e21b</c>).
+/// Implements exact wire codecs and cost formulas verified in <c>Client/Game.exe</c> (<c>0x141d6c8f0</c>, <c>0x141d6d700</c>,
+/// <c>0x141d6e21b</c>):
+/// <list type="bullet">
+/// <item>Predictable mode (<c>wire mode == 0</c>, requires selected mods): <c>gold = RecombGoldBase[avgIlvl]</c>,
+/// <c>dust = (int)(pow(sum(selected.__col5), 0.75) * 3)</c>.</item>
+/// <item>Unpredictable mode (<c>wire mode == 1</c>, forbids selected mods): <c>modScale = (allExplicitCount + 10) * 10</c>,
+/// <c>gold = (modScale * RecombGoldBase[avgIlvl]) / 100</c>, <c>dust = (modScale * RecombDustBase[avgModLvl]) / 100</c>.</item>
+/// <item>Idol discount (<c>AtlasRelic</c>): <c>gold &gt;&gt;= 1</c>, <c>dust &gt;&gt;= 2</c>.</item>
+/// </list>
 /// </para>
 /// </summary>
 public sealed class RecombinatorService(IOperationsHost host)
@@ -17,8 +23,9 @@ public sealed class RecombinatorService(IOperationsHost host)
     const int LeftSlotX = 0;
     const int RightSlotX = 4;
 
-    // PoE 3.25/3.29 Unpredictable recombinator mod count probability weights per pool size N (1..6).
-    // Row N = cumulative weights for choosing k mods (k = 0..3).
+    readonly ConcurrentDictionary<Player, Lock> _playerGates = new();
+
+    // PoE 3.25/3.29 Unpredictable recombinator mod count probability weights per pool size N (0..6).
     static readonly double[][] UnpredictableCountProbs =
     [
         [1.00, 0.00, 0.00, 0.00], // N=0
@@ -29,6 +36,10 @@ public sealed class RecombinatorService(IOperationsHost host)
         [0.00, 0.00, 0.43, 0.57], // N=5: 43% 2, 57% 3
         [0.00, 0.00, 0.28, 0.72], // N=6: 28% 2, 72% 3
     ];
+
+    public void ClearPlayerState(Player player) => _playerGates.TryRemove(player, out _);
+
+    Lock GateFor(Player player) => _playerGates.GetOrAdd(player, static _ => new Lock());
 
     public string? ValidateInputPlacement(Player player, Item item)
     {
@@ -48,12 +59,15 @@ public sealed class RecombinatorService(IOperationsHost host)
 
     public async Task OnInputInventoryChangedAsync(Player player)
     {
-        // Whenever inputs change, push an updated 0% preview until the client selects mods.
         if (GetInputPair(player) is null)
-            await Send(player, InstanceVillage.RecombinationChance(0), "0x0293 recombinator chance 0 (incomplete inputs)");
+            await Send(player, InstanceVillage.RecombinationChance(0, mode: 0), "0x0293 recombinator chance 0 (incomplete inputs)");
     }
 
-    /// <summary>Exact cost formula verified at <c>0x141d6d700</c> + Idol discount at <c>0x141d6e21b</c>.</summary>
+    /// <summary>
+    /// Exact cost formula verified at <c>0x141d6d700</c> + Idol discount at <c>0x141d6e21b</c>:
+    /// Predictable (<c>mode == 0</c>) uses <c>pow(sum(selected.__col5), 0.75) * 3</c>;
+    /// Unpredictable (<c>mode == 1</c>) uses <c>modScale = (allExplicitCount + 10) * 10</c>.
+    /// </summary>
     public static (uint GoldCost, uint DustCost) ComputeCosts(
         Item item0,
         Item item1,
@@ -70,26 +84,40 @@ public sealed class RecombinatorService(IOperationsHost host)
 
         if (predictableMode)
         {
-            int modCount = selectedMods.Count;
-            int avgModLvl = modCount > 0 ? Math.Clamp(selectedMods.Sum(m => m.Level) / modCount, 1, 100) : 1;
-            long modScale = (modCount + 10L) * 10L;
-            goldCost = (modScale * ilvlBalance.RecombGoldBase) / 100L;
-            dustCost = (modScale * OperationsData.BalanceForLevel(avgModLvl).RecombDustBase) / 100L;
-        }
-        else
-        {
+            // Wire mode == 0 (Predictable): gold = __col4[avgIlvl], dust = floor(pow(sum(selected.__col5), 0.75) * 3).
             long rawDustSum = 0;
-            foreach (var mod in item0.Mods)
-                if (mod.Section == ModSection.Explicit && catalog.Mods.ByHash(mod.Hash) is { } def)
-                    rawDustSum += OperationsData.BalanceForLevel(Math.Clamp(def.Level, 1, 100)).RecombDustBase;
-            foreach (var mod in item1.Mods)
-                if (mod.Section == ModSection.Explicit && catalog.Mods.ByHash(mod.Hash) is { } def)
-                    rawDustSum += OperationsData.BalanceForLevel(Math.Clamp(def.Level, 1, 100)).RecombDustBase;
+            foreach (var def in selectedMods)
+                rawDustSum += OperationsData.BalanceForLevel(Math.Clamp(def.Level, 1, 100)).RecombDustBase;
 
             goldCost = ilvlBalance.RecombGoldBase;
             double exp = OperationsData.RecombinatorModDustCostExponentTimes100 / 100.0;
             double mult = OperationsData.RecombinatorModDustCostMultiplier;
             dustCost = rawDustSum > 0 ? (long)(Math.Pow(rawDustSum, exp) * mult) : 0;
+        }
+        else
+        {
+            // Wire mode == 1 (Unpredictable): modScale = (allExplicitCount + 10) * 10 over ALL explicit mods on both items.
+            int modCount = 0;
+            long levelSum = 0;
+            foreach (var mod in item0.Mods)
+            {
+                if (mod.Section != ModSection.Explicit) continue;
+                modCount++;
+                int lvl = catalog.Mods.ByHash(mod.Hash)?.Level ?? item0.ItemLevel;
+                levelSum += Math.Clamp(lvl, 1, 100);
+            }
+            foreach (var mod in item1.Mods)
+            {
+                if (mod.Section != ModSection.Explicit) continue;
+                modCount++;
+                int lvl = catalog.Mods.ByHash(mod.Hash)?.Level ?? item1.ItemLevel;
+                levelSum += Math.Clamp(lvl, 1, 100);
+            }
+
+            int avgModLvl = modCount > 0 ? Math.Clamp((int)(levelSum / modCount), 1, 100) : 1;
+            long modScale = (modCount + 10L) * 10L;
+            goldCost = (modScale * ilvlBalance.RecombGoldBase) / 100L;
+            dustCost = (modScale * OperationsData.BalanceForLevel(avgModLvl).RecombDustBase) / 100L;
         }
 
         // Idol discount (ItemClass == AtlasRelic, row 94, 0x141d6e21b): gold >>= 1, dust >>= 2.
@@ -125,9 +153,8 @@ public sealed class RecombinatorService(IOperationsHost host)
             else if (def.GenerationType == 2) suffixes++;
 
             foreach (int fam in def.Families)
-                if (!seenFamilies.Add(fam)) return 0; // Conflicting mod family
+                if (!seenFamilies.Add(fam)) return 0;
 
-            // Mod rarity / tier factor: high-weight low-tier mods keep higher probability than rare T1 mods.
             int w0 = def.WeightFor(bt0.Tags);
             int w1 = def.WeightFor(bt1.Tags);
             int avgWeight = Math.Max(1, (w0 + w1) / 2);
@@ -138,12 +165,9 @@ public sealed class RecombinatorService(IOperationsHost host)
 
         if (prefixes > 3 || suffixes > 3) return 0;
 
-        // Matching exact base type gives a small stability bonus.
         double baseBonus = item0.TypeHash == item1.TypeHash ? 1.12 : 1.0;
-        // Smooth power scaling so 1 mod is ~60-85%, 2 mods ~32-55%, 3 mods ~14-30%, 4+ mods ~2-12%.
         double rawChance = Math.Pow(combinedWeightFactor, 0.72) * baseBonus;
-        uint bps = (uint)Math.Clamp(Math.Round(rawChance * 10000.0), 100, 9900);
-        return bps;
+        return (uint)Math.Clamp(Math.Round(rawChance * 10000.0), 100, 9900);
     }
 
     /// <summary>C→S <c>0x010b</c>: Ctrl+click quick-move into/out of Recombinator inventories 92/93.</summary>
@@ -158,58 +182,73 @@ public sealed class RecombinatorService(IOperationsHost host)
 
         if (move.IntoRecombinator)
         {
-            byte srcRow = move.SourceFlag != 0 && ExpandedInventoryGranted(player)
-                ? PlayerInventories.ExpandedInventory
-                : PlayerInventories.MainInventory;
-            var srcItem = inv.Items(srcRow).FirstOrDefault(i => i.Id == move.ItemId)
-                ?? inv.Items(PlayerInventories.MainInventory).FirstOrDefault(i => i.Id == move.ItemId);
-            if (srcItem is null) return true;
-            if (srcRow != PlayerInventories.MainInventory && inv.Items(srcRow).All(i => i.Id != srcItem.Id))
-                srcRow = PlayerInventories.MainInventory;
+            byte srcRow;
+            InventoryItem? removed;
+            InventoryItem placed;
 
-            if (ValidateInputPlacement(player, srcItem.Item) is { } err)
+            lock (GateFor(player))
             {
-                if (player.Commands is { } cmds) await cmds.Reply(err);
-                return true;
+                srcRow = move.SourceFlag != 0 && ExpandedInventoryGranted(player)
+                    ? PlayerInventories.ExpandedInventory
+                    : PlayerInventories.MainInventory;
+                var srcItem = inv.Items(srcRow).FirstOrDefault(i => i.Id == move.ItemId)
+                    ?? inv.Items(PlayerInventories.MainInventory).FirstOrDefault(i => i.Id == move.ItemId);
+                if (srcItem is null) return true;
+                if (srcRow != PlayerInventories.MainInventory && inv.Items(srcRow).All(i => i.Id != srcItem.Id))
+                    srcRow = PlayerInventories.MainInventory;
+
+                if (ValidateInputPlacement(player, srcItem.Item) is { } err)
+                {
+                    _ = player.Commands?.Reply(err);
+                    return true;
+                }
+
+                var existingInputs = inv.Items(PlayerInventories.RecombinatorInput);
+                bool leftOccupied = existingInputs.Any(i => i.X < RightSlotX);
+                bool rightOccupied = existingInputs.Any(i => i.X >= RightSlotX);
+                byte dstX;
+                if (!leftOccupied) dstX = LeftSlotX;
+                else if (!rightOccupied) dstX = RightSlotX;
+                else return true;
+
+                var bt = catalog.ByHash(srcItem.Item.TypeHash);
+                if (bt is null || bt.Width > 4 || bt.Height > 4) return true;
+
+                removed = inv.Remove(srcRow, srcItem.Id);
+                if (removed is null) return true;
+                placed = inv.Put(PlayerInventories.RecombinatorInput, removed with { X = dstX, Y = 0 });
             }
-
-            var existingInputs = inv.Items(PlayerInventories.RecombinatorInput);
-            bool leftOccupied = existingInputs.Any(i => i.X < RightSlotX);
-            bool rightOccupied = existingInputs.Any(i => i.X >= RightSlotX);
-            byte dstX;
-            if (!leftOccupied) dstX = LeftSlotX;
-            else if (!rightOccupied) dstX = RightSlotX;
-            else return true;
-
-            var bt = catalog.ByHash(srcItem.Item.TypeHash);
-            if (bt is null || bt.Width > 4 || bt.Height > 4) return true;
-
-            if (inv.Remove(srcRow, srcItem.Id) is not { } removed) return true;
-            var placed = inv.Put(PlayerInventories.RecombinatorInput, removed with { X = dstX, Y = 0 });
 
             await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(srcRow),
                 inv.NextRevision(srcRow), [removed.Id], []),
                 $"0x00bf recombinator quick-move out of row {srcRow}");
             await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.RecombinatorInput),
                 inv.NextRevision(PlayerInventories.RecombinatorInput), [], [placed]),
-                $"0x00bf recombinator quick-move into input ({dstX}, 0)");
+                $"0x00bf recombinator quick-move into input ({placed.X}, 0)");
             return true;
         }
         else
         {
             byte srcRow = move.IsOutputInventory ? PlayerInventories.RecombinatorOutput : PlayerInventories.RecombinatorInput;
-            var srcItem = inv.Items(srcRow).FirstOrDefault(i => i.Id == move.ItemId);
-            if (srcItem is null) return true;
+            InventoryItem? removed;
+            IReadOnlyDictionary<byte, PlayerInventories.Stacking> stacked;
 
-            var targetRows = ExpandedInventoryGranted(player)
-                ? new[] { PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory }
-                : new[] { PlayerInventories.MainInventory };
+            lock (GateFor(player))
+            {
+                var srcItem = inv.Items(srcRow).FirstOrDefault(i => i.Id == move.ItemId);
+                if (srcItem is null) return true;
 
-            var preview = inv.StackAcross(targetRows, srcItem.Item, ShapeOf, preview: true);
-            if (preview.Values.Min(s => s.Left) > 0) return true;
+                var targetRows = ExpandedInventoryGranted(player)
+                    ? new[] { PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory }
+                    : new[] { PlayerInventories.MainInventory };
 
-            if (inv.Remove(srcRow, srcItem.Id) is not { } removed) return true;
-            var stacked = inv.StackAcross(targetRows, removed.Item, ShapeOf, preview: false);
+                var preview = inv.StackAcross(targetRows, srcItem.Item, ShapeOf, preview: true);
+                if (preview.Values.Min(s => s.Left) > 0) return true;
+
+                removed = inv.Remove(srcRow, srcItem.Id);
+                if (removed is null) return true;
+                stacked = inv.StackAcross(targetRows, removed.Item, ShapeOf, preview: false);
+            }
 
             await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(srcRow),
                 inv.NextRevision(srcRow), [removed.Id], []),
@@ -234,95 +273,132 @@ public sealed class RecombinatorService(IOperationsHost host)
 
         OperationsData.EnsureLoaded();
         var catalog = ItemsFor(player);
-        var pair = GetInputPair(player);
-
-        if (pair is not var (slot0, slot1))
-        {
-            if (req.Execute)
-                await Send(player, InstanceVillage.RecombinationResult(false, errorOrStatusCode: 1), "0x0291 recombinator error: missing inputs");
-            else
-                await Send(player, InstanceVillage.RecombinationChance(0, (byte)(req.PredictableMode ? 1 : 0)), "0x0293 recombinator chance 0");
-            return true;
-        }
-
-        var selected = CollectSelectedMods(slot0.Item, req.Slot0SelectedModIndices, slot1.Item, req.Slot1SelectedModIndices, catalog);
-        uint chanceBps = req.PredictableMode
-            ? ComputePredictableChanceBps(slot0.Item, slot1.Item, selected, catalog)
-            : 10_000u;
+        // Wire mode byte: 0 = Predictable, 1 = Unpredictable (verified at 0x141d6c8f0 / 0x141d6d700).
+        byte wireMode = (byte)(req.PredictableMode ? 0 : 1);
 
         if (!req.Execute)
         {
-            await Send(player, InstanceVillage.RecombinationChance(chanceBps, (byte)(req.PredictableMode ? 1 : 0)),
-                $"0x0293 recombinator chance {chanceBps / 100.0:0.00}% (predictable={req.PredictableMode})");
-            return true;
-        }
-
-        // Validate output slot is empty and item classes are compatible.
-        var inv = ItemsOf(player);
-        if (inv.Items(PlayerInventories.RecombinatorOutput).Count > 0)
-        {
-            await Send(player, InstanceVillage.RecombinationResult(false, errorOrStatusCode: 2), "0x0291 recombinator error: output occupied");
-            return true;
-        }
-
-        var bt0 = catalog.ByHash(slot0.Item.TypeHash);
-        var bt1 = catalog.ByHash(slot1.Item.TypeHash);
-        if (bt0 is null || bt1 is null || !AreClassesCompatible(bt0.Class, bt1.Class)
-            || ValidateInputPlacement(player, slot0.Item) is not null
-            || ValidateInputPlacement(player, slot1.Item) is not null)
-        {
-            await Send(player, InstanceVillage.RecombinationResult(false, errorOrStatusCode: 3), "0x0291 recombinator error: incompatible or ineligible inputs");
-            return true;
-        }
-
-        if (req.PredictableMode && chanceBps == 0)
-        {
-            await Send(player, InstanceVillage.RecombinationResult(false, errorOrStatusCode: 4), "0x0291 recombinator error: invalid predictable selection");
-            return true;
-        }
-
-        var (goldCost, dustCost) = ComputeCosts(slot0.Item, slot1.Item, [.. selected.Select(s => s.Def)], req.PredictableMode, catalog);
-        var (account, league) = VillageStore.ScopeOf(player);
-
-        // Validate both Gold and Thaumaturgic Dust before consuming anything.
-        if (PersonalStashOf(player).Gold < goldCost)
-        {
-            await Send(player, InstanceVillage.RecombinationResult(false, errorOrStatusCode: 5), "0x0291 recombinator error: insufficient gold");
-            return true;
-        }
-        if (host.GetResource(account, league, OperationsData.MagicDustResourceRow) < dustCost)
-        {
-            await Send(player, InstanceVillage.RecombinationResult(false, errorOrStatusCode: 6), "0x0291 recombinator error: insufficient dust");
-            return true;
-        }
-
-        // Atomically spend Dust, then Gold.
-        if (dustCost > 0 && !host.TrySpendResources(account, league, [(OperationsData.MagicDustResourceRow, dustCost)]))
-        {
-            await Send(player, InstanceVillage.RecombinationResult(false, errorOrStatusCode: 6), "0x0291 recombinator error: dust spend failed");
-            return true;
-        }
-
-        if (goldCost > 0)
-        {
-            if (PersonalStashOf(player).TrySpendGold(goldCost) is not uint goldLeft)
+            var previewPair = GetInputPair(player);
+            uint previewBps = 0;
+            if (previewPair is var (p0, p1))
             {
-                // Refund dust if gold failed concurrently.
-                if (dustCost > 0) host.AddResource(account, league, OperationsData.MagicDustResourceRow, dustCost);
-                await Send(player, InstanceVillage.RecombinationResult(false, errorOrStatusCode: 5), "0x0291 recombinator error: gold spend failed");
-                return true;
+                var pSelected = CollectSelectedMods(p0.Item, req.Slot0SelectedModIndices, p1.Item, req.Slot1SelectedModIndices, catalog);
+                previewBps = req.PredictableMode
+                    ? ComputePredictableChanceBps(p0.Item, p1.Item, pSelected, catalog)
+                    : 10_000u;
             }
-            await Send(player, InstanceEntities.Gold(goldLeft), $"0x02aa gold: {goldLeft} (recombinator -{goldCost})");
+            await Send(player, InstanceVillage.RecombinationChance(previewBps, wireMode),
+                $"0x0293 recombinator chance {previewBps / 100.0:0.00}% (mode={wireMode})");
+            return true;
         }
 
-        // Consume both input items from inv 92.
-        inv.Remove(PlayerInventories.RecombinatorInput, slot0.Id);
-        inv.Remove(PlayerInventories.RecombinatorInput, slot1.Id);
+        // Execute path: serialize per-player and atomically claim/remove BOTH inputs BEFORE spending Dust/Gold so
+        // concurrent moves cannot burn currency for nothing or duplicate inputs.
+        var inv = ItemsOf(player);
+        var (account, league) = VillageStore.ScopeOf(player);
+        InventoryItem? removed0 = null, removed1 = null;
+        List<(ItemMod Mod, ModCatalog.Mod Def)> selected;
+        uint chanceBps, goldCost, dustCost;
+        uint? goldLeftAfter = null;
+        ushort errorCode = 0;
+
+        lock (GateFor(player))
+        {
+            var pair = GetInputPair(player);
+            if (pair is not var (slot0, slot1)) { errorCode = 1; selected = []; chanceBps = 0; goldCost = 0; dustCost = 0; }
+            else if (inv.Items(PlayerInventories.RecombinatorOutput).Count > 0) { errorCode = 2; selected = []; chanceBps = 0; goldCost = 0; dustCost = 0; }
+            else
+            {
+                var bt0 = catalog.ByHash(slot0.Item.TypeHash);
+                var bt1 = catalog.ByHash(slot1.Item.TypeHash);
+                selected = CollectSelectedMods(slot0.Item, req.Slot0SelectedModIndices, slot1.Item, req.Slot1SelectedModIndices, catalog);
+                chanceBps = req.PredictableMode
+                    ? ComputePredictableChanceBps(slot0.Item, slot1.Item, selected, catalog)
+                    : 10_000u;
+                (goldCost, dustCost) = ComputeCosts(slot0.Item, slot1.Item, [.. selected.Select(s => s.Def)], req.PredictableMode, catalog);
+
+                if (bt0 is null || bt1 is null || !AreClassesCompatible(bt0.Class, bt1.Class)
+                    || ValidateInputPlacement(player, slot0.Item) is not null
+                    || ValidateInputPlacement(player, slot1.Item) is not null)
+                {
+                    errorCode = 3;
+                }
+                else if (req.PredictableMode && chanceBps == 0)
+                {
+                    errorCode = 4;
+                }
+                else if (!req.PredictableMode && (req.Slot0SelectedModIndices.Length > 0 || req.Slot1SelectedModIndices.Length > 0))
+                {
+                    errorCode = 4;
+                }
+                else if (PersonalStashOf(player).Gold < goldCost)
+                {
+                    errorCode = 5;
+                }
+                else if (host.GetResource(account, league, OperationsData.MagicDustResourceRow) < dustCost)
+                {
+                    errorCode = 6;
+                }
+                else
+                {
+                    // Claim both input items FIRST; if either disappeared concurrently, restore the other and abort cleanly.
+                    removed0 = inv.Remove(PlayerInventories.RecombinatorInput, slot0.Id);
+                    removed1 = inv.Remove(PlayerInventories.RecombinatorInput, slot1.Id);
+                    if (removed0 is null || removed1 is null)
+                    {
+                        if (removed0 is not null) inv.Put(PlayerInventories.RecombinatorInput, removed0);
+                        if (removed1 is not null) inv.Put(PlayerInventories.RecombinatorInput, removed1);
+                        removed0 = null;
+                        removed1 = null;
+                        errorCode = 1;
+                    }
+                    else
+                    {
+                        // Spend Dust, then Gold; rollback inputs + dust if either fails.
+                        if (dustCost > 0 && !host.TrySpendResources(account, league, [(OperationsData.MagicDustResourceRow, dustCost)]))
+                        {
+                            inv.Put(PlayerInventories.RecombinatorInput, removed0);
+                            inv.Put(PlayerInventories.RecombinatorInput, removed1);
+                            removed0 = null;
+                            removed1 = null;
+                            errorCode = 6;
+                        }
+                        else if (goldCost > 0)
+                        {
+                            if (PersonalStashOf(player).TrySpendGold(goldCost) is not uint left)
+                            {
+                                if (dustCost > 0) host.AddResource(account, league, OperationsData.MagicDustResourceRow, dustCost);
+                                inv.Put(PlayerInventories.RecombinatorInput, removed0);
+                                inv.Put(PlayerInventories.RecombinatorInput, removed1);
+                                removed0 = null;
+                                removed1 = null;
+                                errorCode = 5;
+                            }
+                            else
+                            {
+                                goldLeftAfter = left;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (errorCode != 0 || removed0 is null || removed1 is null)
+        {
+            await Send(player, InstanceVillage.RecombinationResult(false, errorOrStatusCode: errorCode == 0 ? (ushort)1 : errorCode),
+                $"0x0291 recombinator error code={errorCode}");
+            return true;
+        }
+
+        if (goldLeftAfter is uint gl)
+            await Send(player, InstanceEntities.Gold(gl), $"0x02aa gold: {gl} (recombinator -{goldCost})");
+
         await Send(player, InstanceItems.InventoryChange(
             PlayerInventories.InventoryId(PlayerInventories.RecombinatorInput),
             inv.NextRevision(PlayerInventories.RecombinatorInput),
-            [slot0.Id, slot1.Id], []),
-            $"0x00bf recombinator consumed inputs {slot0.Id}, {slot1.Id}");
+            [removed0.Id, removed1.Id], []),
+            $"0x00bf recombinator consumed inputs {removed0.Id}, {removed1.Id}");
 
         var rng = Random.Shared;
         bool succeeded;
@@ -332,12 +408,12 @@ public sealed class RecombinatorService(IOperationsHost host)
         {
             succeeded = rng.Next(10_000) < chanceBps;
             if (succeeded)
-                resultItem = BuildPredictableResult(slot0.Item, slot1.Item, selected, catalog, RollsFor(player), rng);
+                resultItem = BuildPredictableResult(removed0.Item, removed1.Item, selected, catalog, RollsFor(player), rng);
         }
         else
         {
             succeeded = true;
-            resultItem = BuildUnpredictableResult(slot0.Item, slot1.Item, catalog, RollsFor(player), rng);
+            resultItem = BuildUnpredictableResult(removed0.Item, removed1.Item, catalog, RollsFor(player), rng);
         }
 
         if (succeeded && resultItem is not null)
@@ -351,7 +427,7 @@ public sealed class RecombinatorService(IOperationsHost host)
         }
 
         await Send(player, InstanceVillage.RecombinationResult(succeeded, errorOrStatusCode: 0),
-            $"0x0291 recombinator result (predictable={req.PredictableMode}, success={succeeded}, chance={chanceBps / 100.0:0.00}%)");
+            $"0x0291 recombinator result (mode={wireMode}, success={succeeded}, chance={chanceBps / 100.0:0.00}%)");
 
         if (dustCost > 0 && OperationsSubsystem.IsVillageArea(player))
             await host.SyncFullVillageStateAsync(player);
@@ -425,7 +501,6 @@ public sealed class RecombinatorService(IOperationsHost host)
             {
                 if (m.Section != ModSection.Explicit) continue;
                 if (catalog.Mods.ByHash(m.Hash) is not { } def) continue;
-                // Only keep mods legal for the winning base's tags or domain (crafted/essence mods stay in pool).
                 if (def.Domain == baseType.ModDomain && def.WeightFor(baseType.Tags) == 0 && !def.EssenceOnly && def.Domain != 9)
                     continue;
                 if (def.GenerationType == 1) prefixPool.Add((m, def));
@@ -439,7 +514,6 @@ public sealed class RecombinatorService(IOperationsHost host)
         var usedFamilies = new HashSet<int>();
         bool hasExclusive = false;
 
-        // Randomly decide whether prefixes or suffixes pick first (retail 50/50 for exclusive mod slot).
         bool prefixesFirst = rng.Next(2) == 0;
         if (prefixesFirst)
         {
@@ -476,7 +550,6 @@ public sealed class RecombinatorService(IOperationsHost host)
         }
         if (targetCount <= 0) return;
 
-        // Shuffle pool cleanly (Fisher-Yates).
         for (int i = pool.Count - 1; i > 0; i--)
         {
             int j = rng.Next(i + 1);
@@ -530,7 +603,6 @@ public sealed class RecombinatorService(IOperationsHost host)
         IReadOnlyList<uint> nameWords = [];
         if (rarity == ItemRarity.Rare)
         {
-            // Reuse valid rare name words from ItemRolls wordlists 1 & 2.
             var w1 = rolls.Words.Where(w => w.List == 1).ToList();
             var w2 = rolls.Words.Where(w => w.List == 2).ToList();
             if (w1.Count > 0 && w2.Count > 0)
@@ -561,7 +633,6 @@ public sealed class RecombinatorService(IOperationsHost host)
     static bool AreClassesCompatible(string class0, string class1)
     {
         if (string.Equals(class0, class1, StringComparison.Ordinal)) return true;
-        // Thrusting One Hand Swords and One Hand Swords share the same recombinator slot; same for Dagger/Rune Dagger, Staff/Warstaff.
         return NormalizeClassGroup(class0) == NormalizeClassGroup(class1);
     }
 

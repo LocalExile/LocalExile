@@ -5,12 +5,14 @@ namespace GameServer.Modules.Settlers.Operations;
 
 /// <summary>
 /// Rog's Disenchanting service backed by <c>KalguurDisenchanting1</c> (inventory row 87, 12x10) and
-/// <c>village_disenchant_queue</c>.
+/// <c>village_disenchant_queue</c>, routed exclusively through <see cref="IOperationsHost"/>.
 /// <para>
 /// Implements the exact decompiled 3.29.3c dust formula (<c>0x1424c6af0</c>) and eligibility checks (<c>0x1424c6970</c>):
 /// <c>VillageUniqueDisenchantValues</c> (* 500), explicit mod sum via <c>VillageBalancePerLevelShared.__col6</c>,
 /// +2%/quality, +50%/influence, +50%/corrupted implicit, exact 3-segment ilvl multiplier (50..100..500), scaled by
 /// <see cref="SettlersSettings.DisenchantingSpeedMultiplier"/> and <see cref="SettlersSettings.DustYieldMultiplier"/>.
+/// Intermediate timer advances update in-memory only (<c>persistNow: false</c>); SQLite is written only on item
+/// start/completion/removal or disconnect.
 /// </para>
 /// </summary>
 public sealed class VillageDisenchantingService(IOperationsHost host)
@@ -105,16 +107,13 @@ public sealed class VillageDisenchantingService(IOperationsHost host)
         var inv = ItemsOf(player);
         var currentItems = inv.Items(PlayerInventories.KalguurDisenchanting);
 
-        bool changed = host.WithTownLock(account, league, () =>
+        bool changed = host.MutateSnapshot(account, league, snap =>
         {
-            var snap = VillageStore.Load(account, league);
-            if (snap is null || snap.DisenchantQueue.Count == 0) return false;
+            if (snap.DisenchantQueue.Count == 0) return (null, false);
             var active = snap.DisenchantQueue[0];
-            if (currentItems.Any(i => i.Id == active.ItemId)) return false;
-            // Player removed the item currently being disenchanted: clear active slot cleanly.
-            VillageStore.Save(snap with { DisenchantQueue = [] });
-            return true;
-        });
+            if (currentItems.Any(i => i.Id == active.ItemId)) return (null, false);
+            return (snap with { DisenchantQueue = [] }, true);
+        }, persistNow: true);
 
         if (changed && OperationsSubsystem.IsVillageArea(player))
             await host.SyncFullVillageStateAsync(player);
@@ -155,25 +154,22 @@ public sealed class VillageDisenchantingService(IOperationsHost host)
                 break;
             }
 
-            // Find or start the active disenchanting item.
-            var active = host.WithTownLock(account, league, () =>
+            // Find or start the active disenchanting item (persisted on start).
+            var active = host.MutateSnapshot<VillageStore.DisenchantQueueRow?>(account, league, snap =>
             {
-                var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
                 var existing = snap.DisenchantQueue.FirstOrDefault();
                 if (existing is not null && queuedItems.Any(i => i.Id == existing.ItemId))
-                    return existing;
+                    return (null, existing);
 
                 var firstEligible = queuedItems.FirstOrDefault(i => CheckEligibility(i.Item, catalog) is null);
-                if (firstEligible is null) return null;
+                if (firstEligible is null) return (null, null);
 
                 long dust = ComputeDustValue(firstEligible.Item, catalog, hardMode, settings.DustYieldMultiplier);
                 if (dust <= 0) dust = 1;
-                // Retail duration scales with dust value (roughly 2 to 25 minutes at 1x rank-5 disenchanter).
                 double baseDurationSec = Math.Clamp(90.0 + Math.Sqrt(dust) * 3.5, 60.0, 1500.0);
                 var created = new VillageStore.DisenchantQueueRow(0, firstEligible.Id, dust, 0, baseDurationSec, 0.0);
-                VillageStore.Save(snap with { DisenchantQueue = [created] });
-                return created;
-            });
+                return (snap with { DisenchantQueue = [created] }, created);
+            }, persistNow: true);
 
             if (active is null) break;
 
@@ -183,30 +179,45 @@ public sealed class VillageDisenchantingService(IOperationsHost host)
 
             if (nextElapsed < active.DurationSeconds)
             {
-                host.WithTownLock(account, league, () =>
-                {
-                    var snap = StandaloneOperationsHost.LoadOrCreate(account, league);
-                    VillageStore.Save(snap with { DisenchantQueue = [active with { ElapsedSeconds = nextElapsed }] });
-                    return true;
-                });
+                // Intermediate progress: update in-memory only (no 1s SQLite full-table write).
+                host.MutateSnapshot(account, league, snap =>
+                    (snap with { DisenchantQueue = [active with { ElapsedSeconds = nextElapsed }] }, true),
+                    persistNow: false);
                 break;
             }
 
-            // Item finished disenchanting! Consume it and grant Thaumaturgic Dust (VillageResources row 20).
+            // Item finished disenchanting! Consume it and grant Thaumaturgic Dust (persisted immediately).
             double neededWallSec = Math.Max(0.0, (active.DurationSeconds - active.ElapsedSeconds) / speedFactor);
             remaining = Math.Max(0.0, remaining - neededWallSec);
 
             if (inv.Remove(PlayerInventories.KalguurDisenchanting, (uint)active.ItemId) is { } consumed)
             {
-                host.AddResource(account, league, OperationsData.MagicDustResourceRow, active.DustTotal);
+                host.MutateSnapshot(account, league, snap =>
+                {
+                    var map = new Dictionary<int, VillageStore.ResourceRow>();
+                    foreach (var r in snap.Resources) map[r.ResourceId] = r;
+                    var cur = map.TryGetValue(OperationsData.MagicDustResourceRow, out var ex)
+                        ? ex
+                        : new VillageStore.ResourceRow(OperationsData.MagicDustResourceRow, 0, 0.0);
+                    long nextAmt = Math.Clamp(cur.Amount + active.DustTotal, 0L, uint.MaxValue);
+                    map[OperationsData.MagicDustResourceRow] = cur with { Amount = nextAmt };
+                    return (snap with
+                    {
+                        Resources = [.. map.Values.OrderBy(r => r.ResourceId)],
+                        DisenchantQueue = [],
+                    }, true);
+                }, persistNow: true);
+
                 await Send(player, InstanceItems.InventoryChange(
                     PlayerInventories.InventoryId(PlayerInventories.KalguurDisenchanting),
                     inv.NextRevision(PlayerInventories.KalguurDisenchanting),
                     [consumed.Id], []),
                     $"0x00bf village disenchanted item {consumed.Id} (+{active.DustTotal} Thaumaturgic Dust)");
             }
-
-            ClearQueueIfNonEmpty(account, league);
+            else
+            {
+                ClearQueueIfNonEmpty(account, league);
+            }
         }
 
         return anyChanged;
@@ -214,13 +225,9 @@ public sealed class VillageDisenchantingService(IOperationsHost host)
 
     void ClearQueueIfNonEmpty(string account, string league)
     {
-        host.WithTownLock(account, league, () =>
-        {
-            var snap = VillageStore.Load(account, league);
-            if (snap is null || snap.DisenchantQueue.Count == 0) return false;
-            VillageStore.Save(snap with { DisenchantQueue = [] });
-            return true;
-        });
+        host.MutateSnapshot(account, league, snap =>
+            snap.DisenchantQueue.Count > 0 ? (snap with { DisenchantQueue = [] }, true) : (null, false),
+            persistNow: true);
     }
 
     static bool TryLookupUniqueValue(Item item, out OperationsData.UniqueDisenchant entry)
