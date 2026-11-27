@@ -291,9 +291,10 @@ public static partial class Game
     static readonly RuleTable<PlacedSkills.DamageSnapshot, PlacedSkills.DamageSnapshot> RecentMineAreaProfiles = new();
 
     // Preserve the placement-time offensive inputs. A mine chooses the recent-detonation area profile at release.
-    static PlacedSkills.DamageSnapshot? CapturePlacedDamage(Player player, ushort skill, SupportedGem gem)
+    static PlacedSkills.DamageSnapshot? CapturePlacedDamage(Player player, ushort skill, SupportedGem gem,
+        SkillCatalog.Unarmed? weapon = null)
     {
-        if (SupportedHitInputsFor(player, skill, capturedGem: gem) is not { } inputs) return null;
+        if (SupportedHitInputsFor(player, skill, weapon: weapon, capturedGem: gem) is not { } inputs) return null;
         inputs = inputs with { Caster = TotemCasterStats(inputs.Caster) };
         if (IsPyroclastMine(SkillsFor(player).EffectId(gem.Effect)))
             inputs = inputs with { Projectile = false };
@@ -449,6 +450,7 @@ public static partial class Game
                 var areaStats = SkillAreaStats(player, gem.Stats, gem.Effect, playerStats);
                 int AreaGet(uint key) => areaStats.GetValueOrDefault(key);
                 var effectId = SkillsFor(player).EffectId(gem.Effect);
+                var bladeTrap = CaptureBladeTrap(player, admission.Skill, gem, effectId, playerStats, offense, payload);
                 if (IsSpectralHelix(effectId))
                     payload[Stat.SkillBehaviourVariation] = SkillsFor(player).BehaviourVariation(gem.Effect);
                 int baseRadius = SkillArea.BaseRadius(effectId, Get);
@@ -487,6 +489,7 @@ public static partial class Game
                         EffectDurationSeconds = GolemStat(payload, Stat.SkillEffectDuration) / 1000d,
                     };
                     player.Placed.All.Add(id, placement);
+                    if (bladeTrap is not null) BladeTrapSpins.Add(placement, bladeTrap);
                     if (!ReservationBudgetFits(player))
                     {
                         player.Placed.All.Remove(id);
@@ -558,7 +561,8 @@ public static partial class Game
         if (!player.Placed.All.Remove(placed.Id)) return;
         RemovePyroclastAura(player.Area, placed.Id);
         player.Area.Buffs.Clear(placed.Id, TrarthanRuin, placed.Id);
-        if (!player.Placed.Grounds.Any(g => g.Object == placed.Id)) player.Placed.Leaving.Add((placed.Id, now + .6));
+        double displaySeconds = BladeTrapSpins.TryGetValue(placed, out var blades) ? Math.Max(.6, blades.Seconds) : .6;
+        if (!player.Placed.Grounds.Any(g => g.Object == placed.Id)) player.Placed.Leaving.Add((placed.Id, now + displaySeconds));
         player.Placed.Dirty = true;
         player.Minions.StatRevision++;
     }
@@ -722,6 +726,13 @@ public static partial class Game
         bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(player), placed.Effect, 1).Kind != SkillHitKind.Secondary;
         var payload = GemSkillEffects(player).FirstOrDefault(g => g.Id == placed.Skill);
         bool currentSkill = payload.Name is not null && payload.Effect == placed.Effect;
+        if (BladeTrapSpins.TryGetValue(placed, out var blades))
+        {
+            bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y,
+                placed.At.X, placed.At.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
+            StartBladeTrap(player, placed, blades, currentSkill, inventionMore);
+            return;
+        }
         bool rainSkill = !bear && currentSkill && ArrowRain(SkillsFor(player).EffectId(placed.Effect));
         bool projectile = !bear && currentSkill
             && UsesProjectileRuntime(placed.Effect) && ResolveProjectileDefinition(placed.Effect) is not null;
@@ -1003,9 +1014,9 @@ public static partial class Game
         uint? bearTarget = null, KeyValuePair<uint, SpawnedMonster>? hexblastTarget = null, PlacedArcSplit? arcSplit = null,
         PlacedShockNova? shockNova = null, PlacedCascade? cascade = null, ProjectileSession? ruinSession = null,
         Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null, SkillCriticalRoll? sharedCritical = null,
-        bool spatialSpell = false)
+        bool spatialSpell = false, IReadOnlyList<KeyValuePair<uint, SpawnedMonster>>? selected = null)
     {
-        using var statScope = new PlayerStatScope(player, fresh: true);
+        using var statScope = new PlayerStatScope(player, fresh: selected is null);
         var owner = CharacterPlayerStats(player);
         var offenseSnapshot = placed.Offense;
         if (offenseSnapshot is not null && placed.Mine && RecentMineAreaProfiles.TryGetValue(offenseSnapshot, out var active)
@@ -1042,7 +1053,7 @@ public static partial class Game
         var penetration = targetedSpell ? Penetration.Of(playerStats, Stats, attack, placed.Own) : default;
         int arcRolls = arcSplit is null ? 0 : ArcExtraRolls(player, ArcSurgingEffect, playerStats);
         bool hexblastSplash = false;
-        var nearby = player.Area.MonstersNear(centre, radius).ToArray();
+        var nearby = selected ?? player.Area.MonstersNear(centre, radius).ToArray();
         var victims = hexblastTarget is { } primary ? nearby.Where(p => p.Key != primary.Key).Prepend(primary) : nearby;
         foreach (var (id, m) in victims)
         {
@@ -1245,7 +1256,7 @@ public static partial class Game
 
     static async Task PlacedSkillsTick(Player player, double now)
     {
-        if (player.Placed.All.Count == 0 && player.Placed.Grounds.Count == 0) return;
+        if (player.Placed.All.Count == 0 && player.Placed.Grounds.Count == 0 && player.Placed.Leaving.Count == 0) return;
         await SendWorldBatch(player, [], admission =>
         {
             using (ProjectileMutation(player))
