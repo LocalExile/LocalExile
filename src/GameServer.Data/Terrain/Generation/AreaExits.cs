@@ -81,7 +81,7 @@ public static class AreaExits
     {
         var links = Links(records);
         var rooms = Rooms(files, records.SelectMany(r => r.Rooms), links);
-        return (Resolve(rooms, objects, usable), Entrances(rooms, objects));
+        return (Resolve(rooms, objects, usable), Entrances(rooms, objects, usable));
     }
 
     /// <summary>The first number of the gates <see cref="Links"/> makes up: above any the 3.29 graphs use (22 at most).</summary>
@@ -143,16 +143,23 @@ public static class AreaExits
     /// into (-1 for the sub-area's own room), and the "link" rooms without a partner.</summary>
     internal sealed record LinkRooms(Dictionary<PlacedRoom, (string[] Descriptions, string Row, int Into)> Extra, HashSet<PlacedRoom> Unpaired);
 
-    /// <summary>Where each "entranceN" of the layout is (its slot, else its room's first transition object, else the
-    /// room's centre).</summary>
-    public static List<EntrancePoint> Entrances(IReadOnlyList<LayoutRoom> rooms, IReadOnlyList<PlacedTileObject> objects)
+    /// <summary>Where each "entranceN" of the layout is (its slot, else its room's first usable transition object, else
+    /// the room's centre).</summary>
+    public static List<EntrancePoint> Entrances(IReadOnlyList<LayoutRoom> rooms, IReadOnlyList<PlacedTileObject> objects) =>
+        Entrances(rooms, objects, usable: null);
+
+    /// <inheritdoc cref="Entrances(IReadOnlyList{LayoutRoom}, IReadOnlyList{PlacedTileObject})"/>
+    public static List<EntrancePoint> Entrances(IReadOnlyList<LayoutRoom> rooms, IReadOnlyList<PlacedTileObject> objects,
+        Func<int, int, bool>? usable)
     {
         var points = new List<EntrancePoint>();
         foreach (var room in rooms)
             foreach (var d in room.Descriptions.Where(d => d.Kind == ExitKind.Entrance))
             {
-                var inRoom = objects.FirstOrDefault(o => room.Contains(o.X, o.Y));
                 var slot = room.SlotOf(d);
+                var inRoom = slot is null
+                    ? objects.Where(o => room.Contains(o.X, o.Y)).OrderBy(o => usable?.Invoke(o.X, o.Y) != false ? 0 : 1).FirstOrDefault()
+                    : null;
                 (int X, int Y) at = slot is { } p ? (p.X, p.Y) : inRoom is { } o ? (o.X, o.Y) : room.Centre;
                 points.Add(new EntrancePoint(d.Number, d.Enabled, at.X, at.Y, NamedPoint: slot is not null));
             }

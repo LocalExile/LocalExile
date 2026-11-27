@@ -83,9 +83,15 @@ public class AreaExitsTests
     public void AnEnabledEntranceChoosesBeforeADisabledOne()
     {
         // The Control Blocks' entrance room: "entrance2disabled" "entrance1", one generic "entrance" point.
-        var exits = Resolve([Room("entrance_01", 0, 0, ["entrance2disabled", "entrance1"], [(60, 60, "entrance")])], [At(10, 10), At(62, 61)]);
+        var room = Room("entrance_01", 0, 0, ["entrance2disabled", "entrance1"], [(60, 60, "entrance")]);
+        var objects = new[] { At(10, 10), At(62, 61) };
+        var rooms = AreaExits.Rooms(Files(), [room]);
+        var exits = AreaExits.Resolve(rooms, objects);
         Assert.Equal((ExitKind.Entrance, 2, false), (exits[0].Kind, exits[0].Number, exits[0].Enabled));
         Assert.Equal((ExitKind.Entrance, 1, true), (exits[1].Kind, exits[1].Number, exits[1].Enabled));
+        var entrances = AreaExits.Entrances(rooms, objects, usable: (x, y) => x > 50);
+        Assert.Equal((1, true, 60, 60, true), entrances.Single(e => e.Number == 1) is var e1 ? (e1.Number, e1.Enabled, e1.X, e1.Y, e1.NamedPoint) : default);
+        Assert.Equal((2, false, 62, 61, false), entrances.Single(e => e.Number == 2) is var e2 ? (e2.Number, e2.Enabled, e2.X, e2.Y, e2.NamedPoint) : default);
     }
 
     [Fact]
