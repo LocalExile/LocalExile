@@ -2238,12 +2238,13 @@ public static partial class Game
             var session = ProjectilesFor(player);
             session.Advance();
             var source = SupportedSkill(player, skillId);
-            double release = (swingAt ?? AreaTime(player)) + AttackReleaseDelay(AttackContactDelay(player, SupportedAttackSeconds(player, skillId), false));
+            double start = swingAt ?? AreaTime(player);
+            double release = start + AttackReleaseDelay(AttackContactDelay(player, SupportedAttackSeconds(player, skillId), false));
             session.Runtime.Schedule(Math.Max(session.Runtime.Now, GameServer.Core.Projectiles.ProjectileRuntime.Time(release)), () =>
             {
                 if (session.Active && player.PlayerLife > 0 && player.ActionInterruptionGeneration == recoveryGeneration
                     && SameTriggerSource(source, SupportedSkill(player, skillId)) && GemSkillInstanceDisabled(player, gem.Effect, skillId) is null)
-                    ReleaseArrowRain(session, skillId, gem, to, rainCritical, sequence);
+                    ReleaseArrowRain(session, skillId, gem, to, rainCritical, sequence, actionStart: start);
             });
             return Task.CompletedTask;
         }

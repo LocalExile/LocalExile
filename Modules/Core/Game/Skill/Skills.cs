@@ -482,7 +482,7 @@ public static partial class Game
             // These melee and projectile actions select their native behaviour through this stat.
             if (IsLeapSlam(player, effect) || gatheringLightning || skills.ActionHash(effect) is HolyHammersAction or EarthshatterFissures.Action
                 || effectId is "VolcanicFissureAltX" or "SparkAltY" or "BallLightningAltX"
-                || IsTrarthusChainHook(effectId)
+                || IsTrarthusChainHook(effectId) || IsRainOfArrowsVariant(effectId)
                 || IsChargedDash(player, effect) || IsIceSpear(effectId) || IsWaveOfConviction(effectId))
                 stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
             if (LacerateEffect(effectId))
@@ -828,6 +828,9 @@ public static partial class Game
             if (SkillsFor(player).EffectId(effect) == "BallLightningAltX")
                 stats[Stat.ProjectileSpeedPlusPct] = OrbitingBallLightningSpeedPercent(playerStats.GetValueOrDefault, OwnPanel);
             ApplyProjectilePanelStats(effect, stats);
+            // Network skill records need the final fall speed used by the expanding and linear rain actions.
+            if (IsRainOfArrowsVariant(effectId))
+                stats[Stat.ArrowRainFallSpeedPlusPct] = RainOfArrowsFallSpeed(player, id, characterInputs, supported.Stats);
             if (SkillsFor(player).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalRageCost(player, id, stats);
             else if (ChainbreakerRageCost(Get) is > 0 and var rageCost)
