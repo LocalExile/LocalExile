@@ -845,10 +845,25 @@ public partial class Program
 
     /// <summary>A hideout instance that belongs to someone else (a visit: <see cref="Player.InstanceOwner"/>): its 0x1d carries
     /// <see cref="AreaInstance.UnownedHideoutKind"/>, so the client shows its own "Leave Hideout" button.</summary>
-    static bool UnownedHideout(Player player, ushort areaHash) =>
-        HideoutCatalog.ByArea(areaHash) is not null && player.InstanceOwner is { Length: > 0 } owner
-        && !string.Equals(owner, CharacterName(player), StringComparison.OrdinalIgnoreCase)
-        && !string.Equals(owner, player.Character.Account, StringComparison.OrdinalIgnoreCase);
+    static bool UnownedHideout(Player player, ushort areaHash)
+    {
+        if (HideoutCatalog.ByArea(areaHash) is null || player.InstanceOwner is not { Length: > 0 } owner) return false;
+        if (string.Equals(owner, CharacterName(player), StringComparison.OrdinalIgnoreCase)) return false;
+        if (player.Character.Account is { Length: > 0 } account)
+        {
+            if (string.Equals(owner, account, StringComparison.OrdinalIgnoreCase)) return false;
+            // InstanceOwner is a character name (InstanceDirectory), so another character on the same account owns
+            // the same account hideout (matching HideoutEditing.OwnHideout / AccountHideout.HideoutAccount).
+            if (Saves.IsOpen)
+            {
+                var store = new SqliteAccountStore(Saves.Db);
+                if (store.FindCharacter(owner) is { } ownerChar
+                    && string.Equals(store.GetAccount(ownerChar.AccountId)?.Name, account, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+        }
+        return true;
+    }
 
     // Composes every AreaHeader subscriber so an AchievementSets-only contributor cannot shadow a later module's
     // Terrain or Level override (e.g. Delve mine terrain or Simulacrum wave level).
