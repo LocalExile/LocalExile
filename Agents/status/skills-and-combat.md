@@ -41,6 +41,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Shattering Steel erupts on impact or after a 140 ms flight. Call of Steel removes Impales and reloads Steel Shards, and the Shattering Steel of Ammunition ward expires on the area clock.
 - Splitting Steel bursts at the aim, a target or terrain, then its shards burst at their own endpoints. The Ammunition variant consumes up to two Steel Shards and fires an already-split shard when empty.
 - Shrapnel Ballista of Steel consumes an owner Steel Shard at each volley and fires a single native shrapnel projectile when empty.
+- Steelworm spends an extra Steel Shard on player projectile attacks. Spending eight while equipped grants additional projectiles for four seconds, ending early when the quiver leaves the active set.
 - Accuracy, the Accuracy Mastery's target conditions, Deadeye's Avidity and attack evasion.
   Docs: [11](../docs/protocol/11-skills.md) Â§4â€“5, [20](../docs/protocol/20-damage.md) Â§2h.
 - Armour, Evasion and Energy Shield from passives and equipment, Iron Reflexes and Chaos Inoculation.

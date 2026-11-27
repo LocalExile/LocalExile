@@ -24,6 +24,7 @@ public static partial class Game
         int Variation, Func<uint, int> Get, Func<uint, int> PlayerStat, Func<uint, int> Own)
     {
         internal bool NotHandCast { get; init; }
+        internal int SteelShardsSpent { get; init; }
     }
 
     public sealed record ProjectilePresentation

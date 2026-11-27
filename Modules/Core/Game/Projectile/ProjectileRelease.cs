@@ -377,17 +377,17 @@ public static partial class Game
         SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
         TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1,
         (int X, int Y)? from = null, SupportedGem? capturedSkill = null, int otherWarcryExertions = 0,
-        int? rallyingDamage = null) =>
+        int? rallyingDamage = null, bool fromMirage = false) =>
         CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, weaponHand: null, sequence, repeatsLeft,
             releaseDelay, totem, cryExerted, repeat, sacrifice, reoccurrenceMore, from, capturedSkill, otherWarcryExertions: otherWarcryExertions,
-            rallyingDamage: rallyingDamage);
+            rallyingDamage: rallyingDamage, fromMirage: fromMirage);
 
     static ProjectileUse CaptureGemProjectile(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, AttackHand? weaponHand, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
         TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1,
         (int X, int Y)? from = null, SupportedGem? capturedSkill = null, double hitAndAilmentMore = 1, int otherWarcryExertions = 0,
-        int? rallyingDamage = null)
+        int? rallyingDamage = null, bool fromMirage = false)
     {
         // from: where a placed trap or mine stands, when it and not the player releases the skill.
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
@@ -660,9 +660,17 @@ public static partial class Game
             Payload = shot, ReturnAnchor = new(emitter, epoch), Sequence = sequence, RepeatsLeft = repeatsLeft,
             RadialLaunchOffset = radialRelease && totem is null && from is null ? ahead : 0,
         };
+        bool ownerAttack = !spell && totem is null && from is null && !fromMirage;
+        int steelCost = ownerAttack ? Own(Stat.SteelAmmoConsumedPerUse)
+            : totem is not null ? Own(Stat.SteelAmmoConsumedPerUseByTotem) : 0;
+        int extraSteelCost = ownerAttack && Get(Stat.ProjectilesAreNotFired) == 0
+            ? Player(Stat.SteelAmmoConsumedPerUseWithAttacksThatFireProjectiles) : 0;
+        int spent = SpendProjectileSteelShards(player, session, steelCost, extraSteelCost,
+            Player(Stat.SkillsFireXAdditionalProjectilesFor4SecondsAfterConsuming8SteelAmmo));
         var context = new ProjectileReleaseContext(player, session, skillId, gem, variation, Get, Player, Own)
         {
             NotHandCast = totem is not null || from is not null || sacrifice?.Triggered == true,
+            SteelShardsSpent = spent,
         };
         if (IsExplosiveArrow(SkillsFor(player).EffectId(gem.Effect)) && areaHitInputs is not null)
             use = use with { Payload = shot with { ExplosiveFuse = CaptureExplosiveFuse(context, areaHitInputs, playerStats, own, hand, local) } };

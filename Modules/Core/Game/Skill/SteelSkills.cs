@@ -7,7 +7,9 @@ public static partial class Game
     const string CallOfSteelEffect = "CallOfSteel";
     const string SteelShrapnelBallistaEffect = "ShrapnelBallistaAltX";
     const ushort SteelShardBuff = 1610, SteelWardBuff = 1635;
-    const int BaseSteelShardLimit = 12, SteelWardLimit = 6;
+    const ushort SteelwormBuff = 1820;
+    const int BaseSteelShardLimit = 12, SteelWardLimit = 6, SteelwormShardThreshold = 8;
+    const double SteelwormBuffSeconds = 4;
     // The native skill gives separate collection and reflection areas. Their radii are not in the exported stats.
     const int SteelCollectionRadius = 100, SteelReflectionRadius = 20;
     static readonly RuleTable<Player, SteelState> SteelStates = new();
@@ -15,7 +17,15 @@ public static partial class Game
     sealed class SteelState
     {
         public int Shards, Refill;
+        public SteelwormState? Steelworm;
         public readonly List<(long Expires, int Block)> Wards = [];
+    }
+
+    sealed class SteelwormState(Item source)
+    {
+        public Item Source { get; } = source;
+        public int Spent;
+        public long Expires;
     }
 
     static bool ScheduleCallOfSteel(Player player, ushort skillId, int recoveryGeneration, Func<bool> valid)
@@ -104,21 +114,85 @@ public static partial class Game
         else player.Area.Buffs.Set(player.Id, new(SteelShardBuff, player.Id, Stacks: (ushort)count));
     }
 
+    // Commit once per launched attack, including each Steel Ballista volley. The charged attack has
+    // already read its projectile stats; a newly earned bonus is available to subsequent attacks and spells.
+    static int SpendProjectileSteelShards(Player player, ProjectileSession session,
+        int skillCost, int additionalCost, int steelwormProjectiles)
+    {
+        long cost = Math.Max(0, skillCost) + (long)Math.Max(0, additionalCost);
+        if (cost == 0 || !SteelStates.TryGetValue(player, out var state) || state.Shards <= 0) return 0;
+        int spent = (int)Math.Min(cost, state.Shards);
+        state.Refill++;
+        SetSteelShards(player, state, state.Shards - spent);
+        if (steelwormProjectiles > 0 && ActiveOffHand(player)?.Item is { } quiver)
+        {
+            var worm = state.Steelworm;
+            if (worm is null || !ReferenceEquals(worm.Source, quiver))
+            {
+                ClearSteelwormLocked(player, state);
+                state.Steelworm = worm = new(quiver);
+            }
+            worm.Spent += spent;
+            if (worm.Spent >= SteelwormShardThreshold)
+            {
+                worm.Spent %= SteelwormShardThreshold;
+                GrantSteelwormProjectiles(player, session, state, worm, steelwormProjectiles);
+            }
+        }
+        return Math.Min(Math.Max(0, skillCost), spent);
+    }
+
+    static void GrantSteelwormProjectiles(Player player, ProjectileSession session, SteelState state,
+        SteelwormState worm, int count)
+    {
+        long expires = session.Runtime.Now + ProjectileRuntime.Time(SteelwormBuffSeconds);
+        worm.Expires = expires;
+        var area = player.Area;
+        var entity = new EntityId(player.Id);
+        var stats = new Dictionary<uint, int> { [Stat.NumberOfAdditionalProjectiles] = count };
+        area.SetStatBuff(entity, worm, stats);
+        area.Buffs.Set(player.Id, BuffRows.Spec(SteelwormBuff, player.Id, stats, SteelwormBuffSeconds));
+        void Expire()
+        {
+            if (!ReferenceEquals(state.Steelworm, worm) || worm.Expires != expires) return;
+            worm.Expires = 0;
+            area.RemoveStatBuff(entity, worm);
+            area.Buffs.Clear(player.Id, SteelwormBuff, player.Id);
+        }
+        if (player.Frames.Running)
+        {
+            long frames = (long)Math.Ceiling(SteelwormBuffSeconds * 1000 / Program.FrameMs);
+            InArea(player, owner => owner.Timers.After(owner.Frame, frames, _ =>
+            {
+                if (CurrentGameWork && !player.Closed && ReferenceEquals(player.Area, area)) Expire();
+            }, owner: entity, source: CombatLifetime));
+        }
+        else session.Runtime.Schedule(expires, () => { if (session.Active) Expire(); });
+    }
+
+    static void ReconcileSteelwormSourceLocked(Player player)
+    {
+        if (SteelStates.TryGetValue(player, out var state) && state.Steelworm is { } worm
+            && !ReferenceEquals(ActiveOffHand(player)?.Item, worm.Source))
+            ClearSteelwormLocked(player, state);
+    }
+
+    static void ClearSteelwormLocked(Player player, SteelState state)
+    {
+        if (state.Steelworm is not { } worm) return;
+        state.Steelworm = null;
+        if (worm.Expires == 0) return;
+        player.Area.RemoveStatBuff(new EntityId(player.Id), worm);
+        player.Area.Buffs.Clear(player.Id, SteelwormBuff, player.Id);
+    }
+
     static ProjectileUse PrepareSteelRelease(ProjectileReleaseContext context, ProjectileUse use, string effect)
     {
-        var player = context.Player;
         var shot = (ProjectileOffense)use.Payload!;
-        bool steelBallista = shot.FromTotem && effect == SteelShrapnelBallistaEffect;
-        int cost = context.Own(steelBallista ? Stat.SteelAmmoConsumedPerUseByTotem : Stat.SteelAmmoConsumedPerUse);
-        int spent = 0;
-        if (cost > 0 && !shot.FromTrapOrMine && !shot.Mirage && (steelBallista || shot.ActualCaster is null)
-            && SteelStates.TryGetValue(player, out var state) && state.Shards > 0)
-        {
-            spent = Math.Min(cost, state.Shards);
-            state.Refill++;
-            SetSteelShards(player, state, state.Shards - spent);
-            if (effect == "ShatteringSteelAltX" && spent == cost) AddSteelWard(context, state);
-        }
+        int spent = context.SteelShardsSpent;
+        if (effect == "ShatteringSteelAltX" && spent > 0 && spent == context.Own(Stat.SteelAmmoConsumedPerUse)
+            && SteelStates.TryGetValue(context.Player, out var state))
+            AddSteelWard(context, state);
         var profile = use.Profile;
         if (spent == 0 && context.Own(Stat.Fires1ProjectileIfNoSteelAmmo) != 0)
             profile = profile with { Count = 1, ParallelOrigins = null };
@@ -240,11 +314,12 @@ public static partial class Game
             remaining > 0 ? remaining : (double?)null) with { Stacks = (ushort)stacks });
     }
 
-    static void ClearSteelWardOnDeath(Player player)
+    static void ClearSteelBuffsOnDeath(Player player)
     {
         if (!SteelStates.TryGetValue(player, out var state)) return;
         using var mutation = ProjectileMutation(player, advance: false);
         state.Refill++;
+        ClearSteelwormLocked(player, state);
         if (state.Wards.Count == 0) return;
         state.Wards.Clear();
         PresentSteelWard(player, state);

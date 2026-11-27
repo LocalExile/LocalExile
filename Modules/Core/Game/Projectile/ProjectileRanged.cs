@@ -154,6 +154,9 @@ public static partial class Game
         var profile = OrdinaryRangedProfile(player, projectileId, weapon.Bow, Get);
         profile = clientDrawn ? ClientDrawnProfile(player, profile, Get, sequence, target - origin)
             : NativeVolley(profile, Get, sequence, target - origin, player.Id);
+        SpendProjectileSteelShards(player, session, skillCost: 0,
+            Get(Stat.SteelAmmoConsumedPerUseWithAttacksThatFireProjectiles),
+            Get(Stat.SkillsFireXAdditionalProjectilesFor4SecondsAfterConsuming8SteelAmmo));
         return new(profile, new(player.Id, session.Player.ProjectileEpoch), new(player.Id, session.Player.ProjectileEpoch), 1,
             origin, target)
             { Payload = shot, ReturnAnchor = new(player.Id, session.Player.ProjectileEpoch) };

@@ -153,7 +153,8 @@ public static partial class Game
                                 ReleaseArrowRain(this, current.Skill, gem, ((int X, int Y))aim, crit, 0, mirage: true);
                             else if (ResolveProjectileDefinition(gem.Effect) is not null)
                             {
-                                var use = CaptureGemProjectile(this.Player, this, current.Skill, gem, ((int X, int Y))aim, crit);
+                                var use = CaptureGemProjectile(this.Player, this, current.Skill, gem, ((int X, int Y))aim, crit,
+                                    fromMirage: true);
                                 Runtime.Release(use with { Seed = ++seed, Payload = MirageOffense(this.Player, (ProjectileOffense)use.Payload!) });
                             }
                         }
