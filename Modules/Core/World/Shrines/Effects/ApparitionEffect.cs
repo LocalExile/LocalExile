@@ -223,7 +223,7 @@ public sealed class ApparitionEffect : IShrineEffect
     public static SkillCatalog.MonsterProjectileInfo TornadoProjectile(Player player, int effect, byte level)
     {
         var catalog = SkillsFor(player);
-        var art = catalog.SkillArtProjectile(effect, variant: catalog.ArtVariation(effect))
+        var art = catalog.SkillArtProjectile(effect)
             ?? throw new InvalidOperationException("Missing apparition tornado art for " + effect);
         var own = GolemData.Skill(catalog, effect, level).Stats;
         int count = Math.Max(1, own.GetValueOrDefault(Stat.BaseNumberOfProjectiles)) + own.GetValueOrDefault(Stat.NumberOfAdditionalProjectiles);

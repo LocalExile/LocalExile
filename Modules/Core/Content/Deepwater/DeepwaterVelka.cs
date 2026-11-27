@@ -128,6 +128,7 @@ public static class DeepwaterVelka
         public required int Y { get; init; }
         public required float Rotation { get; init; }
         public float? Height { get; init; }
+        public float Scale { get; init; } = 1f;
         public string? Model { get; init; }
     }
 
@@ -379,7 +380,7 @@ public static class DeepwaterVelka
         Encounters.AddOrUpdate(run, enc);
     }
 
-    static (int X, int Y, float Rotation, float? Height, string? Model) FindOrPlace(
+    static (int X, int Y, float Rotation, float? Height, float Scale, string? Model) FindOrPlace(
         IReadOnlyList<PlacedTileObject> roomObjects, DeepwaterBoard.Cell cell, string type,
         float fallbackX, float fallbackY, float fallbackRot, float? fallbackZ, string? fallbackModel)
     {
@@ -389,18 +390,19 @@ public static class DeepwaterVelka
             if (o.Type == type && cell.Contains((o.X, o.Y)))
             {
                 float? z = float.IsNaN(o.Z) ? fallbackZ : o.Z;
+                float scale = o.Scale > 0f && !float.IsNaN(o.Scale) ? o.Scale : 1f;
                 string? model = string.IsNullOrEmpty(o.Model) ? fallbackModel : o.Model;
-                return (o.X, o.Y, o.Rotation, z, model);
+                return (o.X, o.Y, o.Rotation, z, scale, model);
             }
         }
         var (px, py, angle) = AreaObjects.Place(cell.Placed, fallbackX, fallbackY, fallbackRot);
-        return (px, py, angle, fallbackZ, fallbackModel);
+        return (px, py, angle, fallbackZ, 1f, fallbackModel);
     }
 
     static PlacedObj FindOrPlaceObj(Player player, IReadOnlyList<PlacedTileObject> roomObjects, DeepwaterBoard.Cell cell,
         string type, float fallbackX, float fallbackY, float fallbackRot, float? fallbackZ, string? fallbackModel, bool forceModel)
     {
-        var (x, y, rot, z, model) = FindOrPlace(roomObjects, cell, type, fallbackX, fallbackY, fallbackRot, fallbackZ, fallbackModel);
+        var (x, y, rot, z, scale, model) = FindOrPlace(roomObjects, cell, type, fallbackX, fallbackY, fallbackRot, fallbackZ, fallbackModel);
         var info = QuestObjectTypes.Find(type);
         string? effectiveModel = forceModel
             ? (string.IsNullOrEmpty(model) ? fallbackModel : model)
@@ -413,6 +415,7 @@ public static class DeepwaterVelka
             Y = y,
             Rotation = rot,
             Height = z,
+            Scale = scale,
             Model = effectiveModel,
         };
     }
@@ -475,6 +478,7 @@ public static class DeepwaterVelka
         var obj = new QuestObject(o.X, o.Y, info.Components, o.Rotation, o.Height, o.Model,
             TransitionState: transitionState, Blocked: blocked)
         {
+            Scale = o.Scale,
             StateMachine = states,
             HideMinimapIcon = hideMinimap,
         };

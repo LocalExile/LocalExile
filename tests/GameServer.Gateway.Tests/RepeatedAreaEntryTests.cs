@@ -31,6 +31,40 @@ public sealed class RepeatedAreaEntryTests
     }
 
     [Fact]
+    public void Control_blocks_arrival_prefers_authored_entrance_slot_and_skips_unwalkable_fallback()
+    {
+        ushort tower = AreaTransitionCatalog.HashOf("1_5_town")!.Value;
+        ushort blocks = AreaTransitionCatalog.HashOf("1_5_2")!.Value;
+        // 1_5_2 has entrance1 (authored slot) and entrance2disabled (unslotted fallback) both connected to 1_5_town.
+        var entrances = new GameServer.Data.Terrain.Generation.EntrancePoint[]
+        {
+            new(2, Enabled: false, X: 116, Y: 188, NamedPoint: false),
+            new(1, Enabled: true, X: 221, Y: 393, NamedPoint: true),
+        };
+        Assert.Equal((221, 393, true), AreaTransitionCatalog.EntrancePoint(blocks, entrances, tower));
+
+        // When both entrances have authored slots (Submerged Passage from Flooded Depths), the disabled return still wins.
+        ushort passage = AreaTransitionCatalog.HashOf("1_1_4_1")!.Value;
+        ushort depths = AreaTransitionCatalog.HashOf("1_1_4_0")!.Value;
+        var passageEntrances = new GameServer.Data.Terrain.Generation.EntrancePoint[]
+        {
+            new(3, Enabled: true, X: 100, Y: 100, NamedPoint: true),
+            new(4, Enabled: false, X: 250, Y: 250, NamedPoint: true),
+        };
+        Assert.Equal((250, 250, true), AreaTransitionCatalog.EntrancePoint(passage, passageEntrances, depths));
+
+        // An unslotted fallback at an unwalkable pocket never overrides the walkable transition back or strands the player.
+        var layout = new AreaLayout(blocks, "1_5_2", 500, 500, 219, 394, (x, y) => x >= 200 && y >= 350,
+            [(1, new(218, 363, tower) { Entrance = 1 })])
+        {
+            EntranceFrom = (_, _) => (116, 188, false),
+        };
+        var arrival = layout.Arrival(tower);
+        Assert.True(layout.Walkable!(arrival.X, arrival.Y));
+        Assert.True(Math.Max(Math.Abs(arrival.X - 218), Math.Abs(arrival.Y - 363)) <= 20);
+    }
+
+    [Fact]
     public async Task Town_stash_and_guild_stash_created_on_lockstep_entry_replay_on_reentry_without_duplicating_npcs()
     {
         var previousLogic = Program.GameLogicOrNull;

@@ -405,11 +405,22 @@ public static class InstanceProtocol
     /// animation and consumes a use of the skill: that starts its cooldown on the skill bar (live 2026-10-21).
     /// </summary>
     public static byte[] InstantAction(uint objectId, ushort skillId, int targetX, int targetY, uint? targetObjectId = null,
-        ushort sequence = 0xffff, ushort flags = 0, bool triggered = false)
+        ushort sequence = 0xffff, ushort flags = 0, bool triggered = false) =>
+        InstantAction(objectId, skillId, targetX, targetY, origin: null, targetObjectId, sequence, flags, triggered);
+
+    /// <summary>
+    /// Overload of <see cref="InstantAction(uint, ushort, int, int, uint?, ushort, ushort, bool)"/> that also encodes an
+    /// explicit custom origin (<c>flags |= 0x2000</c>, two compact ints read at <c>0x141fe4a2e..0x141fe4a48</c> before
+    /// <c>targetX/targetY</c>), used by S3 triggered combo children whose clip event carries a local 3D offset.
+    /// </summary>
+    public static byte[] InstantAction(uint objectId, ushort skillId, int targetX, int targetY, (int X, int Y)? origin,
+        uint? targetObjectId = null, ushort sequence = 0xffff, ushort flags = 0, bool triggered = false)
     {
+        ushort wireFlags = (ushort)(flags | (triggered ? 0x80 : 0) | (targetObjectId is null ? 0 : 0x20) | (origin is null ? 0 : 0x2000));
         var w = new LoginWriter().U16(InstantActionId).U32(objectId).U32(0).U16(0)
-            .U16(skillId).U16(sequence).U16((ushort)(flags | (triggered ? 0x80 : 0) | (targetObjectId is null ? 0 : 0x20)));
+            .U16(skillId).U16(sequence).U16(wireFlags);
         if (targetObjectId is { } t) w.U32(t);
+        if (origin is { } o) { CompactInt(w, o.X); CompactInt(w, o.Y); }
         CompactInt(w, targetX); CompactInt(w, targetY);
         return w.ToArray();
     }

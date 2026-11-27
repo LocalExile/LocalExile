@@ -81,7 +81,7 @@ public static class AreaExits
     {
         var links = Links(records);
         var rooms = Rooms(files, records.SelectMany(r => r.Rooms), links);
-        return (Resolve(rooms, objects, usable), Entrances(rooms, objects));
+        return (Resolve(rooms, objects, usable), Entrances(rooms, objects, usable));
     }
 
     /// <summary>The first number of the gates <see cref="Links"/> makes up: above any the 3.29 graphs use (22 at most).</summary>
@@ -143,16 +143,23 @@ public static class AreaExits
     /// into (-1 for the sub-area's own room), and the "link" rooms without a partner.</summary>
     internal sealed record LinkRooms(Dictionary<PlacedRoom, (string[] Descriptions, string Row, int Into)> Extra, HashSet<PlacedRoom> Unpaired);
 
-    /// <summary>Where each "entranceN" of the layout is (its slot, else its room's first transition object, else the
-    /// room's centre).</summary>
-    public static List<EntrancePoint> Entrances(IReadOnlyList<LayoutRoom> rooms, IReadOnlyList<PlacedTileObject> objects)
+    /// <summary>Where each "entranceN" of the layout is (its slot, else its room's first usable transition object, else
+    /// the room's centre).</summary>
+    public static List<EntrancePoint> Entrances(IReadOnlyList<LayoutRoom> rooms, IReadOnlyList<PlacedTileObject> objects) =>
+        Entrances(rooms, objects, usable: null);
+
+    /// <inheritdoc cref="Entrances(IReadOnlyList{LayoutRoom}, IReadOnlyList{PlacedTileObject})"/>
+    public static List<EntrancePoint> Entrances(IReadOnlyList<LayoutRoom> rooms, IReadOnlyList<PlacedTileObject> objects,
+        Func<int, int, bool>? usable)
     {
         var points = new List<EntrancePoint>();
         foreach (var room in rooms)
             foreach (var d in room.Descriptions.Where(d => d.Kind == ExitKind.Entrance))
             {
-                var inRoom = objects.FirstOrDefault(o => room.Contains(o.X, o.Y));
                 var slot = room.SlotOf(d);
+                var inRoom = slot is null
+                    ? objects.Where(o => room.Contains(o.X, o.Y)).OrderBy(o => usable?.Invoke(o.X, o.Y) != false ? 0 : 1).FirstOrDefault()
+                    : null;
                 (int X, int Y) at = slot is { } p ? (p.X, p.Y) : inRoom is { } o ? (o.X, o.Y) : room.Centre;
                 points.Add(new EntrancePoint(d.Number, d.Enabled, at.X, at.Y, NamedPoint: slot is not null));
             }
@@ -242,13 +249,23 @@ public static class AreaExits
             }
             Place(Descriptions.Where(d => d.Kind == ExitKind.Entrance).OrderBy(d => d.Enabled ? 0 : 1), EntrancePoints, EntrancePointName);
             var telepads = Descriptions.Where(d => d.IsTelepad);
-            // The Cauldron's two generic points are authored as telepad2 (tunnel grate), then telepad3
-            // (the face door that opens on Doedre's death). Its boss node lists them in the opposite order.
-            if (Room.Room.Path.StartsWith("Metadata/Terrain/Act8/Area2Level2/", StringComparison.OrdinalIgnoreCase)
-                && Name.Equals("doedre_boss_room_1.arm", StringComparison.OrdinalIgnoreCase))
+            // Rooms whose generic "telepad" points are authored in ascending telepad-number order while their graph node
+            // lists them descending:
+            // - Act 8 The Cauldron (doedre_boss_room_1.arm): telepad2 (tunnel grate), then telepad3 (face door).
+            // - Act 6 Prisoner's Gate & Summit map Abberath Phase 1 (bossphase1.arm / bossphase1_gauntlet.arm):
+            //   telepad1 (east entrance beside DoorAbberathExterior), then telepad4 (west exit beside locked DoorAbberathPhase1).
+            if (HasAscendingGenericTelepads(Room.Room.Path, Name))
                 telepads = telepads.OrderBy(d => d.Number);
             Place(telepads, TeleportPoints, TeleportPointName);
         }
+
+        static bool HasAscendingGenericTelepads(string path, string name) =>
+            (path.StartsWith("Metadata/Terrain/Act8/Area2Level2/", StringComparison.OrdinalIgnoreCase)
+                && name.Equals("doedre_boss_room_1.arm", StringComparison.OrdinalIgnoreCase))
+            || ((path.StartsWith("Metadata/Terrain/Act6/Area8/", StringComparison.OrdinalIgnoreCase)
+                    || path.StartsWith("Metadata/Terrain/EndGame/MapSummit/", StringComparison.OrdinalIgnoreCase))
+                && (name.Equals("bossphase1.arm", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("bossphase1_gauntlet.arm", StringComparison.OrdinalIgnoreCase)));
 
         // Phase 2, with every room's telepads: a gate stands beside the arrival from the place it leads to: "teleportM"
         // takes the slot of this room's "telepadK" whose "teleportK" stands in the room of "telepadM" (K ≠ M). The

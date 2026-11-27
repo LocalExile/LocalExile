@@ -51,24 +51,9 @@ public static partial class MapStrongboxes
         "degen_effect_+%", "self_elemental_status_duration_-%",
     };
 
-    sealed class PlayerCurse
-    {
-        public readonly List<(Dictionary<uint, int> Stats, double Until, ushort Buff)> Active = [];
-    }
-    static readonly RuleTable<Player, PlayerCurse> Cursed = new();
-
-    /// <summary>GameEvents.PlayerStatSources: the strongbox curses on this player, while they last.</summary>
-    public static Dictionary<uint, int> CurseStats(Player player, Dictionary<uint, int> stats)
-    {
-        if (!Cursed.TryGetValue(player, out var cursed) || cursed.Active.Count == 0) return stats;
-        double now = Now;
-        lock (cursed)
-            foreach (var (curse, until, _) in cursed.Active)
-                if (until > now)
-                    foreach (var (key, value) in curse)
-                        stats[key] = (int)Math.Clamp((long)stats.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
-        return stats;
-    }
+    /// <summary>Strongbox curses now route through <see cref="Game.AddPlayerDebuff"/> so they deduplicate with all
+    /// other player curses and respect area time and curse immunity.</summary>
+    public static Dictionary<uint, int> CurseStats(Player player, Dictionary<uint, int> stats) => stats;
 
     /// <summary>A skill's base hit damage from its stats: <c>spell_minimum_base_&lt;type&gt;_damage</c> and the maximum, or the
     /// <c>secondary_</c> ones (an explosion's).</summary>
@@ -285,6 +270,7 @@ public static partial class MapStrongboxes
             await SendWorldRecord(player, player.Id, InstanceProtocol.LifeUpdate(player.Id, player.PlayerLife, player.PlayerReservedLife), "strongbox daemon hit");
             await SendPlayerEnergyShield(player);
             if (hit.Mana != hit.ManaBefore) await SendPlayerMana(player, "strongbox daemon mana");
+            if (player.PlayerLife > 0) await SendRage(player);
             if (player.PlayerLife == 0) await PlayerDied(player, "death from a strongbox daemon");
         }
     }
@@ -304,43 +290,18 @@ public static partial class MapStrongboxes
         }
     }
 
-    /// <summary>One of the daemon's curses on the players near the box: the curse's stats that act on the one it curses
-    /// (and <c>you_are_cursed_with_&lt;curse&gt;</c>), its buff, for its duration; a curse-immune player is not cursed.</summary>
+    /// <summary>One of the daemon's curses on the players near the box: routed through <see cref="Game.AddPlayerDebuff"/>
+    /// so it deduplicates with monster, pillar, Harbinger, and map curses and respects area time and curse immunity.</summary>
     static async Task Curse(Player source, (int X, int Y) at, double radius, (string Name, ushort Buff) curse,
         Dictionary<uint, int> skillStats, double seconds)
     {
         foreach (var player in PlayersNear(source, at, radius).ToArray())
         {
             if (player.Immune || InGracePeriod(player)) continue;
-            var playerStats = CharacterPlayerStats(player);
-            int Has(uint key) => playerStats.GetValueOrDefault(key);
-            if (Has(Stat.ImmuneToCurses) != 0 || Has(Stat.VirtualImmuneToCurses) != 0 || Has(Stat.Hexproof) != 0) continue;
             var stats = skillStats.Where(p => CurseOnPlayerStats.Contains(Stats.Name(p.Key) ?? "")).ToDictionary(p => p.Key, p => p.Value);
             if (Stats.Key("you_are_cursed_with_" + curse.Name) is uint flag) stats[flag] = 1;
-            var cursed = Cursed.GetOrCreateValue(player);
-            ushort buff = player.NextBuff++;
-            lock (cursed) { cursed.Active.RemoveAll(c => c.Until <= Now); cursed.Active.Add((stats, Now + seconds, buff)); }
-            await SendWorldRecord(player, player.Id, InstanceEntities.AddBuff(player.Id, buff, curse.Buff,
-                u68: BitConverter.SingleToUInt32Bits((float)seconds)), $"strongbox curse {curse.Name} for {seconds:0.#} s");
-            await RefreshStats(player);
-            _ = Uncurse(player, buff, seconds);
+            await AddPlayerDebuff(player, curse.Buff, 0, stats, seconds);
         }
-    }
-
-    static async Task Uncurse(Player player, ushort buff, double seconds)
-    {
-        await Task.Delay(TimeSpan.FromSeconds(seconds));
-        if (Cursed.TryGetValue(player, out var cursed)) lock (cursed) cursed.Active.RemoveAll(c => c.Buff == buff);
-        if (player.Closed) return;
-        await SendWorldRecord(player, player.Id, InstanceEntities.RemoveBuff(player.Id, buff), null);
-        if (!player.LeavingArea) await RefreshStats(player);
-    }
-
-    static async Task RefreshStats(Player c)
-    {
-        c.Pools = PoolsFor(c, c.Pools.Level);
-        c.ApplyMovementSpeed();
-        await SendPlayerStatSnapshot(c, () => PlayerStatsOffFrames(c), null);
     }
 
     /// <summary>Every corpse near the box explodes (and is consumed): each an area hit around it. The art is the official

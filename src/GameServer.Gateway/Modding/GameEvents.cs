@@ -718,6 +718,18 @@ public static class GameEvents
     public static readonly GameEvent<Func<Player, IReadOnlyList<ushort>, Task>> MessagesHandled = new();
     public static readonly GameEvent<Func<Player, InstanceItems.PickUpItem, Task<bool>>> InventoryPick = new();
     public static readonly GameEvent<Func<Player, InstanceItems.PlaceItem, Task<bool>>> InventoryPlace = new();
+    /// <summary>A held item clicked onto an item in an inventory (C→S 0x4a); true when handled.</summary>
+    public static readonly GameEvent<Func<Player, InstanceItems.ItemAction, Task<bool>>> InventoryItemAction = new();
+    /// <summary>Fired after an inventory row's items changed (pickup, place, swap, or quick-move).</summary>
+    public static readonly GameEvent<Func<Player, byte, Task>> InventoryChanged = new();
+    /// <summary>Fired after the player's rebuilt stats have been published (passive, equipment, or mod change).</summary>
+    public static readonly GameEvent<Func<Player, Task>> PlayerStatsChanged = new();
+    /// <summary>Allows modules or mods to adjust whether and at what level an optional area encounter spawns.</summary>
+    public static readonly GameEvent<Action<EncounterSpawnRequest>> EncounterSpawn = new();
+    /// <summary>Allows modules or mods to adjust companion follower eligibility and global unique-slot rules.</summary>
+    public static readonly GameEvent<Action<CompanionRuleCheck>> CompanionRules = new();
+    /// <summary>Allows modules or mods to inspect, waive unique checks for, or refuse a companion item equip.</summary>
+    public static readonly GameEvent<Action<CompanionEquipCheck>> CompanionEquip = new();
     /// <summary>How one of the player's inventories is registered with the client on entering an area (S→C 0xc0): the
     /// Inventories row's own slot, or another kind or flags for it. The client's panels bind to the first registration
     /// of a row, so this is where a row's kind is chosen. The first answer wins; null for no opinion. The size the
@@ -776,6 +788,11 @@ public static class GameEvents
     public static readonly GameEvent<Func<Player, int, Task>> PlayerLevelUp = new();
     /// <summary>Request opening a town portal at (x, y) on behalf of a player (e.g., on-death or item effects); true when handled.</summary>
     public static readonly GameEvent<Func<Player, int, int, string, Task<bool>>> PortalRequested = new();
+    /// <summary>An NPCTalk script dispatched a ruleset event (<c>DispatchRulesetEvent(...)</c>) or scripted world action:
+    /// (player, npcObjectId, npc, talk, eventName). True when handled by this subscriber.</summary>
+    public static readonly GameEvent<Func<Player, uint, SpawnedNpc, NpcCatalog.Talk, string, Task<bool>>> RulesetEvent = new();
+    /// <summary>The player interacted with a Map Device (hideout or Karui Shores) right before the Map Device window opens.</summary>
+    public static readonly GameEvent<Func<Player, Task>> MapDeviceOpened = new();
 
     public static async Task<bool> AnyNpcTalk(Player player, uint id, SpawnedNpc npc)
     {
@@ -844,6 +861,23 @@ public static class GameEvents
         return true;
     }
 
+    public static async Task<bool> DispatchRulesetEvent(Player player, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk, string eventName)
+    {
+        bool handled = false;
+        foreach (var (owner, run) in RulesetEvent.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(RulesetEvent), async () =>
+            {
+                if (await run(player, npcId, npc, talk, eventName)) handled = true;
+            });
+        return handled;
+    }
+
+    public static async Task RunMapDeviceOpened(Player player)
+    {
+        foreach (var (owner, run) in MapDeviceOpened.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(MapDeviceOpened), () => run(player));
+    }
+
     public static bool UsesNpcLeagueFlags(Player player, NpcCatalog.Npc npc)
     {
         foreach (var (owner, run) in NpcUsesLeagueFlags.Subscribers(player))
@@ -872,6 +906,58 @@ public static class GameEvents
         return false;
     }
 
+    public static async Task<bool> AnyInventoryItemAction(Player player, InstanceItems.ItemAction action)
+    {
+        if (!InventoryItemAction.Any) return false;
+        foreach (var (owner, run) in InventoryItemAction.Subscribers(player))
+        {
+            bool taken = false;
+            if (await GameEventOwners.Guard(owner, nameof(InventoryItemAction), async () => taken = await run(player, action)) && taken)
+                return true;
+        }
+        return false;
+    }
+
+    public static async Task RunInventoryChanged(Player player, byte row)
+    {
+        if (!InventoryChanged.Any) return;
+        foreach (var (owner, run) in InventoryChanged.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(InventoryChanged), () => run(player, row));
+    }
+
+    public static async Task RunPlayerStatsChanged(Player player)
+    {
+        if (!PlayerStatsChanged.Any) return;
+        foreach (var (owner, run) in PlayerStatsChanged.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(PlayerStatsChanged), () => run(player));
+    }
+
+    public static void ResolveEncounterSpawn(EncounterSpawnRequest request)
+    {
+        if (!EncounterSpawn.Any) return;
+        foreach (var (owner, run) in EncounterSpawn.Subscribers(request.Player))
+            GameEventOwners.Guard(owner, nameof(EncounterSpawn), () => run(request));
+    }
+
+    public static CompanionRuleCheck ResolveCompanionRules(Player player, bool canHavePermanentFollower)
+    {
+        var check = new CompanionRuleCheck(player, canHavePermanentFollower);
+        if (!CompanionRules.Any) return check;
+        foreach (var (owner, run) in CompanionRules.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(CompanionRules), () => run(check));
+        return check;
+    }
+
+    public static CompanionEquipCheck ResolveCompanionEquip(Player player, byte equipmentRow, Item item,
+        int companionLevel, bool isPermanent)
+    {
+        var check = new CompanionEquipCheck(player, equipmentRow, item, companionLevel, isPermanent);
+        if (!CompanionEquip.Any) return check;
+        foreach (var (owner, run) in CompanionEquip.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(CompanionEquip), () => run(check));
+        return check;
+    }
+
     public static InstanceInventories.Slot ResolveInventorySlot(Player player, InstanceInventories.Slot slot)
     {
         foreach (var (owner, run) in InventorySlot.Subscribers(player))
@@ -884,9 +970,12 @@ public static class GameEvents
     }
 
     public static string? FirstInventoryRefusal(Player player, byte row, Item item) =>
-        FirstInventoryRefusal(player, row, item, null);
+        FirstInventoryRefusal(player, row, item, null, 0, 0);
 
-    public static string? FirstInventoryRefusal(Player player, byte row, Item item, InventoryItem? replaced)
+    public static string? FirstInventoryRefusal(Player player, byte row, Item item, InventoryItem? replaced) =>
+        FirstInventoryRefusal(player, row, item, replaced, 0, 0);
+
+    public static string? FirstInventoryRefusal(Player player, byte row, Item item, InventoryItem? replaced, byte x, byte y)
     {
         foreach (var (owner, run) in InventoryRefusal.Subscribers(player))
         {
@@ -895,7 +984,7 @@ public static class GameEvents
             if (answer is not null) return answer;
         }
         if (!InventoryPlacementRefusal.Any) return null;
-        var placement = new InventoryPlacement(player, row, item, replaced);
+        var placement = new InventoryPlacement(player, row, item, replaced) { X = x, Y = y };
         foreach (var (owner, run) in InventoryPlacementRefusal.Subscribers(player))
         {
             string? answer = null;

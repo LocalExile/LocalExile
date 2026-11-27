@@ -16,7 +16,7 @@ public static partial class Game
     static ProjectileUse? ReleaseWildStrike(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll critical, ushort sequence,
-        int repeat, bool cryExerted, double ruthless, int ancestralTargets, int? rallyingDamage)
+        int repeat, bool cryExerted, double ruthless, int ancestralTargets, int? rallyingDamage, TraumaUse? traumaUse = null)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         uint primary = LightningStrikeTarget(player, from, aim, targetId, now);
@@ -34,14 +34,16 @@ public static partial class Game
             immediate: true, sequence: sequence, criticalRoll: critical, targetId: primary,
             radiusOverride: WeaponFor(player).Range + monster.StopRange, damageMore: more,
             onHit: NoteContact, scheduledSession: session, cryExerted: cryExerted, repeat: repeat,
-            targetFilter: (id, _) => id == primary, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage);
+            targetFilter: (id, _) => id == primary, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage,
+            traumaUse: traumaUse);
         if (!contact.IsCompleted) throw new InvalidOperationException("Scheduled Wild Strike contact must not yield.");
         contact.GetAwaiter().GetResult();
         if (contacts.Count == 0) return null;
 
         source = WildStrikeDamageSource(source, element.Value, followup: true);
-        var use = CaptureGemProjectile(player, session, skillId, gem, aim, critical, sequence, cryExerted: cryExerted,
-            from: at, capturedSkill: source, otherWarcryExertions: ancestralTargets > 0 ? 1 : 0, rallyingDamage: rallyingDamage);
+        var use = CaptureGemProjectile(player, session, skillId, gem, aim, critical, weaponHand: null, sequence: sequence,
+            cryExerted: cryExerted, from: at, capturedSkill: source, otherWarcryExertions: ancestralTargets > 0 ? 1 : 0,
+            rallyingDamage: rallyingDamage, ancestralExerted: ancestralTargets > 0);
         var shot = ((ProjectileOffense)use.Payload!).ScaleDamage(more) with { ClientPredicted = true, AreaVisual = null };
         foreach (var strike in contacts)
         {

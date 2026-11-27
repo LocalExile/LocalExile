@@ -1081,6 +1081,11 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// where client A* favours 45-degree diagonals.</summary>
     public bool Blocking { get; init; } = true;
 
+    /// <summary>Sets bit 15 (<c>0x8000</c>) of <c>Positioned</c>'s team <c>u16</c> (<c>+0x1e0</c>, "Is Minion" in
+    /// <c>0x141e36650</c>): a same-team walker without the bit (the players, team 0) passes this body
+    /// (<c>0x141e65ae0</c>); other teams' walkers and minions still collide with it.</summary>
+    public bool IsMinion { get; init; }
+
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents =
         ["Positioned", "Stats", "ObjectMagicProperties", "BaseEvents", "Pathfinding", "Buffs", "Life", "Animated",
@@ -1137,9 +1142,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
         {
             switch (c)
             {
-                // x, y, f32 rotation (+0x29c), u16 team (+0x1e0; the player is team 0: 0 = friendly, green outline;
-                // 1 = hostile, red); blocking is the type's own unless overridden as non-blocking (flags1 0x0a).
-                case "Positioned": w.Positioned(GridX, GridY, Rotation, Team, blocking: Blocking ? null : false, blocksNoWalker: !Blocking); break;
+                // x, y, f32 rotation (+0x29c), u16 team (+0x1e0; low 15 bits = team, 0 = friendly / 1 = hostile;
+                // bit 15 0x8000 = Is Minion so players pass through allied minions/totems while hostiles stay blocked);
+                // blocking is the type's own unless overridden as non-blocking (flags1 0x0a).
+                case "Positioned": w.Positioned(GridX, GridY, Rotation, (ushort)(Team | (IsMinion ? 0x8000 : 0)), blocking: Blocking ? null : false, blocksNoWalker: !Blocking); break;
                 case "Stats": w.Stats(Stats).U32(0).U32(0).U8(0); break;
                 // base magic properties (0x142208700, Instance.MagicProperties): u16 flags (bits 0-2 rarity → +0x7c,
                 // 0 = normal; bit 3 identified → +0x78, which gates the name and the explicit list), u8 +0x7a, the mod
@@ -1530,7 +1536,22 @@ public sealed record StateMachineData(IReadOnlyList<int> SharedStates, int Share
     public IReadOnlySet<int> Overridden { get; init; } = new HashSet<int>();
 
     /// <summary>The state's index by name, or −1.</summary>
-    public int IndexOf(string name) => Names is null ? -1 : Names.ToList().IndexOf(name);
+    public int IndexOf(string name)
+    {
+        if (Names is null) return -1;
+        for (int i = 0; i < Names.Count; i++)
+            if (Names[i] == name) return i;
+        return -1;
+    }
+
+    /// <summary>Gets the current value of a named shared state, or false if the name is unknown.</summary>
+    public bool TryGet(string name, out int value)
+    {
+        int i = IndexOf(name);
+        if ((uint)i >= (uint)SharedStates.Count) { value = 0; return false; }
+        value = SharedStates[i];
+        return true;
+    }
 
     /// <summary>A copy with this state set; unknown names change nothing.</summary>
     public StateMachineData Set(string name, int value)
@@ -1914,4 +1935,80 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     /// +0x30 is current and +0x10 a reserve clamped to the maximum.</summary>
     private static void Pool(BlobWriter w, uint current, uint reserved = 0) =>
         w.U32(current).U32(reserved).U16(0).U32(0).U32(0);
+}
+
+/// <summary>
+/// An Eldritch Altar world object (<c>Metadata/MiscellaneousObjects/PrimordialBosses/TangleAltar</c> or
+/// <c>CleansingFireAltar</c>, extending <c>InfluenceAltar.ot</c>). Components in wire order (<c>read = 5</c>):
+/// <c>Positioned</c> (0), <c>BaseEvents</c> (1, server-only), <c>Animated</c> (2), <c>StateMachine</c> (3, shared states
+/// <c>activated</c> and <c>doodads</c>), <c>MinimapIcon</c> (4).
+/// <para>
+/// Altar choices are carried in the entity's <c>BaseData</c> map (<c>0x141dedf80</c> / <c>0x141dfe5a0</c> dispatch
+/// table[8] = <c>0x141e00330</c>, read by <c>BaseData_GetInt32Array @ 0x1402bd900</c> from <c>AltarUI @ 0x140c78140</c>):
+/// each present entry uses <c>elemType = 8</c> (<c>i32 LE[]</c>) where <c>values[0] = Mods.HASH32</c> and
+/// <c>values[1..]</c> are the rolled stat values in the mod's non-null stat order.
+/// </para>
+/// </summary>
+public sealed record PrimordialAltarObject(
+    int GridX,
+    int GridY,
+    IReadOnlyList<PrimordialAltarObject.BaseDataEntry> Entries,
+    bool Activated = false,
+    bool Doodads = true,
+    float Rotation = 0,
+    bool Awake = true)
+{
+    public const string TanglePath = "Metadata/MiscellaneousObjects/PrimordialBosses/TangleAltar";
+    public const string CleansingFirePath = "Metadata/MiscellaneousObjects/PrimordialBosses/CleansingFireAltar";
+
+    /// <summary>Wire <c>BaseData</c> element type for <c>int32[]</c> (<c>0x141e00330</c> → <c>0x1402bd900</c>).</summary>
+    public const byte Int32ArrayElemType = 8;
+
+    /// <summary>Component index of <c>StateMachine</c> in <c>InfluenceAltar.ot</c>: Positioned(0), BaseEvents(1), Animated(2), StateMachine(3), MinimapIcon(4).</summary>
+    public const byte StateMachineIndex = 3;
+
+    // Exact 12 BaseData u32 LE key hashes verified in AltarUI (0x140c78322..0x140c786f7).
+    public const uint Choice1DownsidePrimary = 0x25627829;
+    public const uint Choice1DownsideExtra1 = 0x6fbf2afe;
+    public const uint Choice1DownsideExtra2 = 0xe4ec0e1d;
+    public const uint Choice1UpsidePrimary = 0xbdc9f3e4;
+    public const uint Choice1UpsideExtra1 = 0x1b640097;
+    public const uint Choice1UpsideExtra2 = 0xaa52cada;
+
+    public const uint Choice2DownsidePrimary = 0xf02a2d1a;
+    public const uint Choice2DownsideExtra1 = 0x9ff9f010;
+    public const uint Choice2DownsideExtra2 = 0x4f299c61;
+    public const uint Choice2UpsidePrimary = 0x0a00dad4;
+    public const uint Choice2UpsideExtra1 = 0x8d2f66e3;
+    public const uint Choice2UpsideExtra2 = 0x0bf38232;
+
+    public readonly record struct BaseDataEntry(uint KeyHash, uint ModHash32, IReadOnlyList<int> StatValues);
+
+    public static byte[] ActivatedUpdate(uint entityId, bool doodads = true) =>
+        InstanceEntities.StateMachineUpdate(entityId, StateMachineIndex, new StateMachineData([1, doodads ? 1 : 0], 0));
+
+    public byte[] Blob()
+    {
+        var entries = Entries.Where(e => e.ModHash32 != 0).ToList();
+        if (entries.Count > byte.MaxValue) throw new ArgumentException("Too many BaseData entries.", nameof(Entries));
+        var w = new BlobWriter();
+        w.U8(Awake ? (byte)2 : (byte)0);
+        w.U8((byte)entries.Count);
+        foreach (var entry in entries)
+        {
+            int valueCount = 1 + entry.StatValues.Count;
+            if (valueCount > byte.MaxValue) throw new ArgumentException("Too many stat values for BaseData entry.");
+            w.U32(entry.KeyHash).U8(0).U8((byte)valueCount).U8(Int32ArrayElemType);
+            w.I32(unchecked((int)entry.ModHash32));
+            for (int i = 0; i < entry.StatValues.Count; i++)
+                w.I32(entry.StatValues[i]);
+        }
+        w.Positioned(GridX, GridY, Rotation);                                       // 0: Positioned
+        // 1: BaseEvents is server_only = true (no wire bytes)
+        w.U8(0);                                                                    // 2: Animated (type's .ao)
+        new StateMachineData([Activated ? 1 : 0, Doodads ? 1 : 0], 0).Write(w);    // 3: StateMachine (activated, doodads)
+        w.U8((byte)(Activated ? 0x06 : 0x00));                                      // 4: MinimapIcon
+        w.U8(0);                                                                    // tasks
+        return w.ToArray();
+    }
 }

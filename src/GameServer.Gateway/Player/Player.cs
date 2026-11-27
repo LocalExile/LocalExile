@@ -32,6 +32,43 @@ public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool
 /// it (<c>action_should_face_away_from_target</c>: the Sand Spitter spits from its rear).</summary>
 public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? Point, bool FacesAway);
 
+/// <summary>How a combo child fires on the client when its parent clip event triggers (S3, 3.29.3c RE).</summary>
+public enum MonsterComboDispatch
+{
+    /// <summary>Send S→C 0x1ce (triggered=true) so the client draws Geometry/EffectDriven/Beam/GEAL/Melee visuals
+    /// without interrupting Actor+0x1b0, plus resolve server AoE/melee hit.</summary>
+    TriggeredAction,
+    /// <summary>Spawn authoritative server projectile/mortar via S→C 0x2bb without duplicate 0x1ce.</summary>
+    Projectile,
+    /// <summary>Spawn server summon/object/ground via S→C 0x2bb without 0x1ce.</summary>
+    ServerSpawn,
+}
+
+/// <summary>One scheduled child trigger bound to a named animation clip event on an <c>EmptyAction*</c> combo parent.</summary>
+public sealed record MonsterComboStep(
+    string EventName,
+    int Ms,
+    double Fraction,
+    int ChildEffect,
+    MonsterAttack ChildAttack,
+    MonsterComboDispatch Dispatch,
+    ContactPoint? Point = null);
+
+/// <summary>Engine facing/motion control event parsed from a parent combo clip (<c>StartFaceEventType</c>,
+/// <c>EndFaceEventType</c>, <c>MoveEventType</c>, or <c>face</c>).</summary>
+public sealed record MonsterComboControl(
+    string Kind,
+    int Ms,
+    int? EndMs = null,
+    ContactPoint? Point = null,
+    bool TerrainClamped = false)
+{
+    /// <summary>Start time as a fraction of the raw clip length, clamped to [0, 1].</summary>
+    public double Fraction { get; init; }
+    /// <summary>End time as a fraction of the raw clip length (when <see cref="EndMs"/> is set), clamped to [0, 1].</summary>
+    public double? EndFraction { get; init; }
+}
+
 /// <summary>One skill of a boss's kit (BossKits): the granted effect it is built from, its action, and how long the
 /// tables make it wait between two uses (0: the plain attack every monster has).</summary>
 public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double CooldownSeconds)
@@ -43,6 +80,11 @@ public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double Co
     public bool IsTeleport { get; init; }
     /// <summary>Whether one cast of this kit skill fires a barrage of shots (<c>BossMoves.BarrageOf</c>).</summary>
     public bool IsBarrage { get; init; }
+    /// <summary>Minimum distance in cells before this skill may be chosen (e.g. <c>projectile_minimum_range</c>,
+    /// <c>leap_slam_minimum_distance</c>; 0 means no extra minimum beyond <see cref="MonsterSkillUse.MinRange"/>).</summary>
+    public double MinRange { get; init; }
+    /// <summary>Shared cooldown group from <c>GrantedEffectsPerLevel.CooldownGroup</c> (0 = independent cooldown).</summary>
+    public int CooldownGroup { get; init; }
 }
 
 /// <summary>A delayed strike: how long its marker waits, the art it shows while it waits and as it strikes (null for
@@ -240,8 +282,15 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>A kit skill that is no plain hit (<see cref="MonsterSkillUse"/>): a travel, a buff on its user, a curse.</summary>
     public MonsterSkillUse? Use { get; init; }
 
+    /// <summary>Ordered child triggers fired at named clip events during an <c>EmptyAction*</c> combo parent (S3).</summary>
+    public IReadOnlyList<MonsterComboStep>? ComboSteps { get; init; }
+
+    /// <summary>Clip-driven facing/motion control events (<c>StartFace</c>/<c>EndFace</c>/<c>MoveEventType</c>) synchronized
+    /// with a combo parent.</summary>
+    public IReadOnlyList<MonsterComboControl>? ComboControls { get; init; }
+
     /// <summary>Plays where the actor stands. A plain melee attack instead walks the monster up (07 §5).</summary>
-    public bool InPlace => Ranged || Spell || Scripted || Use is not null;
+    public bool InPlace => Ranged || Spell || Scripted || Use is not null || ComboSteps is { Count: > 0 };
 
     /// <summary>The skill's stats. A melee attack keeps the client's pathing step: the action walks the monster up to its
     /// target and waits there until S→C 0x1ac starts the swing (07 §5). Anything else plays where it stands.</summary>
@@ -354,6 +403,15 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public IReadOnlyList<(int Effect, ushort Id)> SkillIds { get; init; } = [];
     /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), in the area's frame.</summary>
     public readonly Dictionary<int, double> KitReadyAt = [];
+    /// <summary>Slot-indexed mirror of <see cref="KitReadyAt"/> aligned with <see cref="Kit"/> for O(1) zero-hash AI selection.</summary>
+    public double[]? KitReadyAtSlot;
+    /// <summary>Shared cooldown group expiry times (<see cref="MonsterKitSkill.CooldownGroup"/> → ready Clock seconds).</summary>
+    public Dictionary<int, double>? KitCooldownGroupReadyAt;
+    /// <summary>Most recent Clock time a cooldown skill (special) or zero-cooldown skill (plain) was consumed from <see cref="Kit"/>.</summary>
+    public double LastSpecialAt;
+    public double LastPlainAt;
+    /// <summary>True once per-monster kit state (teleport opener, ranged burst streak, or melee walk-up timer) is attached.</summary>
+    public bool HasKitState;
     /// <summary>The damage taken toward each kit trigger on damage taken since it was last cast, by granted effect.</summary>
     public readonly Dictionary<int, double> KitDamageTaken = [];
     bool originallyHostile = true;
@@ -369,6 +427,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>Non-blocking actor (e.g. Mirage Warrior): excluded from living collision so walkers pass through it. Read
     /// each frame, so a caller may give a monster its body later (false), in the area's frame.</summary>
     public bool NonBlocking { get; set; }
+    /// <summary>Player-allied minion carrying Positioned +0x1e0 bit 15 (0x8000): players pass through it while hostile
+    /// monsters and other minions still collide with it (0x141e65ae0, 0x141e36100).</summary>
+    public bool AlliedMinion { get; init; }
     public uint? OwnerId { get; init; }
     // The monster whose summoning skill brought it (MonsterAttack.Summon), whether its death gives no experience or items
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
@@ -381,6 +442,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// them": your modifiers do not apply), so it carries no <c>is_player_minion</c> stat, takes no minion modifier, is
     /// not in <see cref="PlayerMinions"/> and counts towards no minion limit.</summary>
     public bool AlliedFighter;
+    /// <summary>An allied companion bound to a player (distinct from summoned minions and shrine allies).</summary>
+    public bool IsAlliedCompanion;
+    /// <summary>True when this allied companion is a permanent follower (eligible for permanent-companion passives and links).</summary>
+    public bool IsPermanentCompanion;
     public int Overkill;
     public readonly MonsterIgnites HeraldBurns = new();
     public double SummonReadyAt;
@@ -870,8 +935,32 @@ public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtW
 /// steps that read them.</summary>
 public enum StatInput : byte { Pools, Life, Mana, EnergyShield, Walk, VaalPrevention, RecentEvents, Items, Passives, RecentEnemyHits, FlaskEffects, EnemyHit }
 
+/// <summary>An active allied companion accompanying a player in the current area (for example, an invited mercenary
+/// follower). Owned by the module that spawned it and cleared when the companion leaves or dies.</summary>
+public sealed class ActiveCompanion(uint entityId, SpawnedMonster monster, bool isPermanent)
+{
+    public uint EntityId { get; } = entityId;
+    public SpawnedMonster Monster { get; } = monster;
+    public bool IsPermanent { get; } = isPermanent;
+
+    /// <summary>Number of unique items currently equipped on this companion (for per-unique scaling stats).</summary>
+    public int EquippedUniqueCount { get; set; }
+
+    /// <summary>Synchronous hit/diversion damage handler invoked inside a locked combat frame; returns actual life
+    /// damage taken by the companion.</summary>
+    public Func<Player, int, double, int>? ApplyDamageLocked { get; init; }
+
+    /// <summary>Asynchronous damage handler for out-of-frame callers; returns actual life damage taken.</summary>
+    public Func<Player, int, double, Task<int>>? ApplyDamageAsync { get; init; }
+
+    /// <summary>Optional callback invoked synchronously when this companion hits a hostile monster.</summary>
+    public Action<Player, SpawnedMonster>? OnHitEnemy { get; init; }
+}
+
 public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : IHasComponents
 {
+    /// <summary>The player's currently spawned allied companion in this area, if any.</summary>
+    public ActiveCompanion? Companion { get; set; }
     /// <summary>The character this player entity is (its save data).</summary>
     public Character Character => character ??= new() { StatsChanged = MarkStatsDirty };
     Character? character;
@@ -1079,6 +1168,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public const int NpcBlockerSize = 4, StashBlockerSize = 2, MapDeviceBlockerSize = 3;
     readonly Dictionary<uint, ClientPathfinder.Blocker> _blockers = [];
     volatile IReadOnlyList<ClientPathfinder.Blocker> _blockerList = [];
+    readonly HashSet<uint> nonPlayerBlockers = [];
+    volatile IReadOnlyList<ClientPathfinder.Blocker> _playerStationaryBlockers = [];
     // Cached player blocker snapshot (Blockers): reused while stationary, monster and peer bodies stay on the same cells.
     // Never mutated after publication so concurrent readers stay race-free.
     readonly Lock _playerBlockersGate = new();
@@ -1089,7 +1180,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
         get
         {
             if (Instance?.World.AreaBodies is { } area) return area(Id);
-            var fixedOnes = _blockerList;
+            var fixedOnes = _playerStationaryBlockers;
             if (IsPhasing) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
             double now = Clock.Elapsed.TotalSeconds;
             lock (_playerBlockersGate)
@@ -1101,12 +1192,12 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
                 if (Area.DormantMonsters.Count == 0)
                 {
                     foreach (var (id, m) in Area.Monsters)
-                        if (MonsterBody(id, m, now) is { } body) list.Add(body);
+                        if (!m.AlliedMinion && MonsterBody(id, m, now) is { } body) list.Add(body);
                 }
                 else
                 {
                     foreach (var (id, m) in CollisionMonsters)
-                        if (MonsterBody(id, m, now) is { } body) list.Add(body);
+                        if (!m.AlliedMinion && MonsterBody(id, m, now) is { } body) list.Add(body);
                 }
                 // Another player stands where its own walk has it.
                 var peers = Instance?.PlayersExcept(Id);
@@ -1145,6 +1236,9 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     }
 
     public IReadOnlyList<ClientPathfinder.Blocker> StationaryBlockers => _blockerList;
+    /// <summary>Stationary blockers that also block player walkers (excludes player-allied totems, which carry
+    /// Positioned +0x1e0 bit 15 so players walk through them while hostile monsters stay blocked).</summary>
+    public IReadOnlyList<ClientPathfinder.Blocker> PlayerStationaryBlockers => _playerStationaryBlockers;
 
     public (int X, int Y)? StationaryPosition(uint id)
     {
@@ -1170,34 +1264,47 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     }
 
     public void SetBlocker(uint id, int x, int y, int size, double? collisionRadius = null) =>
-        UpdateBlocker(id, x, y, size, collisionRadius, null);
+        UpdateBlocker(id, x, y, size, collisionRadius, null, blocksPlayer: true);
 
     public void SetRingBlocker(uint id, int x, int y, double ringRadius)
     {
         lock (_blockers)
         {
             actorOrChestBlockers.Remove(id);
+            nonPlayerBlockers.Remove(id);
             _blockers[id] = new(x, y, 0) { RingRadius = ringRadius };
-            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
-            sceneryBlockers = null;
+            RefreshBlockerListsLocked();
         }
         BlockersChanged?.Invoke();
     }
 
     public void SetObjectBlocker(uint id, int x, int y, int size, bool actorOrChest, double? collisionRadius = null) =>
-        UpdateBlocker(id, x, y, size, collisionRadius, actorOrChest);
+        UpdateBlocker(id, x, y, size, collisionRadius, actorOrChest, blocksPlayer: true);
 
-    void UpdateBlocker(uint id, int x, int y, int size, double? collisionRadius, bool? actorOrChest)
+    public void SetObjectBlocker(uint id, int x, int y, int size, bool actorOrChest, double? collisionRadius, bool blocksPlayer) =>
+        UpdateBlocker(id, x, y, size, collisionRadius, actorOrChest, blocksPlayer);
+
+    void UpdateBlocker(uint id, int x, int y, int size, double? collisionRadius, bool? actorOrChest, bool blocksPlayer)
     {
         lock (_blockers)
         {
             if (actorOrChest == true) actorOrChestBlockers.Add(id);
             else if (actorOrChest == false) actorOrChestBlockers.Remove(id);
+            if (blocksPlayer) nonPlayerBlockers.Remove(id);
+            else nonPlayerBlockers.Add(id);
             _blockers[id] = new(x, y, size) { CollisionRadius = collisionRadius };
-            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
-            sceneryBlockers = null;
+            RefreshBlockerListsLocked();
         }
-        BlockersChanged?.Invoke();
+        if (blocksPlayer) BlockersChanged?.Invoke();
+    }
+
+    void RefreshBlockerListsLocked()
+    {
+        _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
+        _playerStationaryBlockers = nonPlayerBlockers.Count == 0
+            ? _blockerList
+            : new GameServer.Core.World.BlockerSet(_blockers.Where(b => !nonPlayerBlockers.Contains(b.Key)).Select(b => b.Value));
+        sceneryBlockers = null;
     }
 
     /// <summary>A stationary blocker was added or moved (the player may now stand in it).</summary>
@@ -1209,8 +1316,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
         {
             if (!_blockers.Remove(id)) return;
             actorOrChestBlockers.Remove(id);
-            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
-            sceneryBlockers = null;
+            nonPlayerBlockers.Remove(id);
+            RefreshBlockerListsLocked();
         }
     }
 

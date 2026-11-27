@@ -29,7 +29,8 @@ sealed class Act11 : Act
         [
             new Quest("a11q1")
             {
-                On.Npc(KaruiShores, Act11Objects.HelenaIntro, "MapDeviceActive"),
+                // HelenaIntro hides once Kirac's introduction has been seen (LQF 1035) or the Map Device is activated.
+                On.Npc(KaruiShores, Act11Objects.HelenaIntro, "MapDeviceActive", goneWithLeagueFlag: 1035),
             },
         ];
 }

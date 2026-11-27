@@ -18,6 +18,8 @@ using static Program;
 public static partial class Game
 {
     const ushort TemporalChainsPlayerBuffRow = 69;
+    const ushort VulnerabilityPlayerBuffRow = 79;
+    const ushort SilencePlayerBuffRow = 275;
 
     /// <summary>One debuff on the player: its 0x1c1 instance, row, the object it came from, its stats, when it ends
     /// (connection clock seconds; infinity while held) and its holder (null for a timed one).</summary>
@@ -28,7 +30,7 @@ public static partial class Game
     {
         public readonly List<PlayerDebuff> Active = [];
         public object? Area;
-        public PlayerDebuff? TemporalChains;
+        public readonly Dictionary<ushort, PlayerDebuff> ActiveCurses = [];
     }
 
     static readonly ConditionalWeakTable<Player, PlayerDebuffSet> DebuffsOf = new();
@@ -63,6 +65,32 @@ public static partial class Game
     static readonly IReadOnlyDictionary<ushort, KeyValuePair<string, CurseCatalog.Definition>> PlayerCurseRows =
         CurseCatalog.All.GroupBy(curse => curse.Value.Buff).ToDictionary(group => group.Key, group => group.First());
 
+    static bool IsPlayerCurseRow(ushort row) => PlayerCurseRows.ContainsKey(row) || row == SilencePlayerBuffRow;
+
+    static bool IsCurseFlagStat(uint key) =>
+        Stats.Name(key) is { } name
+        && (name.StartsWith("you_are_cursed_", StringComparison.Ordinal) || name.StartsWith("cursed_by_", StringComparison.Ordinal));
+
+    static bool PlayerUnaffectedByCurse(Player player, Func<uint, int> get, ushort row)
+    {
+        if (get(Stat.UnaffectedByCurses) != 0 || get(Stat.VirtualUnaffectedByCurses) != 0
+            || get(Stat.Hexproof) != 0 || get(Stat.VirtualHexproof) != 0)
+            return true;
+        if (get(Stat.UnaffectedByCursesWhileAffectedByZealotry) != 0
+            && AffectingAuras(player).Any(a => AuraCatalog.Family(a.EffectId) == "Zealotry"))
+            return true;
+        if (row == TemporalChainsPlayerBuffRow && (get(Stat.UnaffectedByTemporalChains) != 0
+            || get(Stat.VirtualUnaffectedByTemporalChains) != 0
+            || get(Stat.UnaffectedByTemporalChainsWhileAffectedByHaste) != 0
+                && AffectingAuras(player).Any(a => AuraCatalog.Family(a.EffectId) == "Haste")))
+            return true;
+        if (row == VulnerabilityPlayerBuffRow && (get(Stat.VirtualUnaffectedByVulnerability) != 0
+            || get(Stat.UnaffectedByVulnerabilityWhileAffectedByDetermination) != 0
+                && AffectingAuras(player).Any(a => AuraCatalog.Family(a.EffectId) == "Determination")))
+            return true;
+        return false;
+    }
+
     static async Task ApplyPlayerDebuff(Player player, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats,
         double seconds, object? holder)
     {
@@ -71,8 +99,9 @@ public static partial class Game
             return;
         double now = AreaTime(player);
         bool curse = PlayerCurseRows.TryGetValue(row, out var definition);
+        bool isCurse = curse || row == SilencePlayerBuffRow;
         bool exposure = Array.IndexOf(ExposureBuffRows, row) >= 0;
-        var defence = curse || exposure ? PlayerStatValues(player) : null;
+        var defence = isCurse || exposure ? PlayerStatValues(player) : null;
         if (holder is null && caster != 0 && curse && !definition.Value.Mark && defence is not null
             && defence.GetValueOrDefault(Stat.ReflectHexesChancePct) is > 0 and var reflectChance
             && RandomRolls.Chance(reflectChance, 100, AreaRng(player)))
@@ -91,13 +120,14 @@ public static partial class Game
             else Reflect(player.Area);
         }
         if (defence is not null && (exposure && defence.GetValueOrDefault(Stat.ImmuneToExposure) != 0
-            || curse && (CurseImmunity(defence.GetValueOrDefault) || player.FlaskGrounds.CurseImmune || WitchbaneImmunityActive(player, now))))
+            || isCurse && (CurseImmunity(defence.GetValueOrDefault) || player.FlaskGrounds.CurseImmune || WitchbaneImmunityActive(player, now)
+                || row == SilencePlayerBuffRow && PlayerUnaffectedByCurse(player, defence.GetValueOrDefault, row))))
             return;
         var set = DebuffsOf.GetValue(player, _ => new());
         var info = BuffRows.Of(row);
         List<PlayerDebuff> replaced = [];
         ushort instance;
-        if (!ReferenceEquals(set.Area, player.Layout)) { set.Active.Clear(); set.Area = player.Layout; set.TemporalChains = null; }
+        if (!ReferenceEquals(set.Area, player.Layout)) { set.Active.Clear(); set.Area = player.Layout; set.ActiveCurses.Clear(); }
         if (holder is not null && set.Active.FirstOrDefault(d => ReferenceEquals(d.Holder, holder) && d.Row == row) is { } held)
         {
             if (SameStats(held.Stats, stats)) return;
@@ -117,7 +147,7 @@ public static partial class Game
         }
         else if (row != 0 && holder is null)
             foreach (var same in set.Active.Where(d => d.Row == row && d.Holder is null
-                && (row != TemporalChainsPlayerBuffRow || d.Caster == caster)).ToArray())
+                && (!isCurse || caster != 0 && d.Caster == caster)).ToArray())
             {
                 replaced.Add(same);
                 set.Active.Remove(same);
@@ -126,9 +156,11 @@ public static partial class Game
         set.Active.Add(new(instance, row, caster, stats, holder is null ? now + seconds : double.PositiveInfinity, holder));
         foreach (var old in replaced) ClearPlayerDebuff(player, old);
         // Each debuff is a buff of its own (its instance number is its tag: a row that stacks has several from one caster).
+        // Curses never stack across casters or held/timed sources: RefreshDebuffedPlayer presents only the strongest active
+        // instance per curse row.
         if (row != 0)
         {
-            if (row != TemporalChainsPlayerBuffRow)
+            if (!isCurse)
                 player.Area.Buffs.Set(player.Id, BuffRows.Spec(row, caster, stats, holder is null ? seconds : null, instance));
             Console.WriteLine($"[gateway] the player gets {info?.Id ?? row.ToString()} from 0x{caster:x}" + (holder is null ? $" for {seconds:0.#} s" : " while in it"));
         }
@@ -168,11 +200,11 @@ public static partial class Game
             if (!areaChanged) gone.Add(d);
             set.Active.Remove(d);
         }
-        if (areaChanged) { set.Area = player.Layout; set.TemporalChains = null; }
+        if (areaChanged) { set.Area = player.Layout; set.ActiveCurses.Clear(); }
         else if (removeCurses > 0)
         {
             // Persistent sources keep their own conditions; this dispels applied, timed curses.
-            PlayerDebuff[] curses = [.. set.Active.Where(debuff => debuff.Holder is null && PlayerCurseRows.ContainsKey(debuff.Row))
+            PlayerDebuff[] curses = [.. set.Active.Where(debuff => debuff.Holder is null && IsPlayerCurseRow(debuff.Row))
                 .Take(removeCurses)];
             foreach (var curse in curses) set.Active.Remove(curse);
             gone.AddRange(curses);
@@ -185,7 +217,7 @@ public static partial class Game
 
     static void ClearPlayerDebuff(Player player, PlayerDebuff debuff)
     {
-        if (debuff.Row != 0 && debuff.Row != TemporalChainsPlayerBuffRow)
+        if (debuff.Row != 0 && !IsPlayerCurseRow(debuff.Row))
             player.Area.Buffs.Clear(player.Id, debuff.Row, debuff.Caster, tag: debuff.Instance);
     }
 
@@ -202,17 +234,7 @@ public static partial class Game
         if (player.Closed) return;
         var set = DebuffsOf.GetValue(player, _ => new());
         double now = AreaTime(player);
-        var curse = set.Active.Where(d => d.Row == TemporalChainsPlayerBuffRow && d.Until > now)
-            .MinBy(d => (TemporalChainsSlow(d), d.Stats.GetValueOrDefault(Stat.BuffTimePassedPlusPctOtherThanTemporalChains), -d.Until));
-        if (!ReferenceEquals(curse, set.TemporalChains))
-        {
-            if (set.TemporalChains is { } old)
-                player.Area.Buffs.Clear(player.Id, old.Row, old.Caster, tag: old.Instance);
-            set.TemporalChains = curse;
-            if (curse is not null)
-                player.Area.Buffs.Set(player.Id, BuffRows.Spec(curse.Row, curse.Caster, curse.Stats,
-                    double.IsFinite(curse.Until) ? curse.Until - now : null, curse.Instance));
-        }
+        ReconcileActivePlayerCurses(player, set, now);
         player.Pools = PoolsFor(player, player.Pools.Level);
         player.Degens[set] = DebuffDegenLocked(player);
         if (!PublishByFrame(player, PlayerStatChange.Sources))
@@ -222,9 +244,56 @@ public static partial class Game
         }
     }
 
+    static void ReconcileActivePlayerCurses(Player player, PlayerDebuffSet set, double now)
+    {
+        HashSet<ushort>? rows = null;
+        foreach (ushort row in set.ActiveCurses.Keys) (rows ??= []).Add(row);
+        foreach (var d in set.Active)
+            if (IsPlayerCurseRow(d.Row)) (rows ??= []).Add(d.Row);
+        if (rows is null) return;
+        foreach (ushort row in rows)
+        {
+            var winner = row == TemporalChainsPlayerBuffRow
+                ? set.Active.Where(d => d.Row == row && d.Until > now)
+                    .MinBy(d => (TemporalChainsSlow(d), d.Stats.GetValueOrDefault(Stat.BuffTimePassedPlusPctOtherThanTemporalChains), -d.Until))
+                : set.Active.Where(d => d.Row == row && d.Until > now)
+                    .MaxBy(d => (CurseStrength(d), d.Until));
+            set.ActiveCurses.TryGetValue(row, out var previous);
+            if (ReferenceEquals(winner, previous)) continue;
+            if (previous is not null)
+                player.Area.Buffs.Clear(player.Id, previous.Row, previous.Caster, tag: previous.Instance);
+            if (winner is null)
+            {
+                set.ActiveCurses.Remove(row);
+                continue;
+            }
+            set.ActiveCurses[row] = winner;
+            player.Area.Buffs.Set(player.Id, BuffRows.Spec(winner.Row, winner.Caster, winner.Stats,
+                double.IsFinite(winner.Until) ? winner.Until - now : null, winner.Instance));
+        }
+    }
+
     // Held sources such as Doedre's pillar also use this buff row.
     static long TemporalChainsSlow(PlayerDebuff debuff) => debuff.Stats.GetValueOrDefault(Stat.TemporalChainsActionSpeedPlusPctFinal)
         - (long)debuff.Stats.GetValueOrDefault(Stat.ActionSpeedMinusPct);
+
+    // Non-Temporal-Chains curses rank by total magnitude of their numeric effect stats (excluding boolean flags).
+    static long CurseStrength(PlayerDebuff debuff)
+    {
+        long total = 0;
+        foreach (var (key, value) in debuff.Stats)
+            if (Math.Abs(value) > 1 || Stats.Name(key) is { } name && !name.StartsWith("you_are_cursed_", StringComparison.Ordinal)
+                && !name.StartsWith("cursed_by_", StringComparison.Ordinal))
+                total += Math.Abs((long)value);
+        return total;
+    }
+
+    internal static IReadOnlyDictionary<uint, int>? ActivePlayerCurseStats(Player player, ushort buffRow)
+    {
+        if (!DebuffsOf.TryGetValue(player, out var set) || !ReferenceEquals(set.Area, player.Layout)) return null;
+        return set.ActiveCurses.TryGetValue(buffRow, out var active) && active.Until > AreaTime(player)
+            ? active.Stats : null;
+    }
 
     /// <summary>The debuffs' degeneration, points a second: each type's <c>base_{type}_damage_taken_per_minute</c> over
     /// a minute, less the player's resistance to it (none for physical; nothing of a type the player is immune to).</summary>
@@ -253,13 +322,19 @@ public static partial class Game
     /// <summary>GameEvents.PlayerStatSources: the debuffs on the player add their stats.</summary>
     public static Dictionary<uint, int> PlayerDebuffStats(Player player, Dictionary<uint, int> sources)
     {
-        if (!DebuffsOf.TryGetValue(player, out var set) || !ReferenceEquals(set.Area, player.Layout)) return sources;
+        if (!DebuffsOf.TryGetValue(player, out var set) || set.Active.Count == 0 || !ReferenceEquals(set.Area, player.Layout)) return sources;
         double now = AreaTime(player);
         foreach (var debuff in set.Active.Where(d => d.Until > now))
         {
-            if (debuff.Row == TemporalChainsPlayerBuffRow && !ReferenceEquals(debuff, set.TemporalChains)) continue;
+            bool isCurse = IsPlayerCurseRow(debuff.Row);
+            if (isCurse && (!set.ActiveCurses.TryGetValue(debuff.Row, out var active) || !ReferenceEquals(debuff, active)))
+                continue;
+            bool unaffected = isCurse && PlayerUnaffectedByCurse(player, sources.GetValueOrDefault, debuff.Row);
             foreach (var (name, value) in debuff.Stats)
+            {
+                if (unaffected && !IsCurseFlagStat(name)) continue;
                 sources[name] = sources.GetValueOrDefault(name) + value;
+            }
         }
         return sources;
     }

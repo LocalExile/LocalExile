@@ -30,30 +30,32 @@ public static class QuestItems
                 yield return (row, it);
     }
 
-    /// <summary>Whether the quest item is done with: its remove_flag is set.</summary>
-    public static bool Removed(QuestItemFlags flags, Func<string, bool> has) => flags.Remove is { } remove && has(remove);
+    /// <summary>Whether the quest item is done with: its remove_flag (or QuestItems.dat completion league flag) is set.</summary>
+    public static bool Removed(QuestItemFlags flags, Func<string, bool> has, Func<int, bool>? hasLeague = null) =>
+        (flags.Remove is { } remove && has(remove))
+        || (flags.LeagueFlag is int leagueFlag && hasLeague?.Invoke(leagueFlag) == true);
 
-    /// <summary>Whether a monster or chest drops the item: not once its remove_flag is set, nor while one is carried or lies
+    /// <summary>Whether a monster or chest drops the item: not once its remove_flag (or completion league flag) is set, nor while one is carried or lies
     /// on this instance's ground.</summary>
-    public static bool Drops(QuestItemFlags? flags, Func<string, bool> has, bool carried, bool onGround) =>
-        !(flags is not null && Removed(flags, has)) && !carried && !onGround;
+    public static bool Drops(QuestItemFlags? flags, Func<string, bool> has, bool carried, bool onGround, Func<int, bool>? hasLeague = null) =>
+        !(flags is not null && Removed(flags, has, hasLeague)) && !carried && !onGround;
 
     /// <summary>The flags a pickup sets that the character lacks (grant_flag, extra_flag, extra_flag2); none once the item is done with.</summary>
-    public static List<string> PickupFlags(QuestItemFlags flags, Func<string, bool> has) =>
-        Removed(flags, has) ? [] : [.. new[] { flags.Grant, flags.Extra, flags.Extra2 }.OfType<string>().Where(f => !has(f)).Distinct()];
+    public static List<string> PickupFlags(QuestItemFlags flags, Func<string, bool> has, Func<int, bool>? hasLeague = null) =>
+        Removed(flags, has, hasLeague) ? [] : [.. new[] { flags.Grant, flags.Extra, flags.Extra2 }.OfType<string>().Where(f => !has(f)).Distinct()];
 
     /// <summary>The flag changes that make the grant flags follow the quest items carried (and the extra flags, once one is
     /// carried), over every quest item type <paramref name="types"/> knows; and the types whose carried copies must go (their
-    /// remove_flag is set).</summary>
+    /// remove_flag or completion league flag is set).</summary>
     public static (List<string> Set, List<string> Clear, List<QuestItemFlags> Remove) Sync(IEnumerable<QuestItemFlags> types,
-        IReadOnlySet<QuestItemFlags> carried, Func<string, bool> has)
+        IReadOnlySet<QuestItemFlags> carried, Func<string, bool> has, Func<int, bool>? hasLeague = null)
     {
         List<string> set = [], clear = [];
         List<QuestItemFlags> remove = [];
         var grants = new Dictionary<string, bool>(StringComparer.Ordinal);
         foreach (var t in types.Distinct())
         {
-            bool removed = Removed(t, has), held = carried.Contains(t);
+            bool removed = Removed(t, has, hasLeague), held = carried.Contains(t);
             if (held && removed) remove.Add(t);
             // Two types may share a grant flag: it is held while any of them is.
             if (t.Grant is { } grant) grants[grant] = grants.GetValueOrDefault(grant) || held && !removed;
@@ -94,12 +96,12 @@ public static class QuestItems
 
     /// <summary>A quest item picked up: puts it and sets the flags it brings that the save lacks, in one save transaction.
     /// Refused (null, nothing put) once the save has its remove_flag: a copy left in another instance is not needed any more.</summary>
-    public static T? Claim<T>(string character, QuestItemFlags flags, Func<T> put) where T : class => Saves.Atomically(() =>
+    public static T? Claim<T>(string character, QuestItemFlags flags, Func<T> put, Func<int, bool>? hasLeague = null) where T : class => Saves.Atomically(() =>
     {
         var saved = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
-        if (Removed(flags, saved.Contains)) return null;
+        if (Removed(flags, saved.Contains, hasLeague)) return null;
         var placed = put();
-        var missing = PickupFlags(flags, saved.Contains);
+        var missing = PickupFlags(flags, saved.Contains, hasLeague);
         if (missing.Count > 0) CharacterSaves.ChangeQuestFlags(character, missing, true);
         return placed;
     });

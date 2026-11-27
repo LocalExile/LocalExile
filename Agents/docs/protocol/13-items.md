@@ -16,7 +16,10 @@ the item on the wire the hash of the new Id let it drop and stack (2026-11-20).
 
 Components come from the `.it` files, merged like `.ot` files ([04](04-player-entity.md), `scripts/re/ot_components.py`)
 with two differences: nothing is prepended (no Positioned), and most leaf rows have no `.it` of their own, so their
-chain is the row's `InheritsFrom`. `client { }` blocks (RenderItem) are never read. Generate every row's list with:
+chain is the row's `InheritsFrom`. For `QuestItems.dat` rows with a non-empty `Script` (the nine `AtlasSkillBook*`
+items and `Sentinel/Controller`), the client overrides `InheritsFrom` to `Metadata/Items/QuestItems/AbstractUsableQuestItem`
+(`Base, Quest, Usable, Stack`), adding the 2-byte `Stack` count on the wire (`ItemCatalog.cs`, `ot_components.py`).
+`client { }` blocks (RenderItem) are never read. Generate every row's list with:
 
 ```bash
 python -I scripts/re/ot_components.py --items --json data/item-types.json

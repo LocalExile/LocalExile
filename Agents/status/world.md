@@ -62,7 +62,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Arrival points: entering through an exit (or `/goto`) puts the player next to the exit back;
   The Twilight Strand → Lioneye's Watch arrives at the town's `entrance1`; in a generated layout a one-way entrance
   arrives at its "entranceNdisabled" point (The Flooded Depths → The Submerged Passage's Depths return);
-  Resurrect at Checkpoint revives there, or next to the area's waypoint once the character has activated it; in a map
+  Resurrect at Checkpoint revives outside the last entered intra-area boss room/arena (or at the last exterior gate
+  arrival), else next to the area's waypoint once the character has activated it, else at the area arrival point; in a map
   it leaves the map for the map device's area it was entered from, as the official servers do (3.30.0b; #1002).
   `/tp` (dev) teleports the player to a cell or next to a named monster, NPC, transition, waypoint or captured object.
   Code: `AreaLayout.Arrival`, Gateway; `/tp` is the `gm-commands` mod's (`Rules.TeleportTargets.cs`, LocalExile-Mods).
@@ -200,7 +201,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   AI and correction passes share indexed body snapshots; surround reservations use spatial queries and cached rings.
   Queue age, send/wire/socket timings and hot combat-lock timings are measured independently of tick latency.
   Stuns and freezes hold the walk and the newest click until they end; a speed change restarts the segment in progress;
-  an attack follows its target to the swing; totems and the tutorial chest block paths.
+  an attack follows its target to the swing; the tutorial chest blocks paths; players walk through their own totems
+  and minions, which still block monsters.
   Dash can cross visible gaps in either direction and continues walking from its landing on the far side.
   Melee hits land at the swing clip's contact keyframe.
   Resync (S→C 0x128): sent on every stun, after a movement skill, on the client's own request (C→S 0x16 command 8) and by `/oos`;

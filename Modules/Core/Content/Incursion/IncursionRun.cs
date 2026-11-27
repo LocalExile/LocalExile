@@ -21,6 +21,39 @@ public sealed class IncursionRun(IReadOnlyList<(int X, int Y)> spots, byte level
     double? left;
     bool running;
 
+    public sealed record Snapshot((int X, int Y)[] Spots, byte Level, int Seed, Stage Stage, int Used, int Total,
+        int Killed, double? Left, bool Running, uint[] Monsters, Dictionary<uint, int> Architects, int[] KilledArchitects);
+
+    public Snapshot Save()
+    {
+        lock (gate) return new([.. Spots], Level, Seed, stage, used, total, killed, left, running,
+            [.. monsters], new(architects), [.. killedArchitects]);
+    }
+
+    public static IncursionRun Restore(Snapshot saved)
+    {
+        var run = new IncursionRun(saved.Spots, saved.Level, saved.Seed)
+        {
+            stage = saved.Stage, used = saved.Used, total = saved.Total, killed = saved.Killed,
+            left = saved.Left, running = saved.Running,
+        };
+        run.monsters.UnionWith(saved.Monsters);
+        foreach (var (id, row) in saved.Architects) run.architects[id] = row;
+        run.killedArchitects.AddRange(saved.KilledArchitects);
+        return run;
+    }
+
+    public void Rebind(IReadOnlyDictionary<uint, uint> ids)
+    {
+        lock (gate)
+        {
+            var live = monsters.Select(id => ids.GetValueOrDefault(id, id)).ToArray();
+            var named = architects.Select(p => (Id: ids.GetValueOrDefault(p.Key, p.Key), p.Value)).ToArray();
+            monsters.Clear(); monsters.UnionWith(live); architects.Clear();
+            foreach (var p in named) architects[p.Id] = p.Value;
+        }
+    }
+
     public IReadOnlyList<(int X, int Y)> Spots { get; } = spots;
     public byte Level { get; } = level;
     public int Seed { get; } = seed;

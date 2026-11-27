@@ -97,8 +97,10 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> stats)
     {
         var cry = CryOf(player);
-        cry.InfernalExerts = WarcryExertionCount(own.GetValueOrDefault(Stat.SkillEmpowersNextXMeleeAttacks), stats);
+        cry.InfernalExerts = WarcryExertionCount(own.GetValueOrDefault(Stat.SkillEmpowersNextXMeleeAttacks), stats, own, AreaRng(player));
+        cry.InfernalDisplay = ResolveWarcryDisplaySkill(player, skillId, "InfernalCry");
         cry.Combust = null;
+        SyncExertedAttackBuffsLocked(player);
         if (cry.InfernalExerts == 0 || CurrentPlayerSkillSourceLocked(player, skillId) is not { Active: true } warcry)
             return;
         var catalog = SkillsFor(player);

@@ -157,6 +157,7 @@ public static partial class Game
                         && CanReach(atCell, position) && contacted.Add(id))
                         hits.Add(id);
                 }
+                TriggerEarthshatterSpikesLocked(player, atCell, body, time);
                 Hit(atCell, body, hits, id => hitOnPath.Add(id), "fissure path");
                 previous = next;
 
@@ -184,6 +185,7 @@ public static partial class Game
                     if (hitOnPath.Contains(id)) lastBlast.Add(id);
                     if (contacted.Add(id)) targets.Add(id);
                 }
+                TriggerEarthshatterSpikesLocked(player, end, blast, time);
                 Hit(end, blast, targets, id => lastBlast.Add(id), "fissure eruption");
                 if (remaining > 0)
                     session.Runtime.Schedule(at + ProjectileRuntime.Time(SnakingFissureContinuation),
