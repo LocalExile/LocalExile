@@ -68,6 +68,13 @@ public static partial class Game
             if (blocked) RecoverOnBlockLocked(player, stats, now, attack: !spell);
             var recouped = ailmentTaken.Select((_, r) => new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats),
                 FortificationDamageTakenLocked(player, (int)r.Max, now, stats)));
+            if (stats.GetValueOrDefault(Stat.BaseElementalDamageHeals) != 0)
+            {
+                int elemental = Math.Max(0, dealt - physicalDealt - chaosDealt);
+                RecoverElementalDamageAsLife(player, elemental, stats.GetValueOrDefault);
+                dealt -= elemental;
+                recouped = recouped.Select((part, range) => DamageTypes.IsElemental(part) ? default : range);
+            }
             RecoupHitLocked(player, recouped, now, stats);
             if (shifted[DamageType.Physical].Min > 0 || type == DamageType.Physical)
                 PreventedDamageOf(player).Add(now, shifted[DamageType.Physical].Min - physicalDealt);

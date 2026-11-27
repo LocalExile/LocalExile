@@ -233,6 +233,11 @@ public static partial class Game
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.VaalUpgradeMinionDamageTakenPlusPctFinal) / 100d)
                 * (area ? Math.Max(0, 1 + effects[Stat.AreaDamageTakenFromHitsPlusPct] / 100.0) : 1));
             if (prevented != 0) value = DamageModel.Suppress(value, prevented);
+            if (value > 0 && DamageTypes.IsElemental(type) && effects[Stat.BaseElementalDamageHeals] != 0)
+            {
+                RecoverMinionElementalDamageAsLife(m, value);
+                continue;
+            }
             if (value > 0)
             {
                 mitigated = mitigated.Add(type, new(value, value));

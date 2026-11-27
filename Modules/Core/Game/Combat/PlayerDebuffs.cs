@@ -193,9 +193,11 @@ public static partial class Game
         double now = AreaTime(player);
         int removeCurses = DueChannelCurseRemoval(player, now);
         if (!DebuffsOf.TryGetValue(player, out var set) || set.Active.Count == 0) return;
+        bool gluttonyImmune = player.Auras.Values.Any(aura => aura.AffectsSelf && aura.EffectId == GluttonyOfElementsEffect)
+            || player.ReceivedAuras.Values.Any(aura => aura.EffectId == GluttonyOfElementsEffect);
         List<PlayerDebuff> gone = [];
         bool areaChanged = !ReferenceEquals(set.Area, player.Layout);
-        foreach (var d in set.Active.Where(d => areaChanged || d.Until <= now).ToArray())
+        foreach (var d in set.Active.Where(d => areaChanged || d.Until <= now || gluttonyImmune && PlayerCurseRows.ContainsKey(d.Row)).ToArray())
         {
             if (!areaChanged) gone.Add(d);
             set.Active.Remove(d);
@@ -210,7 +212,7 @@ public static partial class Game
             gone.AddRange(curses);
         }
         // The resistances the degeneration is less of can change with anything else the player has.
-        player.Degens[set] = DebuffDegenLocked(player);
+        UpdateDebuffDegenLocked(player, set);
         if (gone.Count == 0 && !areaChanged) return;
         await EndPlayerDebuffs(player, set, gone);
     }
@@ -236,7 +238,7 @@ public static partial class Game
         double now = AreaTime(player);
         ReconcileActivePlayerCurses(player, set, now);
         player.Pools = PoolsFor(player, player.Pools.Level);
-        player.Degens[set] = DebuffDegenLocked(player);
+        UpdateDebuffDegenLocked(player, set);
         if (!PublishByFrame(player, PlayerStatChange.Sources))
         {
             player.ApplyMovementSpeedAt(now);
@@ -297,10 +299,9 @@ public static partial class Game
 
     /// <summary>The debuffs' degeneration, points a second: each type's <c>base_{type}_damage_taken_per_minute</c> over
     /// a minute, less the player's resistance to it (none for physical; nothing of a type the player is immune to).</summary>
-    static double DebuffDegenLocked(Player player)
+    static void UpdateDebuffDegenLocked(Player player, PlayerDebuffSet set)
     {
-        if (!DebuffsOf.TryGetValue(player, out var set) || !ReferenceEquals(set.Area, player.Layout)) return 0;
-        double now = AreaTime(player), total = 0;
+        double now = AreaTime(player), total = 0, elemental = 0;
         var immune = PlayerImmunities(player);
         foreach (var type in new[] { DamageType.Physical, DamageType.Fire, DamageType.Cold, DamageType.Lightning, DamageType.Chaos })
         {
@@ -315,8 +316,9 @@ public static partial class Game
             else if (type == DamageType.Physical && player.Walk.Moving(now))
                 rate *= Math.Max(0, 1 + PlayerStat(player, Stat.PhysicalDamageOverTimeTakenPlusPctWhileMoving) / 100.0);
             total += rate;
+            if (DamageTypes.IsElemental(type)) elemental += rate;
         }
-        return Math.Max(0, total);
+        player.Degens.Set(set, total, elemental);
     }
 
     /// <summary>GameEvents.PlayerStatSources: the debuffs on the player add their stats.</summary>

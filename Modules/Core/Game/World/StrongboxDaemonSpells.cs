@@ -464,9 +464,15 @@ public static partial class MapStrongboxes
             inside = [.. inside.Where(z => !(unaffected.Burning && z.Type == DamageType.Fire && z.Dps > 0
                 || unaffected.Chilled && z.Ailment == "chill" || unaffected.Shocked && z.Ailment == "shock"))];
         var immune = inside.Length > 0 ? PlayerImmunities(player) : [];
-        double dps = inside.Where(z => z.Dps > 0 && !immune.Contains(z.Type))
-            .Sum(z => z.Dps * (z.Type == DamageType.Physical ? 1 : 1 - Math.Min(MaxResistance(player, z.Type), Resistance(player, z.Type)) / 100.0));
-        player.Degens[share] = dps;
+        double dps = 0, elemental = 0;
+        foreach (var zone in inside.Where(z => z.Dps > 0 && !immune.Contains(z.Type)))
+        {
+            double rate = zone.Dps * (zone.Type == DamageType.Physical ? 1
+                : 1 - Math.Min(MaxResistance(player, zone.Type), Resistance(player, zone.Type)) / 100.0);
+            dps += rate;
+            if (DamageTypes.IsElemental(zone.Type)) elemental += rate;
+        }
+        player.Degens.Set(share, dps, elemental);
         share.Dps = dps;
         foreach (var zone in inside.Where(z => z.Ailment is not null))
         {
