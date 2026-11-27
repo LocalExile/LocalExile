@@ -25,9 +25,10 @@ public static partial class Game
         return current() && await StartLink(player, skillId, targetId);
     }
 
-    sealed class LinkTargetTag(bool isCompanion, bool isPermanent)
+    sealed class LinkTargetTag(bool isCompanion, bool isPermanent, SpawnedMonster? monster = null)
     {
         public readonly bool IsCompanion = isCompanion, IsPermanent = isPermanent;
+        public readonly SpawnedMonster? Monster = monster;
     }
 
     // Tracks whether a link's target was the player's companion (and whether it was permanent) at cast time, so
@@ -89,7 +90,7 @@ public static partial class Game
             SourceBuff = player.NextBuff++, TargetBuff = player.NextBuff++, SourceRow = rows.Source, TargetRow = rows.Target,
         };
         if (player.Companion is { } comp && comp.EntityId == target)
-            LinkTargetTags.Add(link, new(isCompanion: true, isPermanent: comp.IsPermanent));
+            LinkTargetTags.Add(link, new(isCompanion: true, isPermanent: comp.IsPermanent, comp.Monster));
         player.Links.Add(link);
         if (effectId == "IntuitiveLink") CaptureIntuitiveLink(player, link, gem);
         uint? buffDuration = infinite ? null : Buff.Seconds(seconds);
@@ -148,6 +149,10 @@ public static partial class Game
 
     static bool IsPermanentMercenaryLink(LinkSkills.Link link) =>
         LinkTargetTags.TryGetValue(link, out var tag) && tag.IsPermanent;
+
+    // The companion was taken away (reserved, swapped, its follower stat refunded), not killed: the link just ends.
+    static bool IsDespawnedCompanionLink(LinkSkills.Link link) =>
+        LinkTargetTags.TryGetValue(link, out var tag) && tag.IsCompanion && tag.Monster is { Dead: false, Life: > 0 };
 
     static bool LinkTargetAliveLocked(Player player, PlayerMinions.Minion minion) =>
         player.Area.Monsters.TryGetValue(minion.Id, out var held)
@@ -287,6 +292,7 @@ public static partial class Game
             {
                 if (!canTargetMinions && !IsCompanionLinkTarget(link)) continue;
                 if (LinkTargetAliveLocked(player, link.Target)) continue;
+                if (IsDespawnedCompanionLink(link)) continue;
                 if (oathProtectsMerc && IsPermanentMercenaryLink(link))
                     continue; // Oath of Fealty: linked permanent mercenary died — link ends without killing the player.
                 all = $"its target 0x{link.Target:x} died";
@@ -314,7 +320,7 @@ public static partial class Game
             if (why is null && !canTargetMinions && !IsCompanionLinkTarget(link))
                 why = "link_skills_can_target_minions is gone";
             if (why is null && !LinkTargetAliveLocked(player, link.Target))
-                why = "its linked permanent mercenary died (Oath of Fealty)";
+                why = IsDespawnedCompanionLink(link) ? "its companion left" : "its linked permanent mercenary died (Oath of Fealty)";
             if (why is null && outOfMana && link.ManaPerMinute > 0)
                 why = "not enough mana";
             if (why is null && link.LifePerMinute > 0)
