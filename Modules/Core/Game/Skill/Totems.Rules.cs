@@ -910,7 +910,7 @@ public static partial class Game
                 || covers?.Invoke(targetAt) == false || targetFilter?.Invoke(id, targetAt) == false) return;
             if (attack && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(
                 AttackHitChanceAt(player, id, m, now, accuracy, caster), now, player.AttackAccuracyRandom)) return;
-            if (MonsterBlocks(m, AreaRng(player), spell: !attack)) return;
+            if (MonsterBlocks(m, AreaRng(player), spell: !attack, now: 0, skill: null, attacker: caster)) return;
             var rolled = WithConditionalSupportDamageLocked(player, skill.Stats, attack, m,
                 GameEvents.WithOutgoingDamage(player, caster, m, hit.Roll(AreaRng(player))), now);
             int chance = CriticalChanceOn(player, id,

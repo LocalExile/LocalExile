@@ -77,7 +77,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Vaal Immortal Call protects the last point of Life from on-kill Life loss while active.
 - Aura-dependent recovery, mana-spent charges and the wearer's Withered hit modifiers resolve on the server.
 - The equipped weapon and the target's pre-hit ailments govern qualified hit recovery and debuffs.
-- Recent critical strikes can grant Tailwind, and refreshed chills continue Glacial Cage's damage scaling.
+- Recent critical strikes can grant Tailwind. Glacial Cage counts a player's applied chill intervals once, including
+  cold ground, Frost Shield, Frigid Bond and nearby chills. Sadist reads accepted ailments from those same sources.
+- Skill payment samples current Shock and Low Life. Kiara's Determination's immunities and Lavianga's Spirit's free
+  Mana costs follow the paid effects' clocks, including linked and continuous skill costs at recovery expiry.
 - Missing Energy Shield can grant 150% armour to eligible hits. Docs: [20](../docs/protocol/20-damage.md).
 - Righteous Providence scales attack and spell critical chance. Docs: [11](../docs/protocol/11-skills.md).
 - Frost Shield and Sigil of Power run staged areas. Docs: [11](../docs/protocol/11-skills.md).
@@ -86,7 +89,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Cursed and ignited kill effects use the accepted hit and corpse state. Retained hexes support Asenath's corpse effects.
   Witchbane grants its timed immunity on player kills, and minion curse explosions use the killing minion's damage.
-- Hex Master and Defiled Forces govern curse duration and ailment refresh. Firestorm schedules timed hits.
+- Hex Master and Defiled Forces govern curse duration and ailment refresh. A completed manual curse can remove the
+  player's active alternative elemental ailments as well. Firestorm schedules timed hits.
 - Monster Temporal Chains uses the curse's buff row and action-speed cap. The strongest timed or held source supplies the
   curse's effects, and walk speed follows stat publication on application and removal.
 - Linked spells resolve offline. See [linked spells](../docs/protocol/25-gem-supports.md#native-linked-spell-payloads).

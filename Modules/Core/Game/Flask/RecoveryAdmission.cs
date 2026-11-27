@@ -3,6 +3,14 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    static bool RecoveryFlaskWaivesManaCost(Player player, double at) =>
+        player.RecoveryFlaskStats.HasStat(player.FlaskEffects, Stat.LocalUniqueFlaskNoManaCostWhileHealing, at);
+
+    static bool RecoveryFlaskWaivesManaCost(Player player) => RecoveryFlaskWaivesManaCost(player, AreaTime(player));
+
+    static bool NoManaCostFor(Player player, int noManaCost) =>
+        noManaCost != 0 || RecoveryFlaskWaivesManaCost(player, ProjectileWorldTime(player));
+
     static bool RecoveryFlasksRestoreEnergyShield(Func<uint, int> get) =>
         (get(Stat.LifeRecoveryFromFlasksAlsoRecoversEnergyShield) != 0 || get(Stat.KeystoneEmperorsHeart) != 0)
         && get(Stat.CannotRecoverEnergyShield) == 0 && get(Stat.NoEnergyShieldRecovery) == 0;

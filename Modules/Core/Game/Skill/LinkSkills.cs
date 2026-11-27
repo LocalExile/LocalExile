@@ -57,7 +57,11 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {effectId}: no link target (an allied player, or a damageable minion with link_skills_can_target_minions, within {LinkSkills.Range(Player(Stat.LinkSkillRangePlusPct))} cells)");
             return false;
         }
-        if (player.Links.Count == 0) player.Links.PaidAt = now; // the cost runs from the first link
+        if (player.Links.Count == 0)
+        {
+            LinkedManaWaiverEnds.Remove(player);
+            player.Links.PaidAt = now; // the cost runs from the first link
+        }
         foreach (var old in player.Links.All.Where(l => l.SkillId == skillId || l.Target == target).ToArray())
             EndLinkLocked(player, old, bytes);
         bool paysLife = Lifetap.ConvertsCostToLife(gem.Stats, playerStats);
@@ -244,9 +248,10 @@ public static partial class Game
         }
         double elapsed = Math.Max(0, now - links.PaidAt);
         bool outOfMana = false;
-        if (all is null && links.Count > 0 && playerStats.GetValueOrDefault(Stat.NoManaCost) == 0)
+        double waived = links.Count > 0 ? LinkedManaWaiverSeconds(player, links.PaidAt, now) : 0;
+        if (all is null && links.Count > 0 && playerStats.GetValueOrDefault(Stat.NoManaCost) == 0 && elapsed > waived)
         {
-            double due = links.ManaCarry + links.All.Sum(l => l.ManaPerMinute) / 60 * elapsed;
+            double due = links.ManaCarry + links.All.Sum(l => l.ManaPerMinute) / 60 * (elapsed - waived);
             uint whole = (uint)Math.Min(uint.MaxValue, Math.Floor(due));
             if (player.PlayerMana < whole) outOfMana = true;
             else (player.PlayerMana, links.ManaCarry, paid) = (player.PlayerMana - whole, due - whole, whole > 0);

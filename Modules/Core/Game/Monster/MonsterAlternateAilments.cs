@@ -276,6 +276,13 @@ public static partial class Game
                 now, playerStats, random);
     }
 
+    static void RemovePlayerAlternateElementalAilments(Player player, double now)
+    {
+        foreach (var ailment in AlternateAilments)
+            if (player.RuleAilments.RemoveActive((int)ailment.Kind, now) && ailment.Kind == AlternateKind.Scorch)
+                MarkPlayerStats(player, PlayerStatStep.OvercapCrit);
+    }
+
     /// <summary>Scorch on the player: its fire, cold and lightning resistances lowered by its strongest scorch.</summary>
     public static int PlayerScorchedResistance(Player player, DamageType type) =>
         DamageTypes.IsElemental(type) ? -(int)player.RuleAilments.Magnitude((int)AlternateKind.Scorch, AreaTime(player)) : 0;

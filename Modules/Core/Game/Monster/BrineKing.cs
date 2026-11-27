@@ -17,20 +17,17 @@ public static class BrineKing
     static readonly Store<InstanceState, Fight> Fights = new();
     static readonly Store<Player, Tide> Tides = new();
     // Row 856 is not IsRecovery: its GrantedStats do not travel in 0x1c1 (11-skills.md §12).
-    const ushort TideRow = 856, MaimRow = 513;
+    const ushort TideRow = 856;
+    static readonly IReadOnlyDictionary<uint, int> MaimStats = new Dictionary<uint, int> { [Stat.MovementVelocityPlusPct] = -30 };
     sealed class Tide
     {
         public bool Active;
         public double Degen;
-        public double MaimUntil;
-        public bool MaimActive;
     }
     public static Dictionary<uint, int> PlayerStats(Player player, Dictionary<uint, int> sources)
     {
         if (Tides.TryGetValue(player, out var tide) && tide.Active && Stat.ActionSpeedMinusPct is var key)
             sources[key] = sources.GetValueOrDefault(key) + 30;
-        if (Tides.TryGetValue(player, out tide) && tide.MaimUntil > AreaTime(player) && Stat.MovementVelocityPlusPct is var movement)
-            sources[movement] = sources.GetValueOrDefault(movement) - 30;
         return sources;
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();
@@ -44,7 +41,6 @@ public static class BrineKing
                 pair.Key.Degens[pair.Value] = 0;
                 pair.Value.Degen = 0; pair.Value.Active = false;
                 RemoveTideBuff(pair.Key, TideRow);
-                RemoveTideBuff(pair.Key, MaimRow);
             }
         }
     }
@@ -52,27 +48,7 @@ public static class BrineKing
     {
         if (!player.Closed) player.Area.Buffs.Clear(player.Id, row);
     }
-    public static async Task Leaving(Player player)
-    {
-        await TideAt(player, false, 0);
-        if (Tides.TryGetValue(player, out var tide))
-        { tide.MaimUntil = 0; tide.MaimActive = false; RemoveTideBuff(player, MaimRow); }
-    }
-    static async Task Maim(Player player)
-    {
-        var stats = CharacterPlayerStats(player);
-        int Get(uint key) => stats.GetValueOrDefault(key);
-        if (Get(Stat.Of("cannot_be_maimed")) != 0 || AreaRng(player).Next(100) < Get(Stat.Of("base_avoid_maim_%"))) return;
-        var tide = Tides.GetValue(player, _ => new());
-        tide.MaimActive = true; tide.MaimUntil = AreaTime(player) + 4;
-        player.Area.Buffs.Set(player.Id, new(MaimRow, U68: Buff.Seconds(4)));
-        await RefreshPlayerStats(player);
-    }
-    static async Task RefreshPlayerStats(Player player)
-    {
-        player.Pools = PoolsFor(player, player.Pools.Level); player.ApplyMovementSpeed();
-        await SendPlayerStatSnapshot(player, () => PlayerStatsOffFrames(player), null);
-    }
+    public static Task Leaving(Player player) => TideAt(player, false, 0);
     static async Task TideAt(Player player, bool active, double rawDps)
     {
         var tide = Tides.GetValue(player, _ => new());
@@ -138,8 +114,6 @@ public static class BrineKing
 
     public static async Task Tick(Player player)
     {
-        if (Tides.TryGetValue(player, out var tide) && tide.MaimActive && (player.PlayerLife == 0 || AreaTime(player) >= tide.MaimUntil))
-        { tide.MaimActive = false; tide.MaimUntil = 0; RemoveTideBuff(player, MaimRow); await RefreshPlayerStats(player); }
         if (player.Layout.Id != Area || !player.Connection.PlayerSent || player.Closed || player.LeavingArea) return;
         (uint Id, SpawnedMonster Monster)? found;
         found = player.Area.Monsters.Where(p => IsBoss(p.Value.Variety)).Select(p => ((uint, SpawnedMonster)?)new(p.Key, p.Value)).FirstOrDefault();
@@ -603,7 +577,8 @@ public static class BrineKing
             if (outcome is not null)
             {
                 await PresentMonsterHit(player, id, outcome);
-                if (outcome.Damage > 0 && attack.SkillId is var skill && (skill == Skill(6759) || skill == Skill(6761))) await Maim(player);
+                if (outcome.Damage > 0 && attack.SkillId is var skill && (skill == Skill(6759) || skill == Skill(6761)))
+                    await AddPlayerDebuff(player, MaimedBuffRow, id, MaimStats, 4, endsOnDeath: true);
             }
         }
 

@@ -45,7 +45,11 @@ public static partial class Game
                 damage.Renew(time, dps, seconds, source);
                 FrigidBondTargets.GetOrCreateValue(player.Area).Add(id);
             }
-            monster.Ailments.ApplyAura(MonsterElementalAilments.Kind.Chill, source, seconds, time, Get, key => monster.Effects[key]);
+            var chill = monster.Ailments.ApplyAuraEffect(MonsterElementalAilments.Kind.Chill, source, seconds, time,
+                Get, key => monster.Effects[key], stated: null, coldTakenFromChill: false, owner: 0);
+            if (chill is not null) player.RecentEvents.Record(StatConditions.ChilledEnemy, time);
+            RecordGlacialCageAuraChill(monster, player.Id, source, time, chill?.Until ?? time,
+                Get(Stat.PermanentDamagePlusPctPerSecondOfChill));
         }
     }
 

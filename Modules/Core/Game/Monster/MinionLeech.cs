@@ -13,7 +13,7 @@ public static partial class Game
 
     static SpawnedMonster? VampiricMinionAt(Player player, LinkSkills.Link link, double now) =>
         link.EffectId == "VampiricLink" && now < link.Until && player.PlayerLife > 0 && !player.Closed && !player.LeavingArea
-        && (link.AwaySince is not double away || now - away < LinkSkills.BreakSeconds)
+        && (link.AwaySince is not double away || now - away < link.BreakGraceSeconds)
         && player.Area.Monsters.GetValueOrDefault(link.Target) is { Dead: false, Life: > 0 } monster
         && player.Minions.Owns(link.Target, monster) ? monster : null;
 

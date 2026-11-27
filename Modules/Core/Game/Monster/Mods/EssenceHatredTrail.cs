@@ -75,7 +75,7 @@ public static partial class MapEssences
         const int chill = 20;
         if (conn.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Chill, at) >= chill) return;
         var stats = CharacterPlayerStats(conn);
-        ApplyPlayerAilmentsLocked(conn, at, a => a.Inflict(PlayerElementalAilments.Kind.Chill, chill, .3, at,
-            key => stats.GetValueOrDefault(key), conn.IncomingHitRandom));
+        var defences = PlayerElementalDefencesAt(conn, at, stats.GetValueOrDefault);
+        ApplyPlayerAilmentsLocked(conn, at, a => a.Inflict(PlayerElementalAilments.Kind.Chill, chill, .3, at, defences, conn.IncomingHitRandom));
     }
 }

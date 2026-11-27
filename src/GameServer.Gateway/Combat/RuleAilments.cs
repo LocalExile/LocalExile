@@ -78,6 +78,17 @@ public sealed class RuleAilments
     /// <summary>Ends every instance; the next <see cref="Present"/> reports the kinds that were shown as gone.</summary>
     public void Clear() { lock (instances) { instances.Clear(); count = 0; } }
 
+    /// <summary>Removes active instances of the specified kind and leaves other kinds and future effects alone.</summary>
+    public bool RemoveActive(int kind, double now)
+    {
+        lock (instances)
+        {
+            int removed = instances.RemoveAll(e => e.Kind == kind && e.From <= now && now < e.Until);
+            count = instances.Count;
+            return removed > 0;
+        }
+    }
+
     /// <summary>The kinds whose strongest magnitude (truncated) at <paramref name="now"/> differs from what was last
     /// presented, with the old and new values (0: none), in kind order; expired instances are dropped.</summary>
     public List<(int Kind, int Was, int Now)> Present(double now)

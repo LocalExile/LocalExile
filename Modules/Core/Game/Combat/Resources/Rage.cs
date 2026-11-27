@@ -194,13 +194,17 @@ public static partial class Game
         InventoryItem[] Equipment, Dictionary<string, CharacterSaves.SavedCosmetic> Cosmetics,
         CharacterStats.Pools Pools, uint Life, bool LockstepClient)
     {
+        public bool RecoveryWaivesManaCost { get; init; }
+
         public static SkillSnapshotInputs Capture(Player player, IReadOnlyDictionary<uint, int> stats) =>
             new(new Dictionary<uint, int>(stats), [.. ItemsOf(player).EquipmentSnapshot().Select(e => e.Item)],
-                new(CharacterSaves.SkillCosmetics(CharacterName(player))), player.Pools, player.PlayerLife, player.Connection.LockstepClient);
+                new(CharacterSaves.SkillCosmetics(CharacterName(player))), player.Pools, player.PlayerLife, player.Connection.LockstepClient)
+            { RecoveryWaivesManaCost = RecoveryFlaskWaivesManaCost(player) };
 
         public bool Matches(Player player, IReadOnlyDictionary<uint, int> stats)
         {
-            if (LockstepClient != player.Connection.LockstepClient || Pools != player.Pools || Life != player.PlayerLife || Stats.Count != stats.Count
+            if (LockstepClient != player.Connection.LockstepClient || Pools != player.Pools || Life != player.PlayerLife
+                || RecoveryWaivesManaCost != RecoveryFlaskWaivesManaCost(player) || Stats.Count != stats.Count
                 || Stats.Any(kv => !stats.TryGetValue(kv.Key, out int value) || value != kv.Value)) return false;
             var equipment = ItemsOf(player).EquipmentSnapshot().Select(e => e.Item).ToArray();
             if (equipment.Length != Equipment.Length) return false;

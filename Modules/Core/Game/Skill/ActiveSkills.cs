@@ -73,7 +73,9 @@ public static partial class Game
         readonly int merge, area, cooldown, timing;
         public readonly SupportedGem Supported;
         public readonly bool Channelled;
+        readonly SkillCostScope costScope;
         double costMore = double.NaN;
+        bool? shockedForPayment;
         (int Support, uint Maximum) manaCostPool = (-1, 0);
         IReadOnlyDictionary<uint, int> costStats;
         object? mapMods;
@@ -93,15 +95,18 @@ public static partial class Game
                 return from.GetValueOrDefault(key);
             }
             // The skill's own stats and costs over the player's (Merged): written into the graph's values.
-            var scope = SkillCostScopeFor(SkillsFor(owner), supported);
-            Dictionary<uint, int> Merge(IReadOnlyDictionary<uint, int> over, double cost)
+            costScope = SkillCostScopeFor(SkillsFor(owner), supported);
+            Dictionary<uint, int> Merge(IReadOnlyDictionary<uint, int> over, double cost, bool? shocked = null)
             {
                 var written = new Dictionary<uint, int>();
                 MergeSkillStatsInto(key => written.TryGetValue(key, out int own) ? own : Tracked(over, key),
-                    (key, value) => written[key] = value, costStats, Channelled, cost, scope);
+                    (key, value) => written[key] = value, costStats, Channelled, cost, costScope, shocked);
                 return written;
             }
-            merge = graph.AddRule(view => { foreach (var (key, value) in Merge(player, costMore)) view[key] = value; });
+            merge = graph.AddRule(view =>
+            {
+                foreach (var (key, value) in Merge(player, costMore, shockedForPayment)) view[key] = value;
+            });
             area = graph.AddRule(_ => areaWritten = Merge(areaPlayer, 1));
             cooldown = graph.AddRule(_ => Cooldown = SkillsFor(owner).EffectId(Supported.Effect) == MadnessEffect ? null
                 : CooldownPlan(owner, Supported, new TrackedStats(player)));
@@ -121,6 +126,9 @@ public static partial class Game
         {
             (player, areaPlayer) = (playerStats, areaPlayerStats);
             if (cost != costMore) { costMore = cost; graph.MarkRule(merge); }
+            // The last character frame can predate an ailment change in this use's admission frame.
+            bool? shocked = LightningCostShock(owner, costScope, playerStats, Supported.Stats);
+            if (shocked != shockedForPayment) { shockedForPayment = shocked; graph.MarkRule(merge); }
             var nextPool = (Support: ManaCostPool(owner, Supported),
                 Maximum: Supported.Stats.GetValueOrDefault(Stat.BaseManaCostPct) > 0 ? owner.Pools.Mana : 0u);
             if (manaCostPool != nextPool)

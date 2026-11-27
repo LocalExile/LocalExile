@@ -290,7 +290,7 @@ public static partial class Game
             var stats = CharacterPlayerStats(player);
             int Get(uint key) => stats.GetValueOrDefault(key);
             player.Phasing = UtilityFlasks.Phasing(UtilityStats(player, Get));
-            player.ElementalAilments.Reconcile(Get);
+            player.ElementalAilments.Reconcile(PlayerElementalDefencesAt(player, AreaTime(player), Get));
             player.ApplyMovementSpeedAt(AreaTime(player));
         }
     }

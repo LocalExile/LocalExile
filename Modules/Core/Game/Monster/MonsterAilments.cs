@@ -142,19 +142,25 @@ public static partial class Game
         double earned, since = from;
         public int PerSecond = perSecond;
         public double DirectUntil = from;
-        public readonly Dictionary<uint, double> Grounds = [];
+        public readonly Dictionary<ulong, double> Auras = [];
 
         public double Taken(double now)
         {
             double until = DirectUntil;
-            foreach (double end in Grounds.Values) until = Math.Max(until, end);
+            foreach (double end in Auras.Values) until = Math.Max(until, end);
             return Math.Min(10, earned + Math.Max(0, Math.Min(now, until) - since) * PerSecond);
         }
 
         public void Settle(double now)
         {
+            if (now <= since) return;
             earned = Taken(now);
             since = now;
+            List<ulong>? expired = null;
+            foreach (var (aura, until) in Auras)
+                if (until <= now) (expired ??= []).Add(aura);
+            if (expired is not null)
+                foreach (ulong aura in expired) Auras.Remove(aura);
         }
     }
 
@@ -177,19 +183,20 @@ public static partial class Game
         return state;
     }
 
-    static void RecordGlacialCageGroundChill(SpawnedMonster monster, uint owner, uint ground, double now, double until,
+    static void RecordGlacialCageAuraChill(SpawnedMonster monster, uint owner, ulong aura, double now, double until,
         int perSecond)
     {
         if (perSecond > 0 && until > now)
-            GlacialCageChillFor(monster, owner, now, perSecond).Grounds[ground] = until;
+            GlacialCageChillFor(monster, owner, now, perSecond).Auras[aura] = until;
+        else EndGlacialCageAuraChill(monster, owner, aura, now);
     }
 
-    static void EndGlacialCageGroundChill(SpawnedMonster monster, uint owner, uint ground, double now)
+    static void EndGlacialCageAuraChill(SpawnedMonster monster, uint owner, ulong aura, double now)
     {
         if (!GlacialCageChills.TryGetValue(monster, out var sources) || !sources.TryGetValue(owner, out var state)
-            || !state.Grounds.ContainsKey(ground)) return;
+            || !state.Auras.ContainsKey(aura)) return;
         state.Settle(now);
-        state.Grounds.Remove(ground);
+        state.Auras.Remove(aura);
     }
 
     static int GlacialCageTakenPct(SpawnedMonster monster, double now)
@@ -207,8 +214,8 @@ public static partial class Game
         {
             state.Settle(now);
             state.DirectUntil = RecipientEffectTime.RetimedDeadline(state.DirectUntil, now, previousRate, newRate);
-            foreach (uint ground in state.Grounds.Keys.ToArray())
-                state.Grounds[ground] = RecipientEffectTime.RetimedDeadline(state.Grounds[ground], now, previousRate, newRate);
+            foreach (ulong aura in state.Auras.Keys.ToArray())
+                state.Auras[aura] = RecipientEffectTime.RetimedDeadline(state.Auras[aura], now, previousRate, newRate);
         }
     }
 
@@ -219,7 +226,7 @@ public static partial class Game
         {
             state.Settle(now);
             state.DirectUntil = now;
-            state.Grounds.Clear();
+            state.Auras.Clear();
         }
     }
 
@@ -758,12 +765,12 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> playerStats, Random random)
     {
         if (player.PlayerLife == 0) return;
-        int Player(uint key) => playerStats.GetValueOrDefault(key);
+        var defences = PlayerElementalDefencesAt(player, now, playerStats.GetValueOrDefault);
         ApplyPlayerAilmentsLocked(player, now, ailments =>
         {
             foreach (var e in added)
                 ailments.Inflict(Enum.Parse<PlayerElementalAilments.Kind>(e.Kind.ToString()), e.Magnitude,
-                    e.Until - e.From, now, Player, random);
+                    e.Until - e.From, now, defences, random);
         });
     }
 

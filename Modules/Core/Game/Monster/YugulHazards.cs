@@ -174,8 +174,8 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owne
             if (p.PlayerLife > 0 && !p.Paused && !InGracePeriod(p) && InPool(p.Walk.Position(now)))
             {
                 var stats = CharacterPlayerStats(p);
-                int Get(uint k) => stats.GetValueOrDefault(k);
-                ApplyPlayerAilmentsLocked(p, now, a => a.Inflict(PlayerElementalAilments.Kind.Chill, 30, .5, now, Get, p.IncomingHitRandom));
+                var defences = PlayerElementalDefencesAt(p, now, stats.GetValueOrDefault);
+                ApplyPlayerAilmentsLocked(p, now, a => a.Inflict(PlayerElementalAilments.Kind.Chill, 30, .5, now, defences, p.IncomingHitRandom));
             }
             var baseDamage = Monsters.BaseDamage(boss.Variety!, boss.Level) ?? (1, 1);
             double perOrb = (baseDamage.Item1 + baseDamage.Item2) * .25;

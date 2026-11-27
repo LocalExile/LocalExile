@@ -929,6 +929,10 @@ public static partial class Game
         var during = UtilityFlasks.DuringEffectSources(local,
             FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel, local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct),
                 finalMultiplier: finalMultiplier));
+        // This flag stays with its paid recovery rather than entering the reusable character stat snapshot.
+        uint freeMana = Stat.LocalUniqueFlaskNoManaCostWhileHealing;
+        if (local.GetValueOrDefault(freeMana) != 0)
+            during.Add(new("recovery mana cost waiver", freeMana, 1));
         int? deathEpoch = null;
         await SpendFlask(player, flask, charges, slot, CurrentRecovery, spent =>
         {

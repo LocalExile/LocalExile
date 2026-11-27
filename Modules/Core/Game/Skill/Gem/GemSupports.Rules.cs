@@ -415,10 +415,11 @@ public static partial class Game
         var playerStats = FinalPlayerStats(player).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         var skill = SupportedSkill(player, skillId);
         var skills = SkillsFor(player);
+        var scope = SkillCostScopeFor(skills, skill);
+        var costStats = WithManaPoolCost(player, skill, WithBlessingCost(player, skill), ManaCostPool(player, skill));
+        bool? shocked = LightningCostShock(player, scope, playerStats, costStats);
         MergeSkillStatsInto(playerStats.GetValueOrDefault, (key, value) => playerStats[key] = value,
-            WithManaPoolCost(player, skill, WithBlessingCost(player, skill), ManaCostPool(player, skill)),
-            skills.IsChannelled(skill.Effect), SkillCostMore(player, skill.Stats),
-            SkillCostScopeFor(skills, skill));
+            costStats, skills.IsChannelled(skill.Effect), SkillCostMore(player, skill.Stats), scope, shocked);
         return playerStats;
     }
 
@@ -466,14 +467,26 @@ public static partial class Game
         return BloodCharges.Uses(Get) ? BloodCharges.More(Get(BloodCharges.CostPerCharge), player.BloodCharges) : 1;
     }
 
-    static double ScopedManaCostMore(double more, bool lightning, Func<uint, int> read) =>
-        lightning && read(Stat.IsShocked) != 0
+    static bool? LightningCostShock(Player player, SkillCostScope scope, IReadOnlyDictionary<uint, int> character,
+        IReadOnlyDictionary<uint, int> skill) => (scope & SkillCostScope.Lightning) != 0
+        && (long)character.GetValueOrDefault(Stat.LightningSkillManaCostPlusPctFinalWhileShocked)
+            + skill.GetValueOrDefault(Stat.LightningSkillManaCostPlusPctFinalWhileShocked) != 0
+        ? ShockedForSkillCost(player) : null;
+
+    static bool ShockedForSkillCost(Player player) =>
+        player.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Shock, ProjectileWorldTime(player)) > 0;
+
+    static double ScopedManaCostMore(double more, bool lightning, Func<uint, int> read, bool? shocked = null) =>
+        lightning && (shocked ?? (read(Stat.IsShocked) != 0))
             ? more * Math.Max(0, 1 + read(Stat.LightningSkillManaCostPlusPctFinalWhileShocked) / 100d)
             : more;
 
-    static int LowLifeSkillCost(int cost, Func<uint, int> read) => read(Stat.OnLowLife) != 0
-        ? (int)Math.Clamp((long)cost * Math.Max(0L, 100L + read(Stat.SkillLifeCostPlusPctFinalWhileOnLowLife)) / 100, 0, int.MaxValue)
-        : cost;
+    static double ScopedManaCostMore(Player player, double more, bool lightning, Func<uint, int> read) =>
+        ScopedManaCostMore(more, lightning, read, lightning
+            && read(Stat.LightningSkillManaCostPlusPctFinalWhileShocked) != 0 && ShockedForSkillCost(player));
+
+    static int LowLifeSkillCost(int cost, int lowLifeCost) =>
+        (int)Math.Clamp((long)cost * Math.Max(0L, 100L + lowLifeCost) / 100, 0, int.MaxValue);
 
     // Generosity: the increased effect a support gives the aura it supports, and whether the aura may affect the player
     // ("Supported Auras do not affect you", aura_cannot_affect_self).
@@ -489,10 +502,10 @@ public static partial class Game
         MergeSkillStats(player, own, channelled, costMore, SkillCostScope.None);
 
     static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
-        bool? channelled, double costMore, SkillCostScope scope)
+        bool? channelled, double costMore, SkillCostScope scope, bool? shocked = null)
     {
         var result = new Dictionary<uint, int>(player);
-        MergeSkillStatsInto(result.GetValueOrDefault, (key, value) => result[key] = value, own, channelled, costMore, scope);
+        MergeSkillStatsInto(result.GetValueOrDefault, (key, value) => result[key] = value, own, channelled, costMore, scope, shocked);
         return result;
     }
 
@@ -503,7 +516,7 @@ public static partial class Game
         MergeSkillStatsInto(read, write, own, channelled, costMore, SkillCostScope.None);
 
     static void MergeSkillStatsInto(Func<uint, int> read, Action<uint, int> write, IReadOnlyDictionary<uint, int> own,
-        bool? channelled, double costMore, SkillCostScope scope)
+        bool? channelled, double costMore, SkillCostScope scope, bool? shocked = null)
     {
         foreach (var (key, value) in own)
         {
@@ -533,7 +546,7 @@ public static partial class Game
                 + ((scope & SkillCostScope.Minion) != 0 ? read(Stat.MinionSkillManaCostPlusPct) : 0);
             int ManaInput(uint name) => name == Stat.ManaCostPlusPct
                 ? ActorScale.Saturate(read(name) + scopedCost) : read(name);
-            double manaMore = ScopedManaCostMore(costMore, (scope & SkillCostScope.Lightning) != 0, read);
+            double manaMore = ScopedManaCostMore(costMore, (scope & SkillCostScope.Lightning) != 0, read, shocked);
             write(mana, ManaRecoveryRules.Cost(baseCost, ManaInput, channelled, manaMore));
         }
         // "Socketed Movement Skills Cost no Mana": the item's support grants no_mana_cost to the skills it supports.
@@ -886,8 +899,10 @@ public static partial class Game
         var skills = SkillsFor(player);
         bool iceShot = GatewayProjectileSkillProfiles.IsIceShot(skills.EffectId(gem.Effect));
         int manaPool = ManaCostPool(player, gem);
-        var stats = MergeSkillStats(caster, WithManaPoolCost(player, gem, gem.Stats, manaPool),
-            skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats), SkillCostScopeFor(skills, gem));
+        var scope = SkillCostScopeFor(skills, gem);
+        var ownCostStats = WithManaPoolCost(player, gem, gem.Stats, manaPool);
+        var stats = MergeSkillStats(caster, ownCostStats, skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats), scope,
+            LightningCostShock(player, scope, caster, ownCostStats));
         if (gem.Stats.Count > 0 && ExpandSkillChargeStats(player, caster, gem.Stats) is { Count: > 0 } expanded)
             foreach (var (stat, bonus) in expanded)
                 stats[stat] = ActorScale.Saturate((long)stats.GetValueOrDefault(stat) + bonus);
@@ -1074,7 +1089,7 @@ public static partial class Game
             if (Math.Clamp(Get(Stat.BaseAttackSkillCostLifeInsteadOfManaPct), 0, 100) is int split and > 0
                 && attack && gem.Stats.TryGetValue(Stat.ManaCost, out int baseMana))
                 (manaCost, _, _) = ManaRecoveryRules.SplitCostToLife(baseMana, Get, skills.IsChannelled(gem.Effect),
-                    ScopedManaCostMore(SkillCostMore(player, gem.Stats), skills.HasType(gem.Effect, "Lightning"), Get), split);
+                    ScopedManaCostMore(player, SkillCostMore(player, gem.Stats), skills.HasType(gem.Effect, "Lightning"), Get), split);
             if (manaCost > 0)
                 raw = raw.Scale(Math.Max(0, 1 + (double)manaforgedPerMana * manaCost / 100.0));
         }

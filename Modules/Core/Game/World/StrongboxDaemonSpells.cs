@@ -302,8 +302,8 @@ public static partial class MapStrongboxes
             if (player.Immune || InGracePeriod(player)) continue;
             var stats = CharacterPlayerStats(player);
             double now = AreaTime(player);
-            ApplyPlayerAilmentsLocked(player, now, a => a.Inflict(kind, magnitude, seconds, now,
-                key => stats.GetValueOrDefault(key), player.IncomingHitRandom));
+            var defences = PlayerElementalDefencesAt(player, now, stats.GetValueOrDefault);
+            ApplyPlayerAilmentsLocked(player, now, a => a.Inflict(kind, magnitude, seconds, now, defences, player.IncomingHitRandom));
             double after = player.ElementalAilments.Magnitude(kind, now);
             Console.WriteLine($"[map-content] strongbox daemon {kind} {magnitude:0.#} for {seconds:0.#} s on {CharacterName(player)}: " +
                 (after > 0 ? $"active ({after:0.#})" : "avoided or immune"));
@@ -320,7 +320,7 @@ public static partial class MapStrongboxes
             if (player.Immune || InGracePeriod(player)) continue;
             var playerStats = CharacterPlayerStats(player);
             int Has(uint key) => playerStats.GetValueOrDefault(key);
-            if (Has(Stat.ImmuneToCurses) != 0 || Has(Stat.VirtualImmuneToCurses) != 0 || Has(Stat.Hexproof) != 0) continue;
+            if (PlayerCurseImmunityAt(player, AreaTime(player), Has) || Has(Stat.Hexproof) != 0) continue;
             var stats = skillStats.Where(p => CurseOnPlayerStats.Contains(Stats.Name(p.Key) ?? "")).ToDictionary(p => p.Key, p => p.Value);
             if (Stats.Key("you_are_cursed_with_" + curse.Name) is uint flag) stats[flag] = 1;
             var cursed = Cursed.GetOrCreateValue(player);
@@ -519,8 +519,8 @@ public static partial class MapStrongboxes
             int magnitude = kind == PlayerElementalAilments.Kind.Chill ? 10 : 15;
             if (player.ElementalAilments.Magnitude(kind, at) >= magnitude) continue;
             var stats = CharacterPlayerStats(player);
-            ApplyPlayerAilmentsLocked(player, at, a => a.Inflict(kind, magnitude, .3, at,
-                key => stats.GetValueOrDefault(key), player.IncomingHitRandom));
+            var defences = PlayerElementalDefencesAt(player, at, stats.GetValueOrDefault);
+            ApplyPlayerAilmentsLocked(player, at, a => a.Inflict(kind, magnitude, .3, at, defences, player.IncomingHitRandom));
         }
     }
 

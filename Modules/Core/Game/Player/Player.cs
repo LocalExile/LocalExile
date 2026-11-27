@@ -503,7 +503,8 @@ public static partial class Game
                 && skills.IsAttack(effect) && own.TryGetValue(Stat.ManaCost, out int baseMana))
             {
                 (int remainingMana, lifeBasis, convertedLife) = ManaRecoveryRules.SplitCostToLife(
-                    baseMana, Read, channelled, ScopedManaCostMore(SkillCostMore(player, own), skills.HasType(effect, "Lightning"), Read), split);
+                    baseMana, Read, channelled,
+                    ScopedManaCostMore(player, SkillCostMore(player, own), skills.HasType(effect, "Lightning"), Read), split);
                 cost = (uint)remainingMana;
             }
             else
@@ -516,7 +517,7 @@ public static partial class Game
                         || Own(Stat.BaseManaCostPct) > 0)
                         unsplitBase = Read(Stat.BaseManaCost);
                     lifeBasis = ManaRecoveryRules.Cost(unsplitBase, Read, channelled,
-                        ScopedManaCostMore(SkillCostMore(player, own), skills.HasType(effect, "Lightning"), Read),
+                        ScopedManaCostMore(player, SkillCostMore(player, own), skills.HasType(effect, "Lightning"), Read),
                         applyManaEfficiency: false);
                 }
             }
@@ -525,8 +526,11 @@ public static partial class Game
         if (nativeLife > 0 && BloodCharges.Uses(Own))
             nativeLife = (int)Math.Min(int.MaxValue, Math.Round(nativeLife
                 * BloodCharges.More(Own(BloodCharges.CostPerCharge), player.BloodCharges)));
-        life = LowLifeSkillCost((int)Math.Min(int.MaxValue, (long)nativeLife + convertedLife + petrifiedLife), Read);
-        if (Read(Stat.NoManaCost) != 0) cost = 0;
+        life = (int)Math.Min(int.MaxValue, (long)nativeLife + convertedLife + petrifiedLife);
+        if (life > 0 && Read(Stat.SkillLifeCostPlusPctFinalWhileOnLowLife) is var lowLifeCost and not 0
+            && CriticalOnLowLife(player, playerStats))
+            life = LowLifeSkillCost(life, lowLifeCost);
+        if (cost > 0 && NoManaCostFor(player, Read(Stat.NoManaCost))) cost = 0;
         es = (uint)Math.Max(0, Read(Stat.EsCost));
         rage = ChainbreakerRageCost(Read);
         if (costPercent != 100)
@@ -1169,10 +1173,11 @@ public static partial class Game
     static void StartResourceRecovery(Player player, PlayerUpdatesState updates)
     {
         double lifeCarry = 0, manaCarry = 0, burnCarry = 0, trapCarry = 0, flaskCarry = 0, last = updates.Schedule.Now(player);
+        player.FlaskEffects.ResumeAt(last);
         double lifeRate = 0, manaRate = 0, burnPerSecond = 0, preventedPerSecond = 0, lifeRegenFactor = 1;
         bool zealotsOath = false, convertLifeRegen = false, vaalPact = false;
         double? periodicRegenStart = null, periodicShieldRegenStart = null;
-        double periodicRegenPerSecond = 0, periodicShieldRegenPerSecond = 0;
+        double periodicRegenPerSecond = 0, periodicShieldRegenPerEvasion = 0;
         Dictionary<uint, int> recoveryStats = [];
         int RecoveryStat(uint key) => recoveryStats.GetValueOrDefault(key);
         var cachedRf = player.RighteousFire;
@@ -1244,8 +1249,7 @@ public static partial class Game
                     periodicShieldRegenStart = shieldFromEvasion > 0 && player.PlayerLife > 0
                         ? periodicShieldRegenStart ?? now : null;
                     bool shieldRegenAllowed = EnergyShield.ConversionAllowed(RecoveryStat);
-                    periodicShieldRegenPerSecond = shieldRegenAllowed ? Math.Max(0, shieldFromEvasion)
-                        * (double)player.Pools.Evasion / 100
+                    periodicShieldRegenPerEvasion = shieldRegenAllowed ? Math.Max(0, shieldFromEvasion) / 100d
                         * Math.Max(0, 1 + RecoveryStat(Stat.EnergyShieldRegenerationRatePlusPct) / 100d)
                         * Math.Max(0, 1 + RecoveryStat(Stat.EnergyShieldRecoveryRatePlusPct) / 100d)
                         * PanelStats.MapRecoveryMultiplier(RecoveryStat) : 0;
@@ -1258,7 +1262,8 @@ public static partial class Game
                 }
                 double recoveryFrom = last;
                 double life, mana;
-                (life, mana, ended) = AdvanceFlaskRecovery(player, last, now);
+                bool trackManaWaiver = player.BladefallTrarthus is { Ended: false, PaysLife: false };
+                (life, mana, ended) = AdvanceFlaskRecovery(player, last, now, trackManaWaiver, out double waivedManaSeconds);
                 last = now;
                 lifeBefore = player.PlayerLife; lifeMarkedBefore = player.Frames.Area?.Life.LifeChanged(player) ?? true;
                 manaBefore = player.PlayerMana;
@@ -1344,8 +1349,10 @@ public static partial class Game
                     player.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
                     double periodicLife = periodicRegenStart is double start ? periodicRegenPerSecond
                         * (PeriodicRegenSeconds(now - start) - PeriodicRegenSeconds(recoveryFrom - start)) : 0;
-                    double periodicShield = periodicShieldRegenStart is double shieldStart ? periodicShieldRegenPerSecond
-                        * (PeriodicRegenSeconds(now - shieldStart) - PeriodicRegenSeconds(recoveryFrom - shieldStart)) : 0;
+                    double periodicShieldSeconds = periodicShieldRegenStart is double shieldStart
+                        ? PeriodicRegenSeconds(now - shieldStart) - PeriodicRegenSeconds(recoveryFrom - shieldStart) : 0;
+                    double periodicShield = periodicShieldSeconds > 0 && periodicShieldRegenPerEvasion > 0
+                        ? PlayerEvasion(player, recoveryStats) * periodicShieldRegenPerEvasion * periodicShieldSeconds : 0;
                     player.EnergyShield.Gain(leeched.EnergyShield + periodicShield
                         + (convertLifeRegen ? lifeRate * seconds + periodicLife : 0), esCeiling);
                     double fortificationLife = FortificationOf(player).TakeRecovery(AreaTime(player));
@@ -1412,7 +1419,8 @@ public static partial class Game
                     }
                     lifeCommitted = player.PlayerLife;
                     bool survived = CompleteResourceRecoveryLocked(player, recoveryFrom, now, recoveryStats,
-                        mana + manaRate * seconds + leeched.Mana - BladefallManaSpent(player, seconds) - tinctureManaDrain, manaBefore, manaCap, ref manaCarry);
+                        mana + manaRate * seconds + leeched.Mana - BladefallManaSpent(player, seconds, waivedManaSeconds)
+                            - tinctureManaDrain, manaBefore, manaCap, ref manaCarry);
                     lifeAfter = player.PlayerLife;
                     if (survived) CheckTinctureResourceDeactivationLocked(player, now, recoveryStats, ref deactivatedTinctures);
                     // The once-per-transition Loyalty triggers: Energy Shield Recharge started, Low Life reached.
@@ -1515,6 +1523,12 @@ public static partial class Game
             else Console.WriteLine($"[gateway] {player.Connection.Remote} flask {e.Slot} effect ends ({why})");
         // A life, mana or hybrid flask's "during effect" mods end with its recovery; plain recovery flasks can also
         // satisfy "_during_any_flask_effect" item modifiers when the last active recovery flask ends.
+        if (player.Links.Count > 0 && ended.Count > 0)
+        {
+            double now = AreaTime(player);
+            foreach (var effect in RecoveryManaWaiverEffects(player))
+                if (ended.Any(finished => ReferenceEquals(finished, effect))) RememberLinkedManaWaiverEnd(player, effect, now);
+        }
         bool changed = player.RecoveryFlaskStats.Prune(player.FlaskEffects);
         bool arcaneSurgeEnded = ended.Any(e => e.RestoresMana) && !player.FlaskEffects.AnyMana
             && StatSourceValues(player).GetValueOrDefault(Stat.ArcaneSurgeDuringManaFlaskEffect) != 0;
@@ -1804,6 +1818,7 @@ public static partial class Game
         {
             player.InvalidateIncomingHits();
             LeechOf(player).Clear(AreaTime(player));
+            await ClearDeathDebuffs(player);
             foreach (var m in player.Area.Monsters.Values) m.Aggro = false;
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0054 resurrect {(inTown ? "in town" : "at checkpoint")}");
             if (inTown && player.Character.LastTown != 0 && player.Layout.Hash != player.Character.LastTown)

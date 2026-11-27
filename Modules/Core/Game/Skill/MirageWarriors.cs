@@ -593,7 +593,7 @@ public static partial class Game
                     if (m.Dead || m.Life == 0) continue;
                     int hitChance = AttackHitChanceAt(player, id, m, now, accuracy, playerStats);
                     if (!accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, now, player.AttackAccuracyRandom)) continue;
-                    if (MonsterBlocks(m, AreaRng(player), spell: false, now, skillStats)) continue;
+                    if (MonsterBlocks(m, AreaRng(player), spell: false, now, skillStats, playerStats)) continue;
                     var fullLifeStrike = dualStrikeBonuses.Against(m);
                     double damageMore = fullLifeStrike.DamageMore;
                     var contactHit = damageMore == 1 ? hitPacket : hitPacket.Scale(damageMore);

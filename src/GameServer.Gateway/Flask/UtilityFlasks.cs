@@ -344,32 +344,55 @@ public static class UtilityFlasks
     /// stack: the strongest-per-(effect, stat) pass (CombineUtilitySources) counts one.</summary>
     public sealed class RecoveryDuringEffects
     {
-        readonly List<(IReadOnlyList<Flasks.Effect> Effects, IReadOnlyList<Source> Stats)> _uses = [];
+        // Changes are rare. Readers can share a published list without nesting this lock with the recovery queue's.
+        volatile (IReadOnlyList<Flasks.Effect> Effects, IReadOnlyList<Source> Stats)[] _uses = [];
         readonly Lock _lock = new();
 
         public void Start(IReadOnlyList<Flasks.Effect> effects, IReadOnlyList<Source> stats)
         {
             if (effects.Count == 0 || stats.Count == 0) return;
-            lock (_lock) _uses.Add((effects, stats));
+            lock (_lock) _uses = [.. _uses, (effects, stats)];
         }
 
-        (IReadOnlyList<Flasks.Effect> Effects, IReadOnlyList<Source> Stats)[] Snapshot()
+        static bool Running(IReadOnlyList<Flasks.Effect> effects, Flasks.Effects running)
         {
-            lock (_lock) return [.. _uses];
+            for (int i = 0; i < effects.Count; i++)
+                if (running.Remaining(effects[i]) > 0) return true;
+            return false;
         }
-
-        static bool Running(IReadOnlyList<Flasks.Effect> effects, Flasks.Effects running) =>
-            effects.Any(e => running.Remaining(e) > 0);
 
         public IEnumerable<Source> Sources(Flasks.Effects running) =>
-            [.. Snapshot().Where(u => Running(u.Effects, running)).SelectMany(u => u.Stats)];
+            [.. _uses.Where(u => Running(u.Effects, running)).SelectMany(u => u.Stats)];
+
+        /// <summary>Whether an effective recovery use currently supplies the requested flag.</summary>
+        public bool HasStat(Flasks.Effects running, uint stat, double at)
+        {
+            foreach (var use in _uses)
+                for (int i = 0; i < use.Stats.Count; i++)
+                {
+                    var source = use.Stats[i];
+                    if (source.Stat != stat || source.Value == 0) continue;
+                    for (int j = 0; j < use.Effects.Count; j++)
+                        if (running.ExpectedEnd(use.Effects[j], at) is double end && at < end) return true;
+                    break;
+                }
+            return false;
+        }
+
+        /// <summary>The recovery carriers of a flag, until the caller prunes completed uses.</summary>
+        public IEnumerable<Flasks.Effect> EffectsWithStat(uint stat)
+        {
+            foreach (var use in _uses)
+                if (use.Stats.Any(source => source.Stat == stat && source.Value != 0))
+                    foreach (var effect in use.Effects) yield return effect;
+        }
 
         /// <summary>Drops the uses whose recovery has ended: whether any were dropped (the stats changed).</summary>
         public bool Prune(Flasks.Effects running)
         {
-            var ended = Snapshot().Where(u => !Running(u.Effects, running)).ToList();
+            var ended = _uses.Where(u => !Running(u.Effects, running)).ToList();
             if (ended.Count == 0) return false;
-            lock (_lock) _uses.RemoveAll(u => ended.Any(e => ReferenceEquals(e.Effects, u.Effects)));
+            lock (_lock) _uses = [.. _uses.Where(u => !ended.Any(e => ReferenceEquals(e.Effects, u.Effects)))];
             return true;
         }
     }
@@ -437,6 +460,7 @@ public static class UtilityFlasks
         int _ticker, _lastTicket;
         long _activation;
         readonly Dictionary<uint, long> _latest = [];
+        volatile bool hasActiveEffects;
         double expiryRate = 1;
         public DamageProgress SelfDamage { get; } = new();
 
@@ -502,6 +526,17 @@ public static class UtilityFlasks
                 return _active.FirstOrDefault(effect => effect.LocalStats?.GetValueOrDefault(stat) > 0 && eligible(effect));
         }
 
+        /// <summary>Whether a paid utility effect with this local flag is active at the action's time.</summary>
+        public bool HasActiveLocalStat(uint stat, double now)
+        {
+            if (!hasActiveEffects) return false;
+            lock (_lock)
+                foreach (var effect in _active)
+                    if (effect.Started <= now && now < effect.Ends && effect.LocalStats?.GetValueOrDefault(stat) > 0)
+                        return true;
+            return false;
+        }
+
         /// <summary>Starts an effect, next to any other, of the same kind or not: each keeps its own duration
         /// (<see cref="Stats"/> applies only the strongest of one kind). Returns the ticket of a ticker to start now, or
         /// null when one runs.</summary>
@@ -515,6 +550,7 @@ public static class UtilityFlasks
                 _latest[effect.ItemId] = effect.Activation;
                 _active.RemoveAll(a => a.ItemId == effect.ItemId);
                 _active.Add(effect);
+                hasActiveEffects = true;
                 if (_ticker != 0) return null;
                 _ticker = ++_lastTicket;
                 return _ticker;
@@ -531,6 +567,7 @@ public static class UtilityFlasks
                 List<Active> ended = [.. _active.Where(a => all || a.Ends <= now || gone?.Invoke(a) == true)];
                 foreach (var a in ended) _active.Remove(a);
                 stop = _active.Count == 0;
+                hasActiveEffects = !stop;
                 if (stop) _ticker = 0;
                 return ended;
             }
@@ -559,10 +596,23 @@ public static class UtilityFlasks
         /// (Mageblood's permanent ones) combine them before one strongest-per-(effect, stat) pass.</summary>
         public IReadOnlyList<Source> Sources() => Sources(null);
 
-        public IReadOnlyList<Source> Sources(double? at)
+        public IReadOnlyList<Source> Sources(double? at) => Sources(at, null);
+
+        /// <summary>The sources from each eligible effect, optionally filtered with the paid effect's identity.</summary>
+        public IReadOnlyList<Source> Sources(double? at, Func<Active, Source, bool>? include)
         {
-            lock (_lock) return [.. _active.Where(a => at is not double now || a.Started <= now && now < a.Ends)
-                .SelectMany(a => a.Stats)];
+            lock (_lock)
+            {
+                if (_active.Count == 0) return [];
+                List<Source> result = [];
+                foreach (var effect in _active)
+                {
+                    if (at is double now && (effect.Started > now || now >= effect.Ends)) continue;
+                    foreach (var source in effect.Stats)
+                        if (include is null || include(effect, source)) result.Add(source);
+                }
+                return result;
+            }
         }
 
         /// <summary>The strongest positive value of one stat without allocating a source snapshot.</summary>

@@ -174,12 +174,19 @@ public static partial class Game
         {
             if (!RampageEffectCurrent(player, epoch) || player.Paused || target.Dead || !target.Hostile
                 || target.OwnerId is not null || !ReferenceEquals(player.Area.Monsters.GetValueOrDefault(id), target)) return false;
-            if (attack && !RampageAttackHits(player, id, target, accuracy, ProjectileWorldTime(player), AreaRng(player))) return false;
+            double now = ProjectileWorldTime(player);
+            if (attack && !RampageAttackHits(player, id, target, accuracy, now, AreaRng(player))) return false;
             if (MonsterBlocks(target, AreaRng(player), !attack)) return false;
             bool critical = AreaRng(player).Next(10000) < (attack ? 500 : own?.SpellCriticalChance ?? 0)
-                + BrittleCriticalChance(target, ProjectileWorldTime(player));
-            damage = RampageOwnedDamage(target, packet.Roll(AreaRng(player)), critical, attack, ProjectileWorldTime(player));
-            if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(target, 150, CharacterPlayerStats(player)));
+                + BrittleCriticalChance(target, now);
+            damage = RampageOwnedDamage(target, packet.Roll(AreaRng(player)), critical, attack, now);
+            if (critical)
+            {
+                var caster = CharacterPlayerStats(player);
+                // The animated weapon attacks with its own critical stats. The direct effects use the player's source.
+                int multiplier = attack ? CriticalMultiplierOn(target, 150, caster) : CriticalMultiplierOn(target, 150, now, caster);
+                damage = DamageModel.CriticalDamage(damage, multiplier);
+            }
             hit = ApplyMonsterHitLocked(player, target, damage, rampageSource: true); // Proven by this contact's effect guard.
             if (hit is null) return false;
             player.RecentEvents.RecordCriticalOutcome(ProjectileWorldTime(player), critical);

@@ -24,8 +24,9 @@ public static partial class Game
     {
         if (map is null || !HasMapHexes(map)) return;
         int Get(uint key) => stats.GetValueOrDefault(key);
-        if (player.PlayerLife == 0 || CurseImmunity(Get) || player.FlaskGrounds.CurseImmune
-            || WitchbaneImmunityActive(player, AreaTime(player))) return;
+        double now = AreaTime(player);
+        if (player.PlayerLife == 0 || PlayerCurseImmunityAt(player, now, Get) || player.FlaskGrounds.CurseImmune
+            || WitchbaneImmunityActive(player, now)) return;
         bool HasAura(string effect) => (auras ??= AffectingAuras(player)).Any(a => AuraCatalog.Family(a.EffectId) == effect);
 
         bool unaffected = Get(Stat.UnaffectedByCurses) != 0 || Get(Stat.VirtualUnaffectedByCurses) != 0

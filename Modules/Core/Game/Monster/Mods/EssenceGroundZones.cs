@@ -167,11 +167,11 @@ public static partial class MapEssences
         bool needShock = shock > 0 && conn.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Shock, at) < shock;
         if (!needChill && !needShock) return;
         var stats = CharacterPlayerStats(conn);
-        int Stat(uint key) => stats.GetValueOrDefault(key);
+        var defences = PlayerElementalDefencesAt(conn, at, stats.GetValueOrDefault);
         ApplyPlayerAilmentsLocked(conn, at, a =>
         {
-            if (needChill) a.Inflict(PlayerElementalAilments.Kind.Chill, chill, .35, at, Stat, conn.IncomingHitRandom);
-            if (needShock) a.Inflict(PlayerElementalAilments.Kind.Shock, shock, .35, at, Stat, conn.IncomingHitRandom);
+            if (needChill) a.Inflict(PlayerElementalAilments.Kind.Chill, chill, .35, at, defences, conn.IncomingHitRandom);
+            if (needShock) a.Inflict(PlayerElementalAilments.Kind.Shock, shock, .35, at, defences, conn.IncomingHitRandom);
         });
     }
 }

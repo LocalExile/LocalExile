@@ -147,7 +147,7 @@ public static partial class Game
         }
         else if (player.BladefallTrarthus is { PaysLife: false } bladefall)
         {
-            bool freeMana = CharacterPlayerStats(player).GetValueOrDefault(Stat.NoManaCost) != 0;
+            bool freeMana = NoManaCostFor(player, CharacterPlayerStats(player).GetValueOrDefault(Stat.NoManaCost));
             if (!freeMana && player.PlayerMana == 0)
                 await EndBladefallTrarthus(player, "out of mana");
             else

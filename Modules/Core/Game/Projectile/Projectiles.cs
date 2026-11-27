@@ -878,16 +878,16 @@ public static partial class Game
             {
                 if (!RampageEffectCurrent(Player, ownedEpoch) || !target.Hostile || target.OwnerId is not null)
                     return ProjectileHitResult.Miss;
-                if (!shot.Spell && !RampageAttackHits(Player, contact.Target.Id, target, shot.Accuracy, contact.At / (double)ProjectileRuntime.QuantaPerSecond, random))
+                double contactTime = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
+                if (!shot.Spell && !RampageAttackHits(Player, contact.Target.Id, target, shot.Accuracy, contactTime, random))
                     return ProjectileHitResult.Miss;
                 if (MonsterBlocks(target, random, shot.Spell)) return ProjectileHitResult.Blocked;
                 var raw = shot.Hit.Scale(contact.Multiplier).Roll(random);
                 bool crit = random.Next(10000) < shot.CriticalChance
-                    + BrittleCriticalChance(target, contact.At / (double)ProjectileRuntime.QuantaPerSecond);
-                int ownedDamage = RampageOwnedDamage(target, raw, crit, !shot.Spell,
-                    contact.At / (double)ProjectileRuntime.QuantaPerSecond);
+                    + BrittleCriticalChance(target, contactTime);
+                int ownedDamage = RampageOwnedDamage(target, raw, crit, !shot.Spell, contactTime);
                 if (crit) ownedDamage = DamageModel.CriticalDamage(ownedDamage, CriticalMultiplierOn(target,
-                    shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage));
+                    shot.CriticalMultiplier, shot.TargetCritical, contactTime, shot.NoExtraCriticalDamage));
                 var ownedHit = ApplyMonsterHitLocked(Player, target, ownedDamage, rampageSource: true);
                 if (ownedHit is null) return ProjectileHitResult.Miss;
                 Player.RecentEvents.RecordCriticalOutcome(

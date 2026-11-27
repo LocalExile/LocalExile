@@ -22,7 +22,10 @@ public static partial class Game
     /// <summary>One debuff on the player: its 0x1c1 instance, row, the object it came from, its stats, when it ends
     /// (connection clock seconds; infinity while held) and its holder (null for a timed one).</summary>
     public sealed record PlayerDebuff(ushort Instance, ushort Row, uint Caster, IReadOnlyDictionary<uint, int> Stats,
-        double Until, object? Holder);
+        double Until, object? Holder)
+    {
+        public bool EndsOnDeath { get; init; }
+    }
 
     sealed class PlayerDebuffSet
     {
@@ -37,6 +40,9 @@ public static partial class Game
     /// <summary>A debuff for its time (seconds): a curse, Withered, an immobilise.</summary>
     public static Task AddPlayerDebuff(Player player, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats,
         double seconds) => ApplyPlayerDebuff(player, row, caster, stats, seconds, null);
+
+    internal static Task AddPlayerDebuff(Player player, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats,
+        double seconds, bool endsOnDeath) => ApplyPlayerDebuff(player, row, caster, stats, seconds, null, endsOnDeath);
 
     /// <summary>A debuff kept until <see cref="ReleasePlayerDebuff"/> with the same holder (a ground's, while the player
     /// stands in it). Holding the same row with the same stats again changes nothing.</summary>
@@ -65,7 +71,7 @@ public static partial class Game
         CurseCatalog.All.GroupBy(curse => curse.Value.Buff).ToDictionary(group => group.Key, group => group.First());
 
     static async Task ApplyPlayerDebuff(Player player, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats,
-        double seconds, object? holder)
+        double seconds, object? holder, bool endsOnDeath = false)
     {
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player) || seconds <= 0) return;
         double now = AreaTime(player);
@@ -93,7 +99,8 @@ public static partial class Game
             else Reflect(player.Area);
         }
         if (defence is not null && (exposure && defence.GetValueOrDefault(Stat.ImmuneToExposure) != 0
-            || curse && (CurseImmunity(defence.GetValueOrDefault) || player.FlaskGrounds.CurseImmune || WitchbaneImmunityActive(player, now))))
+            || curse && (PlayerCurseImmunityAt(player, now, defence.GetValueOrDefault) || player.FlaskGrounds.CurseImmune
+                || WitchbaneImmunityActive(player, now))))
             return;
         if (exposure && defence?.GetValueOrDefault(Stat.ExposureEffectPlusPct) is int exposureEffect and not 0)
         {
@@ -137,7 +144,8 @@ public static partial class Game
                 set.Active.Remove(same);
             }
         instance = player.NextBuff++;
-        set.Active.Add(new(instance, row, caster, stats, holder is null ? now + seconds : double.PositiveInfinity, holder));
+        set.Active.Add(new(instance, row, caster, stats, holder is null ? now + seconds : double.PositiveInfinity, holder)
+            { EndsOnDeath = endsOnDeath });
         foreach (var old in replaced) ClearPlayerDebuff(player, old);
         // Each debuff is a buff of its own (its instance number is its tag: a row that stacks has several from one caster).
         if (row != 0)
@@ -177,7 +185,8 @@ public static partial class Game
         if (!DebuffsOf.TryGetValue(player, out var set) || set.Active.Count == 0) return;
         List<PlayerDebuff> gone = [];
         bool areaChanged = !ReferenceEquals(set.Area, player.Layout);
-        foreach (var d in set.Active.Where(d => areaChanged || d.Until <= now).ToArray())
+        bool dead = player.PlayerLife == 0;
+        foreach (var d in set.Active.Where(d => areaChanged || d.Until <= now || dead && d.EndsOnDeath).ToArray())
         {
             if (!areaChanged) gone.Add(d);
             set.Active.Remove(d);
@@ -262,6 +271,15 @@ public static partial class Game
         if (!player.Closed)
             foreach (var debuff in debuffs) ClearPlayerDebuff(player, debuff);
         await RefreshDebuffedPlayer(player);
+    }
+
+    static async Task ClearDeathDebuffs(Player player)
+    {
+        if (!DebuffsOf.TryGetValue(player, out var set) || !ReferenceEquals(set.Area, player.Layout)) return;
+        var ended = set.Active.Where(debuff => debuff.EndsOnDeath).ToArray();
+        if (ended.Length == 0) return;
+        set.Active.RemoveAll(debuff => debuff.EndsOnDeath);
+        await EndPlayerDebuffs(player, set, ended);
     }
 
     /// <summary>The player's pools, movement and degeneration after the debuffs changed, and the stats the client shows.</summary>

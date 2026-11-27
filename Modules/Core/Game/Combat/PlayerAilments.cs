@@ -54,8 +54,9 @@ public static partial class Game
             }
         }
         double durationFactor = LetheShadeAilmentDuration(Get);
+        var defences = PlayerElementalDefencesAt(player, now, Get);
         ApplyPlayerAilmentsLocked(player, now, ailments =>
-            ailments.Apply(ailmentBase, taken, critical, player.PlayerMaxLife, now, Get, player.IncomingHitRandom, settings, source,
+            ailments.Apply(ailmentBase, taken, critical, player.PlayerMaxLife, now, defences, player.IncomingHitRandom, settings, source,
                 durationFactor));
     }
 

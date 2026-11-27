@@ -43,6 +43,23 @@ public static partial class Game
         (Stat.LocalUniqueFlaskPhysicalDamageTakenPctAsColdWhileHealing, Stat.PhysicalDamageTakenPctAsCold, false),
     ];
 
+    // Combat and the wire read the paid effect at their own time. Baking these flags into the character graph
+    // would let an action in the frame that starts or ends the effect see the previous frame's immunity.
+    static bool KiaraImmunityAt(Player player, double now) =>
+        player.UtilityFlaskEffects.HasActiveLocalStat(Stat.LocalUniqueFlaskKiarasDetermination, now);
+
+    public static Func<uint, int> PlayerElementalDefencesAt(Player player, double now, Func<uint, int> read) =>
+        KiaraImmunityAt(player, now)
+            ? stat => stat is Stat.ImmuneToChill or Stat.ImmuneToFreeze ? 1 : read(stat)
+            : read;
+
+    static readonly uint[] KiaraClientImmunities = [Stat.BaseImmuneToChill, Stat.ImmuneToChill,
+        Stat.BaseImmuneToFreeze, Stat.ImmuneToFreeze, Stat.BaseCannotBeStunned, Stat.CannotBeStunned, Stat.ImmuneToCurses];
+
+    static bool CharacterUtilitySource(UtilityFlasks.Active effect, UtilityFlasks.Source source) =>
+        Array.IndexOf(KiaraClientImmunities, source.Stat) < 0
+        || !(effect.LocalStats?.GetValueOrDefault(Stat.LocalUniqueFlaskKiarasDetermination) > 0);
+
     static readonly (uint Uncapped, uint Penetration, uint Taken)[] WiseOakElements =
     [
         (Stat.UncappedFireDamageResistancePct, Stat.BaseReduceEnemyFireResistancePct, Stat.FireDamageTakenPlusPct),

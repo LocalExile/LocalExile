@@ -249,7 +249,7 @@ public sealed class GameModule : IModule, IDisposable
         // (MonsterAlternateAilments).
         module.Lifetime.Own(MonsterElementalAilments.HandOverInflictProhibitions(Rules.SecretsOfSufferingProhibitions));
         module.Lifetime.Own(UtilityFlasks.HandOverDuringEffectFlags(
-            [.. Rules.AlternateAilmentFlaskFlags, (Stat.LocalUniqueFlaskNoManaCostWhileHealing, Stat.NoManaCost)]));
+            Rules.AlternateAilmentFlaskFlags));
         module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Rules.InitializeAccountHideouts(module.Settings<Rules.HideoutMigrationSettings>().LegacySourceCharacter);
         // Build the optional melee clock tables before combat can admit an action, rather than inside its send gate.

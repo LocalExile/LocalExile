@@ -174,7 +174,7 @@ public static partial class Game
         static void RemoveGroundChill(DamageGround ground, SpawnedMonster monster, double now)
         {
             monster.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource);
-            EndGlacialCageGroundChill(monster, ground.Source.Player.Id, ground.ChillSource, now);
+            EndGlacialCageAuraChill(monster, ground.Source.Player.Id, ground.ChillSource, now);
         }
 
         internal void PlaceCausticCloud(ProjectileVector centre, ProjectileOffense.CausticCloudSpec spec) =>
@@ -363,13 +363,14 @@ public static partial class Game
                         if (applied is { } effect)
                         {
                             ground.Chilled.Add(monster);
-                            RecordGlacialCageGroundChill(monster, owner, ground.ChillSource, at, effect.Until,
+                            ground.Source.Player.RecentEvents.Record(StatConditions.ChilledEnemy, at);
+                            RecordGlacialCageAuraChill(monster, owner, ground.ChillSource, at, effect.Until,
                                 chill.GetValueOrDefault(Stat.PermanentDamagePlusPctPerSecondOfChill));
                         }
                         else
                         {
                             ground.Chilled.Remove(monster);
-                            EndGlacialCageGroundChill(monster, owner, ground.ChillSource, at);
+                            EndGlacialCageAuraChill(monster, owner, ground.ChillSource, at);
                         }
                     }
                     if (ground.Dps <= 0) continue;

@@ -301,6 +301,7 @@ public static partial class Game
                     player.ElementalAilments.RemoveOrProtectChillFreeze(now, 0);
                     player.ElementalAilments.RemoveOrProtectIgnite(now, 0);
                     player.ElementalAilments.RemoveOrProtectShock(now, 0);
+                    RemovePlayerAlternateElementalAilments(player, now);
                 }
                 ApplyCurseTargetsLocked(player, skill, currentGem, CurseCatalog.All[effect], aim, target, now, playerStats,
                     cascadeFrom: player.Walk.Position(now), extraAreas: CastingBeidatSpell(player, skill)?.ExtraAreas ?? 0);

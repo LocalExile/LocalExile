@@ -5025,7 +5025,7 @@ public static partial class Game
 
     static PlayerRecoveryIntent? CommitPlayerHitRecoveryLocked(Player player, int damage, double now, uint attacker)
     {
-        if (damage <= 0) return null;
+        if (damage <= 0 || KiaraImmunityAt(player, now)) return null;
         var stats = CharacterPlayerStats(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
         void Trace(string reason)
