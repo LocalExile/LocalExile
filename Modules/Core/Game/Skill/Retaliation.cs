@@ -68,6 +68,52 @@ public static partial class Game
         return Math.Max(0, milliseconds) * Math.Max(0, 100d + increased) / 100000d;
     }
 
+    static bool IsSwordstorm(string? effect) => effect == "Swordstorm";
+
+    static void ScheduleSwordstormLocked(Player player,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, SupportedGem source,
+        SkillCatalog.Unarmed weapon, SkillCriticalRoll critical, (int X, int Y) aim, ushort sequence,
+        double now, int radius, double damageMore, double ruthless)
+    {
+        int hits = Math.Clamp(source.Stats.GetValueOrDefault(Stat.SwordstormNumHits), 0, byte.MaxValue);
+        if (hits == 0 || radius <= 0) return;
+        var origin = player.Walk.Position(now);
+        var direction = aim == origin
+            ? (Math.Sin(player.Layout.SpawnRotation), -Math.Cos(player.Layout.SpawnRotation))
+            : GroundSlamWave.Direction(origin, aim);
+        // RetaliationWeaponStorm (0x141c13e50) fixes the centre one attack reach forward.
+        var stats = CharacterPlayerStats(player);
+        long offset = Math.Max(0, (long)MeleeSkillReach(player, weapon, gem.Effect, source.Stats)
+            + stats.GetValueOrDefault(Stat.AttackMaximumActionDistancePlus)
+            + source.Stats.GetValueOrDefault(Stat.AttackMaximumActionDistancePlus));
+        var centre = (origin.X + (int)Math.Floor(direction.Item1 * offset + .5),
+            origin.Y + (int)Math.Floor(direction.Item2 * offset + .5));
+        var attack = CaptureAreaAttack(player, gem.Id, source, AttackHand.Both, weapon, null,
+            damageMore, damageMore, "swordstorm");
+        var session = ProjectilesFor(player);
+        int action = player.ActionCount, interruption = player.ActionInterruptionGeneration;
+        bool Current() => PlayerStateAllowsAction(player) && player.ActionCount == action
+            && player.ActionInterruptionGeneration == interruption
+            && SameTriggerSource(source, SupportedSkill(player, gem.Id)) && WeaponRestricted(player, gem.Effect) is null;
+        long start = session.Runtime.Now;
+        // The primary release starts a .2-second countdown, then the native tick consumes one of the hits each .15 s.
+        Schedule(0);
+
+        void Schedule(int index) => session.ScheduleContact(start + ProjectileRuntime.Time(.2 + .15 * index), Current, () =>
+        {
+            var task = AreaSkillHitStrike(player, gem.Id, gem, origin, centre, immediate: true, sequence,
+                actionToken: null, cooldownUse: null, melee: true, damageMore: 1, excludeMonster: 0,
+                criticalRoll: critical, channelGeneration: null, targetId: 0, repeat: 0, radiusOverride: radius,
+                once: null, repeatDelay: 0, radiusMore: 1, sacrifice: null, swingAt: null, triggeredCurrent: Current,
+                discharge: null, strikeIndex: 0, firstContactAt: null, ruthlessMore: ruthless, priorTargets: null,
+                scaledBlastChaos: 0, singleStrikeTarget: null, onHit: null, scheduledSession: session, cryExerted: false,
+                prepaidRawExtra: 0, baseChaos: 0, hammer: null, retainedAttack: attack, allowMeleeSplash: false);
+            if (!task.IsCompleted) throw new InvalidOperationException("Scheduled Swordstorm contact must not yield.");
+            task.GetAwaiter().GetResult();
+            if (index + 1 < hits) Schedule(index + 1);
+        });
+    }
+
     public sealed partial class ProjectileSession
     {
         // RetaliationHolySpell (3.29.3c) starts the waves eight cells from the aim, then spreads each over

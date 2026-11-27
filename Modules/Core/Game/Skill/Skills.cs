@@ -1319,6 +1319,13 @@ public static partial class Game
         bool Fits((Item Item, ItemCatalog.BaseType? Type)? hand, int? emptyClass) =>
             WeaponIdentity.Allows(allowed, hand?.Type?.ClassRow ?? emptyClass,
                 hand is { } held && WeaponIdentity.AllOneHandMelee(held.Item, ItemsFor(player).Mods));
+        if (IsSwordstorm(skills.EffectId(effect)))
+        {
+            var main = ActiveMainHand(player);
+            var off = ActiveOffHand(player);
+            return WeaponIn(player, main) is { Melee: true } && WeaponIn(player, off) is { Melee: true }
+                && Fits(main, null) && Fits(off, null) ? null : "Swordstorm requires dual wielding melee weapons";
+        }
         if (Fits(ActiveMainHand(player), UnarmedClassRow))
         {
             // An empty main hand fits Doryani's Touch only if the off hand also holds no weapon.

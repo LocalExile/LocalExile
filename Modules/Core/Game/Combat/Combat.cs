@@ -3083,6 +3083,7 @@ public static partial class Game
         ushort? areaAction = SkillsFor(player).ActionHash(gem.Effect);
         var effectId = SkillsFor(player).EffectId(gem.Effect);
         bool bladestorm = !spell && IsBladestorm(effectId);
+        bool swordstorm = !spell && IsSwordstorm(effectId);
         double? stormPeriod = bladestorm && retainedAttack is null
             ? strikeSeconds ?? SupportedAttackSeconds(player, skillId, hand) : null;
         bool ownSlam = !spell && (triggeredCurrent is null || IsLeapSlam(player, gem.Effect)
@@ -3166,7 +3167,7 @@ public static partial class Game
         // around the caster.
         var centre = shieldWaves is { } shieldArea ? shieldArea.Origin
             : katabasisStrike || contactTargets is not null || infernalBlast is not null
-                || IsSmite(gem.Effect) && singleStrikeTarget is null ? to
+                || swordstorm && retainedAttack is not null || IsSmite(gem.Effect) && singleStrikeTarget is null ? to
             : wave || vaalSlam || bladestorm || effectId == "VaalSweep" ? from
             : spell ? SpellCentre(player, gem.Effect, from, to)
             : MeleeAreaCentre.Of(SkillsFor(player).ActionHash(gem.Effect), from, to, radius + MeleeSkillReach(player, weapon, gem.Effect, skillStats));
@@ -3288,6 +3289,11 @@ public static partial class Game
             if (stormPeriod is double interval && strikeIndex == 0)
                 CreateBladestormLocked(player, gem, admittedGem, hand, weapon, offCritical, from, to, interval,
                     sequence, now, radiusMore, damageMore, ruthless, repeat, cryExerted);
+            if (swordstorm && retainedAttack is null)
+            {
+                ScheduleSwordstormLocked(player, gem, admittedGem, weapon, criticalRoll, to, sequence, now, radius, damageMore, ruthless);
+                return;
+            }
             if (retainedAttack is null && strikeIndex == 0 && areaAction == HolyHammersAction)
             {
                 ScheduleHolyHammersLocked(player, gem, admittedGem, from, to, sequence, repeat, hand, weapon, offCritical,
