@@ -190,7 +190,6 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.ObjectUse.Add(module.Manifest.Id, MapStrongboxes.Use);
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => MapStrongboxes.Tick(player)));
         GameEvents.ChestsOpened.Add(module.Manifest.Id, MapStrongboxes.OpenNear);
-        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapStrongboxes.CurseStats);
         GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemOnObjectId).Add(module.Manifest.Id, MapStrongboxes.UseItemOn);
         GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemTypeOnObjectId).Add(module.Manifest.Id, MapStrongboxes.UseItemTypeOn);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => { MapStrongboxes.Leave(player); return Task.CompletedTask; });
@@ -232,7 +231,6 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(MapHarbinger.Tick));
         GameEvents.Kill.Add(module.Manifest.Id, MapHarbinger.Kill);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapHarbinger.Leave(conn); return Task.CompletedTask; });
-        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapHarbinger.PlayerStats);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapHarbinger.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapBeyond.Opening);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, MapBeyond.Enter);
