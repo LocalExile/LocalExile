@@ -131,6 +131,8 @@ public static class AuraCatalog
     public static string Family(string effectId) => effectId switch
     {
         "GraceHardMode" => "Grace", "DeterminationHardMode" => "Determination",
+        "PrecisionRoyale" => "Precision", "VitalityRoyale" => "Vitality", "ClarityRoyale" => "Clarity",
+        "BloodAndSandRoyale" => StanceCatalog.BloodAndSand,
         "AspectOfTheCat" => "CatAspect", _ => effectId,
     };
 
@@ -218,13 +220,16 @@ public static class AuraCatalog
     {
         if (inTown) return [];
         var gems = available.Where(a => Supported(a.EffectId)).GroupBy(RestoreFamily)
-            .ToDictionary(g => g.Key, g => g.First());
+            .ToDictionary(g => g.Key, g => g.ToArray());
         var restored = new List<Aura>();
-        foreach (string effect in saved.Select(RestoreFamily).Distinct())
-            if (gems.TryGetValue(effect, out var aura))
-                if ((!IsAspect(aura.EffectId) || !restored.Any(a => IsAspect(a.EffectId)))
-                    && RequiredMana(pools, restored.Append(aura)) <= pools.Mana
-                    && RequiredLife(pools, restored.Append(aura)) < pools.Life) restored.Add(aura);
+        foreach (string effect in saved.DistinctBy(RestoreFamily))
+        {
+            if (!gems.TryGetValue(RestoreFamily(effect), out var candidates)) continue;
+            var aura = candidates.FirstOrDefault(a => a.EffectId == effect) ?? candidates[0];
+            if ((!IsAspect(aura.EffectId) || !restored.Any(a => IsAspect(a.EffectId)))
+                && RequiredMana(pools, restored.Append(aura)) <= pools.Mana
+                && RequiredLife(pools, restored.Append(aura)) < pools.Life) restored.Add(aura);
+        }
         return restored;
     }
 
@@ -409,7 +414,7 @@ public static class AuraCatalog
                     groupCommanderSpeed = Math.Max(groupCommanderSpeed, CommanderSpeed(aura, auraEffectPct));
                     commanderDamage = Math.Max(commanderDamage, aura.CommanderDamagePct);
                 }
-                switch (aura.EffectId)
+                switch (Family(aura.EffectId))
                 {
                     case "AvianMightShared":
                         Add(Stat.ChanceToDealDoubleDamagePct); Add(Stat.MinionChanceToDealDoubleDamagePct);

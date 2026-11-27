@@ -2165,6 +2165,7 @@ public static partial class Game
             || EternalBlessingDisables(player, skillId) || OwnAuraSkillRestricted(player, effect, skillId)
             || CastingSpell(player, effect) && SpellsDisabled(player)) return false;
         var supported = SupportedSkill(player, skillId);
+        string family = AuraCatalog.Family(effectId);
         if (effectId == "TemporalRift" && player.Auras.ContainsKey(skillId))
         {
             var packets = RecallTemporalRiftLocked(player);
@@ -2174,7 +2175,7 @@ public static partial class Game
         }
         else if (player.Auras.Remove(skillId, out var old))
         { ended = old; EndReservationRuntimeLocked(player, old); }
-        else if (player.Auras.Values.FirstOrDefault(a => a.EffectId == effectId) is { } same
+        else if (player.Auras.Values.FirstOrDefault(a => AuraCatalog.Family(a.EffectId) == family) is { } same
             && !(IsBlessingSkill(supported) && IsBlessingAura(same))
             && !(supported.Stats.GetValueOrDefault(Stat.SkillAuraAlsoDisablesNonBlessingManaReservationSkills) != 0
                 && AuraSupport(player, skillId).AffectsSelf && OrdinaryManaAura(same)))

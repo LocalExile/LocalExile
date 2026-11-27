@@ -285,7 +285,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Watcher's Eye modifiers for Pride combat, elemental and critical penetration, Grace blind, Haste debuff expiry,
   and Clarity mana recovery apply while the matching aura is active. The legacy Zealotry modifiers apply to
   owned Consecrated Ground and grant Arcane Surge when creating it.
-- Flesh and Stone and Blood and Sand. Docs: [11](../docs/protocol/11-skills.md) Â§12.
+- Flesh and Stone and Blood and Sand. Royale Precision, Vitality, Clarity and Blood and Sand use their own gem values. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Passive-granted skills and Summon Elemental Relic.
   Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md).
 - Equipment-granted Bear Trap, Wintertide Brand, Decoy Totem, Smite, Frostblink, Summon Stone Golem, Convocation,
