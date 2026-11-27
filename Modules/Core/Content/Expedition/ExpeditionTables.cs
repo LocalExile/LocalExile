@@ -161,9 +161,8 @@ public static class ExpeditionTables
     public static IReadOnlyList<RelicMod> RelicModPool { get; private set; } = [];
 
     /// <summary>
-    /// A remnant's modifiers: one from category 0 and one from the whole pool [capture: all 13 remnant creates carry
-    /// exactly two explicit mods, and each pair has at least one category-0 mod; the other is category 2 five times, 1
-    /// five times, 0 twice and 3 once]. [estimate] the pool is drawn uniformly.
+    /// A remnant's modifiers: one prefix and one suffix before scarab additions, without duplicate modifier families.
+    /// Selection is uniform within each eligible generation pool; these weights remain server calibration.
     /// </summary>
     public static IReadOnlyList<RelicMod> RollRelicMods(Random rng) => RollRelicMods(rng, 0, 0);
 
