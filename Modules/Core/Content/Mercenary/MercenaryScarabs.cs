@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 
@@ -16,11 +17,64 @@ public sealed partial class MercenaryModule
         public List<MercenaryEquipment.Worn> Equipment { get; set; } = [];
     }
 
+    /// <summary>Mercenary blueprint encoded onto a <c>MercenaryWarrant</c> rematch item.</summary>
+    public sealed record WarrantBlueprint(int ClassRow, int BuildRow, byte Level, uint FirstNameHash32, uint SecondNameHash32,
+        ushort FlavourHash16, List<MercenaryTables.RolledSkill> Skills);
+
+    static readonly ConcurrentDictionary<string, WarrantBlueprint> PendingWarrants = new(StringComparer.OrdinalIgnoreCase);
+
+    static bool AcceptsMapDeviceItem(Player? player, uint typeHash, string itemClass) =>
+        MercenaryTables.WarrantTypeHash != 0 && typeHash == MercenaryTables.WarrantTypeHash;
+
+    static Item? CreateWarrantItem(Run run, MercenaryTables.Build build)
+    {
+        if (Program.Items.Find("Metadata/Items/MapFragments/MercenaryWarrant") is not { Supported: true } bt)
+            return null;
+        string note = $"merc:{run.Class}:{run.Build}:{run.Level}:{run.FirstNameHash32:x}:{run.SecondNameHash32:x}:{run.FlavourHash16:x}";
+        return ItemCatalog.Create(bt) with
+        {
+            ItemLevel = run.Level,
+            Identified = true,
+            CustomName = $"{build.Name} (Lv {run.Level})",
+            Note = note,
+        };
+    }
+
+    static WarrantBlueprint? TryParseWarrant(Item item)
+    {
+        if (item.TypeHash != MercenaryTables.WarrantTypeHash || string.IsNullOrEmpty(item.Note)) return null;
+        var parts = item.Note.Split(':');
+        if (parts.Length < 7 || parts[0] != "merc") return null;
+        if (!int.TryParse(parts[1], out int cls) || !int.TryParse(parts[2], out int bld)
+            || !byte.TryParse(parts[3], out byte lvl)
+            || !uint.TryParse(parts[4], System.Globalization.NumberStyles.HexNumber, null, out uint w1)
+            || !uint.TryParse(parts[5], System.Globalization.NumberStyles.HexNumber, null, out uint w2)
+            || !ushort.TryParse(parts[6], System.Globalization.NumberStyles.HexNumber, null, out ushort flv))
+            return null;
+        var skills = MercenaryTables.BuildOf(bld) is { } build
+            ? MercenaryTables.RollSkills(build, lvl, new Random(unchecked((int)(w1 ^ w2 ^ flv))))
+            : [];
+        return new WarrantBlueprint(cls, bld, lvl, w1, w2, flv, skills);
+    }
+
+    static WarrantBlueprint? ConsumePendingWarrant(Player player) =>
+        PendingWarrants.TryRemove(CharacterName(player), out var bp) ? bp : null;
+
     public static void Opening(MapOpening request)
     {
         if (!request.Campaign && request.Opening is { } opening && MapDevices.IsMapArea(opening.Area.Hash16)
             && MercenaryTables.EncounterRulesRow is not null && MercenaryTables.Eligible().Count > 0 && MercenaryTables.Eligible(true).Count > 0)
+        {
             request.HandledContent.Add("Mercenaries");
+            foreach (var item in ItemsOf(request.Player).Items(PlayerInventories.MapDevice))
+            {
+                if (TryParseWarrant(item.Item) is { } bp)
+                {
+                    PendingWarrants[CharacterName(request.Player)] = bp;
+                    break;
+                }
+            }
+        }
     }
 
     async Task PlaceWilds(Player player, Run run, AreaPopulated area, IReadOnlyDictionary<uint, int> stats, Random rng)
@@ -47,11 +101,13 @@ public sealed partial class MercenaryModule
             var equipment = MercenaryEquipment.Roll(pick.Kind, pick.Build, area.Level, rng,
                 stats.GetValueOrDefault(Stat.MapMercenaryAllUniqueItems) > 0, UniquesFor(player));
             var fallback = MercenaryGear.Of(pick.Kind, pick.Build, area.Level, new Random(unchecked(area.Seed * 397 ^ pick.Build.Row)));
+            var wildIdentity = MercenaryTables.RollIdentity(pick.Build, area.Level, rng);
+            string wildName = MercenaryTables.FormatName(wildIdentity.FirstNameHash32, wildIdentity.SecondNameHash32) ?? pick.Build.Name;
             uint id = await SpawnMonster(player, variety, area.Level, MonsterRarity.Unique, at.X, at.Y, instanceOwned: true,
                 ownedLooks: MercenaryEquipment.Looks(equipment, fallback), extraMods: MercenaryEquipment.Effects(equipment, difficulty),
                 ownedKit: KitOf(player, variety, pick.Build, area.Level, area.Seed), shape: o => o with
                 {
-                    MercenaryBuild = pick.Build.Hash16, StateMachine = States(variety, MercenaryWire.DuelStates), HasDialogue = false, NpcFlags = 0,
+                    Name = wildName, MercenaryBuild = pick.Build.Hash16, StateMachine = States(variety, MercenaryWire.DuelStates), HasDialogue = false, NpcFlags = 0,
                 });
             if (id == 0) continue;
             lock (run) run.Wilds.Add(new Wild { Body = id, Class = pick.Kind.Row, Build = pick.Build.Row, X = at.X, Y = at.Y, Equipment = equipment });
@@ -62,7 +118,6 @@ public sealed partial class MercenaryModule
     void RebindWilds(Player player, Run run)
     {
         var used = run.Wilds.Where(w => player.Area.Monsters.ContainsKey(w.Body)).Select(w => w.Body).ToHashSet();
-        // Rebind the duel opponent first so a wild mercenary of the same class cannot claim its restored id.
         if (run.Stage == Stage.Duel && !player.Area.Monsters.ContainsKey(run.Body)
             && MercenaryTables.ClassOf(run.Class) is { } duelClass && MercenaryTables.BuildOf(run.Build) is { } duelBuild)
         {
@@ -102,7 +157,6 @@ public sealed partial class MercenaryModule
         if (!GameEvents.AllowsLoot(player) || Environment.GetEnvironmentVariable("Game_DROPS") == "0" || wild.Equipment.Count == 0) return;
         var stats = AreaLeagueStats(player);
         var rng = AreaRng(player);
-        // The live item selection weights are not published; equipment is sampled uniformly without replacement.
         var pool = wild.Equipment.ToList();
         int count = rng.Next(100) < stats.GetValueOrDefault(Stat.MapMercenaryDropAllItemsChancePct) ? pool.Count
             : Math.Min(pool.Count, 1 + Math.Max(0, stats.GetValueOrDefault(Stat.MapMercenaryDropAdditionalItems)));
@@ -111,7 +165,6 @@ public sealed partial class MercenaryModule
         {
             int at = rng.Next(pool.Count); won.Add(pool[at].Item with { Identified = false }); pool.RemoveAt(at);
         }
-        // These varieties suppress generic item rolls; the encounter pays the carried equipment itself.
         kill.Later(async () =>
         {
             foreach (var item in won)
