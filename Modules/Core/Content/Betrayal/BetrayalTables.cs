@@ -14,7 +14,10 @@ public static class BetrayalTables
 
     /// <summary>A Syndicate member who leads a mission: the BetrayalTargets row (the board and the MakeChoice name it by
     /// row), its Id, its division (BetrayalJobsKey) and its monster (MonsterVarietiesKey).</summary>
-    public sealed record Member(int Row, string Id, Job Job, ushort Variety);
+    public sealed record Member(int Row, string Id, Job Job, ushort Variety)
+    {
+        public int Rank { get; init; }
+    }
 
     static int leagueRow = -1;
     static byte? assassinationRules;
@@ -40,7 +43,7 @@ public static class BetrayalTables
         members = [.. ClientTables.TableOrEmpty("BetrayalTargets")
             .Where(r => r.IntOrNull("BetrayalJobsKey") is (int)Job.Transportation or (int)Job.Intervention
                 && r.IntOrNull("MonsterVarietiesKey") is >= 0 and <= ushort.MaxValue)
-            .Select(r => new Member(r.Index, r.TextOrNull("Id") ?? "", (Job)r.Int("BetrayalJobsKey"), (ushort)r.Int("MonsterVarietiesKey")))];
+            .Select(r => new Member(r.Index, r.TextOrNull("Id") ?? "", (Job)r.Int("BetrayalJobsKey"), (ushort)r.Int("MonsterVarietiesKey")) { Rank = r.IntOrNull("BetrayalRanksKey") ?? 0 })];
     }
 
     /// <summary>The row of <paramref name="table"/> whose Id is <paramref name="id"/>, or −1.</summary>
