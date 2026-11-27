@@ -88,6 +88,22 @@ public static partial class Game
         if (state.Active.Remove(id, out var held)) player.Area.Buffs.Clear(player.Id, held.Row, player.Id, tag: id);
     }
 
+    static bool ClearCooldownTriggersLocked(Player player, IReadOnlyCollection<ushort>? onlyIds = null)
+    {
+        if (!CooldownTriggers.TryGetValue(player, out var state) || state.Active.Count == 0) return false;
+        ushort[] targets = onlyIds is null
+            ? [.. state.Active.Keys]
+            : [.. state.Active.Keys.Where(onlyIds.Contains)];
+        if (targets.Length == 0) return false;
+        foreach (ushort id in targets) EndCooldownTrigger(player, state, id);
+        if (state.Active.Count == 0) { state.Mana = 0; state.Life = 0; }
+        else (_, state.Mana, state.Life) = ReadCooldownTriggers(player, state);
+        ClampReservedResources(player);
+        player.AuraStatsDirty = true;
+        player.Frames.Area?.Life.Changed(player);
+        return true;
+    }
+
     static void PresentCooldownTriggersLocked(Player player)
     {
         if (!CooldownTriggers.TryGetValue(player, out var state) || state.Active.Count == 0) return;
@@ -165,7 +181,7 @@ public static partial class Game
         if (!CarriedCooldownTriggers.TryGetValue(player.Ticket, out var carry)
             || carry.Character != CharacterName(player)
             || !CarriedCooldownTriggers.TryRemove(new KeyValuePair<uint, CooldownTriggerTransfer>(player.Ticket, carry))) return;
-        if (player.PlayerLife == 0 || DateTime.UtcNow - carry.At > TimeSpan.FromMinutes(5)) return;
+        if (player.PlayerLife == 0 || InTown(player) || DateTime.UtcNow - carry.At > TimeSpan.FromMinutes(5)) return;
         var sources = PlayerSkillSourcesLocked(player);
         var state = CooldownTriggers.GetValue(player, static _ => new());
         foreach (var saved in carry.Active)
@@ -351,7 +367,13 @@ public static partial class Game
                 out var ticket, null, true, null, skillId, Current, triggered: true)
             || ticket?.TryExecute(player, gem.Effect) != true) return;
         int supportCooldownMs = SkillsFor(player).CooldownMs(support.Gem.Effect, support.Gem.Level);
-        if (supportCooldownMs > 0) state.NextTriggerAt[id] = now + supportCooldownMs / 1000.0;
+        if (supportCooldownMs > 0)
+        {
+            var stats = CharacterPlayerStats(player);
+            double recovery = Math.Max(0.01, 1 + ((long)stats.GetValueOrDefault(Stat.BaseCooldownSpeedPlusPct)
+                + gem.Stats.GetValueOrDefault(Stat.BaseCooldownSpeedPlusPct)) / 100.0);
+            state.NextTriggerAt[id] = now + (supportCooldownMs / 1000.0) / recovery;
+        }
         ticket.CommitNativeUse(player, skillId);
         release();
         if (!guard)

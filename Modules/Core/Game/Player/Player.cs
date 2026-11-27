@@ -204,16 +204,17 @@ public static partial class Game
         CharacterSaves.SetPetrifiedBlood(CharacterName(player), false);
         ended = [.. player.Auras.Values];
         petrifiedEnded = player.PetrifiedBlood.Active || player.Area.Buffs.Has(player.Id, PetrifiedBlood.BuffRow, player.Id);
+        bool triggersEnded = ClearCooldownTriggersLocked(player);
         player.Auras.Clear();
         ReconcileStanceSelectionLocked(player, persist: true);
         player.PetrifiedBlood.Clear();
         player.LeechDisplay.Clear();
         player.Lifetap.Clear();
-        player.AuraStatsDirty = ended.Count > 0 || petrifiedEnded || player.AuraStatsDirty;
+        player.AuraStatsDirty = ended.Count > 0 || petrifiedEnded || triggersEnded || player.AuraStatsDirty;
         player.Pools = PoolsFor(player, player.Pools.Level);
         player.ApplyMovementSpeed();
         await SendOwnAuraChanges(player);
-        if (ended.Count > 0 || petrifiedEnded)
+        if (ended.Count > 0 || petrifiedEnded || triggersEnded)
         {
             await SendCharacterStats(player, PlayerStatChange.Auras);
             await SendPlayerMana(player, "aura reservation cleared on death");

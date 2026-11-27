@@ -1919,6 +1919,7 @@ public static partial class Game
             player.PetrifiedBlood.Suspend();
             CharacterSaves.SetPetrifiedBlood(CharacterName(player), false);
         }
+        ClearCooldownTriggersLocked(player, gone);
         double now = AreaTime(player);
         foreach (var fighter in player.Summons.Fighters.Values.Where(g => gone.Contains(g.Source)).ToArray())
             RemoveSummonLocked(player, fighter, now);

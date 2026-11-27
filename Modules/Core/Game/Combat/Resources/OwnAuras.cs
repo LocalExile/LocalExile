@@ -442,6 +442,7 @@ public static partial class Game
             foreach (var aura in gone) { player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura); }
             if (gone.Length > 0) player.AuraStatsDirty = true;
         }
+        if (InTown(player)) ClearCooldownTriggersLocked(player);
         if (player.AuraStatsDirty)
         {
             player.Pools = PoolsFor(player, player.Pools.Level);
