@@ -135,7 +135,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Rogue Harbour: NPCs and stashes at the room's cells; Heist screens open (0x34, 0x35, 0x36), no contract start yet.
 - Tier 17 Marked for Death follows rare/unique kills; monster impales detonate on the fifth stack (checked offline).
 - Rogue Harbour: PlanningNPCs, 0x27c/0x164, 0x279/0x27d–0x27f planning ([21](../docs/protocol/21-hideouts.md)).
-- Map Delirium Mirror: ruleset 0x66 fog/rewards and 0x260 skip button ([21](../docs/protocol/21-hideouts.md)).
+- Map Delirium Mirror: native fog and rewards, with Atlas and area rules governing fog progression.
 - Nightmare maps apply their levelled hexes while the player is in the map.
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
   The Tier 17 block, suppression, monster Energy Shield and recipient curse modifiers are checked offline.
@@ -219,7 +219,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   combat damage break-out via a non-lethal life floor (hits, DoTs/Contagion, minions, totems, brands, traps, mines,
   culling), release wave, seamless wake, post-battle fade-out and war chests with floating 3D reward symbols opening at
   release. Rewards (level-gated symbols, icons, rolled drops, splinters, Ruthless scaling) are built, not checked in the
-  client yet. The Domain, scarabs and Atlas are not built. Docs: [Legion](../docs/game/legion.md).
+  client yet.
+- Legion Atlas rules can change the battle's general count. See [Legion](../docs/game/legion.md).
 
 - Blight: pump, lanes, enemies, foundations; only 17 of 30 towers act (HUD and chests pending).
 
@@ -231,7 +232,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Starting a wave destroys every item on the ground, as the client warns.
   Its arenas use their encounter rules independently of the owner's Atlas preset.
   Scheduled bosses spawn before a scaled wave can award its rewards.
-- Simulacrum's flask drain and map hit effects work offline. See [map hits](../docs/game/maps.md#monster-hit-modifiers).
+- Simulacrum waves apply their rolled hit and defence modifiers. See [map hits](../docs/game/maps.md#monster-hit-modifiers).
 
 - **Waypoint arrival.** Hideout entry uses the exact saved waypoint cell for spawn and movement origin,
   including login and returns from other areas.

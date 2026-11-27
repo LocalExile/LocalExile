@@ -1445,7 +1445,8 @@ public static partial class Game
             var vis = state.MonsterVisuals.TryGetValue(id, out var existing) ? existing : state.MonsterVisuals[id] = new();
             double step = vis.WintertideLastAt > 0 ? Math.Clamp(now - vis.WintertideLastAt, 0, 0.5) : dt;
             vis.WintertideLastAt = now;
-            double total = vis.WintertideCarry + totalDps * step * MonsterDotTaken(m, DamageType.Cold, now);
+            double total = vis.WintertideCarry + totalDps * step
+                * MonsterDotTakenOver(m, DamageType.Cold, now - step, now, now);
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(total));
             vis.WintertideCarry = total - damage;
             if (damage <= 0 || ApplyMonsterHitLocked(player, m, damage, allyAt: m.Walk.Position(now)) is not { } hit) continue;

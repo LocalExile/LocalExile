@@ -418,7 +418,10 @@ public static partial class Game
     /// damage, impale, flinch or hit message. The skill's "reduced Enemy Block Chance" (Block Chance Reduction) applies
     /// to both attack and spell block, and a blocked supported hit applies Overpowered.</summary>
     public static bool MonsterBlocks(SpawnedMonster m, Random random, bool spell, double now = 0,
-        IReadOnlyDictionary<uint, int>? skill = null, IReadOnlyDictionary<uint, int>? attacker = null)
+        IReadOnlyDictionary<uint, int>? skill = null) => MonsterBlocks(m, random, spell, now, skill, attacker: null);
+
+    static bool MonsterBlocks(SpawnedMonster m, Random random, bool spell, double now,
+        IReadOnlyDictionary<uint, int>? skill, IReadOnlyDictionary<uint, int>? attacker)
     {
         int baseChance = spell ? m.Effects.SpellBlockChance : m.Effects.BlockChance;
         if (baseChance <= 0) return false;
@@ -504,14 +507,23 @@ public static partial class Game
     /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time), less <see cref="MonsterDotTaken"/>.</summary>
     public static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds,
         double now = double.NaN) =>
-        (burn with { DamagePerSecond = burn.DamagePerSecond * MonsterDotTaken(m, burn.Type, now) }).Tick(seconds, m.Burn);
+        (burn with { DamagePerSecond = burn.DamagePerSecond * MonsterDotTakenOver(m, burn.Type, now - seconds, now, now) })
+            .Tick(seconds, m.Burn);
+
+    static double MonsterDotTakenOver(SpawnedMonster monster, DamageType type, double from, double until, double sample) =>
+        from < until && MaimDotTaken.TryGetValue(monster, out var maim)
+            ? maim.Average(from, until, taken => MonsterDotTaken(monster, type, sample, taken))
+            : MonsterDotTaken(monster, type, sample);
 
     /// <summary>The share of damage over time of this type a monster takes (Righteous Fire's burn, ignites): less its
     /// resistance (its type's base and its mods', as for hits, without penetration) and with its damage taken
     /// (<see cref="MonsterDamageTaken"/>: its shock and Glacial Wave's chill at <paramref name="now"/>, without a time
     /// they do not count, and the player's debuffs on it). Spell Resistant counts for hits only: its stat has no
     /// description saying it covers damage over time.</summary>
-    public static double MonsterDotTaken(SpawnedMonster m, DamageType type, double now = double.NaN)
+    public static double MonsterDotTaken(SpawnedMonster m, DamageType type, double now = double.NaN) =>
+        MonsterDotTaken(m, type, now, maimTaken: null);
+
+    static double MonsterDotTaken(SpawnedMonster m, DamageType type, double now, int? maimTaken)
     {
         if (m.Effects[Stat.BaseCannotBeDamaged] > 0) return 0;
         var resistance = MonsterHitResistance(m, type, default, now);
@@ -526,7 +538,7 @@ public static partial class Game
         increasedTaken += FleshrendDamageTaken(m, now);
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
             * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type), hit: false,
-                chaos: type == DamageType.Chaos, increasedPct: increasedTaken, overTime: true);
+                chaos: type == DamageType.Chaos, increasedPct: increasedTaken, overTime: true, maimTaken: maimTaken);
         // Pride is a separate more multiplier; Flesh and Stone's Blood Stance affects hits only.
         if (type == DamageType.Physical)
             factor *= 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;
@@ -580,38 +592,39 @@ public static partial class Game
             return;
         }
         double perSecond = m.Effects.LifeRegenPerSecond(m.MaxLife);
-        if (onHitPct != 0 && seconds > 0)
-        {
-            double recently = Math.Max(0, Math.Min(now, m.PlayerHitAt + RecentlySeconds) - Math.Max(now - seconds, m.PlayerHitAt));
-            perSecond *= 1 - recently / seconds * (1 - Math.Max(0, 1 + onHitPct / 100.0));
-        }
-        if (perSecond > 0 && seconds > 0)
+        double recovery = 0, periodicRecovery = 0;
+        if (seconds > 0 && (perSecond > 0 || periodic > 0))
         {
             double from = now - seconds;
-            if (hinder is not null)
-                perSecond *= hinder.ReducedTime(from, now, static (first, last) => last - first) / seconds;
-            perSecond *= FrostBombRegenerationFactor(m, from, now);
-        }
-        double periodicRecovery = 0;
-        if (m.PeriodicLifeRegenStarted is double start && seconds > 0)
-        {
-            double from = now - seconds;
-            double Window(double first, double last) => last > first
-                ? PeriodicRegenSeconds(last - start) - PeriodicRegenSeconds(first - start) : 0;
-            double AfterRecentHit(double first, double last) => Window(first, last)
-                + Window(Math.Max(first, m.PlayerHitAt), Math.Min(last, m.PlayerHitAt + RecentlySeconds))
-                    * (Math.Max(0, 1 + onHitPct / 100d) - 1);
-            double AfterHinder(double first, double last) => hinder?.ReducedTime(first, last, AfterRecentHit)
-                ?? AfterRecentHit(first, last);
-            double active = AfterHinder(from, now);
-            if (active > 0 && FrostBombDebuffs.TryGetValue(m, out var frostBomb))
-                active -= AfterHinder(Math.Max(from, frostBomb.Started), Math.Min(now, frostBomb.Until))
-                    * Math.Clamp(-frostBomb.Regeneration / 100d, 0, 1);
-            periodicRecovery = Math.Max(0, active) * (double)m.MaxLife * periodic / 6000;
+            FrostBombDebuffs.TryGetValue(m, out var frostBomb);
+            if (frostBomb is not null && frostBomb.Until <= from)
+            {
+                FrostBombDebuffs.Remove(m);
+                frostBomb = null;
+            }
+            if (perSecond > 0)
+                recovery = perSecond * Integrate(static (first, last) => Math.Max(0, last - first));
+            if (m.PeriodicLifeRegenStarted is double start)
+                periodicRecovery = (double)m.MaxLife * periodic / 6000 * Integrate((first, last) => last > first
+                    ? PeriodicRegenSeconds(last - start) - PeriodicRegenSeconds(first - start) : 0);
+
+            double Integrate(Func<double, double, double> window)
+            {
+                double AfterRecentHit(double first, double last) => window(first, last)
+                    + window(Math.Max(first, m.PlayerHitAt), Math.Min(last, m.PlayerHitAt + RecentlySeconds))
+                        * (Math.Max(0, 1 + onHitPct / 100d) - 1);
+                double AfterHinder(double first, double last) => hinder?.ReducedTime(first, last, AfterRecentHit)
+                    ?? AfterRecentHit(first, last);
+                double elapsed = AfterHinder(from, now);
+                if (frostBomb is not null && elapsed > 0)
+                    elapsed -= AfterHinder(Math.Max(from, frostBomb.Started), Math.Min(now, frostBomb.Until))
+                        * Math.Clamp(-frostBomb.Regeneration / 100d, 0, 1);
+                return Math.Max(0, elapsed);
+            }
         }
         hinder?.ForgetEnded(now);
-        if (perSecond <= 0 && spreadRecovery <= 0 && periodicRecovery <= 0) return;
-        double total = m.Regen + Math.Max(0, perSecond) * seconds + spreadRecovery + periodicRecovery;
+        if (recovery <= 0 && spreadRecovery <= 0 && periodicRecovery <= 0) return;
+        double total = m.Regen + recovery + spreadRecovery + periodicRecovery;
         uint whole = (uint)Math.Truncate(total);
         m.Regen = total - whole;
         if (whole == 0) return;

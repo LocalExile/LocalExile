@@ -635,7 +635,7 @@ public static partial class Game
                     Console.WriteLine($"[gateway] {player.Connection.Remote} attack on 0x{targetId:x} evaded ({hitChance}% chance to hit)");
                     return true;
                 }
-                if (MonsterBlocks(m, AreaRng(player), spell: false, attacker: playerStats))
+                if (MonsterBlocks(m, AreaRng(player), spell: false, now: 0, skill: null, attacker: playerStats))
                 {
                     Console.WriteLine($"[gateway] {player.Connection.Remote} attack on 0x{targetId:x} ({m.Label}) blocked");
                     return true;
@@ -724,7 +724,7 @@ public static partial class Game
                     WithWeaponAilmentStats(ownPenetration, weapon.LocalSources, offHand: hand == AttackHand.Off),
                     at, AreaRng(player), poison: prehit.Poison,
                     blind: BlindHitInput.Capture(playerStats), attackGains: AttackAilmentGains.Capture(playerStats, attack: true),
-                    meleeAttack: weapon.Melee);
+                    projectileDamage: false, projectileFreezeChance: 0, meleeAttack: weapon.Melee);
                 nativeKnockback = TakeNativeKnockbackLocked(m);
                 if (life > 0 && prehit.Ignite.CanIgnite(ownRolled)
                     && IgniteOnHitLocked(player, targetId, m, prehit.Ignite,
@@ -1314,7 +1314,7 @@ public static partial class Game
         }
         bool Current()
         {
-            return !player.Closed && !player.LeavingArea && !player.RageRetired
+            return !player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0
                 && (cooldownUse?.Current(player) ?? (actionToken is null || PlayerActionCurrent(player, action)))
                 && (vaalUse is null || VaalAdmissionCurrent(player, vaalUse))
                 && (channelGeneration is not int generation || ChannelCurrent(player, skillId, action, generation));
@@ -1651,6 +1651,11 @@ public static partial class Game
         if (!locationInstant && gem.Name is not null && placedAdmission is null)
         {
             RecordAcceptedGemUse(player, gem.Effect, to);
+            if (player.PlayerLife == 0)
+            {
+                AbortStartedChannel(player, channelGeneration);
+                return true;
+            }
             NoteGemAttackUse(player, skillId, gem.Effect);
         }
         if (gem.Name is not null) PhaseRunOnSkillUse(player, skillId);
@@ -1803,7 +1808,22 @@ public static partial class Game
         {
             player.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
             if (activated && StatSourceValues(player).GetValueOrDefault(Stat.SelfPhysicalDamageOnMovementSkillUse) is > 0 and var physical)
+            {
+                using var mutation = ProjectileMutation(player, advance: false);
+                if (player.PlayerLife == 0) return;
                 ApplySelfHitLocked(player, DamagePacket.Of(DamageType.Physical, physical, physical), acceptedAt);
+                var session = ProjectilesFor(player);
+                if (player.PlayerLife == 0)
+                {
+                    int deathEpoch = player.IncomingHitEpoch;
+                    session.Enqueue(() => PlayerDiedAtEpoch(player, "death from movement skill self-damage", deathEpoch));
+                    return;
+                }
+                player.Frames.Area?.Life.Changed(player);
+                if (player.Frames.Area is null)
+                    session.World(player.Id, PlayerLifeUpdate(player), "life after movement skill self-damage");
+                ReleaseDamageTakenTriggers(player, session);
+            }
         }
         if (movement && IsDashEffect(SkillsFor(player).EffectId(effect)))
             player.RecentEvents.Record(StatConditions.UsedDash, acceptedAt);
@@ -1957,6 +1977,7 @@ public static partial class Game
         if (accepted)
         {
             RecordAcceptedGemUse(player, gem.Effect, to);
+            if (player.PlayerLife == 0) return;
             if (SkillsFor(player).IsTravel(gem.Effect)) { QueueFlaskTrigger(player, FlaskEnchantments.Trigger.Travel); LoyaltyTravelSkillTriggered(player); }
             await FrostblinkAreas(player, gem, from, to, cooldownUse);
             await SendNativeCooldownRefresh(player);
@@ -5217,7 +5238,7 @@ public static partial class Game
             await ShowContagionSpread(player, contagion.At, contagion.Radius, contagion.Ao);
         double now = AreaTime(player);
         int flaskChargesPct = ActorScale.Saturate((long)(tinctureKill?.FlaskChargesPct ?? 0)
-            + BleedingKillFlaskChargesPct(player, AilmentInflictedBy(m, player.Id, AilmentType.Bleed, now)));
+            + BleedingKillFlaskChargesPct(player, m.BleedSourcesAtDeath?.Contains(player.Id) == true));
         (int X, int Y) at, playerAt;
         at = m.Walk.Position(now); playerAt = player.Walk.Position(now);
         var explosionEquipment = playerKill ? CaptureKillEquipment(player, m, at, now) : default;

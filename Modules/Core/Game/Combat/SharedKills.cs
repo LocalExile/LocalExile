@@ -43,12 +43,11 @@ public static partial class Game
     {
         if (!host.Instance.World.MonsterOrigins.ContainsKey(id)) return; // a player's minion or ally
         var monster = ModMonster(m, at);
-        double now = AreaTime(host);
         foreach (var share in shares)
         {
             if (ReferenceEquals(share.Player, host)) continue;
             var other = share.Player;
-            bool inflictedBleed = AilmentInflictedBy(m, other.Id, AilmentType.Bleed, now);
+            bool inflictedBleed = m.BleedSourcesAtDeath?.Contains(other.Id) == true;
             other.KillShares.Enqueue(async _ =>
             {
                 if (HardcoreProgressBlocked(other)) return;

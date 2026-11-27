@@ -201,7 +201,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   possessed exiles (Torment) and the special and exceptional rewards' contents are guesses or missing; the active Atlas
   preset is the last one changed.
   Docs: [league encounters](../docs/game/league-encounters.md).
-- Bestiary: maps roll Einhar's mission from their master-mission stats; red and yellow beasts, captured at the kill.
+- Bestiary: maps use their mission and Bestiary Atlas rules, including Bestial Rage on spawned beasts.
 - Abyss: pit, crack arms, wave, reward chest per instance. [Docs](../docs/game/league-encounters.md)
 - Mercenaries: a map area may hold one to talk to, duel and hire.
   The duel opponent fights with the skills its build lists (MercenaryBuilds, MercenarySkills), filtered by its level.

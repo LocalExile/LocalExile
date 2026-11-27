@@ -252,8 +252,7 @@ public sealed class MonsterElementalAilments
         bool wasChilled = Magnitude(Kind.Chill, now) > 0;
         if (!CannotInflict("chill", attacker))
             Add(new(Kind.Chill, now, now + 2, Effectiveness(chilling * AsThough(Kind.Chill, attacker), threshold,
-                EffectModifier(Kind.Chill, attacker, target), ChillCap(attacker),
-                Math.Max(attacker(Stat.ChillMinimumSlowPct), attacker(Stat.ChillMinimumSlowPctFromMastery))))
+                EffectModifier(Kind.Chill, attacker, target), ChillCap(attacker), attacker(Stat.ChillMinimumSlowPct)))
             {
                 MoreTaken = attacker(Stat.EnemiesChilledByHitsTakeDamageIncreasedByChillEffect) != 0,
                 ColdTaken = coldTakenFromChill,
@@ -501,10 +500,11 @@ public sealed class MonsterElementalAilments
         if (kind == Kind.Freeze) seconds = Math.Max(seconds, attacker(Stat.FreezeMinimumDurationXMs) / 1000.0);
         effect = effect with { Until = now + seconds / expiryRate, Duration = seconds,
             Source = effect.Source != 0 ? effect.Source : Program.ActingPlayer.Value?.Id ?? 0 };
-        // A weaker one of the same sort that also ends sooner can never be the strongest again.
+        // Preserve a different owner's Chill for source-specific duration and refresh rules.
         effects.RemoveAll(e => e.Until <= now || e.Kind == kind && e.Magnitude <= effect.Magnitude && e.Until <= effect.Until
             && e.ColdTaken == effect.ColdTaken
             && (e.MoreTaken, e.LessDealt, e.Spread) == (effect.MoreTaken, effect.LessDealt, effect.Spread)
+            && (kind != Kind.Chill || e.Source == effect.Source)
             && e.AuraSource == effect.AuraSource);
         effects.Add(effect);
         Interlocked.Increment(ref anyAdded);

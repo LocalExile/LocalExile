@@ -95,7 +95,11 @@ public sealed class MonsterContagion
     /// <summary>The whole chaos damage dealt from the last advance to <paramref name="now"/> by the strongest application at
     /// each moment, multiplied by the monster's chaos mitigation <paramref name="factor"/>; the fraction carries to the next
     /// advance. Ended applications are dropped.</summary>
-    public int Advance(double now, double factor)
+    public int Advance(double now, double factor) => Advance(now, factor, null);
+
+    public int Advance(double now, Func<double, double, double> factor) => Advance(now, 0, factor);
+
+    int Advance(double now, double factor, Func<double, double, double>? factorBetween)
     {
         ended.Clear();
         if (instances.Count == 0 || !(now > last)) return 0;
@@ -110,7 +114,7 @@ public sealed class MonsterContagion
                 if (i.Start > t) next = Math.Min(next, i.Start);
             }
             if (Strongest(instances, t) is { } strongest)
-                damage += strongest.Cast.DamagePerSecond * (next - t) * Math.Max(0, factor);
+                damage += strongest.Cast.DamagePerSecond * (next - t) * Math.Max(0, factorBetween?.Invoke(t, next) ?? factor);
             t = next;
         }
         previous = last;

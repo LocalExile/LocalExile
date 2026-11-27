@@ -172,6 +172,8 @@ public sealed class MonsterIgnites
     double last, carry;
     int accrued;
 
+    public double AccruedThrough => last;
+
     /// <summary>Settle damage before an effect changes, retaining it for the normal damage-commit tick.</summary>
     public void Accrue(double until, double factor, double aggravatedExtra = 0) =>
         accrued = Advance(until, factor, aggravatedExtra);

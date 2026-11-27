@@ -1101,7 +1101,8 @@ public static partial class Game
             if (!immune && hit.Value.Life > 0 && shot.Ignite.CanIgnite(rolled))
                 IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at,
                     playerIgnite: shot.ActualCaster is null,
-                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell));
+                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell),
+                    ownIgnite: ownHit);
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0)
                 BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at,
                     BleedReflected(shot.ActualCaster is null ? player : CharacterPlayerStats(Player)), playerAilmentOwned);

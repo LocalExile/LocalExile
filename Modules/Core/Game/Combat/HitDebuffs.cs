@@ -76,6 +76,26 @@ public static partial class Game
             return total;
         }
 
+        public IEnumerable<double> Boundaries(double from, double until)
+        {
+            foreach (var effect in effects)
+            {
+                if (effect.From > from && effect.From < until) yield return effect.From;
+                if (effect.Until > from && effect.Until < until) yield return effect.Until;
+            }
+        }
+
+        public double Average(double from, double until, Func<int, double> factor)
+        {
+            double total = 0, first = from;
+            foreach (double last in Boundaries(from, until).Append(until).Distinct().Order())
+            {
+                total += (last - first) * factor(Strongest(first + (last - first) / 2));
+                first = last;
+            }
+            return total / (until - from);
+        }
+
         public void ForgetEnded(double now) => effects.RemoveAll(effect => effect.Until <= now);
     }
 
@@ -196,7 +216,6 @@ public static partial class Game
         if (dotTaken > 0)
         {
             var modifiers = MaimDotTaken.GetOrCreateValue(m);
-            modifiers.ForgetEnded(now);
             modifiers.Add(now, now + MaimSeconds, dotTaken);
         }
         m.MaimedUntil = Math.Max(m.MaimedUntil, now + MaimSeconds);
@@ -423,7 +442,10 @@ public static partial class Game
         ApplyWitherStacksLocked(m, stacks, seconds, get, now, null);
 
     public static void ApplyWitherStacksLocked(SpawnedMonster m, int stacks, double seconds, Func<uint, int> get, double now,
-        uint? source, Random? random = null)
+        uint? source) => ApplyWitherStacksLocked(m, stacks, seconds, get, now, source, null);
+
+    public static void ApplyWitherStacksLocked(SpawnedMonster m, int stacks, double seconds, Func<uint, int> get, double now,
+        uint? source, Random? random)
     {
         if (stacks <= 0 || seconds <= 0 || m.Mods.Effects[Stat.ImmuneToWither] > 0) return;
         seconds *= Math.Max(0, 1 + m.Effects[Stat.SelfWitherDurationPlusPct] / 100d);

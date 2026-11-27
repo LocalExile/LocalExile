@@ -13,8 +13,10 @@ public abstract record ChargeEvent
     /// the player's own: <paramref name="SelfBleeding"/>, <paramref name="SelfPoisoned"/>.</summary>
     public sealed record Hit(bool Critical, bool Spell, bool? Melee, MonsterRarity Rarity, string? SkillEffect = null,
         Func<uint, int>? Skill = null, bool Killed = false, bool Primary = true, bool Frozen = false,
-        bool Bleeding = false, bool Marked = false, bool SelfBleeding = false, bool SelfPoisoned = false,
-        bool NoArmour = false) : ChargeEvent;
+        bool Bleeding = false, bool Marked = false, bool SelfBleeding = false, bool SelfPoisoned = false) : ChargeEvent
+    {
+        public bool NoArmour { get; init; }
+    }
 
     /// <summary>The player killed a hostile monster; <paramref name="Frozen"/>: it was frozen when it died, shattered
     /// included (MonsterElementalAilments.FrozenAtDeath); <paramref name="Poisons"/>: the poisons on it when it died;

@@ -222,13 +222,38 @@ public static partial class Game
     // tick; changing the rate or adding another bleed must not discard damage already earned by an expired instance.
     public static void SettleBleeding(SpawnedMonster target, double now)
     {
-        while (target.Ruptures.NextExpiry is var end && end <= now)
+        if (!target.Bleeds.Burning)
+        {
+            SetBleedingExpiryRate(target, now);
+            return;
+        }
+        if (MaimDotTaken.TryGetValue(target, out var maim))
+        {
+            foreach (double boundary in maim.Boundaries(target.Bleeds.AccruedThrough, now).Distinct().Order())
+                SettleBleedingUntil(target, boundary);
+        }
+        SettleBleedingUntil(target, now);
+    }
+
+    static void SettleBleedingUntil(SpawnedMonster target, double now)
+    {
+        double maimEnd = target.MaimedPhysicalTakenUntil;
+        while (true)
+        {
+            double ruptureEnd = target.Ruptures.NextExpiry;
+            double end = target.Bleeds.AccruedThrough < maimEnd ? Math.Min(ruptureEnd, maimEnd) : ruptureEnd;
+            if (end > now) break;
+            Accrue(end);
+            if (end == ruptureEnd) SetBleedingExpiryRate(target, end);
+            if (end == maimEnd) maimEnd = double.PositiveInfinity;
+        }
+        Accrue(now);
+
+        void Accrue(double end)
         {
             double before = Math.BitDecrement(end);
             target.Bleeds.Accrue(end, BleedTaken(target, before), AggravatedExtra(target, before));
-            SetBleedingExpiryRate(target, end);
         }
-        target.Bleeds.Accrue(now, BleedTaken(target, now), AggravatedExtra(target, now));
     }
 
     // One tick of the bleeding monsters (the area's monster damage over time), as BurnIgnited: only the strongest bleed deals damage (Crimson

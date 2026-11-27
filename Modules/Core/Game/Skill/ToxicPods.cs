@@ -88,7 +88,8 @@ public static partial class Game
                         if (pod.Withered is not null) monster.PresentationChanged?.Invoke();
                     }
                     var carry = dotRemainders.GetValue(monster, _ => new PodDamage());
-                    double total = carry.Fraction + seconds * dps * MonsterDotTaken(monster, DamageType.Chaos, at);
+                    double total = carry.Fraction + seconds * dps
+                        * MonsterDotTakenOver(monster, DamageType.Chaos, at - seconds, at, at);
                     int damage = (int)Math.Clamp(Math.Floor(total), 0, int.MaxValue);
                     carry.Fraction = total - Math.Floor(total);
                     if (damage == 0) continue;

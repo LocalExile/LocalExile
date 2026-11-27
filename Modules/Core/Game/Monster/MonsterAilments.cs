@@ -35,12 +35,12 @@ public static partial class Game
         bool chaos, bool overTime) => MonsterDamageTaken(m, spell, now, elemental, hit, chaos, 0, overTime);
 
     static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental, bool hit,
-        bool chaos, double increasedPct, bool overTime = false) =>
+        bool chaos, double increasedPct, bool overTime = false, int? maimTaken = null) =>
         m.Effects.DamageTaken(spell, increasedPct + m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental + m.Effects[Stat.ElementalDamageTakenPlusPct] : 0)
             + (overTime ? m.Effects[Stat.DegenEffectPlusPct] : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
             + GlacialCageTakenPct(m, now)
-            + (overTime && MaimDotTaken.TryGetValue(m, out var maim) ? maim.Strongest(now) : 0)
+            + (overTime ? maimTaken ?? (MaimDotTaken.TryGetValue(m, out var maim) ? maim.Strongest(now) : 0) : 0)
             + m.SpiderWebs.Taken(now)
             + (chaos ? WitheredTaken(m, now) : 0)
             + m.Ignites.DamageTaken(now)
@@ -431,10 +431,10 @@ public static partial class Game
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, AttackAilmentGains attackGains, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
-        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true, bool meleeAttack = false) =>
+        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true) =>
         AilmentsOnHitLocked(player, targetId, m, mitigated, spell, critical, criticalMultiplier, playerStats, skill,
             now, random, attackGains, false, 0, reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
-            attackerSize, attackerHasReversedStat, meleeAttack: meleeAttack);
+            attackerSize, attackerHasReversedStat);
 
     static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
@@ -508,7 +508,8 @@ public static partial class Game
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         if (playerHit)
-            OnslaughtOnHitLocked(player, now, critical ? playerStats.GetValueOrDefault(Stat.OnslaughtOnCritDurationMs) : 0);
+            OnslaughtOnHitLocked(player, now, critical && (ownHit ?? playerHit)
+                ? playerStats.GetValueOrDefault(Stat.OnslaughtOnCritDurationMs) : 0);
         if (playerHit && m.Hostile && m.Rarity == MonsterRarity.Unique)
             player.RecentEvents.Record(StatConditions.HitUniqueEnemy, now);
         if (playerHit && spell) ArcaneSurgeOnSpellHitLocked(player, playerStats, now, random);
@@ -537,6 +538,8 @@ public static partial class Game
         int Attacker(uint name)
         {
             int value = Player(name) + PanelStats.Of(name, Skill);
+            if (name == Stat.ChillMinimumSlowPct)
+                value = Math.Max(value, Player(Stat.ChillMinimumSlowPctFromMastery) + Skill(Stat.ChillMinimumSlowPctFromMastery));
             if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock + extraShockChance);
             if (name == Stat.ChanceToFreezePct) value = ActorScale.Saturate((long)value + projectileFreezeChance);
             if (!tinctureWeapon) return value;

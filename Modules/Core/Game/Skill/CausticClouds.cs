@@ -385,7 +385,8 @@ public static partial class Game
                 int Accrue(DamageGround? ground, ref double fraction)
                 {
                     if (ground is null) return 0;
-                    double total = fraction + seconds * ground.Dps * MonsterDotTaken(monster, ground.Type, at);
+                    double total = fraction + seconds * ground.Dps
+                        * MonsterDotTakenOver(monster, ground.Type, at - seconds, at, at);
                     double whole = Math.Floor(total);
                     fraction = total - whole;
                     return (int)Math.Clamp(whole, 0, int.MaxValue);

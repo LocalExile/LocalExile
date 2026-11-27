@@ -75,7 +75,7 @@ public static partial class Game
         bool noArmour = m.Effects.Armour(Monsters.BaseArmour(m.Variety, m.Level) ?? 0) == 0;
         ChargesOf(player).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(player).EffectId(effect) : null,
             skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: frozen, Bleeding: bleeding, Marked: marked,
-            SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned, NoArmour: noArmour));
+            SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned) { NoArmour = noArmour });
         CurseCharges(player, m, death: false, now);
         PlayerGrantsNearbyChargesLocked(player, kill: false, now);
     }

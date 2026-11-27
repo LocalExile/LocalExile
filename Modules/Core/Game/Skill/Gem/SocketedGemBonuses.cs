@@ -57,6 +57,7 @@ public static class SocketedGemBonuses
 
         Add(Stat.LocalDisplaySocketedGemsChainXAdditionalTimes, Stat.NumberOfAdditionalChainsForProjectiles);
         Add(Stat.LocalDisplaySocketedSkillsFork, Stat.ProjectilesFork);
+        // The old display key backs the shield's current generic reservation efficiency modifier.
         Add(Stat.LocalDisplaySocketedGemsHaveManaReservationPlusPct, Stat.BaseReservationEfficiencyPlusPct, sign: -1);
 
         uint damage;

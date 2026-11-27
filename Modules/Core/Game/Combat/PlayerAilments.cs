@@ -187,7 +187,13 @@ public static partial class Game
     /// </summary>
     public static void ApplyMonsterDamagingAilmentsLocked(Player player, uint source, SpawnedMonster m,
         DamagePacket hit, bool blocked, double now, bool attack = true, IReadOnlyDictionary<uint, int>? prepared = null,
-        int skillPoisonChance = 0, double skillPoisonSeconds = 0, bool critical = false, bool skillAlwaysBleeds = false)
+        int skillPoisonChance = 0, double skillPoisonSeconds = 0, bool critical = false) =>
+        ApplyMonsterDamagingAilmentsLocked(player, source, m, hit, blocked, now, attack, prepared, skillPoisonChance,
+            skillPoisonSeconds, critical, skillAlwaysBleeds: false);
+
+    static void ApplyMonsterDamagingAilmentsLocked(Player player, uint source, SpawnedMonster m,
+        DamagePacket hit, bool blocked, double now, bool attack, IReadOnlyDictionary<uint, int>? prepared,
+        int skillPoisonChance, double skillPoisonSeconds, bool critical, bool skillAlwaysBleeds)
     {
         if (blocked || player.PlayerLife == 0 || player.Closed || player.LeavingArea || InGracePeriod(player)) return;
         var effects = m.Mods.Effects;

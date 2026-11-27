@@ -151,6 +151,9 @@ public static partial class Game
                 if (m.Poisons.Idle) { (done ??= []).Add(id); continue; }
                 int damage = 0;
                 if (m.Dead || m.Life == 0) m.Poisons.ClearAtDeath(now);
+                else if (MaimDotTaken.TryGetValue(m, out var maim))
+                    damage = m.Poisons.Advance(now, maim.Boundaries(m.Poisons.AccruedThrough, now),
+                        at => MonsterDotTaken(m, DamageType.Chaos, at), m.Life);
                 else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now), m.Life);
                 if (damage > 0)
                 {

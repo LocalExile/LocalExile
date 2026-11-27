@@ -21,6 +21,17 @@ public sealed class RuleAilments
     /// <summary>Nothing runs and nothing is shown.</summary>
     public bool Idle { get { lock (instances) return instances.Count == 0 && shown.Count == 0; } }
 
+    public double? NextExpiry(int kind, double now)
+    {
+        lock (instances)
+        {
+            double next = double.PositiveInfinity;
+            foreach (var instance in instances)
+                if (instance.Kind == kind && instance.Until > now) next = Math.Min(next, instance.Until);
+            return double.IsPositiveInfinity(next) ? null : next;
+        }
+    }
+
     /// <summary>The strongest running magnitude of <paramref name="kind"/> at <paramref name="now"/> (0 without one, or
     /// without a time).</summary>
     public double Magnitude(int kind, double now)

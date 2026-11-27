@@ -38,7 +38,7 @@ public static partial class Game
                     DamagingCaster = stack.Cast.Caster;
                 }
                 if (end > at)
-                    carry += (end - at) * total * MonsterDotTaken(monster, DamageType.Physical, at);
+                    carry += (end - at) * total * MonsterDotTakenOver(monster, DamageType.Physical, at, end, at);
                 at = Math.Max(at, end);
                 for (int i = Stacks.Count - 1; i >= 0; i--)
                     if (Stacks[i].Ends <= at) Stacks.RemoveAt(i);

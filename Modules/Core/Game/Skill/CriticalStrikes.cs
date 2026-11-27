@@ -32,7 +32,10 @@ public static partial class Game
             || Flag(Stat.KeystoneElementalOverload) || Flag(Stat.KeystoneAilmentCrit);
     }
 
-    public static int CriticalHitMultiplier(long ordinary, bool noExtra, bool fixedMultiplier = false) => noExtra ? 100
+    public static int CriticalHitMultiplier(long ordinary, bool noExtra) =>
+        CriticalHitMultiplier(ordinary, noExtra, fixedMultiplier: false);
+
+    public static int CriticalHitMultiplier(long ordinary, bool noExtra, bool fixedMultiplier) => noExtra ? 100
         : fixedMultiplier ? 300 : (int)Math.Clamp(ordinary, int.MinValue, int.MaxValue);
 
     static bool FixedCriticalHitMultiplier(IReadOnlyDictionary<uint, int>? player, IReadOnlyDictionary<uint, int>? own) =>

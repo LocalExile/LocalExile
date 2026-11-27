@@ -142,22 +142,32 @@ public sealed class MonsterPoisons
     /// <summary>The same advance, also reporting the end of the last cut where the active stacks dealt positive damage:
     /// not the frame time, and null when no positive mitigated subinterval existed.</summary>
     public int Advance(double until, double factor, out double? lastDamageAt, uint? lifeAtStart = null)
+        => Advance(until, factor, out lastDamageAt, lifeAtStart, null, null);
+
+    public double AccruedThrough => last;
+
+    public int Advance(double until, IEnumerable<double> boundaries, Func<double, double> factorAt, uint? lifeAtStart) =>
+        Advance(until, 0, out _, lifeAtStart, boundaries, factorAt);
+
+    int Advance(double until, double factor, out double? lastDamageAt, uint? lifeAtStart,
+        IEnumerable<double>? boundaries, Func<double, double>? factorAt)
     {
         lastDamageAt = null;
         if (active.Count == 0 || !(until > last)) return 0;
         advancedDeath = null;
-        var cuts = active.SelectMany(p => new[] { p.From, p.Until }).Where(t => last < t && t < until)
-            .Append(last).Append(until).Distinct().Order().ToArray();
+        var deadlines = active.SelectMany(p => new[] { p.From, p.Until });
+        if (boundaries is not null) deadlines = deadlines.Concat(boundaries);
+        var cuts = deadlines.Where(t => last < t && t < until).Append(last).Append(until).Distinct().Order().ToArray();
         double damage = carry;
         for (int k = 1; k < cuts.Length; k++)
         {
             double mid = (cuts[k - 1] + cuts[k]) / 2;
             double sumDps = active.Where(p => p.From <= mid && mid < p.Until).Sum(p => p.DamagePerSecond);
             double seconds = cuts[k] - cuts[k - 1];
-            double mitigated = sumDps * Math.Max(0, factor);
+            double mitigated = sumDps * Math.Max(0, factorAt?.Invoke(mid) ?? factor);
             if (mitigated > 0 && seconds > 0) lastDamageAt = cuts[k];
 
-            double stepDamage = sumDps * Math.Max(0, factor) * (cuts[k] - cuts[k - 1]);
+            double stepDamage = mitigated * seconds;
             // Preserve the stacks at the lethal contact, even when this advance also expires them. Death callbacks
             // run after the step and cannot recover that state from the live list.
             if (advancedDeath is null && lifeAtStart is > 0 && mitigated > 0 && damage + stepDamage >= lifeAtStart.Value)

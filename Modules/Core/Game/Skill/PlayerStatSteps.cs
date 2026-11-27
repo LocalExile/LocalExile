@@ -102,7 +102,7 @@ public static partial class Game
                 AddTo(stats, Stat.CastSpeedPlusPct, totemSpeed);
             }
             if (player.RecentEvents.Happened(TotemPlacementCriticalEvent, now))
-                AddTo(stats, Stat.CriticalStrikeChancePlusPct, 40);
+                AddTo(stats, Stat.CriticalStrikeChancePlusPct, TotemPlacementCriticalIncrease);
             if (player.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
             if (player.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
             if (player.IncomingAilments.NextChangeAt(now) is double incoming) StatsChangeIn(incoming - now);
@@ -240,14 +240,21 @@ public static partial class Game
         {
             if (player.Pools.LightningOvercapCritPct is int overCrit and not 0 && Stat.CriticalStrikeChancePlusPct is var critInc)
                 stats[critInc] = (int)Math.Clamp((long)stats.GetValueOrDefault(critInc) + overCrit, int.MinValue, int.MaxValue);
-            if (GetIn(stats, Stat.OvercappedFireResistanceGainAsFirePenetration) != 0)
-                AddTo(stats, Stat.BaseReduceEnemyFireResistancePct,
-                    Math.Min(200, DamageModel.Overcap(player.Pools.FireResistance, player.Pools.FireMaxResistance)));
+            bool firePenetration = GetIn(stats, Stat.OvercappedFireResistanceGainAsFirePenetration) != 0;
             int coldDot = GetIn(stats, Stat.ColdDamageOverTimeMultiplierPlusPer4PctOvercappedColdResistance);
+            if (firePenetration)
+                AddTo(stats, Stat.BaseReduceEnemyFireResistancePct,
+                    Math.Min(200, DamageModel.Overcap(Resistance(player, DamageType.Fire), MaxResistance(player, DamageType.Fire))));
             if (coldDot != 0)
             {
-                int overcap = DamageModel.Overcap(player.Pools.ColdResistance, player.Pools.ColdMaxResistance);
+                int overcap = DamageModel.Overcap(Resistance(player, DamageType.Cold), MaxResistance(player, DamageType.Cold));
                 AddTo(stats, Stat.ColdDotMultiplierPlus, (long)coldDot * (overcap / 4));
+            }
+            if (firePenetration || coldDot != 0)
+            {
+                double now = AreaTime(player);
+                if (player.RuleAilments.NextExpiry((int)AlternateKind.Scorch, now) is double expiry)
+                    StatsChangeIn(expiry - now);
             }
         });
         // "#% increased Damage per 1% Chance to Block Attack Damage": the capped attack block chance in Pools.
@@ -272,9 +279,8 @@ public static partial class Game
             int groundEffect = FlaskGet(Stat.ConsecratedGroundEffectPlusPct);
             var running = UtilityStats(player, FlaskGet)
                 .Concat(player.FlaskGrounds.PlayerStats(groundEffect)).ToList();
-            if (player.FlaskGrounds.Consecrated)
-                AddTo(stats, Stat.AccuracyRatingPlusPct,
-                    (long)FlaskGet(Stat.YourConsecratedGroundGrantsAccuracyRatingPlusPct) * Math.Max(0L, 100L + groundEffect) / 100);
+            if (OwnConsecratedGroundAccuracy(player, FlaskGet) is long accuracy and not 0)
+                AddTo(stats, Stat.AccuracyRatingPlusPct, accuracy);
             AddItemUtilityFlaskRawStats(stats, running, Stats);
             ApplyWiseOak(stats, running);
         });

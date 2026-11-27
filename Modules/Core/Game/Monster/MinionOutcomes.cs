@@ -169,7 +169,7 @@ public static partial class Game
         if (MonsterGrantsKillFlaskCharges(monster))
             state.FlaskRewards.Add(new(monster.Rarity)
             {
-                KillChargesPct = BleedingKillFlaskChargesPct(player, AilmentInflictedBy(monster, player.Id, AilmentType.Bleed, now)),
+                KillChargesPct = BleedingKillFlaskChargesPct(player, monster.BleedSourcesAtDeath?.Contains(player.Id) == true),
             });
         var rng = AreaRng(player);
         var stacked = RollKillLoot(player, monster, at, rng, firstBossKill);

@@ -276,7 +276,7 @@ public static partial class Game
 
     static List<byte[]>? IgniteOnHitLocked(Player player, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now, AttackAilmentGains attackGains,
-        out double igniteDps, bool playerIgnite = true)
+        out double igniteDps, bool playerIgnite = true, bool ownIgnite = true)
     {
         igniteDps = 0;
         if (target.Invulnerable) return null;
@@ -288,7 +288,7 @@ public static partial class Game
             Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]),
             Chance = ActorScale.Saturate((long)settings.Chance + target.Effects[Stat.ChanceToBeIgnitedPct]),
         };
-        double freshRecovery = playerIgnite ? LifeOnFreshIgnite(player, target, now) : 0;
+        double freshRecovery = playerIgnite && ownIgnite ? LifeOnFreshIgnite(player, target, now) : 0;
         if (!target.Ignites.TryApply(settings, critical, now, e[Stat.AvoidIgnitePct],
                 e[Stat.ImmuneToIgnite] != 0 || e[Stat.CannotBeIgnited] != 0, player.IgniteRandom,
                 UtilityFlaskStat(player, UtilityFlasks.IgnitedDuringEffectTakenStat), out igniteDps)) return null;
@@ -349,10 +349,16 @@ public static partial class Game
 
     public static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now, AttackAilmentGains attackGains,
-        bool playerIgnite = true)
+        bool playerIgnite = true) =>
+        IgniteOnHitLocked(session, id, target, settings, critical, now, attackGains, playerIgnite, ownIgnite: true);
+
+    static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
+        MonsterIgnites.Settings settings, bool critical, double now, AttackAilmentGains attackGains,
+        bool playerIgnite, bool ownIgnite)
     {
         // The log is built only for a hit that ignited: formatting it for every hit of an explosion was its own cost.
-        if (IgniteOnHitLocked(session.Player, id, target, settings, critical, now, attackGains, playerIgnite) is { Count: > 0 } packets)
+        if (IgniteOnHitLocked(session.Player, id, target, settings, critical, now, attackGains, out _,
+            playerIgnite, ownIgnite) is { Count: > 0 } packets)
             QueueDotBuff(session, packets, IgnitedLog(id, target, critical, now));
     }
 
@@ -403,8 +409,12 @@ public static partial class Game
                 if (m.Dead || m.Life == 0) set.Clear();
                 else
                 {
-                    settle?.Invoke(m, now);
-                    damage = set.Advance(now, factor(m, now), aggravated?.Invoke(m, now) ?? 0);
+                    if (settle is not null) settle(m, now);
+                    else if (MaimDotTaken.TryGetValue(m, out var maim))
+                        foreach (double boundary in maim.Boundaries(set.AccruedThrough, now).Distinct().Order())
+                            set.Accrue(boundary, factor(m, Math.BitDecrement(boundary)));
+                    double sample = Math.BitDecrement(now);
+                    damage = set.Advance(now, factor(m, sample), aggravated?.Invoke(m, sample) ?? 0);
                 }
                 if (!set.Burning) EndDot(player, id, ref set.Buff, set.BuffSource);
                 if (set.Idle) (done ??= []).Add(id);

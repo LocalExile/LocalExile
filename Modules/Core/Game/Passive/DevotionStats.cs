@@ -46,7 +46,7 @@ public static class DevotionStats
         (Stat.MinimumEnduranceChargesAtDevotionThreshold, Stat.MinimumEnduranceCharges),
         (Stat.MinimumFrenzyChargesAtDevotionThreshold, Stat.MinimumFrenzyCharges),
         (Stat.MinimumPowerChargesAtDevotionThreshold, Stat.MinimumPowerCharges),
-        (Stat.PhysicalDamageReductionPctAtDevotionThreshold, Stat.AdditionalPhysicalDamageReductionPct),
+        (Stat.PhysicalDamageReductionPctAtDevotionThreshold, Stat.BaseAdditionalPhysicalDamageReductionPct),
         (Stat.AdditionalMaximumAllResistancesPctAtDevotionThreshold, Stat.AdditionalMaximumAllResistancesPct),
         (Stat.InflictFireExposureOnHitPctChanceAtDevotionThreshold, Stat.BaseInflictFireExposureOnHitPctChance),
         (Stat.InflictColdExposureOnHitPctChanceAtDevotionThreshold, Stat.BaseInflictColdExposureOnHitPctChance),

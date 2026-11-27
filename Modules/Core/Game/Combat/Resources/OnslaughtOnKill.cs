@@ -111,7 +111,9 @@ public static partial class Game
     }
 
     // "You gain Onslaught for X seconds on Hit" (the Honoured Berserker tattoo and other sources): every player hit.
-    public static bool OnslaughtOnHitLocked(Player player, double now, int criticalDurationMs = 0)
+    public static bool OnslaughtOnHitLocked(Player player, double now) => OnslaughtOnHitLocked(player, now, 0);
+
+    public static bool OnslaughtOnHitLocked(Player player, double now, int criticalDurationMs)
     {
         if (player.PlayerLife == 0) return false;
         var onslaught = KillOnslaughtOf(player);

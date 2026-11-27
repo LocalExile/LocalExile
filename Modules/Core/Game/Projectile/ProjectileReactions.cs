@@ -219,7 +219,7 @@ public static partial class Game
         if (MonsterGrantsKillFlaskCharges(monster))
         {
             int flaskChargesPct = ActorScale.Saturate((long)(tinctureKill?.FlaskChargesPct ?? 0)
-                + BleedingKillFlaskChargesPct(player, AilmentInflictedBy(monster, player.Id, AilmentType.Bleed, now)));
+                + BleedingKillFlaskChargesPct(player, monster.BleedSourcesAtDeath?.Contains(player.Id) == true));
             CommitProjectileFlaskGain(session, (_, _) => FlaskCharges.FullShortcut ? int.MaxValue
                 : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(player).Mods, flaskChargesPct));
         }

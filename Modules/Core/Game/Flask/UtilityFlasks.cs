@@ -188,6 +188,10 @@ public static partial class Game
     {
         monster.ShockedAtDeath = monster.Ailments.ShockedAtDeath(now);
         monster.FrozenAtDeath = monster.Ailments.FrozenAtDeath(now);
+        monster.BleedSourcesAtDeath ??= AilmentOn(monster, AilmentType.Bleed, now)
+            ? monster.SourceMarks(InflictedKeys[(int)AilmentType.Bleed])
+                .Where(mark => mark.Until > now).Select(mark => mark.Source).ToArray()
+            : [];
     }
 
     public static int IncreasedItemRarity(Player player, SpawnedMonster? monster = null)

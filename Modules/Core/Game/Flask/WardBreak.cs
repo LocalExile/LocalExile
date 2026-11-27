@@ -17,8 +17,9 @@ public static partial class Game
 
     static void AdvanceWardLocked(Player player, double now)
     {
+        double restoredAt = player.Ward.RestoresAt;
         if (player.Ward.Advance(now))
-            WardRestoredLocked(player, now);
+            WardRestoredLocked(player, restoredAt);
     }
 
     static void WardRestoredLocked(Player player, double now)

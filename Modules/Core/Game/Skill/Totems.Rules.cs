@@ -10,6 +10,7 @@ using DamageModel = GameServer.Core.World.DamageModel;
 public static partial class Game
 {
     const string TotemPlacementCriticalEvent = "totem_placement_critical";
+    const int TotemPlacementCriticalIncrease = 40;
 
     /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
     public static void LoadTotemsRulesData()
@@ -528,7 +529,10 @@ public static partial class Game
         player.RecentEvents.Record(StatConditions.SummonedTotem, now);
         int criticalDuration = stats.GetValueOrDefault(Stat.IncreasedCriticalStrikeChanceBuffForXMillisecondsOnPlacingATotem);
         if (criticalDuration > 0)
+        {
             player.RecentEvents.Record(TotemPlacementCriticalEvent, now, criticalDuration / 1000d);
+            EnsureConditionalItemPools(player);
+        }
         if (criticalDuration > 0 || stats.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPctOnPlacingTotem) != 0)
         {
             MarkPlayerStats(player, PlayerStatStep.Sources);

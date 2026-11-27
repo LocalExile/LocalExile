@@ -1213,8 +1213,9 @@ public static partial class Game
                     && Dist(monster.Walk.Position(now), g.At) <= g.Radius)
                 .MaxBy(g => g.DamagePerSecond);
             if (ground is null) continue;
-            double total = ground.DamagePerSecond * (Math.Min(now, ground.Until) - ground.LastAt)
-                * MonsterDotTaken(monster, DamageType.Fire, now) + ground.Carry.GetValueOrDefault(id);
+            double end = Math.Min(now, ground.Until);
+            double total = ground.DamagePerSecond * (end - ground.LastAt)
+                * MonsterDotTakenOver(monster, DamageType.Fire, ground.LastAt, end, now) + ground.Carry.GetValueOrDefault(id);
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(total)); ground.Carry[id] = total - damage;
             if (damage <= 0 || ApplyMonsterHitLocked(player, monster, damage, allyAt: monster.Walk.Position(now)) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, monster, now); hit = hit with { StageStarts = false }; }

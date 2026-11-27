@@ -1218,7 +1218,10 @@ public static partial class Game
         // they were built with, next to Applied: a poison gained or lost after this build must rebuild them, even
         // though the sources sum itself never reads the count and its cache still hits. Recorded here, in the build
         // itself, so the direct rebuilds (which bypass PoolsFor) record it too.
-        ConditionalItemPools.GetOrCreateValue(player).AppliedPoisonStacks = player.IncomingAilments.PoisonStacks(AreaTime(player));
+        var conditional = ConditionalItemPools.GetOrCreateValue(player);
+        double conditionalNow = AreaTime(player);
+        conditional.AppliedPoisonStacks = player.IncomingAilments.PoisonStacks(conditionalNow);
+        conditional.AppliedTotemPlacementCritical = player.RecentEvents.Happened(TotemPlacementCriticalEvent, conditionalNow);
         // The stat sources first: they decide which worn items are inactive, which the weapon profile reads.
         var snapshot = CharacterStatSources(player, level: level);
         // Cat starts its Stealth phase in the same build that first sees its accepted root aura. Re-read sources because
@@ -1372,7 +1375,8 @@ public static partial class Game
             if (!(name is var key)) return 0;
             return (long)sources.GetValueOrDefault(key) + (name switch
             {
-                Stat.CriticalStrikeChancePlusPct => aura.CriticalStrikeChancePct + cat.CriticalStrikeChancePct,
+                Stat.CriticalStrikeChancePlusPct => aura.CriticalStrikeChancePct + cat.CriticalStrikeChancePct
+                    + (conditional.AppliedTotemPlacementCritical ? TotemPlacementCriticalIncrease : 0),
                 Stat.SpellCriticalStrikeChancePlusPct => aura.SpellCriticalStrikeChancePct - aura.CriticalStrikeChancePct,
                 _ => 0,
             });
@@ -1380,10 +1384,13 @@ public static partial class Game
         int RawCritical(uint name) => (int)Math.Clamp(RawCriticalSum(name), int.MinValue, int.MaxValue);
         long attackIncrease = AttackBaseCriticalStrike.IncreasedSum(activeWeapon, RawCriticalSum);
         long spellIncrease = RawCriticalSum(Stat.CriticalStrikeChancePlusPct) + RawCriticalSum(Stat.SpellCriticalStrikeChancePlusPct);
-        long RawAccuracy(uint name)
+        long groundAccuracy = OwnConsecratedGroundAccuracy(player, sources.GetValueOrDefault);
+        long RawAccuracy(uint name) => (long)sources.GetValueOrDefault(name) + (name switch
         {
-            return (long)sources.GetValueOrDefault(name) + (name == Stat.AccuracyRating ? aura.Accuracy : 0);
-        }
+            Stat.AccuracyRating => aura.Accuracy,
+            Stat.AccuracyRatingPlusPct => groundAccuracy,
+            _ => 0,
+        });
         bonus = bonus with
         {
             FireResistance = bonus.FireResistance + aura.FireResistance + extraCommanderRes,
@@ -1537,8 +1544,6 @@ public static partial class Game
         // the armed main hand's base and the unarmed base replaces the empty one, before the global increases.
         pools = pools with
         {
-            CriticalStrikeMultiplier = CriticalHitMultiplier(pools.CriticalStrikeMultiplier, noExtraCriticalDamage, fixedCriticalMultiplier),
-            SpellCriticalStrikeMultiplier = CriticalHitMultiplier(pools.SpellCriticalStrikeMultiplier, noExtraCriticalDamage, fixedCriticalMultiplier),
             AttackBlockLucky = pools.AttackBlockLucky || player.ForceAttackBlockLucky,
             SpellBlockLucky = pools.SpellBlockLucky || player.ForceSpellBlockLucky,
             SpellSuppressionLucky = pools.SpellSuppressionLucky || player.ForceSpellSuppressionLucky,
@@ -1608,6 +1613,11 @@ public static partial class Game
                 SpellCriticalStrikeMultiplier = ActorScale.Saturate(pools.SpellCriticalStrikeMultiplier + multiplier),
             };
         }
+        pools = pools with
+        {
+            CriticalStrikeMultiplier = CriticalHitMultiplier(pools.CriticalStrikeMultiplier, noExtraCriticalDamage, fixedCriticalMultiplier),
+            SpellCriticalStrikeMultiplier = CriticalHitMultiplier(pools.SpellCriticalStrikeMultiplier, noExtraCriticalDamage, fixedCriticalMultiplier),
+        };
         if (map?.Get(Stat.MapPlayersArmourPlusPctFinal) is int armourMore and not 0)
             pools = pools with { Armour = ActorScale.Saturate((pools.Armour * Math.Max(0, 100L + armourMore) + 50) / 100) };
         player.AppliedAdrenaline = player.WardBreak.Adrenaline(AreaTime(player));

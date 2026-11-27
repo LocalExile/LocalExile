@@ -167,7 +167,9 @@ static partial class Game
                         if (cast.LossPermyriad > 0 && actual > 0 && !m.Invulnerable)
                             (losses ??= []).Add((cast, actual));
                         CreditSiphonLeechLocked(player, cast.Caster, m, life);
-                    });
+                    }, MaimDotTaken.TryGetValue(m, out _)
+                        ? (from, until) => MonsterDotTakenOver(m, DamageType.Chaos, from, until, now)
+                        : null);
                 if (damage <= 0)
                 {
                     ApplyLosses(1);

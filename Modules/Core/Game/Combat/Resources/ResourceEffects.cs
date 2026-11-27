@@ -217,6 +217,7 @@ public static partial class Game
             if (HasMapHexes(MapModsOf(player))) RecomputePoolsAndSpeed(player);
             MarkPlayerStats(player, PlayerStatStep.SelfVulnerability);
         }
+        AdvanceWardLocked(player, now);
         AdvancePlayerAilmentsLocked(player, from, now, stats);
         if (player.PlayerLife > 0) AdvanceSiphoningDamageLocked(player, now, stats);
         if (player.PlayerLife > 0) AdvanceHerEmbraceDamageLocked(player, now, stats);

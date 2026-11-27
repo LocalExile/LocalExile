@@ -5,15 +5,17 @@ using GameServer.Core.World;
 /// resistance caps or turn a random chance into an average bonus. The caller rolls them once for each hit.</summary>
 public readonly record struct HitRollModifiers(int DamageExtraRolls = 0, int EnemyDamageExtraRolls = 0,
     int TripleDamageChance = 0, int DamageMorePct = 0, int InvertElementalResistanceChance = 0, int EnemyHitsNinetyResistanceChance = 0,
-    int DoubleDamageChance = 0, int SpellDoubleDamageChance = 0, int EnemyPhysicalExtraRolls = 0)
+    int DoubleDamageChance = 0, int SpellDoubleDamageChance = 0)
 {
+    public int EnemyPhysicalExtraRolls { get; init; }
+
     public static HitRollModifiers From(Func<uint, int> get) => new(
         get(Stat.BaseExtraDamageRolls), get(Stat.BaseEnemyExtraDamageRolls),
         get(Stat.BaseChanceToDealTripleDamagePct), get(Stat.MarauderHiddenAscendancyDamagePlusPctFinal),
         get(Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance),
         get(Stat.EnemyHitsPctChanceToTreatElementalResistancesAs90Pct),
-        get(Stat.ChanceToDealDoubleDamagePct), get(Stat.SpellChanceToDealDoubleDamagePct),
-        get(Stat.EnemiesExtraDamageRollsWithPhysicalDamage));
+        get(Stat.ChanceToDealDoubleDamagePct), get(Stat.SpellChanceToDealDoubleDamagePct))
+        { EnemyPhysicalExtraRolls = get(Stat.EnemiesExtraDamageRollsWithPhysicalDamage) };
 
     /// <summary>One skill's hit: the skill's own chance to deal double damage (Heavy Strike's gem) adds to the player's,
     /// a spell adds spell_chance_to_deal_double_damage_%, and the final repeat of a spell adds Awakened Spell Echo's
