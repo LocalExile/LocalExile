@@ -1078,7 +1078,11 @@ public static class BossKits
             {
                 monster.LastSpecialAt = Math.Max(monster.LastSpecialAt, now);
                 if (entry.CooldownGroup > 0)
-                    (monster.KitCooldownGroupReadyAt ??= [])[entry.CooldownGroup] = readyAt;
+                {
+                    // A shorter member never cuts short the lock a longer one set.
+                    var groups = monster.KitCooldownGroupReadyAt ??= [];
+                    groups[entry.CooldownGroup] = Math.Max(groups.GetValueOrDefault(entry.CooldownGroup), readyAt);
+                }
             }
             else
             {
