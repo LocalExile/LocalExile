@@ -175,10 +175,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   Driver step files `scripts/dev/campaign/quests/a7q*.py` … `a10q*.py`, `A11q0.py`, `a10q3a11.py`.
   Code: `Acts/Act7.cs` … `Acts/Act11.cs` (QuestObjects module), `NPC/TownNpcs.cs`, `CharacterVoiceLines.cs`.
   Act 6–10 quest/NPC fixes cover dual Shavronne/Brutus kill, Karui blockers, prerequisite-free Strand clear, all four
-  Ralakesh avatars, Nessa/Yeena post-kill NPCs, Tolman/Kira kills, Bannon town gating and Epilogue `a11q1` Map Device
-  progression (not checked live).
+  Ralakesh avatars, Nessa/Yeena post-kill NPCs, Tolman/Kira kills, and Bannon town gating (not checked live).
   Docs: [12](../docs/protocol/12-quests.md) §16–19; [act 7](../docs/game/campaign/act7.md) …
   [act 10](../docs/game/campaign/act10.md).
+- Act 11 endgame storylines (offline verified; live client check pending): `a11q1` ("A Call to Arms") Karui Shores
+  Helena/Kirac dialogue and War Room Map Device progression without bypassing flags, `kirac_atlas` / Envoy encounters,
+  `maven_atlas` and `maven_boss` real witnessing and Crucible flow, `tangle` and `cleansing_fire` Eldritch influence,
+  Altars, and 28-map trackers, `ThreadsOfTheOriginator` and `Colourful Roses` Zana/Eagon Memory Tears, Astrolabes,
+  Memory Vaults, 3.29 Atlas Anomalies, all nine Atlas Books of Skill, and Merciless/Eternal Labyrinth (`labyrinth_a11`).
+  Code: `Modules/Core/World/Atlas/`, `Modules/Core/World/QuestObjects/Acts/Act11.cs`, `NpcScripts.cs`.
+  Docs: [21](../docs/protocol/21-hideouts.md).
 
 - New characters pick up their class weapon, talk to the dying exile and kill the biting zombie for their skill gem.
   Their first arrival starts lying down, facing the room's fitted start direction, and the first click plays getup
