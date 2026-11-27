@@ -940,12 +940,12 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
     public static readonly string[] ComponentOrder =
         ["Positioned", "Animated", "AreaTransition", "Stats", "ObjectMagicProperties", "MinimapIcon", "InteractionAction"];
 
-    /// <summary>Whether a type with these components (BaseEvents reads nothing) can use this blob:
+    /// <summary>Whether a type with these components (BaseEvents and ControlZone read nothing) can use this blob:
     /// <see cref="ComponentOrder"/> or <see cref="ComponentOrder"/> followed by a trailing <c>StateMachine</c>. Types
     /// that add other components (e.g. Transitionable) cannot: see AreaTransitionCatalog.Resolve in the Gateway.</summary>
     public static bool CanSerialize(IEnumerable<string> components)
     {
-        var list = components.Where(c => c != "BaseEvents").ToArray();
+        var list = components.Where(c => c is not ("BaseEvents" or "ControlZone")).ToArray();
         return list.SequenceEqual(ComponentOrder)
             || list.Length == ComponentOrder.Length + 1
                 && list[..ComponentOrder.Length].SequenceEqual(ComponentOrder)
