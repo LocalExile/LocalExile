@@ -1225,6 +1225,24 @@ public sealed class ItemCatalog
         if (ClientTables.Has("DelveCraftingModifiers"))
             foreach (var r in ClientTables.Table("DelveCraftingModifiers"))
                 if (r.IntOrNull("BaseItemTypesKey") is int b) fossilRows.Add(b);
+        // QuestItems.dat (rows 0..52): Act 11 beacons/invitations/pinnacle keys/Atlas skill books and league quest items.
+        // Skip Deepwater items here because DeepwaterProgression owns their custom inventories (rows 115/116).
+        var questItemsByBaseRow = new Dictionary<int, (string? Grant, int? LeagueFlag, string? Script, int? DescriptionRow)>();
+        if (ClientTables.Has("QuestItems") && ClientTables.Has("QuestFlags"))
+        {
+            var flagIds = ClientTables.Table("QuestFlags").Select(f => f.Text("Id") ?? "").ToList();
+            foreach (var qr in ClientTables.Table("QuestItems"))
+            {
+                if (qr.IntOrNull("Item") is not int itemRow || itemRow < 0) continue;
+                int flagRow = qr.IntOrNull("TriggeredQuestFlag") ?? -1;
+                string? grant = flagRow >= 0 && flagRow < flagIds.Count && flagIds[flagRow] is { Length: > 0 } f && f != "NEVER_SET" ? f : null;
+                int rawLeague = qr.IntOrNull("__col3") ?? -1;
+                int? leagueFlag = rawLeague is > 0 and < 0x777 ? rawLeague : null;
+                string? script = qr.TextOrNull("Script") is { Length: > 0 } sc ? sc : null;
+                int? descRow = qr.IntOrNull("Description") is int dr and >= 0 ? dr : null;
+                questItemsByBaseRow.TryAdd(itemRow, (grant, leagueFlag, script, descRow));
+            }
+        }
         var rows = new List<BaseType>();
         var clusters = ClusterJewels.Load(mods);
         var baseItemTypesTable = ClientTables.Table("BaseItemTypes");
@@ -1235,6 +1253,33 @@ public sealed class ItemCatalog
                 string name = r.Text("Name") ?? "";
                 var itemComponents = components.GetValueOrDefault(id) ?? [];
                 int visual = r.Int("ItemVisualIdentity");
+                var quest = questFlags.GetValueOrDefault(id);
+                if (questItemsByBaseRow.TryGetValue(rows.Count, out var qi))
+                {
+                    // Client 0x1424fbd20 overrides BaseItemTypes.InheritsFrom to AbstractUsableQuestItem for every
+                    // QuestItems.dat row with a non-empty Script (9 AtlasSkillBook* + Sentinel/Controller), adding
+                    // Usable and Stack (u16 stack count on the wire; omitting Stack causes Buffer Underflow).
+                    if (qi.Script is not null && (!itemComponents.Contains("Usable") || !itemComponents.Contains("Stack")))
+                    {
+                        var merged = new List<string>(itemComponents);
+                        if (!merged.Contains("Usable")) merged.Add("Usable");
+                        if (!merged.Contains("Stack")) merged.Add("Stack");
+                        itemComponents = merged;
+                    }
+                    if (!id.Contains("/Deepwater/", StringComparison.OrdinalIgnoreCase)
+                        && (qi.Grant is not null || qi.LeagueFlag is not null || qi.Script is not null))
+                    {
+                        quest = quest is null
+                            ? new QuestItemFlags(qi.Grant, null, null, null, null, qi.LeagueFlag, qi.Script, qi.DescriptionRow)
+                            : quest with
+                            {
+                                Grant = quest.Grant ?? qi.Grant,
+                                LeagueFlag = quest.LeagueFlag ?? qi.LeagueFlag,
+                                Script = quest.Script ?? qi.Script,
+                                DescriptionRow = quest.DescriptionRow ?? qi.DescriptionRow,
+                            };
+                    }
+                }
                 rows.Add(new BaseType(rows.Count, id, name, r.UInt("HASH32"),
                     (byte)r.Int("Width"), (byte)r.Int("Height"),
                     visual >= 0 && visual < visualHashes.Count ? visualHashes[visual] : (ushort)0,
@@ -1254,7 +1299,7 @@ public sealed class ItemCatalog
                     ModDomain = r.Int("ModDomain"),
                     Cluster = clusters.GetValueOrDefault(rows.Count),
                     GroundSize = r.IntOrNull("SizeOnGround") is int ground ? (byte)ground : (byte)1,
-                    Quest = questFlags.GetValueOrDefault(id),
+                    Quest = quest,
                     ClassRow = r.IntOrNull("ItemClassesKey") is int cr ? cr : -1,
                     Unmodifiable = r.BoolOrNull("Unmodifiable") == true ||
                         r.IntOrNull("ItemClassesKey") is int uc &&
@@ -1274,8 +1319,10 @@ public sealed class ItemCatalog
     }
 }
 
-/// <summary>A quest item's Quest component (its .it file; Agents/docs/protocol/12-quests.md §5): <see cref="Grant"/> is held
-/// while the item is carried, <see cref="Extra"/> and <see cref="Extra2"/> are set when it is first picked up,
-/// <see cref="Remove"/> takes the item away once set (and stops it dropping again), <see cref="Use"/> is set by using it
-/// (the quest books, whose static rewards QuestStaticRewards keys by that flag).</summary>
-public sealed record QuestItemFlags(string? Grant, string? Extra, string? Remove, string? Use, string? Extra2 = null);
+/// <summary>A quest item's Quest component (its .it file or QuestItems.dat; Agents/docs/protocol/12-quests.md §5):
+/// <see cref="Grant"/> is held while the item is carried, <see cref="Extra"/> and <see cref="Extra2"/> are set when it is
+/// first picked up, <see cref="Remove"/> (or <see cref="LeagueFlag"/> for QuestItems.dat rows) takes the item away once set
+/// (and stops it dropping again), <see cref="Use"/> is set by using it (the quest books, whose static rewards
+/// QuestStaticRewards keys by that flag), and <see cref="Script"/>/<see cref="DescriptionRow"/> carry QuestItems.dat metadata.</summary>
+public sealed record QuestItemFlags(string? Grant, string? Extra, string? Remove, string? Use, string? Extra2 = null,
+    int? LeagueFlag = null, string? Script = null, int? DescriptionRow = null);

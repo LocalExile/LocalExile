@@ -80,4 +80,63 @@ public class AtlasBossSkillTests
         // The families are what keeps them apart: the Shaper and the Elder stand in one arena together.
         Assert.All(AtlasBosses.SirusEffects, e => Assert.InRange(AtlasBosses.Skill(sirus, e), 0x4020, 0x403f));
     }
+
+    [Fact]
+    public void Eldritch_maven_and_originator_boss_kits_match_granted_effects_with_disjoint_skill_ids()
+    {
+        var monsters = new MonsterCatalog();
+        var skills = new SkillCatalog();
+        string[] bossIds =
+        [
+            AtlasBosses.Shaper, AtlasBosses.Elder, AtlasBosses.Sirus,
+            AtlasBosses.InfiniteHunger, AtlasBosses.BlackStar, AtlasBosses.EaterOfWorlds, AtlasBosses.SearingExarch,
+            AtlasBosses.Maven, AtlasBosses.MavenBrain,
+            AtlasBosses.NeglectBoss, AtlasBosses.NeglectBossUber,
+            AtlasBosses.FearBoss, AtlasBosses.FearBossUber,
+            AtlasBosses.DreadBoss, AtlasBosses.DreadBossUber,
+            AtlasBosses.FragmentOfNeglect, AtlasBosses.FragmentOfFear, AtlasBosses.FragmentOfDread,
+        ];
+        var usedByFamily = new Dictionary<ushort, HashSet<ushort>>();
+        foreach (string id in bossIds)
+        {
+            var variety = monsters.Find(id);
+            Assert.NotNull(variety);
+            Assert.True(AtlasBosses.IsBoss(variety), $"{id} should be recognized by AtlasBosses.IsBoss");
+            var effects = AtlasBosses.EffectsFor(variety!);
+            Assert.NotEmpty(effects);
+            foreach (int effect in effects)
+            {
+                Assert.Contains(effect, variety!.GrantedEffects!);
+                ushort skillId = AtlasBosses.Skill(variety, effect);
+                Assert.True(skillId >= 0x4000, $"{id} effect {effect} produced player-range skill id 0x{skillId:x4}");
+            }
+            ushort familyBase = AtlasBosses.SkillBaseFor(variety!);
+            if (!usedByFamily.ContainsKey(familyBase))
+                usedByFamily[familyBase] = [.. effects.Select(e => AtlasBosses.Skill(variety!, e))];
+        }
+        // Every boss family gets its own non-overlapping skill id range.
+        var allFamilyIds = usedByFamily.Values.SelectMany(s => s).ToList();
+        Assert.Equal(allFamilyIds.Count, allFamilyIds.Distinct().Count());
+
+        // Shaper Guardians, Elder Guardians, and Conquerors opt into BossKits with verified projectiles.
+        string[] guardiansAndConquerors =
+        [
+            "Metadata/Monsters/AtlasBosses/ChimeraBoss", "Metadata/Monsters/AtlasBosses/HydraBoss",
+            "Metadata/Monsters/AtlasBosses/MinotaurBoss", "Metadata/Monsters/AtlasBosses/PhoenixBoss",
+            "Metadata/Monsters/AtlasBosses/TheElder/ElderGuardian1", "Metadata/Monsters/AtlasBosses/TheElder/ElderGuardian2",
+            "Metadata/Monsters/AtlasBosses/TheElder/ElderGuardian3", "Metadata/Monsters/AtlasBosses/TheElder/ElderGuardian4_",
+            "Metadata/Monsters/AtlasExiles/AtlasExile1Apparition", "Metadata/Monsters/AtlasExiles/AtlasExile2Apparition",
+            "Metadata/Monsters/AtlasExiles/AtlasExile3Apparition", "Metadata/Monsters/AtlasExiles/AtlasExile4Apparition",
+        ];
+        foreach (string id in guardiansAndConquerors)
+        {
+            var v = monsters.Find(id);
+            Assert.NotNull(v);
+            Assert.True(BossKits.IsAtlasGuardianOrConqueror(v));
+            Assert.True(BossKits.IsKitBoss(skills, v), $"{id} should be a kit boss");
+        }
+        Assert.NotNull(Game.MavenNucleus.Shot(skills, 6039)); // HydraBarrage
+        Assert.NotNull(Game.MavenNucleus.Shot(skills, 9344)); // AtlasExilesEyrieIceShardProjectile
+        Assert.NotNull(Game.MavenNucleus.Shot(skills, 1822)); // AtlasBasiliskDualProjectile
+    }
 }

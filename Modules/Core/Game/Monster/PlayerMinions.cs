@@ -91,6 +91,10 @@ public static partial class Game
         if (!Current()) return;
         await MirageWarriorsTick(player, now);
         if (!Current()) return;
+        if (player.Companion is not null)
+            using (ProjectileMutation(player))
+                if (Current() && !player.Closed && !player.LeavingArea)
+                    CompanionIncomingContactsLocked(player, now);
         if (player.Minions.All.Count == 0 && player.Minions.Bodies.Count == 0
             && player.Minions.PendingRelics == 0 && player.Minions.OutputQueue.Count == 0
             && player.Summons.PresentedOwnership.Count == 0)

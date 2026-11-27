@@ -42,3 +42,14 @@ public sealed record ExpeditionSagaData(byte AreaLevel, IReadOnlyList<Expedition
         }
     }
 }
+
+/// <summary>MercenaryContract item component 173 (slot 5 0x1424ac0f0, write 0x1424ac0a0): u8 flag (+0x78) followed by
+/// <see cref="InstanceMercenaries.MercenaryBaseRecord"/> (+0x10) for Mercenary Warrant rematch items.</summary>
+public sealed record MercenaryContractData(InstanceMercenaries.MercenaryBaseRecord Mercenary, byte Flag = 0)
+{
+    public void Write(BlobWriter writer)
+    {
+        writer.U8(Flag);
+        InstanceMercenaries.WriteBaseRecord(writer, Mercenary);
+    }
+}

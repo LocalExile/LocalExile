@@ -83,9 +83,15 @@ public class AreaExitsTests
     public void AnEnabledEntranceChoosesBeforeADisabledOne()
     {
         // The Control Blocks' entrance room: "entrance2disabled" "entrance1", one generic "entrance" point.
-        var exits = Resolve([Room("entrance_01", 0, 0, ["entrance2disabled", "entrance1"], [(60, 60, "entrance")])], [At(10, 10), At(62, 61)]);
+        var room = Room("entrance_01", 0, 0, ["entrance2disabled", "entrance1"], [(60, 60, "entrance")]);
+        var objects = new[] { At(10, 10), At(62, 61) };
+        var rooms = AreaExits.Rooms(Files(), [room]);
+        var exits = AreaExits.Resolve(rooms, objects);
         Assert.Equal((ExitKind.Entrance, 2, false), (exits[0].Kind, exits[0].Number, exits[0].Enabled));
         Assert.Equal((ExitKind.Entrance, 1, true), (exits[1].Kind, exits[1].Number, exits[1].Enabled));
+        var entrances = AreaExits.Entrances(rooms, objects, usable: (x, y) => x > 50);
+        Assert.Equal((1, true, 60, 60, true), entrances.Single(e => e.Number == 1) is var e1 ? (e1.Number, e1.Enabled, e1.X, e1.Y, e1.NamedPoint) : default);
+        Assert.Equal((2, false, 62, 61, false), entrances.Single(e => e.Number == 2) is var e2 ? (e2.Number, e2.Enabled, e2.X, e2.Y, e2.NamedPoint) : default);
     }
 
     [Fact]
@@ -159,5 +165,48 @@ public class AreaExitsTests
     {
         var exits = Resolve([Room("fill", 0, 0, ["shuffle1"], [(10, 10, "entrance")])], [At(20, 20), At(500, 500)]);
         Assert.All(exits, e => Assert.Equal(ExitKind.Unused, e.Kind));
+    }
+
+    [Theory]
+    [InlineData("Metadata/Terrain/Act6/Area8/Rooms/bossphase1.arm", "ArenaNameAbberath2")]
+    [InlineData("Metadata/Terrain/Act6/Area8/Rooms/Gauntlet/bossphase1_gauntlet.arm", "ArenaNameAbberath2")]
+    [InlineData("Metadata/Terrain/EndGame/MapSummit/Rooms/Unique/bossphase1.arm", "MapSummitValley")]
+    public void AbberathPhase1TelepadsPairEastEntranceAndWestLockedExitInOrder(string phase1Path, string phase2Label)
+    {
+        PlacedRoom RoomAtPath(string path, int tileX, int tileY, string[] descriptions, (int X, int Y, string Name)[] points)
+        {
+            _rooms[path] = "version 36\n0\n\"test\"\nk 4 4 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n"
+                + string.Concat(points.Select(p => $"{p.X} {p.Y} 0 \"{p.Name}\"\n")) + "-1\n";
+            var key = new TileKey { Width = 4, Height = 4 };
+            return new PlacedRoom(new RoomDef(path, "test", key, new RoomSlot[4, 4]), tileX, tileY, 4, 4, descriptions, 0);
+        }
+
+        // Mirrors 2_6_8 / MapWorldsSummit topology: bossphase1 lists telepad4 before telepad1 while the .arm file
+        // authors the east entrance point (beside DoorAbberathExterior) before the west exit point (beside locked DoorAbberathPhase1).
+        var entrance = RoomAtPath("Metadata/Terrain/Act6/Area8/Rooms/bossentrance.arm", 0, 0,
+            ["teleport1-ArenaNameAbberath1", "telepad2", "telepad7"], [(40, 40, "telepad")]);
+        var phase1 = RoomAtPath(phase1Path, 10, 0,
+            [$"teleport3-{phase2Label}", "telepad4", "teleport2-%areaname%", "telepad1", "accessible"],
+            [(80, 40, "telepad"), (12, 40, "telepad")]); // point 0 = east entrance, point 1 = west locked door
+        var connector = RoomAtPath("Metadata/Terrain/Act6/Area8/Rooms/boss_connector.arm", 20, 0,
+            ["teleport4-ArenaNameAbberath1", "telepad3", "teleport5-ArenaNameAbberath3", "telepad6", "accessible"],
+            [(15, 40, "telepad"), (75, 40, "telepad")]);
+
+        var entranceGate = At(42, 40);
+        var eastGate = At(230 + 82, 40); // beside DoorAbberathExterior
+        var westGate = At(230 + 10, 40); // beside locked DoorAbberathPhase1
+        var connectorFromPhase1 = At(460 + 14, 40);
+        var connectorToPhase2 = At(460 + 76, 40);
+
+        var exits = Resolve([entrance, phase1, connector],
+            [entranceGate, eastGate, westGate, connectorFromPhase1, connectorToPhase2]);
+
+        // Entering Valley of the Fire Drinker (teleport1) must land at the east entrance, not behind locked DoorAbberathPhase1.
+        Assert.Equal((ExitKind.Teleport, 1, (eastGate.X, eastGate.Y)), (exits[0].Kind, exits[0].Number, exits[0].Target));
+        // East gate leads back to Prisoner's Gate (teleport2); west gate leads forward to The Cloven Pass (teleport3).
+        Assert.Equal((ExitKind.Teleport, 2, "%areaname%"), (exits[1].Kind, exits[1].Number, exits[1].Label));
+        Assert.Equal((ExitKind.Teleport, 3, phase2Label), (exits[2].Kind, exits[2].Number, exits[2].Label));
+        // Returning from The Cloven Pass (teleport4) lands at the west exit beside DoorAbberathPhase1.
+        Assert.Equal((ExitKind.Teleport, 4, (westGate.X, westGate.Y)), (exits[3].Kind, exits[3].Number, exits[3].Target));
     }
 }

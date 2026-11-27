@@ -33,11 +33,12 @@ bench.
 
 - **Known:** the 3.29 rules and the 20 generic map bases (`MapKeyTier1` … `MapKeyTier16` and four special ones) are in
   [game/maps.md](../docs/game/maps.md).
-  Generic `MapKeyTierN` items, `MapKeys.dat` tiers, the MapKey component, the default Atlas layout and basic map drops
-  are implemented; see Status. The native Atlas panel/progress and the map stash are not.
-- **Start:** Atlas saved progress (completed nodes, adjacent unlocks, point awards);
-  Voidstones; the map stash tab's layout (18 A5); the official drop pools.
-- **Done when:** maps drop, are stored and run the 3.29 way, and the Atlas shows and saves progress.
+  Generic `MapKeyTierN` items, `MapKeys.dat` tiers, Atlas saved progress (`0x01a3`/`0x01a4`), 4-slot Voidstones, Maven
+  witnessing/Crucible, Eldritch influence/Altars/28-map trackers, Zana/Eagon Memory Tears, Astrolabes/Shaped Regions,
+  Memory Vaults, 3.29 Atlas Anomalies, and all nine Atlas Books of Skill are implemented (offline verified); see Status.
+- **Start:** live client verification of Act 11 Atlas endgame storylines;
+  the map stash tab's layout (18 A5); unique map client acceptance; official drop pools.
+- **Done when:** maps drop, are stored and run the 3.29 way, and the Atlas shows and saves progress live.
 
 ### Idols: what the side panel leaves out
 
@@ -48,14 +49,13 @@ bench.
   refusing Atlas passive allocations on the server while the tree is hidden; drop rates from recorded play.
 - **Done when:** a later client build with an Idol panel shows the three loadouts, or the items above work in the side panel.
 
-### Legion: rewards, the Domain and the Atlas
+### Legion: live-client tuning and Enshrouding Crystals
 
-- **Known:** the monolith, timer, frozen armies, break-out, release and the rewards (symbols, drops, splinters,
-  chests) work ([Legion](../docs/game/legion.md); #1391).
-- **Start:** phase 3: the Domain of Timeless Conflict and timeless jewel drops; phase 4: the Atlas `map_legion_*`
-  stats beyond the supported scarab inputs. The count, chest, rank and reward numbers are guesses to settle
-  against the real game.
-- **Done when:** a Legion encounter pays what the real one does and the Atlas passives and scarabs change it.
+- **Known:** the monolith, rewards, scarabs, Atlas passives and the Domain of Timeless Conflict are built
+  ([Legion](../docs/game/legion.md)); only scarab inputs, breakouts and reward drops have native verification.
+- **Start:** the Crystals of Permutation (Enshrouded items, the `LegionCocoonCrystal` window); faction-vs-faction fighting;
+  tuning of the GUESS numbers (count, chest, rank, reward, Domain); live checks in the client.
+- **Done when:** the monoliths, scarabs, Domain and crystals match the real client.
 
 ### Hideouts: decorations, editing and the map device
 

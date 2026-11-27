@@ -1792,6 +1792,10 @@ public sealed class SkillCatalog
     public int CastTimeMs(int effectRow) =>
         _tables is { } t && effectRow >= 0 && effectRow < t.Effects.Count ? t.Effects[effectRow].CastTime : 0;
 
+    /// <summary>A GrantedEffects row's primary attribute enum (Attribute: 1 = Str, 2 = Dex, 3 = Int; 0 unknown).</summary>
+    public int EffectAttribute(int effectRow) =>
+        _tables is { } t && effectRow >= 0 && effectRow < t.Effects.Count ? t.Effects[effectRow].Attribute : 0;
+
     public GrantedSkill? Find(ushort id, string effect, int level, IReadOnlyList<(uint, int)>? stats = null)
     {
         if (_tables is not { } t)
@@ -2029,7 +2033,7 @@ public sealed class SkillCatalog
     // Quality: per GrantedEffects row its (quality stat, permille).
     private sealed record Tables(Dictionary<string, (int Row, int StatSet)> EffectRows, List<int> StatSets,
         List<(int Effect, int Level)> PerLevel, List<(int StatSet, int Level)> StatSetsPerLevel,
-        List<(int StatSet, int CastTime, bool CooldownPauses)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
+        List<(int StatSet, int CastTime, bool CooldownPauses, int Attribute)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
         List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost, List<int> LifeCost,
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass, int Group)> Cooldowns,
         List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
@@ -2058,7 +2062,7 @@ public sealed class SkillCatalog
             static (int, int)[] Pairs(int[] keys, int[] values) => [.. keys.Zip(values).Where(kv => kv.First >= 0)];
             var effects = new Dictionary<string, (int, int)>();
             var statSets = new List<int>();
-            var effectInfo = new List<(int, int, bool)>();
+            var effectInfo = new List<(int, int, bool, int)>();
             int activeCount = 0;
             if (ClientTables.Has("ActiveSkills"))
             {
@@ -2075,7 +2079,7 @@ public sealed class SkillCatalog
                 if (id is not null) effects.TryAdd(id, (row, statSet));
                 statSets.Add(statSet);
                 effectInfo.Add((statSet, Math.Max(0, Int(r, "CastTime")),
-                    r.BoolOrNull("CooldownNotRecoverDuringActive") == true));
+                    r.BoolOrNull("CooldownNotRecoverDuringActive") == true, Math.Max(0, Int(r, "Attribute"))));
                 row++;
             }
             var baseStats = new List<(int[], (int, int)[])>();

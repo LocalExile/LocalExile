@@ -442,6 +442,7 @@ public static partial class Game
             foreach (var aura in gone) { player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura); }
             if (gone.Length > 0) player.AuraStatsDirty = true;
         }
+        if (InTown(player)) ClearCooldownTriggersLocked(player);
         if (player.AuraStatsDirty)
         {
             player.Pools = PoolsFor(player, player.Pools.Level);
@@ -490,6 +491,7 @@ public static partial class Game
         PresentCrabLocked(player);
         PresentSelfVulnerabilityLocked(player);
         PresentMadnessLocked(player);
+        PresentCooldownTriggersLocked(player);
         // Reconciliation changes Cat phase and earned charges after the caller's validation/pricing scope was built.
         // Publish every following 1b3/Actor payload from a fresh post-change snapshot, then restore that outer scope.
         using var publicationStats = new PlayerStatScope(player, fresh: true);

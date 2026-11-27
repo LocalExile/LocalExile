@@ -1081,8 +1081,8 @@ public sealed partial class AccountStash
             var t = _tabs[tab];
             if (CellIn(t, held.Item, x, y, out _) is not var (cx, cy)) return null;
             int max = MaxStack(t, held.Item, shape, cx, cy);
-            if (max <= 1) return null;
-            if (InTheWay(t, cx, cy, shape, shapeOf) is not [var under] || under.Item.TypeHash != held.Item.TypeHash || under.Item.StackSize >= max) return null;
+            if (max <= 1 || held.Item.MercenaryContract is not null) return null;
+            if (InTheWay(t, cx, cy, shape, shapeOf) is not [var under] || under.Item.TypeHash != held.Item.TypeHash || under.Item.MercenaryContract is not null || under.Item.StackSize >= max) return null;
             int moved = Math.Min(Math.Min(held.Item.StackSize, most), max - under.Item.StackSize);
             var bigger = under with { Item = under.Item with { StackSize = (ushort)(under.Item.StackSize + moved) } };
             var grown = _rules.Slotted(t.Saved.Type) ? bigger : PlayerInventories.Completed(bigger, shape);
@@ -1130,7 +1130,8 @@ public sealed partial class AccountStash
             if (!t.Saved.Public && item.Note is not null) item = item with { Note = null };   // as in Place
             int SlotMax(int sx, int sy) => Math.Max(1, MaxStack(t, item, shape, sx, sy));
             left = item.StackSize;
-            foreach (var s in t.Items.Where(i => i.Item.TypeHash == item.TypeHash && SlotMax(i.X, i.Y) is int max && max > 1 && i.Item.StackSize < max
+            foreach (var s in t.Items.Where(i => item.MercenaryContract is null && i.Item.MercenaryContract is null
+                         && i.Item.TypeHash == item.TypeHash && SlotMax(i.X, i.Y) is int max && max > 1 && i.Item.StackSize < max
                          && (slotted ? spots.Contains((i.X, i.Y)) : string.Equals(i.Item.Note, item.Note, StringComparison.Ordinal)))
                          .OrderBy(i => slotted ? spots.IndexOf((i.X, i.Y)) : 0).ThenByDescending(i => i.Item.StackSize).ToList())
             {

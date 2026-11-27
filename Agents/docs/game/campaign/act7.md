@@ -316,7 +316,11 @@ The native turret `fire` clip lasts 3333 ms, with `effect` at 66 ms and the dama
 `activate` lasts 533 ms. Transition 2 invokes `MakeBeam(SpiderGodLaserBeam, next)` on a source turret.
 The rail controller supplies those links and uses the native timeline; the three-lane selection and 3-cell collision
 band are development calibration, not recovered official AI weights.
-Generic AI still excludes the unsafe `SpiderGodActivateLaser*` actions; the controller drives the linked rails directly.
+Generic AI still excludes the unsafe `SpiderGodActivateLaser*` and `ArakaaliHide*` actions; the controller drives the
+linked rails directly and creates the four placed `TeleportMarkerSerialized1..4` (`Positioned` + `BaseEvents`) scene
+objects so corner-to-corner relocation runs native `ArakaaliHide[6885]` (ActionType 724) with a real marker
+`targetObjectId` (`OnStart` copies `targetEntity->Positioned.Rotation` unchecked, `OnHideContact` moves and rotates the
+actor, and `OnAnimEnd` plays `Emerge`), falling back to `SetWorldHidden` only when no placed markers exist.
 
 
 **Start:** YeenaTown "Silk" (cat 4, sets the quest). **Finish:** enter The Sarn Ramparts.
