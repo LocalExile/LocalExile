@@ -117,6 +117,36 @@ public static partial class Game
             DamageStats.Conversion(player, Stats, attack: null), spell: false, area: true, secondary: true);
     }
 
+    static void ReleaseSkillCorpseExplosion(ProjectileSession session, uint corpseId, SpawnedMonster corpse,
+        (int X, int Y) at, double now, int radius, DamagePacket packet, Penetration.PerType penetration, int cannotPenetrate,
+        string skill)
+    {
+        var player = session.Player;
+        if (!corpse.CorpseConsumed)
+        {
+            corpse.CorpseConsumed = true;
+            player.Area.Monsters.Remove(corpseId);
+            session.WorldRecords(corpseId, () => [InstanceProtocol.RemoveObject(corpseId)],
+                $"{skill} consumes corpse", remove: true);
+        }
+        foreach (var (id, enemy) in player.Area.MonstersNear(at, radius))
+        {
+            if (!enemy.Hostile || enemy.Dead || enemy.Life == 0 || Dist(at, enemy.Walk.Position(now)) > radius)
+                continue;
+            var resisted = MitigateMonsterHit(enemy, packet, now, penetration, cannotPenetrate);
+            int damage = MonsterTakesMitigated(enemy, resisted, false, now);
+            if (ApplyTypedMonsterHitLocked(player, enemy, damage,
+                MonsterHitChaosDamage(enemy, resisted, spell: false, now, damage), allyAt: at) is not { } hit)
+                continue;
+            if (hit.StageStarts) CommitBossStage(player, id, enemy, now);
+            if (hit.Life == 0) SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
+            session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life),
+                $"{skill} corpse explosion target=0x{id:x} damage={damage} life={hit.Life}/{enemy.MaxLife}");
+            if (hit.Life == 0) CommitProjectileKill(session, id, enemy, session.Runtime.Now, AreaRng(player));
+            if (enemy.ThresholdReached) session.Enqueue(() => QuestThreshold(player, id, enemy));
+        }
+    }
+
     /// <summary>An on-kill explosion's fixed radius in cells, from the official 3.29.3b client (2026-11-05: a kill
     /// exploded monsters 22.85 and 24.35 cells away). The native radius does not follow the character's increased area
     /// of effect; scaling our 25 by a 85% AoE build produced 37 cells and hit roughly twice the native crowd, which

@@ -309,8 +309,8 @@ public static partial class Game
             (ballista || searingBond) && !singleTotem ? Math.Max(0, limit - ordinary) : 0;
         // A totem that places its own skill (everything except an adopted projectile spell) carries the granted proxy
         // its object names for the action, with the skill's stats and area radius and no pathing, so the client can play
-        // what it does. A nova (Shockwave Totem) hits around the totem at the end of each cast (TotemNovaLocked); a
-        // spell totem flies instead and has no Strike: SpellTotems.cs ticks it (Effect >= 0).
+        // what it does. A dedicated nova hits at the end of each cast (TotemNovaLocked).
+        // A spell totem runs through SpellTotems.cs (Effect >= 0).
         int radius = SkillRadius(player, own, spell: true, effect);
         GrantedSkill? action = proxy;
         TotemState.Strike? strike = null;
@@ -784,10 +784,8 @@ public static partial class Game
         bytes.World(player.Id, PlayerStatsOffFrames(player));
     }
 
-    // A totem with a skill of its own uses it. Shockwave Totem (a nova) casts while a targetable hostile is within its
-    // totem range (base_totem_range, as the other totems read it: TotemTargetRange) and hits around itself at the end of
-    // each cast; Devouring Totem eats a corpse. An aura totem (Rejuvenation) has neither, and an adopted projectile spell
-    // totem is ticked by SpellTotems.cs instead.
+    // A dedicated nova starts while a hostile is within the totem's base_totem_range.
+    // Devouring Totem eats a corpse. An adopted projectile spell totem is ticked by SpellTotems.cs.
     // The nova's contact is scheduled on the projectile runtime, as the Arc totem's release is: a hit can kill, and a kill
     // takes the XP gate, which goes before the area's frame (ProjectileMutationScope). This tick holds only the Monsters
     // lock, so a kill committed here deadlocked against any scope waiting on it (live 2026-11-17).
@@ -803,10 +801,11 @@ public static partial class Game
             return;
         }
         if (totem.Strike is not { } strike || now < strike.NextCast) return;
+        bool ownerCentred = SkillsFor(player).EffectId(totem.EffectRow) == "ShockwaveTotemAltX";
         double range = TotemTargetRange(player, totem.SkillId);
         var targets = player.Area.Monsters.Values.Where(m => TotemTargetable(m) && Dist(m.Walk.Position(now), totem.At) <= range);
         var centre = totem.At;
-        if (SupportedStats(player, totem.SkillId).GetValueOrDefault(Stat.NovaSpellsCastAtTargetLocation) != 0)
+        if (!ownerCentred && SupportedStats(player, totem.SkillId).GetValueOrDefault(Stat.NovaSpellsCastAtTargetLocation) != 0)
         {
             var target = targets.MinBy(m => Dist(m.Walk.Position(now), totem.At));
             if (target is null) return;
@@ -815,16 +814,20 @@ public static partial class Game
         else if (!targets.Any()) return;
         if (TotemCastSeconds(player, totem.SkillId) is not double seconds) return;
         var session = ProjectilesFor(player);
+        var aim = ownerCentred ? player.Walk.Position(now) : centre;
         ushort sequence = ++totem.Sequence;
         strike.NextCast = now + seconds;
-        bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, centre.X, centre.Y,
-            strike.GrantedId, sequence, player.MonsterOrderFlags));
+        bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
+            strike.GrantedId, sequence, player.MonsterOrderFlags, targetObjectId: ownerCentred ? player.Id : null));
         var lifetime = CombatLifetime;
         session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(strike.NextCast)), () =>
         {
-            if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && !player.Closed
-                && totem.Alive(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond))
-                TotemNovaLocked(player, session, totem, centre, strike.Radius, sequence);
+            double at = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+            if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && !player.Closed && totem.Alive(at))
+            {
+                var releaseCentre = ownerCentred ? player.Walk.Position(at) : centre;
+                TotemNovaLocked(player, session, totem, releaseCentre, strike.Radius, sequence);
+            }
         });
     }
 
@@ -873,7 +876,7 @@ public static partial class Game
     }
 
     // A nova's contact, on the projectile runtime (under the XP gate and the area's frame): every targetable hostile
-    // within its radius of the totem takes the spell's hit, worked out now from the owner's stats as a totem's
+    // within its radius of the release centre takes the spell's hit, worked out now from the owner's stats as a totem's
     // (TotemCasterStats: Ancestral Bond's "no damage yourself" is the owner's, not the totem's), in the Arc totem's steps
     // (ArcTotems.cs): block, crit, penetration, the 0x1af, ailments. The totem's kills give the player their experience
     // but are not his for his on-kill effects.

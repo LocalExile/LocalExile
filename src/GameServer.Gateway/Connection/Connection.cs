@@ -63,6 +63,9 @@ public sealed partial class Connection(Player player)
         set { _lockstep = value; _modeSeen = true; }
     }
 
+    /// <summary>Whether this connection has established that its client is in lockstep.</summary>
+    public bool LockstepConfirmed => _modeSeen && _lockstep;
+
     /// <summary>Notes a C→S message from the client's wire (not the server's own made-up inputs). Returns the ids of
     /// both modes the first time this area has had messages of both, else null.</summary>
     public (ushort[] Predictive, ushort[] Lockstep)? NotePacket(string remote, ushort id)

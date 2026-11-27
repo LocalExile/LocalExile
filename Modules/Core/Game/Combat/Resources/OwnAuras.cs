@@ -331,7 +331,7 @@ public static partial class Game
                 continue;
             }
             var support = AuraSupport(player, aura.SkillId);
-            var context = ReservationContext(player, aura.SkillId);
+            var context = ReservationContext(player, aura.SkillId, input.Raw);
             string? stance = StanceCatalog.IsStance(aura.EffectId)
                 ? StanceCatalog.SelectionOf(aura, player.Stance) : null;
             var repriced = aura with
@@ -497,7 +497,7 @@ public static partial class Game
         {
             player.AuraStatsDirty = false;
             packets.Add(PlayerStatsOffFrames(player));
-            packets.AddRange(PlayerSkillsBatchesIfChanged(player, PlayerSkills(player)));
+            packets.AddRange(PlayerSkillsBatchesIfChanged(player, PlayerSkills(player), forceRestore: true));
             player.Frames.Area?.Life.Changed(player);
         }
         var petrified = player.PetrifiedBlood;

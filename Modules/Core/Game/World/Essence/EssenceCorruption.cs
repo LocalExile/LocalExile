@@ -79,7 +79,7 @@ public static partial class MapEssences
                 && items.Items(PlayerInventories.Cursor).FirstOrDefault(i => i.Id == use.ItemId) is { } hi)
             { row = PlayerInventories.Cursor; fromChar = true; used = hi; }
             AccountStash? stash = null; int stashTab = -1;
-            if (used is null && StashOf(player) is { } s && s.TabOf(use.InventoryId) is int t
+            if (used is null && StashOf(player) is { IsTrade: false } s && s.TabOf(use.InventoryId) is int t && s.IsShownTab(t)
                 && s.Inventory(t).Items.FirstOrDefault(i => i.Id == use.ItemId) is { } si) { stash = s; stashTab = t; used = si; }
             if (used is null || ItemsFor(player).ByHash(used.Item.TypeHash)?.Id != CurrencyEffects.VaalOrb)
             {
@@ -106,7 +106,7 @@ public static partial class MapEssences
             else
             {
                 // The clicked stack, not the smallest stack of its type anywhere in the stash.
-                if (!CurrentGameWork || stash!.PayOne(stashTab, used) is not { } paid) return true;
+                if (!CurrentGameWork || stash!.PayOne(stashTab, used, allowPublic: true) is not { } paid) return true;
                 notify = () => SendStashPayment(player, stash!, paid);
             }
             monolith = result.Monolith;

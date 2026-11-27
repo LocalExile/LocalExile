@@ -13,7 +13,7 @@ public static partial class Game
         Stat.SupportEfficacySpellDamagePlusPctFinal, Stat.SupportEfficacyDamageOverTimePlusPctFinal,
         Stat.SupportRapidDecayDamageOverTimePlusPctFinal, Stat.SupportHypothermiaColdDamageOverTimePlusPctFinal,
         Stat.CrueltyDamageOverTimePlusPctFinal, Stat.SupportTrapAndMineDamagePlusPctFinal,
-        Stat.SupportTrapDamagePlusPctFinal, Stat.SupportRemoteMine2DamagePlusPctFinal,
+        Stat.SupportTrapDamagePlusPctFinal, Stat.SupportRemoteMine2DamagePlusPctFinal, Stat.SupportDivineCryDamagePlusPctFinal,
     ];
 
     static double ColdGroundDps(Func<uint, int> get, Func<uint, int> own, bool spell, bool mine, bool trap)

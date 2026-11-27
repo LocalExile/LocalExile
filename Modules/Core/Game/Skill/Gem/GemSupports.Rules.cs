@@ -56,7 +56,7 @@ public static partial class Game
         equipment ??= ItemsOf(player).EquipmentSnapshot();
         return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && (g.ManuallyCast
                 || g.EffectId is SpiritBurstEffect or GuardianWeaponEffect or FoulgraspEffect or PrismaticBurstEffect
-                    or AvengingFlameEffect or SummonSacredWispEffect
+                    or AvengingFlameEffect or SummonSacredWispEffect or ShockwaveEffect or VoidShockwaveEffect or GoreShockwaveEffect
                 || TriggeredItemMinion(g) is not null)
             && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId)
             && (ItemEffectRules.Enabled && ItemEffectRules.Current.Marks(SkillsFor(player), g).Length != 0
@@ -64,7 +64,8 @@ public static partial class Game
                 || SkillsFor(player).IsWarcry(g.Effect)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
                 || g.EffectId is SnipeEffect or SpiritBurstEffect or FoulgraspEffect or PrismaticBurstEffect
-                    or AvengingFlameEffect or SummonSacredWispEffect or "DoryanisTouch" or ApproachingFlamesEffect
+                    or AvengingFlameEffect or SummonSacredWispEffect or ShockwaveEffect or VoidShockwaveEffect
+                    or GoreShockwaveEffect or "DoryanisTouch" or ApproachingFlamesEffect
                     or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink" or CallOfSteelEffect
                     or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry" or GuardianWeaponEffect
                 || TriggeredItemMinion(g) is not null
@@ -140,7 +141,7 @@ public static partial class Game
                             Quality(p.Socket, p.Gem), p.Socket));
                 else if (variant.Effect2 >= 0
                     && Supports.Of(variant.Effect2) is { Support: true, Id: SnipeSupportEffect or GeneralsCrySupportEffect
-                        or "SupportBrandSupport" or "SupportIntuitiveLink" or AutomationSupport or AutoexertionSupport })
+                        or "SupportBrandSupport" or "SupportIntuitiveLink" or BattlemagesCrySupport or AutomationSupport or AutoexertionSupport })
                     candidates.Add(new(variant.Effect2, EffectiveGemLevel(player, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
                         Quality(p.Socket, p.Gem), p.Socket));
             }
@@ -175,7 +176,7 @@ public static partial class Game
             && CrueltyDotStat is var crueltyKey)
             own[crueltyKey] = own.GetValueOrDefault(crueltyKey) + crueltyPct;
         ApplyBloodAndSandMeleeStats(player, selected.Effect, own);
-        ApplyLacerateBleed(player, selected.Effect, own);
+        ApplyStanceMeleeBleed(player, selected.Effect, own);
         if (SkillsFor(player).IsAura(selected.Effect, supports.Select(s => s.Effect.Row)))
             own[OwnAuraRestriction.BaseAura] = 1;
         own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
@@ -755,6 +756,10 @@ public static partial class Game
             int frenzy = ChargesOf(player).Effective(ChargeType.Frenzy);
             more *= Math.Max(.01, 1 + (double)frenzyMore * frenzy / 100);
         }
+        // The bloodstorm buff supplies the condition. The attack speed multiplier belongs to the skill.
+        if (!proxy && gem.Stats.GetValueOrDefault(Stat.BladestormAttackSpeedPlusPctFinalWhileInBloodstorm) is > 0 and var stormSpeed
+            && BladestormBonuses(player).Blood)
+            more *= 1 + stormSpeed / 100d;
         // Close Combat's Combat Rush: more Attack Speed for a travel skill it does not support.
         more *= CombatRushMore(player, skillId, gem, AreaTime(player));
         // Supports.AttackSpeedMultiplier reads the skill's own GEPL row too: its inherent -20 on Tornado Shot is
@@ -877,6 +882,7 @@ public static partial class Game
         if (wildStrike && !strikeFollowup) area ??= false;
         var caster = FinalPlayerStats(player).ToDictionary(v => v.Item1, v => v.Item2);
         var skills = SkillsFor(player);
+        bool iceShot = GatewayProjectileSkillProfiles.IsIceShot(skills.EffectId(gem.Effect));
         int manaPool = ManaCostPool(player, gem);
         var stats = MergeSkillStats(caster, WithManaPoolCost(player, gem, gem.Stats, manaPool),
             skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats), SkillCostScopeFor(skills, gem));
@@ -935,6 +941,11 @@ public static partial class Game
             : name is var k ? stats.GetValueOrDefault(k) : 0;
         bool attack = SkillsFor(player).IsAttack(gem.Effect);
         var types = Supports.Of(gem.Effect)?.Types.ToHashSet() ?? [];
+        // Rain attacks have separate projectile-speed/number support tags, but their landing hits are projectiles.
+        if (attack && Get(Stat.BaseIsProjectile) != 0 && ArrowRain(skills.EffectId(gem.Effect)))
+            types.Add(2);
+        if (IsStormRain(skills.EffectId(gem.Effect)) && Get(Stat.StormRainDamagePlusPct) is int stormRain and not 0)
+            stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, Get(Stat.DamagePlusPct), stormRain);
         // Support-converted traps and mines receive the same hit modifiers as native placed skills.
         if (placed.Trap) types.Add(32);
         if (placed.Mine) types.Add(35);
@@ -1082,11 +1093,13 @@ public static partial class Game
         if (gem.PrismaticBurstElement is { } burstElement)
             raw = DamagePacket.Empty.Add(burstElement, raw[burstElement]);
         Func<uint, int> hitStats = attackWeapon is null || secondary ? Get : SupportedAttackDamage.HitModifiers(attackWeapon, Get, attackAccuracy);
+        if (iceShot && area is true) stats[Stat.SkillPhysicalDamagePctToConvertToCold] = 100;
         var conversion = DamageStats.Conversion(stats, Stats, secondary ? null : attack);
         if (attackWeapon is not null && !secondary)
             SupportedAttackDamage.WithWeaponGains(conversion, attackWeapon, Get);
         return new(raw, hitStats, conversion, attack,
-            Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get(Stat.IsAreaDamage) != 0,
+            Melee: attack && types.Contains(19), Area: attack ? (iceShot && area is bool iceArea ? iceArea : types.Contains(7))
+                : Get(Stat.IsAreaDamage) != 0,
             Projectile: attack ? types.Contains(2) : Get(Stat.BaseIsProjectile) != 0, modifiers, types, plan, caster,
             WieldingWand: attackWeapon?.WieldingWand == true, WieldingBow: attackWeapon?.Bow == true, Secondary: secondary)
         {

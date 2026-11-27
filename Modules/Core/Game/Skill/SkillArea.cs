@@ -27,6 +27,7 @@ public static class SkillArea
             : effect is "ConsecratedPath" or "ConsecratedPathAltX" ? 23
             : Game.LacerateEffect(effect) ? LacerateWaves.BaseRadius
             : Game.CleaveAttack(effect) ? Game.CleaveBaseRadius
+            : Game.IsBladestorm(effect) ? 24
             : effect is "TectonicSlam" or "VaalBladeVortex" ? 15
             : effect == "PrismaticBurst" ? 13
             : GatewayProjectileSkillProfiles.IsShatteringSteel(effect) ? 28

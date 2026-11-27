@@ -475,6 +475,8 @@ public static partial class Game
         if (player.Character.RefundPoints == 0) return;
         player.Character.RefundPoints--;
         CharacterSaves.SetRefundPoints(CharacterName(player), player.Character.RefundPoints);
+        player.Character.SavedPassiveProgress = new(player.Character.MainAscendancy,
+            player.Character.Passives, player.Character.MasteryEffects, player.Character.RefundPoints);
     }
 
     /// <summary>The Adorned's modifier: increased effect of jewel socket passives containing corrupted magic jewels.</summary>

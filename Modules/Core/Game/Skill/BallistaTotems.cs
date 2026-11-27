@@ -5,7 +5,7 @@ public static partial class Game
         && (BallistaRain(player, effect) || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null);
 
     static bool BallistaRain(Player player, int effect) =>
-        SkillsFor(player).EffectId(effect) is var id && (id == "BlastRain" || IsToxicRain(id) || IsArtilleryBallista(id));
+        SkillsFor(player).EffectId(effect) is var id && (id is "BlastRain" or TrarthusBlastRain or ConflagrationEffect || IsToxicRain(id) || IsArtilleryBallista(id) || IsStormRain(id));
 
     public static bool BallistaPathAvailable(Player player, ushort skill)
     {

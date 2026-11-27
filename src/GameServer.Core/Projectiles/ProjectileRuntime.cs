@@ -134,7 +134,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             throw new ArgumentOutOfRangeException(nameof(p));
         foreach (var area in new[] { p.LaunchArea, p.ContactArea, p.EndArea })
             if (area is { Delay: < 0 } or { Interval: < 0 } or { ConeHalfAngle: < 0 or > Math.PI }
-                || area is not null && !double.IsFinite(area.ConeHalfAngle))
+                || area is not null && (!double.IsFinite(area.ConeHalfAngle)
+                    || !double.IsFinite(area.ConeAxisRotation) || !double.IsFinite(area.ConeAxisStep)))
                 throw new ArgumentOutOfRangeException(nameof(p));
     }
 
@@ -434,11 +435,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             var terminal = p.Profile.EndArea is { ReplacesDirectContact: true } endArea
                 && AllowsEndArea(p, ProjectileEndReason.Enemy) && splitBonus == 0
                 && !CanContinue(p, actors, targetPierces) && ReturnDestination(p, ProjectileEndReason.Enemy) is null ? endArea : null;
+            var contactArea = p.Phase == 0 || p.Profile.ContactAreaOnReturn ? p.Profile.ContactArea : null;
+            ProjectileVector? centre = contactArea is { CentreOnContactTarget: true } ? target.Position(Now) : null;
             var result = Damage(p, target, terminal?.Stage ?? "direct", multiplier: terminal?.Multiplier ?? 1,
                 admissionStage: "direct", isArea: terminal is not null);
             if (result == ProjectileHitResult.Miss) return;
-            if ((p.Phase == 0 || p.Profile.ContactAreaOnReturn) && p.Profile.ContactArea is { } area)
-                Area(p, area, area.ExcludeContactTarget ? target.Key : null);
+            if (contactArea is not null)
+                Area(p, contactArea, contactArea.ExcludeContactTarget ? target.Key : null, centre);
             if (result == ProjectileHitResult.Hit && p.Profile.ContactTargets is { } strikes)
                 TargetedHits(p, target, strikes);
             if (result != ProjectileHitResult.Hit) splitBonus = 0;

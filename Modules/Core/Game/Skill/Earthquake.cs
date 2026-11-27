@@ -6,7 +6,10 @@ public static partial class Game
     // Delayed area hits keep the source gem and weapon when the player moves or unsockets the gem.
     internal sealed record RetainedAreaAttack(SupportedGem Gem, AttackHand Hand, SkillCatalog.Unarmed Weapon,
         AttackAccuracyProfile Accuracy, int CriticalChance, int CriticalMultiplier, int? CriticalVsBlind,
-        GroundCritical CriticalVsGround, double HitMore, double AilmentMore, string Phase);
+        GroundCritical CriticalVsGround, double HitMore, double AilmentMore, string Phase)
+    {
+        internal (uint Id, (int X, int Y) At)? ProxyActor { get; init; }
+    }
 
     static RetainedAreaAttack CaptureAreaAttack(Player player, ushort skillId, SupportedGem gem, AttackHand hand,
         SkillCatalog.Unarmed weapon, int? offCritical, double hitMore, double ailmentMore, string phase)
@@ -36,7 +39,7 @@ public static partial class Game
     static void ScheduleEarthquakeAftershockLocked(Player player, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, SupportedGem admitted,
         (int X, int Y) centre, ushort sequence, AttackHand hand, SkillCatalog.Unarmed weapon, int? offCritical,
-        SkillCriticalRoll critical, double now, double radiusMore, double damageMore, double ruthlessMore, bool cryExerted, bool seismicExerted)
+        SkillCriticalRoll critical, double now, double radiusMore, double damageMore, double ruthlessMore, bool cryExerted, bool seismicExerted, int? rallyingDamage)
     {
         var session = ProjectilesFor(player);
         if (session.EarthquakePending) return;
@@ -64,7 +67,7 @@ public static partial class Game
                 radiusMore, sacrifice: null, swingAt: null, triggeredCurrent: Current, discharge: null, strikeIndex: 0,
                 firstContactAt: null, ruthlessMore, priorTargets: null, scaledBlastChaos: 0,
                 singleStrikeTarget: null, onHit: null, scheduledSession: session, cryExerted, prepaidRawExtra: 0,
-                baseChaos: 0, hammer: null, retainedAttack: source, seismicExerted: seismicExerted);
+                baseChaos: 0, hammer: null, retainedAttack: source, seismicExerted: seismicExerted, rallyingDamage: rallyingDamage);
             if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled Earthquake aftershock must not yield.");
             hit.GetAwaiter().GetResult();
         });

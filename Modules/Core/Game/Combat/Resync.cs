@@ -133,7 +133,7 @@ public static partial class Game
             return DashLanding(player.Layout, player.Barrier, from, aim, travel, (flags & 1) != 0,
                 size: 1, sightBarriers: player.SightBarrier);
         }
-        if (id?.StartsWith("WhirlingBlades", StringComparison.Ordinal) == true && aim != from)
+        if (IsWhirlingBlades(id) && aim != from)
         {
             const int cells = 40;
             double f = cells / Math.Sqrt((double)(aim.X - from.X) * (aim.X - from.X) + (double)(aim.Y - from.Y) * (aim.Y - from.Y));

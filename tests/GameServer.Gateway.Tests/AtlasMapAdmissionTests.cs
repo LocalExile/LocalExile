@@ -41,6 +41,15 @@ public sealed class AtlasMapAdmissionTests
         Assert.NotNull(nightmareOpen);
         Assert.Equal(nightmare.Hash16, nightmareOpen.Area.Hash16);
         Assert.Equal(84, nightmareOpen.Area.Level);
+
+        // Distinct ungrouped fragments sharing sentinel family 149 combine with a map, while duplicates of the same base reject.
+        atlas.Select(name, ordinary);
+        var dawn = Slot(items.Find("Metadata/Items/MapFragments/CurrencyVaalFragment1_2")!);
+        var noon = Slot(items.Find("Metadata/Items/MapFragments/CurrencyVaalFragment1_3")!);
+        Assert.NotNull(device.Check([tier16, dawn, noon], name, items.Mods, out string okWhy));
+        Assert.Empty(okWhy);
+        Assert.Null(device.Check([tier16, dawn, dawn], name, items.Mods, out string dupWhy));
+        Assert.Contains("Only 1 of that kind of map fragment", dupWhy);
     }
 
     [Fact]

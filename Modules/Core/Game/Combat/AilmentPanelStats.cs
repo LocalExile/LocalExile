@@ -47,6 +47,7 @@ public static class AilmentPanelStats
         new(Stat.ActiveSkillAilmentDamagePlusPctFinal),
         new(Stat.DoedreAuraDamagePlusPctFinal), new(Stat.CastOnDamageTakenDamagePlusPctFinal),
         new(Stat.SupportCastWhileChannellingTriggeredSkillDamagePlusPctFinal),
+        new(Stat.SupportDivineCryDamagePlusPctFinal),
         new(Stat.SupportManaforgedArrowsDamagePlusPctFinal),
         new(Stat.SupportEchoDamagePlusPctFinal), new(Stat.SupportReducedDurationDamagePlusPctFinal),
         new(Stat.SupportSpiritStrikeDamagePlusPctFinal), new(Stat.SupportStormBarrierDamagePlusPctFinal),

@@ -1490,7 +1490,7 @@ public static partial class Game
             SpellBlockChance = bonus.SpellBlockChance + (activeWeapon.Shield
                 ? auras.Where(a => a.EffectId == "TempestShield").Select(a => ReservationStat(player, a, Stat.ShieldSpellBlockPct)).DefaultIfEmpty(0).Max() : 0),
             MovementVelocityPct = bonus.MovementVelocityPct + aura.MovementVelocityPct + ShieldChargeMovementPct(player)
-                + FlickerMovementPct(player) + ElusiveMovementPct(player)
+                + FlickerMovementPct(player) + ElusiveMovementPct(player) + BladestormBonuses(player).MoveIncreased
         };
         // Running utility flasks and Mageblood's permanent ones combined before one strongest-per-effect pass: the same
         // effect never counts twice.
@@ -1553,7 +1553,8 @@ public static partial class Game
         }
         if (EquipmentInput(Stat.ModifiersToMaximumFireResistanceApplyToMaximumColdAndLightningResistance) != 0)
         {
-            long fireMaximum = (long)EquipmentInput(Stat.BaseMaximumFireDamageResistancePct) + aura.FireMaxResistance;
+            long flaskFireMax = utilityStats.Where(row => row.Stat == Stat.BaseMaximumFireDamageResistancePct).Sum(row => (long)row.Value);
+            long fireMaximum = (long)EquipmentInput(Stat.BaseMaximumFireDamageResistancePct) + aura.FireMaxResistance + flaskFireMax;
             bonus = bonus with
             {
                 ColdMaxResistance = ActorScale.Saturate(bonus.ColdMaxResistance + fireMaximum),
@@ -1562,16 +1563,18 @@ public static partial class Game
         }
         if (EquipmentInput(Stat.ModifiersToFireResistanceAlsoApplyToColdLightningResistanceAtPctValue) is int fireShare and not 0)
         {
-            long fireSpecific = (long)resistanceSources.GetValueOrDefault(Stat.BaseFireDamageResistancePct)
+            long flaskFire = utilityStats.Where(row => row.Stat == Stat.BaseFireDamageResistancePct).Sum(row => (long)row.Value);
+            long fireOnly = (long)resistanceSources.GetValueOrDefault(Stat.BaseFireDamageResistancePct)
                 + resistanceSources.GetValueOrDefault(Stat.FireDamageResistancePlusPct)
-                + resistanceSources.GetValueOrDefault(Stat.FireAndColdDamageResistancePct)
-                + resistanceSources.GetValueOrDefault(Stat.FireAndLightningDamageResistancePct)
-                + resistanceSources.GetValueOrDefault(Stat.FireAndChaosDamageResistancePct);
-            long shared = fireSpecific * fireShare / 100;
+                + resistanceSources.GetValueOrDefault(Stat.FireAndChaosDamageResistancePct)
+                + flaskFire;
+            // Dual-element modifiers already apply to their second element; share each only to the missing element.
+            long toCold = (fireOnly + resistanceSources.GetValueOrDefault(Stat.FireAndLightningDamageResistancePct)) * fireShare / 100;
+            long toLightning = (fireOnly + resistanceSources.GetValueOrDefault(Stat.FireAndColdDamageResistancePct)) * fireShare / 100;
             bonus = bonus with
             {
-                ColdResistance = ActorScale.Saturate(bonus.ColdResistance + shared),
-                LightningResistance = ActorScale.Saturate(bonus.LightningResistance + shared),
+                ColdResistance = ActorScale.Saturate(bonus.ColdResistance + toCold),
+                LightningResistance = ActorScale.Saturate(bonus.LightningResistance + toLightning),
             };
         }
         bonus = ResistanceOvercap.Applied(bonus, resistanceSources, ResistancePenalty(player), Stats);

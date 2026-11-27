@@ -342,8 +342,13 @@ public static partial class Game
         // The passives' conditional attack speed is already one final value in Pools. main_hand_attack_speed_+% is the
         // total the client swings with, so Unarmed reads only it.
         Step(PlayerStatStep.AttackSpeed, (player, stats, _) =>
+        {
             stats[Stat.MainHandAttackSpeedPlusPct] = ActorScale.Saturate((long)player.Pools.AttackSpeedPct
-                + SoulEaterAttackSpeed(player, stats) + LeechingAttackSpeed(player, stats)));
+                + SoulEaterAttackSpeed(player, stats) + LeechingAttackSpeed(player, stats));
+            var storm = BladestormBonuses(player);
+            if (storm.Blood) stats[Stat.AffectedByBloodstorm] = 1;
+            if (storm.MoveIncreased > 0) stats[Stat.AffectedBySandstorm] = 1;
+        });
         // The utility flasks' plain stats (UtilityFlasks.RawStats: maximum resistances, crit, damage, cast speed), with
         // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
         Step(PlayerStatStep.UtilityFlasks, (player, stats, _) =>

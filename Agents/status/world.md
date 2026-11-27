@@ -96,6 +96,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Every-split and coalesced tick/chat regressions pass; integrated native transfers preserve subsequent commands.
   Unknown message layouts and existing 0x0099 handling remain unchanged.
   Docs: [instance framing](../docs/protocol/02-instance-connection.md#fixed-message-boundaries-across-tcp-reads).
+- Instance framing measures the Trade Market panel's requests 0x01e2, 0x01e4, 0x01e6, 0x01e8 and 0x01ea.
+  They reach `GameEvents.Packet`, and the messages after them in the same read are no longer dropped as unframed.
+  The server does not answer them; a mod can. Layouts: [c2s](../docs/protocol/c2s.md).
 
 ## Partly working
 
