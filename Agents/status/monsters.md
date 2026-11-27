@@ -218,7 +218,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   server-published projectiles; other than simulated mortars and spell projectiles, flight damage remains incomplete.
 - Weapon projectile attacks with a `monster_projectile_variation` fly their `MonsterProjectileAttack` projectile through
   kit shaping (`BossKits.ArtShot`, including `ScavengerThrow` variation 0, sibling `ActionType`s, `SkillArtProjectile`
-  variant-0 fallback, and generic-skill no-borrow guards); the default attack (`MavenNucleus.Shot`) still has none.
+  variant-0 fallback, ahead of the shared-skill borrow); the default attack (`MavenNucleus.Shot`) still has none.
 - Monster skill data, combos, kits & `.ot` state flags (PR #1618 S0–S6; automated coverage only, not yet verified live
   with the real client): `monster-contacts` v9 extracts profile-normalized `Animation.dat` pools, ACT modifiers, `.ao`
   views, named clip events, and `GE.Animation` priority (missing projectile clips 811 → 185/2,342; `EmptyAction*` parent

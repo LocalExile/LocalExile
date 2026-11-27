@@ -1074,9 +1074,8 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   Lioneye 78 `LegionLioneyeSnipeMedium`); the server publishes the object itself. `SkillArtProjectile` defaults `variant < 0`
   to `GrantedEffects.__col23` and falls back to variant 0 when `ProjectilesArtVariations` lacks that index (preserving
   boss/unique `vaal_thrown_weapon` and `creeping_frost` rows; RE 012's `0x1419417c0 -> 0x141f67770` and `0x14222a250`
-  citations are 3.29.3b addresses). Generic monster `ActiveSkills` (`monster_projectile_weapon`, `decelerating_projectile`,
-  `lunaris_glaive_projectile`, `geometry_projectiles_spell`, `geometry_projectiles_attack`, `empty_action_*`) never
-  cross-borrow another `GrantedEffects` row's projectile.
+  citations are 3.29.3b addresses). The variation row goes before `SharedProjectile`, which still borrows another
+  `GrantedEffects` row's projectile on the same `ActiveSkills` row when nothing else names one.
   A pending swing reserves its generation through contact, so a blocked send gate cannot reserve duplicate attacks.
   Contact checks the original monster, action generation, life, range, pause and area lifetime at the send gate.
   Boss stages and emergence retain their own timing; the next ordinary action waits for stage completion's final
