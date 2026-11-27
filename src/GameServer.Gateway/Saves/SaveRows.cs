@@ -570,7 +570,7 @@ public static class SaveRows
         "influences", "split", "synthesised", "foreseeing", "foresee_seed", "alternate_quality_type", "vestigial",
         "heist_blueprint", "deepwater_chart", "ritual_encounter",
         "incursion_temple", "expedition_saga",
-        "memory_strands", "intangibility", "required_level", "relic_style", "scrying_area_hash", "skill_bar_gem_id",
+        "memory_strands", "intangibility", "required_level", "relic_style", "scrying_area_hash", "skill_bar_gem_id", "custom_name",
     ];
 
     static object?[] ItemValues(SavedItem i) =>
@@ -580,7 +580,7 @@ public static class SaveRows
         i.Mirrored, i.GemFlags, i.Visual, i.DefenceBaseRoll, (long)i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed,
         i.AlternateQualityType, i.Vestigial, JsonOf(i.HeistBlueprint), JsonOf(i.Chart), JsonOf(i.RitualEncounter),
         JsonOf(i.IncursionTemple), JsonOf(i.ExpeditionSaga),
-        i.MemoryStrands, i.Intangibility, i.RequiredLevel, i.RelicStyle, i.ScryingAreaHash, i.SkillBarGemId?.ToString("N"),
+        i.MemoryStrands, i.Intangibility, i.RequiredLevel, i.RelicStyle, i.ScryingAreaHash, i.SkillBarGemId?.ToString("N"), i.CustomName,
     ];
 
     static List<ItemRow> ReadItems(SaveDatabase db, Owner owner, long id, long? inventory)
@@ -644,6 +644,7 @@ public static class SaveRows
                     RitualEncounter = v.Json<RitualEncounterData?>("ritual_encounter"),
                     IncursionTemple = v.Json<IncursionTempleData?>("incursion_temple"),
                     ExpeditionSaga = v.Json<ExpeditionSagaData?>("expedition_saga"),
+                    CustomName = v.Text("custom_name"),
                     SkillBarGemId = v.Text("skill_bar_gem_id") is { } gemId
                         && Guid.TryParseExact(gemId, "N", out var parsedGemId) ? parsedGemId : null };
         }

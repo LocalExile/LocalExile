@@ -89,6 +89,10 @@ public static partial class Game
             // gameplay, inventory and interaction packets; only transfer acknowledgement, exit and pause control run.
             if (player.LeavingArea && id is not (InstanceTransfer.LeaveAreaAckId or InstanceProtocol.ExitToCharacterSelectId
                 or InstanceProtocol.ExitToLoginId or InstancePause.RequestId)) continue;
+            // Let ClientMessage intercept chat and slash commands before ChatModule consumes 0x0015 at ModuleRank.
+            if (id == InstanceChat.ChatId && GameEvents.ClientMessage.Any
+                && await GameEvents.AnyClientMessage(player, InstanceChat.ReadChat(bytes)))
+                continue;
             // A mod may take the message (Program.Mods.cs): then the Gateway's own handler below does not run.
             if (GameEvents.WantsPacket(id) && await GameEvents.AnyPacket(player, id, bytes)) continue;
             // Immediate transfer ingress cuts the old epoch off instead of replaying overdue old-world damage.
@@ -1005,6 +1009,8 @@ public static partial class Game
                 await ChooseNpcOption(player, InstanceNpcs.ReadOption(bytes));
             else if (id == InstanceHideouts.SelectId)
                 await SelectHideout(player, InstanceHideouts.ReadSelect(bytes));
+            else if (id == InstanceRulesets.ActionId && await Client.DispatchRulesetAsync(player, bytes))
+                continue;
             else if (id == InstanceChat.ChatId)
             {
                 var chat = InstanceChat.ReadChat(bytes);
@@ -1012,6 +1018,8 @@ public static partial class Game
                 // Plain lines are the Chat module's.
                 if (chat.IsCommand)
                 {
+                    if (Client.IsCommand(chat.Text) && await Client.DispatchCommandAsync(player, chat.Text))
+                        continue;
                     // A preceding slash command can finish a Game + Commands reload in this same batch.
                     // Resolve the current league's builders after that wave, retaining Gateway sinks/mod fallback.
                     // Run this table: an unload while the command runs empties conn.Commands (Program.ForgetCommands).
@@ -1141,6 +1149,7 @@ public static partial class Game
                     // Start Grace Period after frames, collision push, and combat runtime setup settle so the origin
                     // matches the final standing cell and AreaBuffs.Set is never cleared during entry.
                     await StartGracePeriod(player);
+                    if (!player.Closed && !player.LeavingArea) await GameEvents.RunClientReady(player);
                 }
             }
             else if (id == InstanceItems.CurrencyApplicationForesightRequestId)
