@@ -96,4 +96,69 @@ public sealed class CombatBugFixesTests
             TestEnvironment.ReleaseSaves(path);
         }
     }
+
+    [Fact]
+    public void Vengeance_grants_rage_when_hit_and_scales_armour_per_rage()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"combat-vengeance-{Guid.NewGuid():N}.db");
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Saves.Open(path);
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        try
+        {
+            using var wire = new PartyFollowerTests.Wire();
+            var player = CreateTestPlayer("VengeanceTest");
+            player.Clock.Start();
+            player.Connection.Session = new("vengeance-test", wire.Stream, wire.Ciphers);
+            // Vengeance notable (rage_notable2108, hash 53840): Gain 3 Rage when Hit by an Enemy, 1% increased Armour per Rage.
+            const ushort vengeanceHash = 53840;
+            player.Character.Passives.Add(vengeanceHash);
+            // Provide base armour via PlayerStatSources so percentage scaling is directly observable.
+            using var statHook = GameEvents.PlayerStatSources.Add("Game", (p, s) =>
+            {
+                if (!ReferenceEquals(p, player)) return s;
+                s[Stat.BasePhysicalDamageReductionRating] = s.GetValueOrDefault(Stat.BasePhysicalDamageReductionRating) + 1000;
+                return s;
+            });
+            try
+            {
+                var basePools = Game.PoolsFor(player, 1);
+                Assert.Equal(1000, basePools.Armour);
+                Assert.Equal(0, basePools.ArmourPct);
+
+                // Synthetic enemy hit must trigger Vengeance's GainXRageWhenHit (+3 Rage).
+                Assert.True(Game.TrySyntheticEnemyHit(player, DamageType.Physical, 10, block: false, spell: false,
+                    suppress: false, out _));
+                var inputs = RageStats.Inputs(player, key => Game.CharacterPlayerStats(player).GetValueOrDefault(key));
+                Assert.Equal(3, inputs.GainWhenHit);
+                Assert.Equal(3, player.Rage.Read(Game.AreaTime(player), inputs).Current);
+
+                // 3 Rage with 1% increased Armour per Rage scales 1000 base Armour to 1030.
+                var ragedPools = Game.PoolsFor(player, 1);
+                Assert.Equal(3, ragedPools.ArmourPct);
+                Assert.Equal(1030, ragedPools.Armour);
+
+                // Higher Rage scales Armour proportionally and refreshes Pools in RageSnapshot.
+                player.Rage.Gain(17, Game.AreaTime(player), inputs);
+                Assert.Equal(20, player.Rage.Read(Game.AreaTime(player), inputs).Current);
+                var twentyRagePools = Game.PoolsFor(player, 1);
+                Assert.Equal(20, twentyRagePools.ArmourPct);
+                Assert.Equal(1200, twentyRagePools.Armour);
+            }
+            finally
+            {
+                PlayerInventories.Forget(player.Character.Name!);
+            }
+        }
+        finally
+        {
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseSaves(path);
+        }
+    }
 }

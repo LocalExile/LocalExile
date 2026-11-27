@@ -160,12 +160,15 @@ public static partial class Game
             && (player.SentRage is not { } sent || sent.Maximum == 0 || sent.Current < sent.Maximum))
             LoyaltyMaxRageLocked(player, stats);
         if (player.SentRage == value && player.SentVaalPrevention == prevention) return [];
-        if (RageStat(stats, Stat.MovementSpeedPlusPctPer5Rage) != 0
-            && (player.SentRage?.Current ?? 0) / 5 != value.Current / 5)
+        bool speedChanged = RageStat(stats, Stat.MovementSpeedPlusPctPer5Rage) != 0
+            && (player.SentRage?.Current ?? 0) / 5 != value.Current / 5;
+        bool armourChanged = RageStat(stats, Stat.ArmourPlusPctPerRage) != 0
+            && (player.SentRage?.Current ?? 0) != value.Current;
+        if (speedChanged || armourChanged)
         {
-            // Update the predictive walk estimate now. Lockstep applies the same value with its stat frame.
+            // Update pools so both incoming-hit armour and panel stats follow the new Rage; update predictive walk speed too.
             player.Pools = PoolsFor(player, player.Pools.Level);
-            player.ApplyMovementSpeedAt(AreaTime(player));
+            if (speedChanged) player.ApplyMovementSpeedAt(AreaTime(player));
             stats = CharacterPlayerStats(player);
         }
         var bytes = new List<byte>();
