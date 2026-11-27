@@ -729,7 +729,7 @@ public sealed class IncursionEncounter
         var item = ItemCatalog.Create(type, random: rng) with
         {
             ItemLevel = live.Run.Level, Identified = true,
-            IncursionTemple = copy.ItemData(live.Run.Level, rng, randomizeTiers: true),
+            IncursionTemple = copy.ItemData(live.Run.Level, rng, randomizeTiers: false),
         };
         var ground = new WorldItemObject(kill.At.X, kill.At.Y, item);
         uint groundId = kill.Player.Instance.Ground.Add(ground, kill.Player);

@@ -117,7 +117,22 @@ public sealed class NextFourScarabTests
             var item = ItemCatalog.Create(templeType) with { ItemLevel = 83, IncursionTemple = temple.ItemData(83, new Random(505), true) };
             Assert.Equal(11, item.IncursionTemple!.Rooms.Count); Assert.Equal(original, temple.ToJson());
             Assert.Equal(temple.ItemData(83, new Random(1), false).Connections, item.IncursionTemple.Connections);
-            var items = new[] { book, item };
+            var beach = new MapDevice.MapArea(AreaTransitionCatalog.HashOf("MapWorldsBeach")!.Value, "MapWorldsBeach", "Beach", 16);
+            fixture.Player.Use(new AreaLayout(beach.Hash16, beach.Id, 600, 600, 10, 10, (_, _) => true, []));
+            fixture.Player.Instance.OpenedWith(MapDevice.Run.Of(fixture.Player.Character.Name, new(beach,
+                MapMods.None.WithFragmentStat(Stat.MapExpeditionPctChanceLogbooksDropWithFourImplicits, 100)
+                    .WithFragmentStat(Stat.MapFinalIncursionArchitectCopiesTemple, 1))));
+            var normalBook = ExpeditionLogbooks.Create(83, new Random(505), false)!;
+            var prepared = ExpeditionLogbooks.Prepare(fixture.Player, normalBook);
+            for (int i = 0; i < normalBook.ExpeditionSaga!.Areas.Count; i++)
+            {
+                Assert.Equal(4, prepared.ExpeditionSaga!.Areas[i].Implicits.Count);
+                Assert.Equal(normalBook.ExpeditionSaga.Areas[i].Implicits, prepared.ExpeditionSaga.Areas[i].Implicits.Take(3));
+            }
+            var randomized = IncursionModule.Prepare(fixture.Player, item);
+            Assert.Equal(item.IncursionTemple!.Connections, randomized.IncursionTemple!.Connections);
+            Assert.Equal(original, temple.ToJson());
+            var items = new[] { prepared, randomized };
             CharacterSaves.Write("ScarabRewards", new(new() { [6] = [.. items.Select((i, n) => new CharacterSaves.SavedPlacement((uint)n + 1, 0, (byte)n, CharacterSaves.ToSaved(i, Program.Items.Mods)))] }));
             var read = CharacterSaves.Load("ScarabRewards")!.Inventories[6];
             for (int i = 0; i < items.Length; i++)

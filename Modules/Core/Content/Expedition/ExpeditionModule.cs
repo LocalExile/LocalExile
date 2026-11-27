@@ -35,6 +35,7 @@ public sealed class ExpeditionModule : IModule
         GameEvents.AreaTick.Add(id, encounter.TickFor);
         GameEvents.Kill.Add(id, encounter.OnKill);
         GameEvents.Drops.Add(id, encounter.Drops);
+        GameEvents.GroundItemPreparing.Add(id, ExpeditionLogbooks.Prepare);
         GameEvents.ObjectUse.Add(id, encounter.OnUse);
         GameEvents.Packet(InstanceRulesets.ActionId).Add(id, encounter.RulesetAction);
     }

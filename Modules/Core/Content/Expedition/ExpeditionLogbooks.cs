@@ -36,28 +36,46 @@ public static class ExpeditionLogbooks
         foreach (var location in choices)
         {
             int faction = location.Factions[rng.Next(location.Factions.Count)];
-            var tags = location.Tags.ToHashSet();
-            if (faction < factionTags.Count) tags.Add(factionTags[faction]);
-            var pool = implicits.Where(m => m.Level <= level && m.MaxLevel >= level && m.WeightFor(tags) > 0).ToList();
-            var mods = new List<ItemMod>();
-            var families = new HashSet<int>();
-            for (int i = 0; i < (fourImplicits ? 4 : 3); i++)
-            {
-                var available = pool.Where(m => !m.Families.Any(families.Contains)).ToArray();
-                int total = available.Sum(m => m.WeightFor(tags));
-                if (total == 0) break;
-                int roll = rng.Next(total);
-                var chosen = available.First(m => (roll -= m.WeightFor(tags)) < 0);
-                mods.Add(chosen.Roll(ModSection.Implicit, rng));
-                families.UnionWith(chosen.Families);
-                pool.Remove(chosen);
-            }
-            areas.Add(new(location.Hash, (byte)faction, 0, mods));
+            areas.Add(new(location.Hash, (byte)faction, 0, Roll(location, faction, level, rng, fourImplicits ? 4 : 3, [])));
         }
         return ItemCatalog.Create(type, random: rng) with
         {
             ItemLevel = (byte)Math.Clamp(level, 1, 100), Identified = true,
             ExpeditionSaga = new((byte)Math.Clamp(level, 1, 100), areas),
         };
+    }
+
+    static IReadOnlyList<ItemMod> Roll(Location location, int faction, int level, Random rng, int count, IReadOnlyList<ItemMod> existing)
+    {
+        var tags = location.Tags.ToHashSet();
+        if (faction < factionTags.Count) tags.Add(factionTags[faction]);
+        var pool = implicits.Where(m => m.Level <= level && m.MaxLevel >= level && m.WeightFor(tags) > 0).ToList();
+        var mods = existing.ToList();
+        var families = existing.SelectMany(m => Items.Mods.ByHash(m.Hash)?.Families ?? []).ToHashSet();
+        for (int i = mods.Count; i < count; i++)
+        {
+            var available = pool.Where(m => !m.Families.Any(families.Contains)).ToArray();
+            int total = available.Sum(m => m.WeightFor(tags));
+            if (total == 0) break;
+            int roll = rng.Next(total);
+            var chosen = available.First(m => (roll -= m.WeightFor(tags)) < 0);
+            mods.Add(chosen.Roll(ModSection.Implicit, rng));
+            families.UnionWith(chosen.Families);
+            pool.Remove(chosen);
+        }
+        return mods;
+    }
+
+    public static Item Prepare(Player player, Item item)
+    {
+        if (Items.ByHash(item.TypeHash)?.Id != Type || MapModsOf(player)?.Get(Stat.MapExpeditionPctChanceLogbooksDropWithFourImplicits) is not int chance
+            || chance <= 0 || !Ready) return item;
+        var rng = AreaRng(player);
+        if (rng.Next(100) >= chance) return item;
+        var saga = item.ExpeditionSaga ?? Create(item.ItemLevel, rng, true)?.ExpeditionSaga;
+        if (saga is null) return item;
+        return item with { ExpeditionSaga = saga with { Areas = [.. saga.Areas.Select(area =>
+            area.Implicits.Count >= 4 || locations.FirstOrDefault(l => l.Hash == area.AreaHash) is not { } location ? area
+                : area with { Implicits = Roll(location, area.Faction, saga.AreaLevel, rng, 4, area.Implicits) })] } };
     }
 }

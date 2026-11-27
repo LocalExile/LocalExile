@@ -365,6 +365,7 @@ public sealed class ExpeditionEncounter : IDisposable
         await state.Gate.WaitAsync();
         try
         {
+            BindLeader(player, state);
             if (state.LeaderId == 0) return;
             uint leader = state.LeaderId;
             // This player's talk entry goes whatever the others do: the client leaving has no use for it.
@@ -451,9 +452,22 @@ public sealed class ExpeditionEncounter : IDisposable
     /// 5.2360 rad. The leader is a friendly, scripted monster with the talk flag, so it stands where it is put and can be
     /// talked to; its id is registered for every player who enters (see <see cref="RegisterLeader"/>). An unmeasured faction,
     /// or a leader type the catalog does not know, spawns nothing.</summary>
+    static bool BindLeader(Player player, State state)
+    {
+        if (state.Plan is not { } plan || LeaderType(plan.FactionId) is not { } type) return false;
+        var found = player.Area.Monsters.FirstOrDefault(p => !p.Value.Dead && p.Value.Life > 0
+            && !p.Value.Hostile && p.Value.Variety?.Id == type);
+        if (found.Value?.Variety is not { } variety) return false;
+        state.LeaderId = found.Key;
+        state.LeaderCell = found.Value.Walk.Position(AreaTime(player));
+        state.LeaderNpc = LeaderNpc(plan.FactionId, variety);
+        state.LeaderBodySize = Math.Clamp(variety.ObjectSize - 1, 0, 127);
+        return true;
+    }
+
     async Task SpawnLeader(Action<string> log, Player player, State state, Plan plan, byte level)
     {
-        if (state.LeaderId != 0 || LeaderType(plan.FactionId) is not { } type) return;
+        if (BindLeader(player, state) || state.LeaderId != 0 || LeaderType(plan.FactionId) is not { } type) return;
         if (Monsters.Find(type) is not { Supported: true } variety)
         {
             log($"{player.Layout.Id}: expedition leader {type}: unknown or unsupported variety");
@@ -687,8 +701,7 @@ public sealed class ExpeditionEncounter : IDisposable
         int quantity = roll.Player.Area.Monsters.GetValueOrDefault(roll.Monster.ObjectId)?.Effects[Stat.ExpeditionMonstersLogbookChancePlusPct] ?? 0;
         double chance = 0.02 * Math.Max(0, 1 + quantity / 100d) * Math.Max(0, 1 + reward.Remnants * 0.2);
         if (rng.NextDouble() >= chance) return;
-        bool four = rng.Next(100) < Math.Clamp(MapModsOf(roll.Player)?.Get(Stat.MapExpeditionPctChanceLogbooksDropWithFourImplicits) ?? 0, 0, 100);
-        if (ExpeditionLogbooks.Create(roll.Monster.Level, rng, four) is { } book) roll.Made.Add(book);
+        if (ExpeditionLogbooks.Create(roll.Monster.Level, rng, false) is { } book) roll.Made.Add(book);
     }
 
     /// <summary>GameEvents.Kill: a dug monster that died, by anyone's hand (a minion's too), is out of the count at once.</summary>
