@@ -35,6 +35,7 @@ public static class GatewayProjectileSkillProfiles
         effect is "SpectralThrow" or "SpectralThrowAltX" or "SpectralThrowRoyale";
     internal static bool IsSpectralThrowTrap(string? effect) => effect == "SpectralThrowAltY";
     public static bool IsLightningArrow(string effect) => effect is "LightningArrow" or "LightningArrowRoyale" or "VaalLightningArrow";
+    internal static bool IsIceShot(string? effect) => effect is "IceShot" or "IceShotAltX" or "IceShotAltY" or "IceShotRoyale" or "VaalIceShot";
     internal static bool IsShatteringSteel(string? effect) => effect is "ShatteringSteel" or "ShatteringSteelAltX" or "ShatteringSteelRoyale";
     internal static bool IsHolyFlameTotem(string? effect) =>
         effect is "HolyFlameTotem" or "HolyFlameTotemAltX" or "HolyFlameTotemRoyale";
@@ -129,6 +130,23 @@ public static class GatewayProjectileSkillProfiles
             {
                 ContactTargets = new("lightning-arrow-targets", extra, 18)
             };
+        else if (IsIceShot(effect))
+        {
+            bool sideways = effect == "IceShotAltX";
+            // The client selects visual variants by angle stat; the base damage angle is an estimate.
+            var halfAngle = Math.Clamp(Math.PI / 4 * (1 + get(Stat.IceShotAreaAnglePlusPct) / 100d), double.Epsilon, Math.PI);
+            p = p with
+            {
+                ContactArea = new("ice-shot-cone", 0, sideways ? 2 : 1)
+                {
+                    ConeHalfAngle = halfAngle,
+                    ConeAxisRotation = sideways ? Math.PI / 2 : 0,
+                    ConeAxisStep = sideways ? Math.PI : 0,
+                    ExcludeContactTarget = true,
+                    CentreOnContactTarget = true,
+                }
+            };
+        }
         // Molten Strike's balls are lobbed onto sampled landing cells and deal area damage there without direct contacts,
         // piercing, forking, splitting or monster chaining (3.29.3c RE: 0x141b6ade0 / 0x141b6baa0, base radius 9).
         // Vaal Molten Strike / Wildfire enable ground-chaining along the sampled trajectory (0x141b6b710 / 0x141b6b790).
@@ -205,8 +223,7 @@ public static class GatewayProjectileSkillProfiles
             "SoulrendAltY" => Math.Max(0, get(Stat.BaseNumberOfProjectilesInSpiralNova) - 1),
             _ => 0
         };
-        int pierce = effect is "IceShot" or "IceShotAltX" or "IceShotAltY" or "IceShotRoyale" or "VaalIceShot"
-            ? get(Stat.IceShotPiercePlus) : 0;
+        int pierce = IsIceShot(effect) ? get(Stat.IceShotPiercePlus) : 0;
         bool nova = effect switch
         {
             "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark" => get(Stat.SparkProjectilesNova) != 0,
@@ -274,7 +291,7 @@ public static class GatewayProjectileSkillProfiles
         if (IsKineticBolt(effect)) p = WithKineticBoltLegs(p);
         if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
-        if (p.ContactArea is { } contact) p = p with { EndArea = contact };
+        if (p.ContactArea is { } contact && !IsIceShot(effect)) p = p with { EndArea = contact };
         return ScaleAreas(p, effect, get, spell: !attack);
     }
 
@@ -453,6 +470,13 @@ public static class GatewayProjectileSkillProfiles
         if (IsLightningArrow(effect) && p.ContactTargets is { } targets)
             return p with { ContactTargets = targets with
                 { Radius = SkillArea.Radius(Value(Stat.ActiveSkillBaseAreaOfEffectRadius, 18), get, spell) } };
+        if (IsIceShot(effect) && p.ContactArea is { } iceCone)
+        {
+            int AreaStat(uint key) => key == SkillArea.BaseIncreased
+                ? ActorScale.Add(key, get(key), get(Stat.IceShotRadiusPlusPct)) : get(key);
+            int basis = Value(Stat.ActiveSkillBaseAreaOfEffectRadius, effect == "IceShotAltX" ? 26 : 24);
+            return p with { ContactArea = iceCone with { Radius = SkillArea.Radius(basis, AreaStat, spell) } };
+        }
         if (IsMoltenStrike(effect) && p.EndArea is { } moltenArea)
         {
             int AreaStat(uint name) => name == SkillArea.BaseIncreased

@@ -616,6 +616,23 @@ public static partial class Game
         };
         if (!spell) otherWarcryExertions += MeleeWarcryTriggersFor(criticalRoll)?.Count ?? 0;
         shot = shot with { IntimidatingCryExerted = cryExerted, OtherWarcryExertions = otherWarcryExertions, RallyingDamage = rallyingDamage };
+        if (GatewayProjectileSkillProfiles.IsIceShot(SkillsFor(player).EffectId(gem.Effect)) && areaHitInputs is { } coneInputs)
+        {
+            shot = shot with
+            {
+                ConeAilments = CaptureConeAilments(0),
+                BlindedConeAilments = additionalBlindedIncreased == 0 ? null : CaptureConeAilments(additionalBlindedIncreased),
+            };
+
+            ProjectileOffense.AreaAilments CaptureConeAilments(long additionalIncreased)
+            {
+                var rows = SupportedAilmentRowsFrom(coneInputs, hand, additionalIncreased);
+                var ignite = IgniteWithTargetCondition(rows, coneInputs, hand, Get, additionalIncreased);
+                return new(WithOverheat(player, skillId, WithIgniteSpread(ignite, playerStats, own, spell, hand)),
+                    WithOverheat(player, skillId, BleedSettings(rows, hand, Get, local, melee: false, bow: true, projectileAttack: true)),
+                    WithOverheat(player, skillId, PoisonSettingsFrom(rows, hand, Get, local, projectileAttack: true)));
+            }
+        }
         if (forbiddenRite)
             shot = shot with { ForbiddenRite = CaptureForbiddenRite(player, admittedGem, totem, Get, variation) };
         if (spell && repeat > 0)

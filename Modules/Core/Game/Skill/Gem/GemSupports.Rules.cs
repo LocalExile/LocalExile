@@ -849,6 +849,7 @@ public static partial class Game
         if (wildStrike && !strikeFollowup) area ??= false;
         var caster = FinalPlayerStats(player).ToDictionary(v => v.Item1, v => v.Item2);
         var skills = SkillsFor(player);
+        bool iceShot = GatewayProjectileSkillProfiles.IsIceShot(skills.EffectId(gem.Effect));
         int manaPool = ManaCostPool(player, gem);
         var stats = MergeSkillStats(caster, WithManaPoolCost(player, gem, gem.Stats, manaPool),
             skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats), SkillCostScopeFor(skills, gem));
@@ -1059,11 +1060,13 @@ public static partial class Game
         if (gem.PrismaticBurstElement is { } burstElement)
             raw = DamagePacket.Empty.Add(burstElement, raw[burstElement]);
         Func<uint, int> hitStats = attackWeapon is null || secondary ? Get : SupportedAttackDamage.HitModifiers(attackWeapon, Get, attackAccuracy);
+        if (iceShot && area is true) stats[Stat.SkillPhysicalDamagePctToConvertToCold] = 100;
         var conversion = DamageStats.Conversion(stats, Stats, secondary ? null : attack);
         if (attackWeapon is not null && !secondary)
             SupportedAttackDamage.WithWeaponGains(conversion, attackWeapon, Get);
         return new(raw, hitStats, conversion, attack,
-            Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get(Stat.IsAreaDamage) != 0,
+            Melee: attack && types.Contains(19), Area: attack ? (iceShot && area is bool iceArea ? iceArea : types.Contains(7))
+                : Get(Stat.IsAreaDamage) != 0,
             Projectile: attack ? types.Contains(2) : Get(Stat.BaseIsProjectile) != 0, modifiers, types, plan, caster,
             WieldingWand: attackWeapon?.WieldingWand == true, WieldingBow: attackWeapon?.Bow == true, Secondary: secondary)
         {

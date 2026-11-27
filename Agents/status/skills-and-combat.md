@@ -130,7 +130,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Essence Drain: a surviving hit leaves a chaos damage over time that recovers life for its caster, and
   Contagion's spread carries it. Desperation drains the caster's Life and Energy Shield while its debuff deals damage.
   The debuff icon and Survivors support remain open.
-- Ice Shot: its primary arrows (`IceArrow`) hit; the cone splash is open.
+- Ice Shot damages enemies in a cone behind the impact. Ice Shot of Penetration applies two sideways cones.
   Docs: [11](../docs/protocol/11-skills.md) Â§10.
 - Dual Strike applies its full-life damage and critical chance to each target at contact.
 - Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll. Either Impaling strike
