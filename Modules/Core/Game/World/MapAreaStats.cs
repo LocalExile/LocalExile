@@ -108,18 +108,73 @@ public static partial class Game
         return (global::AtlasStats.Compose(nodes), families, preset);
     }
 
+    static void AddMapModStats(MapMods mods, int effect, Action<uint, int> add)
+    {
+        foreach (var mod in mods.ExplicitMods)
+            foreach (var (id, value) in mod) if (value != 0) add(id, (int)Math.Clamp((long)value * (100L + effect) / 100, int.MinValue, int.MaxValue));
+        foreach (var (id, value) in mods.Implicit) if (value != 0) add(id, value);
+        foreach (var (id, value) in mods.Fragments) if (value != 0) add(id, value);
+        // Older modules construct a flat MapMods. Preserve their stats when there is no breakdown to compose.
+        if (mods.ExplicitMods.Count == 0 && mods.Implicit.Count == 0 && mods.Fragments.Count == 0)
+            foreach (var (id, value) in mods.Stats) if (value != 0) add(id, value);
+    }
+
+    static readonly (uint Source, uint Target)[] ImplicitMapDropStats =
+    [
+        (Stat.MapImplicitItemDropQuantityPlusPct, Stat.MapItemDropQuantityPlusPct),
+        (Stat.MapImplicitItemDropRarityPlusPct, Stat.MapItemDropRarityPlusPct),
+        (Stat.MapImplicitPackSizePlusPct, Stat.MapPackSizePlusPct),
+    ];
+
+    static readonly uint[] EffectiveDisplayStats =
+    [
+        Stat.MapItemDropQuantityPlusPct,
+        Stat.MapItemDropRarityPlusPct,
+        Stat.MapPackSizePlusPct,
+    ];
+
+    static void FoldEffectiveMapStats(Dictionary<uint, int> stats, MapMods mods, IReadOnlyDictionary<uint, int>? atlas = null)
+    {
+        void Add(uint key, int value) => stats[key] = stats.GetValueOrDefault(key) + value;
+
+        foreach (var (source, target) in ImplicitMapDropStats)
+            if (stats.Remove(source, out int value) && value != 0) Add(target, value);
+
+        bool qualityToRarity = stats.Remove(Stat.MapItemDropQualityAlsoAppliesToMapItemDropRarity, out int qr) && qr > 0
+            || atlas is not null && atlas.GetValueOrDefault(Stat.MapItemDropQualityAlsoAppliesToMapItemDropRarity) > 0;
+        if (qualityToRarity && mods.Quality > 0)
+            Add(Stat.MapItemDropRarityPlusPct, mods.Quality);
+
+        // Meticulous Appraiser: the quantity modifiers apply to rarity instead, at 300%.
+        bool appraiser = stats.GetValueOrDefault(Stat.MapItemDropQuantityInsteadAppliesToMapItemDropRarityAt3TimesValue) != 0
+            || atlas is not null && atlas.GetValueOrDefault(Stat.MapItemDropQuantityInsteadAppliesToMapItemDropRarityAt3TimesValue) != 0;
+        if (appraiser)
+        {
+            int quantity = 0;
+            foreach (uint id in new[] { Stat.MapItemDropQuantityPlusPct, Stat.MapImplicitItemDropQuantityPlusPct, Stat.MapUnscaledItemDropQuantityPlusPct })
+                if (stats.Remove(id, out int value)) quantity += value;
+            Add(Stat.MapItemDropRarityPlusPct, 3 * quantity);
+        }
+    }
+
     public static Dictionary<uint, int> ComposeMapDisplayStats(MapMods? mods, IReadOnlyDictionary<uint, int> atlas)
     {
         var stats = new Dictionary<uint, int>();
         if (mods is null) return stats;
         void Add(uint key, int value) => stats[key] = stats.GetValueOrDefault(key) + value;
         int effect = global::AtlasStats.ModEffect(atlas, mods.MapRarity == ItemRarity.Unique, mods.ExplicitMods.Count, mods.FragmentCount);
-        foreach (var mod in mods.ExplicitMods)
-            foreach (var (id, value) in mod) if (value != 0) Add(id, (int)Math.Clamp((long)value * (100L + effect) / 100, int.MinValue, int.MaxValue));
-        foreach (var (id, value) in mods.Implicit) if (value != 0) Add(id, value);
-        foreach (var (id, value) in mods.Fragments) if (value != 0) Add(id, value);
-        if (mods.ExplicitMods.Count == 0 && mods.Implicit.Count == 0 && mods.Fragments.Count == 0)
-            foreach (var (id, value) in mods.Stats) if (value != 0) Add(id, value);
+        AddMapModStats(mods, effect, Add);
+        // Include Atlas passive IIQ/IIR/PackSize (plus implicit/unscaled contributions) so world + 0x140 always
+        // reflects effective area IIQ/IIR/PackSize on White/Normal/Unique maps without leaking raw Atlas-only stats.
+        foreach (uint key in EffectiveDisplayStats)
+            if (atlas.TryGetValue(key, out int value) && value != 0) Add(key, value);
+        foreach (var (source, _) in ImplicitMapDropStats)
+            if (atlas.TryGetValue(source, out int value) && value != 0) Add(source, value);
+        if (atlas.TryGetValue(Stat.MapUnscaledItemDropQuantityPlusPct, out int uq) && uq != 0)
+            Add(Stat.MapUnscaledItemDropQuantityPlusPct, uq);
+        FoldEffectiveMapStats(stats, mods, atlas);
+        foreach (uint key in EffectiveDisplayStats)
+            if (stats.TryGetValue(key, out int value) && value == 0) stats.Remove(key);
         return stats;
     }
 
@@ -142,13 +197,7 @@ public static partial class Game
         if (preset >= 0) Add(Stat.MapActiveAtlasPassiveTreeIndex, preset + 1);
         int effect = global::AtlasStats.ModEffect(atlas, mods.MapRarity == ItemRarity.Unique, mods.ExplicitMods.Count, mods.FragmentCount);
         // Each explicit mod's values scaled by the mod effect and truncated on their own; implicits and fragments unscaled.
-        foreach (var mod in mods.ExplicitMods)
-            foreach (var (id, value) in mod) if (value != 0) Add(id, (int)Math.Clamp((long)value * (100L + effect) / 100, int.MinValue, int.MaxValue));
-        foreach (var (id, value) in mods.Implicit) if (value != 0) Add(id, value);
-        foreach (var (id, value) in mods.Fragments) if (value != 0) Add(id, value);
-        // Older modules construct a flat MapMods. Preserve their stats when there is no breakdown to compose.
-        if (mods.ExplicitMods.Count == 0 && mods.Implicit.Count == 0 && mods.Fragments.Count == 0)
-            foreach (var (id, value) in mods.Stats) if (value != 0) Add(id, value);
+        AddMapModStats(mods, effect, Add);
         // The scarab's legacy stat is not a CoreLeagues forced-count input. Publish its count in the input both
         // generators read, before the instance freezes its area stats; room placement and shrine ownership stay shared.
         if (Stat.MapLeaguestoneAdditionalShrines is var shrineKey
@@ -160,15 +209,7 @@ public static partial class Game
             if (Stats.Key($"map_contains_x_additional_{kind}_packs_if_{kind}") is uint key && stats.Remove(key, out int value)
                 && mods.MapRarity == rarity && value != 0)
                 Add(Stat.Of($"map_contains_x_additional_{kind}_packs"), value);
-        // Meticulous Appraiser: the quantity modifiers apply to rarity instead, at 300%.
-        if (Stat.MapItemDropQuantityInsteadAppliesToMapItemDropRarityAt3TimesValue is var appraiser
-            && stats.GetValueOrDefault(appraiser) != 0)
-        {
-            int quantity = 0;
-            foreach (uint id in new[] { Stat.MapItemDropQuantityPlusPct, Stat.MapImplicitItemDropQuantityPlusPct, Stat.MapUnscaledItemDropQuantityPlusPct })
-                if (stats.Remove(id, out int value)) quantity += value;
-            Add(Stat.MapItemDropRarityPlusPct, 3 * quantity);
-        }
+        FoldEffectiveMapStats(stats, mods);
         // The derived counts.
         Set(Stat.MapRarity, (int)mods.MapRarity);
         Set(Stat.MapNumberOfExplicitMods, mods.ExplicitMods.Count);
