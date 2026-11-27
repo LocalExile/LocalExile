@@ -1339,12 +1339,17 @@ public sealed partial class AccountStash
     public sealed record Payment(IReadOnlyDictionary<int, (List<uint> Removed, List<InventoryItem> Changed)> Tabs);
 
     /// <summary>Spends one unit from the named stack, using its current size when multiple players share a stash.</summary>
-    public Payment? PayOne(int tab, InventoryItem selected)
+    public Payment? PayOne(int tab, InventoryItem selected) => PayOne(tab, selected, allowPublic: false);
+
+    /// <summary>Spends one unit from the named stack, optionally allowing an explicitly clicked public stash tab.</summary>
+    public Payment? PayOne(int tab, InventoryItem selected, bool allowPublic)
     {
         Payment payment;
         lock (_lock)
         {
-            if (tab < 0 || tab >= _tabs.Count || _tabs[tab].Saved.Public) return null;
+            if (IsTrade || tab < 0 || tab >= _tabs.Count || _tabs[tab].Saved.Hidden
+                || _tabs[tab].Saved.Type == StashRules.Trade
+                || (!allowPublic && _tabs[tab].Saved.Public)) return null;
             var items = _tabs[tab].Items;
             int at = items.FindIndex(i => i.Id == selected.Id && i.Item.TypeHash == selected.Item.TypeHash);
             if (at < 0) return null;
