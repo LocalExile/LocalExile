@@ -304,6 +304,22 @@ public static class BanditLordController
     {
         var arena = GetOrCreateArena(player);
         await PresentArenaObjects(player, arena);
+
+        await arena.Gate.WaitAsync();
+        try
+        {
+            if (!arena.Defeated && arena.BossId == 0)
+            {
+                foreach (var (id, m) in player.Area.Monsters.ToArray())
+                    if (m.Variety?.Id == BossVarietyId && SettlersBosses.Alive(m)) { arena.BossId = id; break; }
+            }
+            if (!arena.Defeated && arena.BossId != 0 && player.Area.Monsters.TryGetValue(arena.BossId, out var boss))
+            {
+                boss.LifePhases ??= new LifePhaseGate(PhaseThresholds);
+                if (arena.Engaged) await SettlersBosses.EnsureBossBar(player, arena.BossId, boss);
+            }
+        }
+        finally { arena.Gate.Release(); }
     }
 
     static async Task PresentArenaObjects(Player player, ArenaState arena)
@@ -312,10 +328,7 @@ public static class BanditLordController
         try
         {
             if (!arena.PresentedPlayers.Add(player)) return;
-            var portalSm = SettlersBosses.BaseStates(SettlersBosses.SettlersBossPortalType)
-                ?.Set("boss_aggro", arena.PortalOpen ? 1 : 2);
-            await SettlersBosses.CreateQuestObj(player, arena.PortalId, SettlersBosses.SettlersBossPortalType,
-                arena.PortalAt.X, arena.PortalAt.Y, arena.PortalRot, states: portalSm, hideMinimap: !arena.PortalOpen);
+            await SettlersBosses.CreateBossPortal(player, arena.PortalId, arena.PortalAt.X, arena.PortalAt.Y, arena.PortalRot, arena.PortalOpen);
 
             foreach (var r in arena.Rubbish)
             {
@@ -362,14 +375,17 @@ public static class BanditLordController
             await StepPendingFuses(player, arena, boss, now);
             await StepBurningGrounds(player, arena, boss, now);
 
+            // Let active intermissions complete naturally on timer (never skip a phase on death or entry grace period).
+            if (arena.InIntermission && now >= arena.IntermissionEndsAt)
+            {
+                await EndIntermission(player, arena, boss);
+                return;
+            }
+
             if (!player.AiEnabled) return;
 
             var target = SettlersBosses.NearestLivingPlayer(player, boss.Walk.Position(now), now, maxRange: 190, awakeId: arena.BossId);
-            if (target is null)
-            {
-                if (arena.InIntermission) await EndIntermission(player, arena, boss);
-                return;
-            }
+            if (target is null) return;
 
             if (!arena.Engaged)
             {
@@ -685,10 +701,8 @@ public static class BanditLordController
 
     static async Task StepFireCircles(Player player, ArenaState arena, SpawnedMonster boss, double now)
     {
-        var ringAtk = SettlersBosses.BuildBossAttack(player, boss, BossEffects, EffectFireCircleFire,
-            scale: 1.0, range: 26, physToFirePct: 100, forceSpell: true);
-        var rainAtk = SettlersBosses.BuildBossAttack(player, boss, BossEffects, EffectFireCircleBombard,
-            scale: 1.15, range: 14, physToFirePct: 60);
+        if (arena.FireCircles.Count == 0) return;
+        MonsterAttack? ringAtk = null, rainAtk = null;
 
         for (int i = arena.FireCircles.Count - 1; i >= 0; i--)
         {
@@ -708,6 +722,11 @@ public static class BanditLordController
             }
             if (now < fc.NextBombardAt) continue;
             fc.NextBombardAt = now + 1.0;
+
+            ringAtk ??= SettlersBosses.BuildBossAttack(player, boss, BossEffects, EffectFireCircleFire,
+                scale: 1.0, range: 26, physToFirePct: 100, forceSpell: true);
+            rainAtk ??= SettlersBosses.BuildBossAttack(player, boss, BossEffects, EffectFireCircleBombard,
+                scale: 1.15, range: 14, physToFirePct: 60);
 
             // Perimeter fire ring damages players touching the fire boundary.
             await SettlersBosses.HitRing(player, arena.BossId, boss, ringAtk, fc.Center,
@@ -798,8 +817,7 @@ public static class BanditLordController
     static async Task StepBurningGrounds(Player player, ArenaState arena, SpawnedMonster boss, double now)
     {
         if (arena.BurningGrounds.Count == 0) return;
-        var burnAtk = SettlersBosses.BuildBossAttack(player, boss, BossEffects, EffectGroundFire,
-            scale: 0.45, range: 12, physToFirePct: 100, forceSpell: true);
+        MonsterAttack? burnAtk = null;
 
         for (int i = arena.BurningGrounds.Count - 1; i >= 0; i--)
         {
@@ -811,6 +829,8 @@ public static class BanditLordController
             }
             if (now < patch.NextTickAt) continue;
             patch.NextTickAt = now + 0.75;
+            burnAtk ??= SettlersBosses.BuildBossAttack(player, boss, BossEffects, EffectGroundFire,
+                scale: 0.45, range: 12, physToFirePct: 100, forceSpell: true);
             await SettlersBosses.HitCircle(player, arena.BossId, boss, burnAtk, patch.Center, patch.Radius,
                 () => !arena.Defeated && SettlersBosses.Alive(boss));
         }

@@ -47,9 +47,11 @@ public static class SettlersBosses
     // Shared per-player "Soaked to the Bone" debuff tracking (BuffDefinitions#2477, max 8 stacks, +10% damage taken per stack).
     internal sealed class SoakedState
     {
+        public readonly object Lock = new();
         public int Stacks;
         public double ExpiresAt;
         public ushort BuffInstance;
+        public bool Counted;
     }
 
     internal static readonly ConditionalWeakTable<Player, SoakedState> SoakedDebuffs = new();
@@ -163,6 +165,9 @@ public static class SettlersBosses
             BlackKnightController.ResetOnUnload();
             AdmiralValeriusController.ResetOnUnload();
             BanditLordController.ResetOnUnload();
+            SoakedDebuffs.Clear();
+            Volatile.Write(ref SoakedHolders, 0);
+            SettlersBossCallbacks.Reset();
         }
     }
 
@@ -243,11 +248,19 @@ public static class SettlersBosses
     static async Task OnPlayerLeaving(Player player, string reason)
     {
         // Clear any lingering Soaked to the Bone debuff when leaving Sailor's Folly.
-        if (Volatile.Read(ref SoakedHolders) > 0 && SoakedDebuffs.TryGetValue(player, out var soaked) && soaked.Stacks > 0)
+        if (Volatile.Read(ref SoakedHolders) > 0 && SoakedDebuffs.TryGetValue(player, out var soaked))
         {
-            soaked.Stacks = 0;
-            soaked.ExpiresAt = 0;
-            Interlocked.Decrement(ref SoakedHolders);
+            lock (soaked.Lock)
+            {
+                if (soaked.Counted)
+                {
+                    soaked.Counted = false;
+                    Interlocked.Decrement(ref SoakedHolders);
+                }
+                soaked.Stacks = 0;
+                soaked.ExpiresAt = 0;
+                soaked.BuffInstance = 0;
+            }
         }
         switch (player.Layout.Id)
         {
@@ -268,15 +281,18 @@ public static class SettlersBosses
         if (Volatile.Read(ref SoakedHolders) == 0) return;
         var player = sheet.Player;
         if (player.Layout.Id != AdmiralValeriusController.AreaId) return;
-        if (!SoakedDebuffs.TryGetValue(player, out var soaked) || soaked.Stacks <= 0) return;
-        if (AreaTime(player) >= soaked.ExpiresAt)
+        if (!SoakedDebuffs.TryGetValue(player, out var soaked)) return;
+        int stacks;
+        double expiresAt;
+        lock (soaked.Lock)
         {
-            soaked.Stacks = 0;
-            Interlocked.Decrement(ref SoakedHolders);
-            return;
+            stacks = soaked.Stacks;
+            expiresAt = soaked.ExpiresAt;
         }
+        if (stacks <= 0 || AreaTime(player) >= expiresAt) return;
+        // Pure read-only stat application; TickSoakedExpiries/OnPlayerLeaving own removal & RemoveBuff packets.
         // BuffDefinitions#2477 (kalguur_admiral_geyser_debuff) grants Stat#479 (base_damage_taken_+%): +10% per stack up to 8 stacks.
-        sheet.Add(Stat.BaseDamageTakenPlusPct, soaked.Stacks * AdmiralValeriusController.SoakedDamageTakenPerStack);
+        sheet.Add(Stat.BaseDamageTakenPlusPct, stacks * AdmiralValeriusController.SoakedDamageTakenPerStack);
     }
 
     internal static async Task RefreshPlayerStats(Player player, string why)
@@ -473,6 +489,13 @@ public static class SettlersBosses
                 await ShowBossLifeBar(bossId, boss, p);
     }
 
+    internal static int ComponentIndex(IReadOnlyList<string> components, string name)
+    {
+        for (int i = 0; i < components.Count; i++)
+            if (components[i] == name) return i;
+        return -1;
+    }
+
     internal static async Task SetBossStates(Player player, uint bossId, params (string Name, int Value)[] changes)
     {
         if (!player.Area.Monsters.TryGetValue(bossId, out var boss) || boss.States is not { } current || boss.Variety is not { } variety)
@@ -481,7 +504,7 @@ public static class SettlersBosses
         boss.States = current;
         if (player.Instance.World.MonsterOrigins.TryGetValue(bossId, out var origin))
             player.Instance.World.MonsterOrigins[bossId] = origin with { Object = origin.Object with { StateMachine = current } };
-        int comp = variety.ComponentsOrBase.ToList().IndexOf("StateMachine");
+        int comp = ComponentIndex(variety.ComponentsOrBase, "StateMachine");
         if (comp < 0) return;
         foreach (var member in ActivePlayers(player))
         {
@@ -493,7 +516,7 @@ public static class SettlersBosses
     internal static async Task SetBossTransition(Player player, uint bossId, byte state)
     {
         if (!player.Area.Monsters.TryGetValue(bossId, out var boss) || boss.Variety is not { } variety) return;
-        int comp = variety.ComponentsOrBase.ToList().IndexOf("Transitionable");
+        int comp = ComponentIndex(variety.ComponentsOrBase, "Transitionable");
         if (comp < 0) return;
         if (player.Instance.World.MonsterOrigins.TryGetValue(bossId, out var origin))
             player.Instance.World.MonsterOrigins[bossId] = origin with { Object = origin.Object with { TransitionState = state } };
@@ -584,47 +607,51 @@ public static class SettlersBosses
 
     // ---- Combat Hit & Ground Degen Helpers (Public Gateway APIs only) ----
 
-    internal static async Task HitPlayers(Player runner, uint sourceId, SpawnedMonster source, MonsterAttack attack,
-        Func<(int X, int Y), bool> inside, Func<bool> stillValid, Action<Player>? onPlayerHit = null)
+    internal static async Task HitPlayer(Player target, uint sourceId, SpawnedMonster source, MonsterAttack attack,
+        Func<(int X, int Y), bool> inside, Func<bool> stillValid, Func<Player, Task>? onPlayerHitAsync = null)
     {
-        foreach (var p in ActivePlayers(runner))
+        MonsterHitOutcome? outcome = null;
+        await SendWorldRecord(target, sourceId, [], null, atGate: () =>
         {
-            MonsterHitOutcome? outcome = null;
-            await SendWorldRecord(p, sourceId, [], null, atGate: () =>
-            {
-                if (!CurrentGameWork || !stillValid() || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
-                double now = Math.Max(AreaTime(p), ProjectileWorldTime(p));
-                foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
-                    if (!g.Monster.Dead && inside(g.Monster.Walk.Position(now)))
-                        GolemTakeHitLocked(p, g, sourceId, source, attack, now, area: true);
-                if (p.PlayerLife == 0 || !inside(p.Walk.Position(now))) return null;
-                outcome = CommitMonsterHitLocked(p, sourceId, source, attack, now, p.Walk.Position(now),
-                    source.Walk.Position(now), false, p.NextActionSequence());
-                return outcome?.HitPacket;
-            });
-            if (outcome is not null)
-            {
-                await PresentMonsterHit(p, sourceId, outcome);
-                onPlayerHit?.Invoke(p);
-            }
+            if (!CurrentGameWork || !stillValid() || target.Closed || target.LeavingArea || target.Paused || InGracePeriod(target)) return null;
+            double now = Math.Max(AreaTime(target), ProjectileWorldTime(target));
+            foreach (var g in target.Golems.All.Values.Concat(target.Reservations.Fighters.Values).Concat(target.Summons.Fighters.Values).ToArray())
+                if (!g.Monster.Dead && inside(g.Monster.Walk.Position(now)))
+                    GolemTakeHitLocked(target, g, sourceId, source, attack, now, area: true);
+            if (target.PlayerLife == 0 || !inside(target.Walk.Position(now))) return null;
+            outcome = CommitMonsterHitLocked(target, sourceId, source, attack, now, target.Walk.Position(now),
+                source.Walk.Position(now), false, target.NextActionSequence());
+            return outcome?.HitPacket;
+        });
+        if (outcome is not null)
+        {
+            await PresentMonsterHit(target, sourceId, outcome);
+            if (onPlayerHitAsync is not null) await onPlayerHitAsync(target);
         }
     }
 
+    internal static async Task HitPlayers(Player runner, uint sourceId, SpawnedMonster source, MonsterAttack attack,
+        Func<(int X, int Y), bool> inside, Func<bool> stillValid, Func<Player, Task>? onPlayerHitAsync = null)
+    {
+        foreach (var p in ActivePlayers(runner))
+            await HitPlayer(p, sourceId, source, attack, inside, stillValid, onPlayerHitAsync);
+    }
+
     internal static Task HitCircle(Player runner, uint sourceId, SpawnedMonster source, MonsterAttack attack,
-        (int X, int Y) center, double radius, Func<bool> stillValid, Action<Player>? onPlayerHit = null) =>
-        HitPlayers(runner, sourceId, source, attack, at => Near(at, center, radius), stillValid, onPlayerHit);
+        (int X, int Y) center, double radius, Func<bool> stillValid, Func<Player, Task>? onPlayerHitAsync = null) =>
+        HitPlayers(runner, sourceId, source, attack, at => Near(at, center, radius), stillValid, onPlayerHitAsync);
 
     internal static Task HitRing(Player runner, uint sourceId, SpawnedMonster source, MonsterAttack attack,
-        (int X, int Y) center, double innerRadius, double outerRadius, Func<bool> stillValid, Action<Player>? onPlayerHit = null) =>
+        (int X, int Y) center, double innerRadius, double outerRadius, Func<bool> stillValid, Func<Player, Task>? onPlayerHitAsync = null) =>
         HitPlayers(runner, sourceId, source, attack, at =>
         {
             double d = Distance(at, center);
             return d >= innerRadius && d <= outerRadius;
-        }, stillValid, onPlayerHit);
+        }, stillValid, onPlayerHitAsync);
 
     internal static Task HitCone(Player runner, uint sourceId, SpawnedMonster source, MonsterAttack attack,
         (int X, int Y) origin, double facingAngle, double halfAngleRad, double maxRange, Func<bool> stillValid,
-        Action<Player>? onPlayerHit = null) =>
+        Func<Player, Task>? onPlayerHitAsync = null) =>
         HitPlayers(runner, sourceId, source, attack, at =>
         {
             double d = Distance(at, origin);
@@ -632,10 +659,10 @@ public static class SettlersBosses
             if (d > maxRange) return false;
             double angle = Math.Atan2(at.Y - origin.Y, at.X - origin.X);
             return Math.Abs(Math.IEEERemainder(angle - facingAngle, Math.Tau)) <= halfAngleRad;
-        }, stillValid, onPlayerHit);
+        }, stillValid, onPlayerHitAsync);
 
     internal static Task HitSegment(Player runner, uint sourceId, SpawnedMonster source, MonsterAttack attack,
-        (int X, int Y) from, (int X, int Y) to, double halfWidth, Func<bool> stillValid, Action<Player>? onPlayerHit = null)
+        (int X, int Y) from, (int X, int Y) to, double halfWidth, Func<bool> stillValid, Func<Player, Task>? onPlayerHitAsync = null)
     {
         double dx = to.X - from.X, dy = to.Y - from.Y;
         double lenSq = dx * dx + dy * dy;
@@ -646,7 +673,7 @@ public static class SettlersBosses
             double px = from.X + dx * t, py = from.Y + dy * t;
             double ex = at.X - px, ey = at.Y - py;
             return ex * ex + ey * ey <= halfWidth * halfWidth;
-        }, stillValid, onPlayerHit);
+        }, stillValid, onPlayerHitAsync);
     }
 
     // ---- Visual Effects & QuestObject Helpers ----
@@ -709,10 +736,27 @@ public static class SettlersBosses
         return true;
     }
 
+    /// <summary>Creates <c>Metadata/MiscellaneousObjects/Settlers/SettlersBossPortal</c> via <see cref="AreaTransitionObject"/>
+    /// (which natively serializes its <c>AreaTransition</c> + trailing <c>StateMachine</c> <c>boss_aggro</c> component).</summary>
+    internal static async Task<bool> CreateBossPortal(Player player, uint id, int x, int y, float rotation, bool open)
+    {
+        var sm = BaseStates(SettlersBossPortalType)?.Set("boss_aggro", open ? 1 : 2);
+        var portal = new AreaTransitionObject(x, y, KingsmarchAreaHash, Rotation: rotation)
+        {
+            Kind = 3, // SideAreaReturn
+            StateMachine = sm,
+        };
+        if (!await SendWorldCreate(PlayerOf(player), id,
+            InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(SettlersBossPortalType), portal.Blob()), null))
+            return false;
+        await SendWorldRecord(PlayerOf(player), id, InstanceProtocol.EnterWakeZone(id));
+        return true;
+    }
+
     internal static async Task UpdateObjStates(Player runner, uint id, string type, StateMachineData states)
     {
-        if (ObjectInfo(type) is not { } info) return;
-        int idx = info.Components.ToList().IndexOf("StateMachine");
+        if (QuestObjectTypes.Find(type) is not { } info) return;
+        int idx = ComponentIndex(info.Components, "StateMachine");
         if (idx < 0) return;
         foreach (var member in ActivePlayers(runner))
             await SendWorldRecord(PlayerOf(member), id, InstanceEntities.StateMachineUpdate(id, (byte)idx, states), null);
@@ -720,7 +764,7 @@ public static class SettlersBosses
 
     internal static async Task UpdateObjTransition(Player runner, uint id, string type, byte state, bool? blocked = null)
     {
-        if (ObjectInfo(type) is not { } info) return;
+        if (QuestObjectTypes.Find(type) is not { } info) return;
         int tIdx = QuestObject.TransitionableIndex(info.Components);
         foreach (var member in ActivePlayers(runner))
         {

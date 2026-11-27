@@ -68,6 +68,7 @@ public static class AdmiralValeriusController
     const int EffectSummonWaves = 12505;
     const int EffectTidalWave = 12498;
     const int EffectTidalWaveDamage = 11596;
+    const int EffectTidalWaveGauntletDamage = 11597;
     const int EffectCannonBallGT = 12506;
     const int EffectCannonBallEDS = 12507;
     const int EffectAnchorDropEAS = 12508;
@@ -81,6 +82,9 @@ public static class AdmiralValeriusController
         EffectSummonCannonFire, EffectSummonGeysers, EffectGeyserDamage,
         EffectSummonWaves, EffectTidalWave, EffectAnchorDropEAS, EffectAnchorDropGA,
     ];
+    static readonly int[] DaemonEffects = [EffectCannonBallGT, EffectCannonBallEDS];
+    static readonly int[] WaveEffects = [EffectTidalWaveDamage];
+    static readonly int[] WaveGauntletEffects = [EffectTidalWaveGauntletDamage];
 
     // Verified .ao paths from data/game-files.zip.
     const string ArtRoot = "Metadata/Effects/Spells/monsters_effects/League_Settlers/PirateCoveBoss/ao/";
@@ -162,6 +166,7 @@ public static class AdmiralValeriusController
     sealed class ActiveWave
     {
         public required uint MonsterId { get; init; }
+        public required bool Gauntlet { get; init; }
         public required (double X, double Y) Pos { get; set; }
         public required (double Dx, double Dy) Dir { get; init; }
         public required double Speed { get; init; }
@@ -284,7 +289,7 @@ public static class AdmiralValeriusController
             // Replace or spawn KalguurCannonballDaemon__ (8795) as scripted helper.
             var daemonSpawned = await SettlersBosses.EnsureScriptedBoss(
                 player, CannonballDaemonId, (byte)Math.Clamp(arena.Level, 1, 100),
-                DefaultDaemonSpawn, 0f, [EffectCannonBallGT, EffectCannonBallEDS]);
+                DefaultDaemonSpawn, 0f, DaemonEffects);
             if (daemonSpawned is { } d)
             {
                 arena.DaemonId = d.Id;
@@ -300,6 +305,22 @@ public static class AdmiralValeriusController
     {
         var arena = GetOrCreateArena(player);
         await PresentArenaObjects(player, arena);
+
+        await arena.Gate.WaitAsync();
+        try
+        {
+            if (!arena.Defeated && arena.BossId == 0)
+            {
+                foreach (var (id, m) in player.Area.Monsters.ToArray())
+                    if (m.Variety?.Id == BossVarietyId && SettlersBosses.Alive(m)) { arena.BossId = id; break; }
+            }
+            if (!arena.Defeated && arena.BossId != 0 && player.Area.Monsters.TryGetValue(arena.BossId, out var boss))
+            {
+                boss.LifePhases ??= new LifePhaseGate(PhaseThresholds);
+                if (arena.Engaged) await SettlersBosses.EnsureBossBar(player, arena.BossId, boss);
+            }
+        }
+        finally { arena.Gate.Release(); }
     }
 
     static async Task PresentArenaObjects(Player player, ArenaState arena)
@@ -313,10 +334,7 @@ public static class AdmiralValeriusController
                 transitionState: (byte)(arena.DoorClosed ? 2 : 1), blocked: arena.DoorClosed, hideMinimap: true);
             SettlersBosses.SetLineBarrier(player, arena.DoorId, arena.DoorAt.X, arena.DoorAt.Y, arena.DoorRot, 14, 2, arena.DoorClosed);
 
-            var portalSm = SettlersBosses.BaseStates(SettlersBosses.SettlersBossPortalType)
-                ?.Set("boss_aggro", arena.PortalOpen ? 1 : 2);
-            await SettlersBosses.CreateQuestObj(player, arena.PortalId, SettlersBosses.SettlersBossPortalType,
-                arena.PortalAt.X, arena.PortalAt.Y, arena.PortalRot, states: portalSm, hideMinimap: !arena.PortalOpen);
+            await SettlersBosses.CreateBossPortal(player, arena.PortalId, arena.PortalAt.X, arena.PortalAt.Y, arena.PortalRot, arena.PortalOpen);
         }
         finally { arena.Gate.Release(); }
     }
@@ -359,14 +377,17 @@ public static class AdmiralValeriusController
             await StepPendingStrikes(player, arena, boss, now);
             await StepActiveWaves(player, arena, boss, now);
 
+            // Let active intermissions complete naturally on timer (never skip a phase on death or entry grace period).
+            if (arena.InIntermission && now >= arena.IntermissionEndsAt)
+            {
+                await EndIntermission(player, arena, boss);
+                return;
+            }
+
             if (!player.AiEnabled) return;
 
             var target = SettlersBosses.NearestLivingPlayer(player, boss.Walk.Position(now), now, maxRange: 190, awakeId: arena.BossId);
-            if (target is null)
-            {
-                if (arena.InIntermission) await EndIntermission(player, arena, boss);
-                return;
-            }
+            if (target is null) return;
 
             // Engage when player crosses into the cove arena.
             if (!arena.Engaged)
@@ -569,9 +590,14 @@ public static class AdmiralValeriusController
     {
         var rng = AreaRng(player);
         var tPos = target.Walk.Position(now);
-        uint sourceId = arena.DaemonId != 0 && player.Area.Monsters.ContainsKey(arena.DaemonId) ? arena.DaemonId : arena.BossId;
-        var cannonAtk = SettlersBosses.BuildBossAttack(player, boss, BossEffects, EffectCannonBallEDS,
-            scale: 1.35, range: 16, physToFirePct: 40, forceSpell: true);
+        SpawnedMonster? daemonMonster = null;
+        bool hasDaemon = arena.DaemonId != 0 && player.Area.Monsters.TryGetValue(arena.DaemonId, out daemonMonster);
+        uint sourceId = hasDaemon ? arena.DaemonId : arena.BossId;
+        var cannonAtk = hasDaemon
+            ? SettlersBosses.BuildBossAttack(player, daemonMonster!, DaemonEffects, EffectCannonBallEDS,
+                scale: 1.35, range: 16, physToFirePct: 40, forceSpell: true)
+            : SettlersBosses.BuildBossAttack(player, boss, BossEffects, EffectSummonCannonFire,
+                scale: 1.35, range: 16, physToFirePct: 40, forceSpell: true);
 
         // Flash ship broadside muzzles on PirateCannon1 / PirateCannon2.
         for (int c = 0; c < Math.Min(3, arena.Cannons.Count); c++)
@@ -651,6 +677,8 @@ public static class AdmiralValeriusController
         var waveVariety = Monsters.Find(varietyId) ?? Monsters.Find(WaveVarietyId);
         if (waveVariety is not { Supported: true }) return;
 
+        byte lvl = (byte)Math.Clamp(arena.Level, 1, 100);
+        var waveSkills = SettlersBosses.BuildBossSkills(player, waveVariety, lvl, gauntlet ? WaveGauntletEffects : WaveEffects);
         var rng = AreaRng(player);
         int startIdx = rng.Next(arena.WaveMarkers.Count);
         for (int i = 0; i < count; i++)
@@ -664,9 +692,9 @@ public static class AdmiralValeriusController
             dy /= len;
             float rot = (float)Math.Atan2(dy, dx);
 
-            uint wid = await SpawnMonster(player, waveVariety, (byte)Math.Clamp(arena.Level, 1, 100),
+            uint wid = await SpawnMonster(player, waveVariety, lvl,
                 MonsterRarity.Normal, origin.X, origin.Y, log: false, alone: false, unrisen: false,
-                rotation: rot, scripted: true, nonBlocking: true, instanceOwned: true);
+                rotation: rot, ownedSkills: waveSkills, scripted: true, nonBlocking: true, instanceOwned: true);
             if (wid == 0) continue;
             if (player.Area.Monsters.TryGetValue(wid, out var wm))
             {
@@ -676,6 +704,7 @@ public static class AdmiralValeriusController
             arena.ActiveWaves.Add(new ActiveWave
             {
                 MonsterId = wid,
+                Gauntlet = gauntlet,
                 Pos = (origin.X, origin.Y),
                 Dir = (dx, dy),
                 Speed = 30.0,
@@ -688,8 +717,6 @@ public static class AdmiralValeriusController
     static async Task StepActiveWaves(Player player, ArenaState arena, SpawnedMonster boss, double now)
     {
         if (arena.ActiveWaves.Count == 0) return;
-        var waveAtk = SettlersBosses.BuildBossAttack(player, boss, BossEffects, EffectTidalWaveDamage,
-            scale: 1.05, range: 14, physToColdPct: 100, forceSpell: true);
 
         for (int i = arena.ActiveWaves.Count - 1; i >= 0; i--)
         {
@@ -711,7 +738,8 @@ public static class AdmiralValeriusController
             var cell = ((int)Math.Round(nx), (int)Math.Round(ny));
             await SettlersBosses.MoveBoss(player, wave.MonsterId, wm, cell, now);
 
-            // Damage + knockback players swept by the Tidal Wave (per-player 0.75s hit cooldown).
+            // Damage + knockback each individual player swept by the Tidal Wave (per-player 0.75s cooldown, no party multi-hit!).
+            MonsterAttack? waveAtk = null;
             foreach (var p in SettlersBosses.ActivePlayers(player))
             {
                 if (p.PlayerLife == 0 || p.Paused || InGracePeriod(p)) continue;
@@ -719,7 +747,13 @@ public static class AdmiralValeriusController
                 if (!SettlersBosses.Near(p.Walk.Position(now), cell, 11.5)) continue;
                 wave.PlayerHitCooldown[p.Id] = now + 0.75;
 
-                await SettlersBosses.HitCircle(p, arena.BossId, boss, waveAtk, cell, 12.5,
+                waveAtk ??= SettlersBosses.BuildBossAttack(player, wm,
+                    wave.Gauntlet ? WaveGauntletEffects : WaveEffects,
+                    wave.Gauntlet ? EffectTidalWaveGauntletDamage : EffectTidalWaveDamage,
+                    scale: 1.05, range: 14, physToColdPct: 100, forceSpell: true);
+
+                await SettlersBosses.HitPlayer(p, wave.MonsterId, wm, waveAtk,
+                    at => SettlersBosses.Near(at, cell, 12.5),
                     () => !arena.Defeated && SettlersBosses.Alive(boss));
                 // Apply tidal wave knockback along wave travel direction.
                 var pPos = p.Walk.Position(now);
@@ -755,25 +789,36 @@ public static class AdmiralValeriusController
             var srcMonster = player.Area.Monsters.TryGetValue(s.SourceId, out var sm) ? sm : boss;
             await SettlersBosses.HitCircle(player, s.SourceId, srcMonster, s.Attack, s.Center, s.Radius,
                 () => !arena.Defeated && SettlersBosses.Alive(boss),
-                onPlayerHit: s.AppliesSoaked ? hitPlayer => _ = ApplySoakedStack(hitPlayer, arena.BossId, now) : null);
+                onPlayerHitAsync: s.AppliesSoaked ? hitPlayer => ApplySoakedStack(hitPlayer, arena.BossId, now) : null);
         }
     }
 
     static async Task ApplySoakedStack(Player player, uint bossId, double now)
     {
         var state = SettlersBosses.SoakedDebuffs.GetOrCreateValue(player);
-        bool firstStack = state.Stacks == 0;
-        state.Stacks = Math.Min(SoakedMaxStacks, state.Stacks + 1);
-        state.ExpiresAt = now + SoakedDurationSeconds;
-        if (firstStack) Interlocked.Increment(ref SettlersBosses.SoakedHolders);
-        if (state.BuffInstance == 0)
+        ushort oldBuff, newBuff;
+        int stacks;
+        lock (state.Lock)
         {
+            if (!state.Counted)
+            {
+                state.Counted = true;
+                Interlocked.Increment(ref SettlersBosses.SoakedHolders);
+            }
+            state.Stacks = Math.Min(SoakedMaxStacks, state.Stacks + 1);
+            state.ExpiresAt = now + SoakedDurationSeconds;
+            oldBuff = state.BuffInstance;
+            // Allocate a fresh buff instance on refresh so the client resets the 20s HUD countdown bar.
             ushort bid = player.NextBuff++;
-            state.BuffInstance = bid == 0 ? player.NextBuff++ : bid;
+            newBuff = bid == 0 ? player.NextBuff++ : bid;
+            state.BuffInstance = newBuff;
+            stacks = state.Stacks;
         }
+        if (oldBuff != 0)
+            await SendWorldRecord(PlayerOf(player), player.Id, InstanceEntities.RemoveBuff(player.Id, oldBuff), null);
         await SendWorldRecord(PlayerOf(player), player.Id,
-            InstanceEntities.AddBuff(player.Id, state.BuffInstance, SoakedBuffRow, bossId,
-                u68: BitConverter.SingleToUInt32Bits((float)SoakedDurationSeconds), f6c: 1f, stacks: (ushort)state.Stacks),
+            InstanceEntities.AddBuff(player.Id, newBuff, SoakedBuffRow, bossId,
+                u68: BitConverter.SingleToUInt32Bits((float)SoakedDurationSeconds), f6c: 1f, stacks: (ushort)stacks),
             null);
         await SettlersBosses.RefreshPlayerStats(player, "Soaked to the Bone");
     }
@@ -783,13 +828,29 @@ public static class AdmiralValeriusController
         if (Volatile.Read(ref SettlersBosses.SoakedHolders) == 0) return;
         foreach (var p in SettlersBosses.ActivePlayers(runner))
         {
-            if (SettlersBosses.SoakedDebuffs.TryGetValue(p, out var st) && st.Stacks > 0 && (now >= st.ExpiresAt || p.PlayerLife == 0))
+            if (!SettlersBosses.SoakedDebuffs.TryGetValue(p, out var st)) continue;
+            ushort removeBuff = 0;
+            bool cleared = false;
+            lock (st.Lock)
             {
-                st.Stacks = 0;
-                st.ExpiresAt = 0;
-                Interlocked.Decrement(ref SettlersBosses.SoakedHolders);
-                if (st.BuffInstance != 0)
-                    await SendWorldRecord(PlayerOf(p), p.Id, InstanceEntities.RemoveBuff(p.Id, st.BuffInstance), null);
+                if (st.Stacks > 0 && (now >= st.ExpiresAt || p.PlayerLife == 0))
+                {
+                    st.Stacks = 0;
+                    st.ExpiresAt = 0;
+                    removeBuff = st.BuffInstance;
+                    st.BuffInstance = 0;
+                    if (st.Counted)
+                    {
+                        st.Counted = false;
+                        Interlocked.Decrement(ref SettlersBosses.SoakedHolders);
+                    }
+                    cleared = true;
+                }
+            }
+            if (cleared)
+            {
+                if (removeBuff != 0)
+                    await SendWorldRecord(PlayerOf(p), p.Id, InstanceEntities.RemoveBuff(p.Id, removeBuff), null);
                 await SettlersBosses.RefreshPlayerStats(p, "Soaked to the Bone expired");
             }
         }
@@ -831,13 +892,29 @@ public static class AdmiralValeriusController
         // Clear Soaked to the Bone debuff on all players.
         foreach (var p in SettlersBosses.ActivePlayers(player))
         {
-            if (SettlersBosses.SoakedDebuffs.TryGetValue(p, out var st) && st.Stacks > 0)
+            if (!SettlersBosses.SoakedDebuffs.TryGetValue(p, out var st)) continue;
+            ushort removeBuff = 0;
+            bool cleared = false;
+            lock (st.Lock)
             {
-                st.Stacks = 0;
-                st.ExpiresAt = 0;
-                Interlocked.Decrement(ref SettlersBosses.SoakedHolders);
-                if (st.BuffInstance != 0)
-                    await SendWorldRecord(PlayerOf(p), p.Id, InstanceEntities.RemoveBuff(p.Id, st.BuffInstance), null);
+                if (st.Stacks > 0 || st.Counted)
+                {
+                    st.Stacks = 0;
+                    st.ExpiresAt = 0;
+                    removeBuff = st.BuffInstance;
+                    st.BuffInstance = 0;
+                    if (st.Counted)
+                    {
+                        st.Counted = false;
+                        Interlocked.Decrement(ref SettlersBosses.SoakedHolders);
+                    }
+                    cleared = true;
+                }
+            }
+            if (cleared)
+            {
+                if (removeBuff != 0)
+                    await SendWorldRecord(PlayerOf(p), p.Id, InstanceEntities.RemoveBuff(p.Id, removeBuff), null);
                 await SettlersBosses.RefreshPlayerStats(p, "Soaked to the Bone cleared");
             }
         }

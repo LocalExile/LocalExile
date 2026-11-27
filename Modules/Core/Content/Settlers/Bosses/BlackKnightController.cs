@@ -362,35 +362,40 @@ public static class BlackKnightController
         var arena = GetOrCreateArena(player);
         await PresentArenaObjects(player, arena);
 
-        // On re-entry into an active fight, restore boss bar, LifePhaseGate, and sync scripted boss reference.
-        if (!arena.Defeated && arena.BossId == 0)
+        // On re-entry into an active fight, restore boss bar, LifePhaseGate, and sync scripted boss reference under gate.
+        await arena.Gate.WaitAsync();
+        try
         {
-            foreach (var (id, m) in player.Area.Monsters.ToArray())
+            if (!arena.Defeated && arena.BossId == 0)
             {
-                if (m.Variety?.Id == BossVarietyId && SettlersBosses.Alive(m))
+                foreach (var (id, m) in player.Area.Monsters.ToArray())
                 {
-                    arena.BossId = id;
-                    break;
+                    if (m.Variety?.Id == BossVarietyId && SettlersBosses.Alive(m))
+                    {
+                        arena.BossId = id;
+                        break;
+                    }
                 }
             }
-        }
-        if (!arena.Defeated && arena.BossId != 0 && player.Area.Monsters.TryGetValue(arena.BossId, out var boss))
-        {
-            if (boss.LifePhases is null)
+            if (!arena.Defeated && arena.BossId != 0 && player.Area.Monsters.TryGetValue(arena.BossId, out var boss))
             {
-                boss.LifePhases = new LifePhaseGate(PhaseThresholds);
-                int skip = arena.CompletedPhases;
-                if (skip == 0 && boss.MaxLife > 0 && boss.Life > 0 && boss.Life < boss.MaxLife)
+                if (boss.LifePhases is null)
                 {
-                    double pct = 100.0 * boss.Life / boss.MaxLife;
-                    for (int i = 0; i < PhaseThresholds.Length; i++)
-                        if (pct < PhaseThresholds[i] - 1.0) skip = i + 1;
+                    boss.LifePhases = new LifePhaseGate(PhaseThresholds);
+                    int skip = arena.CompletedPhases;
+                    if (skip == 0 && boss.MaxLife > 0 && boss.Life > 0 && boss.Life < boss.MaxLife)
+                    {
+                        double pct = 100.0 * boss.Life / boss.MaxLife;
+                        for (int i = 0; i < PhaseThresholds.Length; i++)
+                            if (pct < PhaseThresholds[i] - 1.0) skip = i + 1;
+                    }
+                    for (int i = 0; i < skip && !boss.LifePhases.Active; i++)
+                        if (boss.LifePhases.Begin(1, 100)) boss.LifePhases.Finish();
                 }
-                for (int i = 0; i < skip && !boss.LifePhases.Active; i++)
-                    if (boss.LifePhases.Begin(1, 100)) boss.LifePhases.Finish();
+                if (arena.Engaged) await SettlersBosses.EnsureBossBar(player, arena.BossId, boss);
             }
-            if (arena.Engaged) await SettlersBosses.EnsureBossBar(player, arena.BossId, boss);
         }
+        finally { arena.Gate.Release(); }
     }
 
     static async Task PresentArenaObjects(Player player, ArenaState arena)
@@ -453,16 +458,19 @@ public static class BlackKnightController
                 await SettlersBosses.Speak(player, arena.BossId, SettlersBosses.BlackKnightNpcRow, LinesDeflectEnd);
             }
 
+            // Let active intermissions complete naturally on timer (never skip a phase on death or entry grace period).
+            if (arena.ActiveIntermission != IntermissionKind.None && now >= arena.IntermissionEndsAt)
+            {
+                await EndIntermission(player, arena, boss);
+                if (arena.CompletedPhases % 2 == 0)
+                    await SettlersBosses.Speak(player, arena.BossId, SettlersBosses.BlackKnightNpcRow, LinesRockfallEnd);
+                return;
+            }
+
             if (!player.AiEnabled) return;
 
             var target = SettlersBosses.NearestLivingPlayer(player, boss.Walk.Position(now), now, maxRange: 180, awakeId: arena.BossId);
-            if (target is null)
-            {
-                // Nobody alive in arena: lift intermission immunity so a returning player is never soft-locked.
-                if (arena.ActiveIntermission != IntermissionKind.None)
-                    await EndIntermission(player, arena, boss);
-                return;
-            }
+            if (target is null) return;
 
             // Engage on first proximity.
             if (!arena.Engaged)
@@ -836,6 +844,7 @@ public static class BlackKnightController
                     foreach (var member in SettlersBosses.ActivePlayers(player))
                     {
                         SettlersBosses.SetDiscBarrier(member, hitPillar.Id, hitPillar.X, hitPillar.Y, 3, false);
+                        await SendWorldRecord(PlayerOf(member), hitPillar.Id, InstanceEntities.BlockageUpdate(hitPillar.Id, false), null);
                         await SendWorldRemoval(PlayerOf(member), hitPillar.Id, null);
                     }
                 }
@@ -887,7 +896,7 @@ public static class BlackKnightController
         await SettlersBosses.Speak(player, arena.BossId, SettlersBosses.BlackKnightNpcRow, LinesDeath);
         await SettlersBosses.ClearEffects(player, arena.Effects);
 
-        // Retract and remove all spawned stone pillars & clear walk barriers.
+        // Retract and unblock all spawned stone pillars on both server and client TriggerableBlockage.
         foreach (var pillar in arena.Pillars)
         {
             if (pillar.Destroyed) continue;
@@ -895,7 +904,10 @@ public static class BlackKnightController
             var retract = SettlersBosses.BaseStates(pillar.Type)?.Set("delete", 2);
             if (retract is not null) await SettlersBosses.UpdateObjStates(player, pillar.Id, pillar.Type, retract);
             foreach (var member in SettlersBosses.ActivePlayers(player))
+            {
                 SettlersBosses.SetDiscBarrier(member, pillar.Id, pillar.X, pillar.Y, pillar.IsLaserCover ? 3 : 4, false);
+                await SendWorldRecord(PlayerOf(member), pillar.Id, InstanceEntities.BlockageUpdate(pillar.Id, false), null);
+            }
         }
 
         // Despawn helper daemon cleanly.
