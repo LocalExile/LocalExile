@@ -3276,8 +3276,9 @@ public static partial class Game
             }
             if (ownSlam && retainedAttack is null && strikeIndex == 0)
             {
-                var fissureAt = from;
-                foreach (var cell in GameServer.Core.World.ClientPathfinder.Line(from, centre))
+                var slamOrigin = holyPath ? holyPathUse.Landing : from;
+                var fissureAt = slamOrigin;
+                foreach (var cell in GameServer.Core.World.ClientPathfinder.Line(slamOrigin, centre))
                 {
                     if (!player.Layout.WalkableFor(cell.X, cell.Y, 0) || player.Barrier.Contains(cell)) break;
                     fissureAt = cell;
@@ -3288,13 +3289,13 @@ public static partial class Game
             if (!spell && retainedAttack is null && areaAction == EarthshatterFissures.Action)
             {
                 ScheduleEarthshatterLocked(player, skillId, gem, admittedGem, from, to, sequence, repeat, hand, weapon,
-                    offCritical, criticalRoll, radiusMore * chargeRadius, damageMore, ruthless, cryExerted == true, now);
+                    offCritical, criticalRoll, radiusMore * chargeRadius, damageMore, ruthless, cryExerted == true, seismicExerted, now);
                 return;
             }
             if (retainedAttack is null && strikeIndex == 0 && areaAction == PerforateAction)
             {
                 SchedulePerforateLocked(player, gem, admittedGem, from, to, sequence, repeat, hand, weapon, offCritical,
-                    criticalRoll, radiusMore, damageMore, ruthless, cryExerted == true, now);
+                    criticalRoll, radiusMore * chargeRadius, damageMore, ruthless, cryExerted == true, seismicExerted, now);
                 return;
             }
             if (retainedAttack is null && strikeIndex == 0 && areaAction == HolyHammersAction)

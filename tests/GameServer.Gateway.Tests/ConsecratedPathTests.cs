@@ -34,6 +34,16 @@ public sealed class ConsecratedPathTests
         await trial.Cast((127, 100), enemy.ObjectId);
         Assert.Equal(Trial.Origin, trial.Position);
         trial.AssertGround((107, 100));
+
+        // Warping across a chasm (sight open, floor unwalkable) triggers Fissure Support from the landing side.
+        using var gap = new Trial("Consecrated Path", "Fissure Support") { ChasmX = 114 };
+        var farEnemy = gap.AddMonster(904, (127, 100));
+        var witness = gap.AddMonster(905, (127, 100));
+        await gap.Cast((127, 100), farEnemy.ObjectId);
+        Assert.Equal((120, 100), gap.Position);
+        uint lifeAfterSlam = witness.Life;
+        gap.Advance(.25);
+        Assert.True(witness.Life < lifeAfterSlam);
     }
 
     [Fact]
@@ -83,11 +93,12 @@ public sealed class ConsecratedPathTests
         public ushort Skill { get; }
         public (int X, int Y) Position => Player.Walk.Position(clock.At);
         public int BlockedX { get; set; } = -1;
+        public int ChasmX { get; set; } = -1;
 
-        public Trial(string name)
+        public Trial(string name, params string[] extraGems)
         {
             fixture = new(clock);
-            Player.Use(new(1, "holy-path-test", 400, 400, Origin.X, Origin.Y, (x, _) => x != BlockedX, [])
+            Player.Use(new(1, "holy-path-test", 400, 400, Origin.X, Origin.Y, (x, _) => x != BlockedX && x != ChasmX, [])
                 { Sight = (x, _) => (byte)(x == BlockedX ? 0 : 2) });
             Player.Walk.Teleport(Origin.X, Origin.Y, clock.At);
             Player.Connection.LockstepClient = false;
@@ -107,7 +118,8 @@ public sealed class ConsecratedPathTests
                 }
                 return values;
             });
-            Skill = Assert.Single(fixture.Equip((name, 1)));
+            fixture.Equip([(name, 1), .. extraGems.Select(extra => (extra, 1))]);
+            Skill = Game.GemSkillEffects(Player).Single(g => g.Name == name).Id;
             previous = Game.AreaUpdateContext.Value;
             Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
             Player.PlayerMana = 100;
@@ -130,7 +142,11 @@ public sealed class ConsecratedPathTests
             Assert.True(await Game.CastGemSkill(Player, Skill, Origin, aim, targetId, cooldownUse: cooldown));
         }
 
-        public void Advance() => clock.At += .45;
+        public void Advance(double seconds = .45)
+        {
+            clock.At += seconds;
+            fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+        }
 
         public void AssertGround((int X, int Y) at)
         {

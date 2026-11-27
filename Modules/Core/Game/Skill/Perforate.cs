@@ -49,7 +49,7 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, SupportedGem admitted,
         (int X, int Y) from, (int X, int Y) to, ushort sequence, int repeat, AttackHand hand, SkillCatalog.Unarmed weapon,
         int? offCritical, SkillCriticalRoll critical, double radiusMore, double damageMore, double ruthless,
-        bool exerted, double now)
+        bool exerted, bool seismicExerted, double now)
     {
         var session = ProjectilesFor(player);
         var stats = SkillAreaStats(player, admitted.Stats, gem.Effect);
@@ -97,7 +97,7 @@ public static partial class Game
                     strikeIndex: 0, firstContactAt: null, ruthless, priorTargets: null, scaledBlastChaos: 0,
                     singleStrikeTarget: null, onHit: null, scheduledSession: session, cryExerted: exerted,
                     prepaidRawExtra: 0, baseChaos: 0, hammer: null, retainedAttack: source, allowMeleeSplash: false,
-                    contactTargets: candidates);
+                    contactTargets: candidates, seismicExerted: seismicExerted);
                 if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled Perforate contact must not yield.");
                 hit.GetAwaiter().GetResult();
             }

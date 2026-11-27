@@ -77,6 +77,25 @@ public sealed class PerforateMechanicsTests
             bloodshed.Advance(.06);
             Assert.True(central.Life < first);
         }
+
+        using (var exerted = new Trial("Perforate", sand: true, "Overexertion Support", "Seismic Cry"))
+        {
+            var plainTarget = exerted.Monster(910, (89, 100));
+            await exerted.Cast();
+            exerted.Advance(.01);
+            uint plainDamage = plainTarget.MaxLife - plainTarget.Life;
+            Assert.True(plainDamage > 0);
+            exerted.Advance(.50);
+
+            var cry = Game.GemSkillEffects(exerted.Player).Single(g => g.Name == "Seismic Cry");
+            Game.GrantSeismicCryExertsLocked(exerted.Player, Game.SupportedSkill(exerted.Player, cry.Id).Stats, new Dictionary<uint, int>());
+            exerted.Player.NextAttackAt = 0;
+            var exertedTarget = exerted.Monster(911, (89, 100));
+            await exerted.Cast();
+            exerted.Advance(.01);
+            uint exertedDamage = exertedTarget.MaxLife - exertedTarget.Life;
+            Assert.InRange(exertedDamage / (double)plainDamage, 1.16, 1.19);
+        }
     }
 
     sealed class Trial : IDisposable
@@ -91,7 +110,7 @@ public sealed class PerforateMechanicsTests
 
         internal Player Player => fixture.Player;
 
-        internal Trial(string gem, bool sand = false)
+        internal Trial(string gem, bool sand = false, params string[] extraGems)
         {
             fixture = new(clock);
             Player.Use(new(1, "perforate-test", 300, 300, Origin.X, Origin.Y, (_, _) => true, []) { Sight = (_, _) => 2 });
@@ -112,7 +131,7 @@ public sealed class PerforateMechanicsTests
                 }
                 return values;
             });
-            fixture.Equip((gem, 1));
+            fixture.Equip([(gem, 1), .. extraGems.Select(name => (name, 1))]);
             skill = Game.GemSkillEffects(Player).Single(g => g.Name == gem).Id;
             prior = Game.AreaUpdateContext.Value;
             Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);

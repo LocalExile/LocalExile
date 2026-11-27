@@ -98,6 +98,34 @@ public sealed class EarthshatterMechanicsTests
             trial.Advance(.30);
             Assert.Equal(expiring.MaxLife, expiring.Life);
         }
+
+        using (var exerted = new Trial("Earthshatter of Prominence", "Overexertion Support", "Seismic Cry"))
+        {
+            var start = Assert.Single(exerted.Plan(count: 1)).Start;
+            var plainTarget = exerted.Monster(910, start);
+            await exerted.Cast(exerted.Skill);
+            uint plainFissure = plainTarget.MaxLife - plainTarget.Life;
+            exerted.Advance(.30);
+            var plainSpikeTarget = exerted.Monster(911, Assert.Single(exerted.Plan(count: 1)).End);
+            await Game.WarcryReleased(exerted.Player, Trial.Origin, 90, exerted.Player.ProjectileEpoch);
+            exerted.Advance(.30);
+            uint plainSpike = plainSpikeTarget.MaxLife - plainSpikeTarget.Life;
+            Assert.True(plainFissure > 0 && plainSpike > 0);
+
+            exerted.Advance(.70);
+            var cry = Game.GemSkillEffects(exerted.Player).Single(g => g.Name == "Seismic Cry");
+            Game.GrantSeismicCryExertsLocked(exerted.Player, Game.SupportedSkill(exerted.Player, cry.Id).Stats, new Dictionary<uint, int>());
+            var exertedTarget = exerted.Monster(912, start);
+            await exerted.Cast(exerted.Skill);
+            uint exertedFissure = exertedTarget.MaxLife - exertedTarget.Life;
+            exerted.Advance(.40);
+            var exertedSpikeTarget = exerted.Monster(913, exerted.Plan(count: 1, areaScale: (float)SkillArea.RadiusMultiplier(50)).Single().End);
+            await Game.WarcryReleased(exerted.Player, Trial.Origin, 90, exerted.Player.ProjectileEpoch);
+            exerted.Advance(.30);
+            uint exertedSpike = exertedSpikeTarget.MaxLife - exertedSpikeTarget.Life;
+            Assert.InRange(exertedFissure / (double)plainFissure, 1.16, 1.19);
+            Assert.InRange(exertedSpike / (double)plainSpike, 1.16, 1.19);
+        }
     }
 
     sealed class Trial : IDisposable
@@ -113,7 +141,7 @@ public sealed class EarthshatterMechanicsTests
         public ushort Skill { get; }
         public ushort Slam { get; }
 
-        internal Trial(string gem)
+        internal Trial(string gem, params string[] extraGems)
         {
             fixture = new(clock);
             Player.Use(new(1, "earthshatter-test", 300, 300, Origin.X, Origin.Y, (_, _) => true, [])
@@ -135,7 +163,7 @@ public sealed class EarthshatterMechanicsTests
                 }
                 return values;
             });
-            fixture.Equip((gem, 1), ("Ground Slam", 1));
+            fixture.Equip([(gem, 1), ("Ground Slam", 1), .. extraGems.Select(name => (name, 1))]);
             var effects = Game.GemSkillEffects(Player);
             Skill = effects.Single(g => g.Name == gem).Id;
             Slam = effects.Single(g => g.Name == "Ground Slam").Id;
@@ -144,8 +172,8 @@ public sealed class EarthshatterMechanicsTests
             Advance(0);
         }
 
-        internal List<Game.EarthshatterFissures.Fissure> Plan(int count) =>
-            Game.EarthshatterFissures.Plan(Origin, Aim, Sequence, Player.Id, 0, 0, 0, count, 0, 0, 1, _ => true);
+        internal List<Game.EarthshatterFissures.Fissure> Plan(int count, float areaScale = 1) =>
+            Game.EarthshatterFissures.Plan(Origin, Aim, Sequence, Player.Id, 0, 0, 0, count, 0, 0, areaScale, _ => true);
 
         internal SpawnedMonster Monster(uint id, (int X, int Y) point)
         {
