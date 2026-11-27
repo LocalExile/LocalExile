@@ -217,6 +217,7 @@ public static partial class Game
         Player player, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
         IEnumerable<ushort>? nodes, int? level, Action? afterConditionCapture)
     {
+        var wornEquipment = equipment is StatEquipment ? null : equipment;
         equipment = EquipmentForStats(player, equipment);
         // A level change can trim the list while /set_stat builds pools outside the combat lock.
         // Mastery dictionaries are replaced as a whole, so retaining their current reference is safe.
@@ -882,7 +883,7 @@ public static partial class Game
             // The legacy trigger reads the item-local level from actual active equipment.
             const uint itemMark = Stat.CurseOnHitLevelAssassinsMark;
             int markLevel = 0;
-            foreach (var (_, equipped) in ItemsOf(player).EquipmentSnapshot())
+            foreach (var (_, equipped) in wornEquipment ?? items.EquipmentSnapshot())
                 if (!inactive.Contains(equipped.Id))
                     markLevel = Math.Max(markLevel, ItemModStats.LocalValue(equipped.Item, catalog.Mods, itemMark));
             if (markLevel > 0) sources[itemMark] = markLevel;

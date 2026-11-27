@@ -39,7 +39,8 @@ public static partial class Game
             CaptureMadnessExplosionLocked(player, m);
             double now = ProjectileWorldTime(player);
             m.Poisons.RememberDeath(now, poisonDeath);
-            m.TauntedAtDeath = m.TauntedUntil > now || DecoyTarget(m, now) is not null;
+            m.TauntedAtDeath = m.TauntedUntil > now || DecoyTarget(m, now) is not null
+                || ActiveMinionTaunter(player, m.ObjectId, m, now) is not null;
             m.WitherStacksAtDeath = ReadWithered(m, now).Count;
             m.CursedAtDeath = false;
             m.NonAuraHexUntilAtDeath = 0;
