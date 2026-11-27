@@ -251,6 +251,10 @@ public static class GatewayProjectileSkillProfiles
             "BlazingSalvo" or "BlazingSalvoRoyale" => get(Stat.BlazingSalvoNumberOfAdditionalProjectiles),
             "ForbiddenRite" or "ForbiddenRiteAltX" => get(Stat.ForbiddenRiteNumberOfAdditionalProjectiles),
             "SoulrendAltY" => Math.Max(0, get(Stat.BaseNumberOfProjectilesInSpiralNova) - 1),
+            // The Split Arrow helmet enchant is a named active-skill input: the ordinary and Vaal gems add arrows;
+            // Split Arrow of Splitting converts the same count into split targets through the pass below.
+            "SplitArrow" or "SplitArrowAltX" or "SplitArrowAltY" or "VaalSplitArrow"
+                => get(Stat.SplitArrowNumOfAdditionalProjectiles),
             _ => 0
         };
         int pierce = IsIceShot(effect) ? get(Stat.IceShotPiercePlus) : 0;

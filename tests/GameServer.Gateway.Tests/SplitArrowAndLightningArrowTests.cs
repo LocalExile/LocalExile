@@ -29,4 +29,34 @@ public sealed class SplitArrowAndLightningArrowTests
             _ => 0, 3260, attack: true, arrows: true);
         Assert.Null(altProfile.ContactTargets);
     }
+
+    [Fact]
+    public void Split_arrow_helmet_adds_arrows_and_splitting_targets()
+    {
+        static GameServer.Core.Projectiles.ProjectileProfile Resolve(string effect, int helmet)
+        {
+            bool splitting = effect == "SplitArrowAltX";
+            var stats = new Dictionary<uint, int>
+            {
+                [Stat.BaseNumberOfArrows] = splitting ? 1 : 5,
+                [Stat.ProjectileNumberToSplit] = splitting ? 3 : 0,
+                [Stat.ModifiersToNumberOfProjectilesInsteadApplyToSplitting] = splitting ? 1 : 0,
+                [Stat.SplitArrowNumOfAdditionalProjectiles] = helmet,
+            };
+            return GatewayProjectileSkillProfiles.Resolve(effect, "Metadata/Projectiles/SplitArrowDefault",
+                name => stats.GetValueOrDefault(name), 3260, attack: true, arrows: true);
+        }
+
+        foreach (string effect in new[] { "SplitArrow", "SplitArrowAltY", "VaalSplitArrow" })
+        {
+            Assert.Equal(5, Resolve(effect, 0).Count);
+            Assert.Equal(7, Resolve(effect, 2).Count);
+        }
+        var splittingPlain = Resolve("SplitArrowAltX", 0);
+        Assert.Equal(1, splittingPlain.Count);
+        Assert.Equal(3, splittingPlain.Split);
+        var splittingHelmet = Resolve("SplitArrowAltX", 3);
+        Assert.Equal(1, splittingHelmet.Count);
+        Assert.Equal(6, splittingHelmet.Split);
+    }
 }
