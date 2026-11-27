@@ -80,6 +80,7 @@ public static partial class Game
     // therefore no unchanged read can keep this loop alive and no retired lifetime can be reactivated.
     public static void ReconcileEquipmentSourceLifetimesLocked(Player player, IReadOnlyList<PlayerSkillSource> before)
     {
+        ReconcileSteelwormSourceLocked(player);
         if (before.Count == 0) return;
         var pending = before.DistinctBy(source => source.Identity).ToList();
         int limit = pending.Count + 1;

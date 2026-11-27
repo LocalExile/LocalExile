@@ -63,6 +63,7 @@ public static partial class Game
     {
         EndVaalArcticArmour(player);
         ClearConvergence(player);
+        ClearSteelworm(player);
     }
 
     internal sealed class TimedSkillBuffCleanup : IDisposable
@@ -71,6 +72,7 @@ public static partial class Game
         {
             foreach (var (player, _) in VaalArcticArmours) EndVaalArcticArmour(player);
             foreach (var (player, _) in ConvergenceWindows) ClearConvergence(player);
+            ClearAllSteelworms();
         }
     }
 

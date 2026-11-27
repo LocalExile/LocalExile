@@ -433,7 +433,7 @@ public static partial class Game
                         GolemReserveLocked(player, reaper, ultimate, target, player.Area.Monsters.GetValueOrDefault(target), aim, AreaTime(player));
                         return true;
                     }
-                if (definition.Id is "BlinkArrow" or "BlinkArrowAltX" or "BlinkArrowAltY")
+                if (definition.Id is "BlinkArrow" or "BlinkArrowAltX" or "BlinkArrowAltY" or "BlinkArrowRoyale")
                 {
                     var origin = player.Walk.Position(AreaTime(player));
                     var landing = MovementLanding(player, gem.Effect, origin, aim);
@@ -459,7 +459,7 @@ public static partial class Game
             }
             if (released) SaveSummons(player);
             return released;
-        });
+        }, firstReleaseDelay: !triggered && definition.Family == "Clone" ? CloneArrowLandingDelay(player, source) : null);
 
     public static Task<uint> SummonFighter(Player player,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
