@@ -89,6 +89,15 @@ public static partial class Game
             // gameplay, inventory and interaction packets; only transfer acknowledgement, exit and pause control run.
             if (player.LeavingArea && id is not (InstanceTransfer.LeaveAreaAckId or InstanceProtocol.ExitToCharacterSelectId
                 or InstanceProtocol.ExitToLoginId or InstancePause.RequestId)) continue;
+            // 0x194 asks the client for a non-empty AFK reply. Settle a probe before command hooks can change chat presence,
+            // even when a predictive packet established the network mode after the probe went out.
+            if (id == InstanceItems.CommandId && Volatile.Read(ref player.Connection.LockstepProbeSentAt) is > 0 and var probeSent
+                && (readAt == 0 || readAt >= probeSent)
+                && InstanceItems.ReadCommand(bytes) is { Id: InstanceItems.AfkCommand, Argument.Length: > 0 })
+            {
+                AnswerLockstepProbe(player, readAt);
+                continue;
+            }
             // A mod may take the message (Program.Mods.cs): then the Gateway's own handler below does not run.
             if (GameEvents.WantsPacket(id) && await GameEvents.AnyPacket(player, id, bytes)) continue;
             // Immediate transfer ingress cuts the old epoch off instead of replaying overdue old-world damage.
@@ -615,7 +624,6 @@ public static partial class Game
                 else if (command.Id == InstanceItems.WarpToHideoutCommand) await WarpToHideout(player, "/hideout");
                 else if (command.Id == InstanceItems.SaveHideoutCommand) await SaveHideoutLayout(player);
                 else if (command.Id is InstanceItems.ForceResyncCommand or InstanceItems.ForceResyncPlayerCommand) await SendResync(player, "the client asked");
-                else if (command.Id == InstanceItems.AfkCommand && player.Connection.LockstepClient) AnswerLockstepProbe(player, readAt);
                 else Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0016 command {command} (not handled)");
             }
             else if (id == InstanceWaypoints.VisitHideoutId)

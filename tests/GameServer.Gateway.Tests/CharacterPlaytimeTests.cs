@@ -141,19 +141,28 @@ public sealed class CharacterPlaytimeTests : IDisposable
             Assert.True(await commands.RunAsync("/atlaspassives"));
             Assert.Contains("0/10 Atlas passive skill point(s) allocated", replies[^1]);
 
-            // Non-empty lockstep AFK probe replies must pass through to Messages.cs when a probe is in flight.
-            player.Connection.LockstepClient = true;
-            player.Connection.LockstepProbeSentAt = 12345;
-            byte[] probeAfk = new GameServer.Core.Protocol.Login.LoginWriter().U16(InstanceItems.CommandId).U8(InstanceItems.AfkCommand).WStr("This player is AFK.").ToArray();
-            Assert.False(await GameEvents.AnyPacket(player, InstanceItems.CommandId, probeAfk));
+            // A probe dispatched before the mode was known can arrive just after the first predictive action.
+            player.Connection.LockstepProbeSentAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            player.Connection.NotePacket("test", InstanceProtocol.UseSkillAtLocationId);
+            Assert.False(player.Connection.LockstepClient);
+            var beforeProbe = replies.Count;
+            byte[] probeAfk = new GameServer.Core.Protocol.Login.LoginWriter().U16(InstanceItems.CommandId)
+                .U8(InstanceItems.AfkCommand).WStr("此流放者已暫時離開。").ToArray();
+            await Game.OnClientMessages([(InstanceItems.CommandId, probeAfk)], [], player, System.Diagnostics.Stopwatch.GetTimestamp());
+            Assert.Equal(beforeProbe, replies.Count);
+            Assert.Equal(0, player.Connection.LockstepProbeSentAt);
+            Assert.False(GameEvents.GetChatAvailability(player).Afk);
 
             // Independent /autoreply survives AFK auto-cancel on gameplay action packets.
-            player.Connection.LockstepProbeSentAt = 0;
             byte[] setAuto = new GameServer.Core.Protocol.Login.LoginWriter().U16(InstanceItems.CommandId).U8(InstanceItems.AutoReplyCommand).WStr("In map").ToArray();
             Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, setAuto));
             Assert.Equal("Autoreply set \"In map\"", replies[^1]);
-            Assert.True(await GameEvents.AnyPacket(player, InstanceItems.CommandId, probeAfk));
+            byte[] manualAfk = new GameServer.Core.Protocol.Login.LoginWriter().U16(InstanceItems.CommandId)
+                .U8(InstanceItems.AfkCommand).WStr("").ToArray();
+            player.Connection.LockstepProbeSentAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            await Game.OnClientMessages([(InstanceItems.CommandId, manualAfk)], [], player);
             Assert.Equal("AFK mode is now ON. Autoreply \"This player is AFK.\"", replies[^1]);
+            Assert.NotEqual(0, player.Connection.LockstepProbeSentAt);
             await GameEvents.RunMessagesHandled(player, [InstanceTransfer.UseSkillOnObjectId]);
             var avail = GameEvents.GetChatAvailability(player);
             Assert.True(avail.Afk);
