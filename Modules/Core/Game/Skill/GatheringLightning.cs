@@ -65,7 +65,7 @@ static partial class Game
     static void ReleaseGatheringLightning(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll, ushort sequence,
-        int repeat, bool cryExerted, double? ruthlessMore, int ancestralTargets)
+        int repeat, bool cryExerted, double? ruthlessMore, int ancestralTargets, int? rallyingDamage)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         var area = player.Area;
@@ -79,7 +79,7 @@ static partial class Game
         var melee = AreaSkillHitForUse(ruthlessMore, player, skillId, gem, from, aim, immediate: true,
             sequence: sequence, criticalRoll: criticalRoll, targetId: targetId, damageMore: repeatMore,
             scheduledSession: session, cryExerted: cryExerted, repeat: repeat, hitAndAilmentMore: more,
-            onDirectHit: contacts.Add, ancestralTargets: ancestralTargets);
+            onDirectHit: contacts.Add, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage);
         if (!melee.IsCompleted) throw new InvalidOperationException("Scheduled Gathering Lightning contact must not yield.");
         melee.GetAwaiter().GetResult();
         if (contacts.Count == 0) return;
@@ -113,7 +113,8 @@ static partial class Game
                 var beam = AreaSkillHitForUse(1, player, skillId, gem, at, next.Position, immediate: true,
                     sequence: sequence, melee: false, criticalRoll: criticalRoll, damageMore: repeatMore,
                     radiusOverride: reach, singleStrikeTarget: next.Key, scheduledSession: session,
-                    cryExerted: cryExerted, repeat: repeat, hitAndAilmentMore: more, allowMeleeSplash: false);
+                    cryExerted: cryExerted, repeat: repeat, hitAndAilmentMore: more, allowMeleeSplash: false,
+                    rallyingDamage: rallyingDamage);
                 if (!beam.IsCompleted) throw new InvalidOperationException("Scheduled Gathering Lightning beam must not yield.");
                 beam.GetAwaiter().GetResult();
                 current = next.Monster;

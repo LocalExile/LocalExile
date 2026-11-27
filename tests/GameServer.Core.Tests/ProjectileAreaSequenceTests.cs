@@ -50,6 +50,32 @@ public class ProjectileAreaSequenceTests
         Assert.All(w.Hits, h => Assert.True(h.IsArea));
     }
 
+    [Fact]
+    public void Segment_hits_the_corridor_and_round_ends_at_the_distance_to_its_source()
+    {
+        var arena = new Arena();
+        arena.Targets.AddRange(
+        [
+            new(new(1), 2, _ => new(30, 5), 0),
+            new(new(2), 2, _ => new(30, 7), 0),
+            new(new(3), 2, _ => new(14, 3), 1),
+            new(new(4), 2, _ => new(14, 4), 1),
+            new(new(5), 1, _ => new(30, 0), 0),
+            new(new(6), 2, _ => new(45, 0), 0),
+        ]);
+
+        var runtime = new ProjectileRuntime(arena);
+        runtime.ImpactAlong(Use(Profile), new(20, 0), new(40, 0), 6, "beam");
+
+        Assert.Equal(new uint[] { 1, 3, 6 }, arena.Hits.Select(h => h.Target.Id));
+        Assert.All(arena.Hits, hit =>
+        {
+            Assert.True(hit.IsArea);
+            Assert.Equal(20, hit.Projectile.Distance);
+        });
+        Assert.Empty(runtime.Projectiles);
+    }
+
     // An area decides its hits by actor id, then generation; a pulse by id, keeping the listed order of equal ids. Both
     // take the actors as they are before the first hit: a hit that kills changes the host's list. A host that lists
     // them in that order already is not sorted again (ProjectileRuntime.ActorsInOrder), and that changes none of it.

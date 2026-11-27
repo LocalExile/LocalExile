@@ -480,10 +480,19 @@ public static partial class Game
     public static byte[][] PlayerSkillsBatchesIfChanged(Player player, IReadOnlyList<GrantedSkill> skills) =>
         PlayerSkillsBatchesIfChanged(player, skills, out _);
 
+    /// <summary>As the overload below, forcing the skill-bar restore: a change that can empty a bound slot (an aura
+    /// turning on or off) sends the bar even when it reads the same as the last one.</summary>
+    public static byte[][] PlayerSkillsBatchesIfChanged(Player player, IReadOnlyList<GrantedSkill> skills, bool forceRestore) =>
+        PlayerSkillsBatchesIfChanged(player, skills, out _, forceRestore);
+
     /// <summary>The skill records to send for a refresh: the changed stats as 0x1b4 records when nothing but stat values
     /// changed (SkillStatDeltas), otherwise the whole list. <paramref name="wholeList"/> is true when the whole list is
     /// what goes out, which replaces the client's skill records.</summary>
-    public static byte[][] PlayerSkillsBatchesIfChanged(Player player, IReadOnlyList<GrantedSkill> skills, out bool wholeList)
+    public static byte[][] PlayerSkillsBatchesIfChanged(Player player, IReadOnlyList<GrantedSkill> skills, out bool wholeList) =>
+        PlayerSkillsBatchesIfChanged(player, skills, out wholeList, forceRestore: false);
+
+    public static byte[][] PlayerSkillsBatchesIfChanged(Player player, IReadOnlyList<GrantedSkill> skills, out bool wholeList,
+        bool forceRestore)
     {
         wholeList = false;
         if (SkillStatDeltasAtGate(player, skills, out bool detonate) is { } deltas)
@@ -503,8 +512,15 @@ public static partial class Game
         }
         wholeList = true;
         // Any 0x02bc Actor skill-list update can reset client-side skill bar bindings; schedule a coalesced 0x0053 restore.
-        _ = RestoreSkillBarAfterActorUpdate(player);
-        return batches;
+        // A skill really joining or leaving can empty a bound slot, so that restore goes out even when the bar reads the
+        // same; a list whose skills are all the ones the client holds only changed their stats (live 2026-11-26: those
+        // restores replayed the guard's ring several times a second).
+        bool membershipChanged = !player.ClientSkillIds.SetEquals(skills.Select(s => s.Id));
+        _ = RestoreSkillBarAfterActorUpdate(player, force: forceRestore || membershipChanged);
+        // The replacement also refreshes a held guard's zero-rate entry into counting (0x141ef1573, 11-skills §9), and
+        // a re-held entry a couple of frames later still leaves the ring counting for that gap (live 2026-11-26). The
+        // held entry rides in the same flush, directly behind the list, so the bar never counts during the buff (#1127).
+        return HeldGuardCooldownRefresh(player) is { Length: > 0 } held ? [.. batches, held] : batches;
     }
 
     // What the full refresh sent: the base the next partial refresh compares with.

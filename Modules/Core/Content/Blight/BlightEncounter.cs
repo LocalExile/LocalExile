@@ -191,6 +191,12 @@ public sealed class BlightEncounter
 
     public readonly Store<InstanceState, Run> Runs = new();
 
+    public bool IsActivePause(Player player)
+    {
+        if (player.Instance is not { } instance || !Runs.TryGetValue(instance, out var run)) return false;
+        lock (run.Gate) return run.Defences.Any(d => d.Phase is Phase.Building or Phase.Running);
+    }
+
     static double Frames(int frames) => frames * Program.FrameMs / 1000.0;
 
     static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;

@@ -20,6 +20,7 @@ public sealed class AbyssModule : IModule
         LoadData();
         string id = module.Manifest.Id;
         module.Lifetime.Own(new Cleanup(_encounter.Clear));
+        module.Lifetime.Own(RegisterDeliriumPauseSource(_encounter.IsActivePause));
         GameEvents.MapOpening.Add(id, AbyssScarabs.Opening);
         GameEvents.AreaPopulated.Add(id, area =>
         {

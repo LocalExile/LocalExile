@@ -34,12 +34,13 @@ public static partial class Game
     internal static bool LacerateEffect(string? effect) =>
         effect is "Lacerate" or "LacerateAltX" or "LacerateAltY" or "LacerateRoyale";
 
-    static void ApplyLacerateBleed(Player player, int effect, Dictionary<uint, int> own)
+    static void ApplyStanceMeleeBleed(Player player, int effect, Dictionary<uint, int> own)
     {
         int chance = own.GetValueOrDefault(Stat.ChanceToBleedOnHitPctChanceInBloodStance);
         int more = own.GetValueOrDefault(Stat.ActiveSkillBleedingDamagePlusPctFinalInBloodStance);
-        if ((chance == 0 && more == 0) || player.Stance == StanceCatalog.SandSelection
-            || !LacerateEffect(SkillsFor(player).EffectId(effect))) return;
+        if ((chance == 0 && more == 0) || player.Stance == StanceCatalog.SandSelection) return;
+        string? id = SkillsFor(player).EffectId(effect);
+        if (!LacerateEffect(id) && !IsBladestorm(id)) return;
 
         const uint hitChance = Stat.BleedOnHitWithAttacksPct;
         const uint damage = Stat.ActiveSkillBleedingDamagePlusPctFinal;

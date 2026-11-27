@@ -298,12 +298,13 @@ public static partial class Game
 
     // A shield skill's attack swings the shield (Shield Charge, Shield Crush), which has no weapon damage: the gem's own
     // off_hand_local_minimum/maximum_added_physical_damage plus its added damage per 15 of the shield's armour and evasion
-    // rating (the item's own, local values: "per 15 Armour or Evasion Rating on Shield"), at the gem's AttackTime. Null
-    // for other skills and without a shield, whose attacks use the main hand's weapon.
+    // rating (the item's own, local values: "per 15 Armour or Evasion Rating on Shield"), at the gem's AttackTime.
+    // Eviscerate requires a shield but attacks with the one-handed weapon.
     public static SkillCatalog.Unarmed? ShieldWeapon(Player player, ushort skillId)
     {
         var gem = SupportedSkill(player, skillId);
-        if (!SkillsFor(player).IsAttack(gem.Effect) || !SkillsFor(player).RequiresShield(gem.Effect)
+        var skills = SkillsFor(player);
+        if (!skills.IsAttack(gem.Effect) || !skills.RequiresShield(gem.Effect) || skills.EffectId(gem.Effect) == "Eviscerate"
             || ActiveShieldDefences(player) is not { } shield) return null;
         int Own(uint k) => gem.Stats.GetValueOrDefault(k);
         long per15Armour = (long)(shield.Armour / 15);
@@ -314,7 +315,7 @@ public static partial class Game
         int max = ActorScale.Saturate(Own(Stat.OffHandLocalMaximumAddedPhysicalDamage)
             + per15Combined * Own(Stat.OffHandMaximumAddedPhysicalDamagePer15ShieldArmourAndEvasionRating)
             + per15Armour * Own(Stat.OffHandMaximumAddedPhysicalDamagePer15ShieldArmour));
-        int attackMs = SkillsFor(player).AttackTimeMs(gem.Effect, gem.Level);
+        int attackMs = skills.AttackTimeMs(gem.Effect, gem.Level);
         var weapon = new SkillCatalog.Unarmed(attackMs > 0 ? attackMs : WeaponFor(player).AttackMs, min, Math.Max(min, max), WeaponFor(player).Range);
         int per15Evasion = (int)(shield.Evasion / 15);
         int coldMin = Own(Stat.OffHandLocalMinimumAddedColdDamage)
@@ -352,7 +353,7 @@ public static partial class Game
         RunShieldChargeHits(player, token, charged, skillId, sequence, actionToken, cooldownUse, cryExerted, null);
 
     static async Task RunShieldChargeHits(Player player,
-        int token, bool charged, ushort skillId, ushort sequence, int actionToken, CooldownUseTicket? cooldownUse, bool cryExerted, SkillCriticalRoll? criticalRoll)
+        int token, bool charged, ushort skillId, ushort sequence, int actionToken, CooldownUseTicket? cooldownUse, bool cryExerted, SkillCriticalRoll? criticalRoll, int? rallyingDamage = null)
     {
         if (!ShieldChargeRuns.TryGetValue(player, out var run) || run.Token != token) return;
         int epoch = player.ProjectileEpoch, interruption = player.ActionInterruptionGeneration;
@@ -388,6 +389,7 @@ public static partial class Game
             return AreaSkillHitForUse(ruthless, player, skillId, gem, at, at, immediate: true, sequence: sequence,
                 actionToken: hitAction, cooldownUse: hitAction is null ? null : cooldownUse,
                 damageMore: more, criticalRoll: criticalRoll, radiusOverride: radius, once: once, cryExerted: cryExerted,
+                rallyingDamage: rallyingDamage,
                 targetFilter: targetFilter, extraStunThresholdReduction: stunRed,
                 extraStunDurationPct: stunDur, extraKnockbackDistancePct: kbDist,
                 removeStunAndKnockback: removeStunAndKnockback, offHandWeapon: true);

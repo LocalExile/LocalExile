@@ -3,6 +3,7 @@ using GameServer.Core.Projectiles;
 public static partial class Game
 {
     const string ScourgeEffect = "ScourgeArrow";
+    const string ScourgeRoyaleEffect = "ScourgeArrowRoyale";
     const string ScourgeMenaceEffect = "ScourgeArrowAltX";
     const string ScourgeProjectile = "Metadata/Projectiles/VirulentArrow";
     const string ScourgeMenaceProjectile = "Metadata/Projectiles/VirulentArrowLesser";
@@ -27,12 +28,12 @@ public static partial class Game
 
     static ProjectileSkillDefinition? ScourgeProjectileDefinition(string effect) => effect switch
     {
-        ScourgeEffect => NormalScourgeProjectile,
+        ScourgeEffect or ScourgeRoyaleEffect => NormalScourgeProjectile,
         ScourgeMenaceEffect => MenaceScourgeProjectile,
         _ => null
     };
 
-    static bool IsChannelledScourgeArrow(int effect) => Skills.EffectId(effect) == ScourgeEffect;
+    static bool IsChannelledScourgeArrow(int effect) => Skills.EffectId(effect) is ScourgeEffect or ScourgeRoyaleEffect;
 
     sealed class ScourgeChannel(SupportedGem source, ushort skill, int generation, int action,
         int epoch, ushort sequence, (int X, int Y) aim)

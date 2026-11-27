@@ -33,7 +33,7 @@ public static partial class Game
 
     static bool RageOnHitWithWeaponLocked(Player player, bool attack, bool melee, bool critical, string? weaponClass,
         IReadOnlyDictionary<uint, int>? own = null, Random? random = null, IReadOnlyDictionary<uint, int>? playerStats = null,
-        string? secondWeaponClass = null)
+        string? secondWeaponClass = null, SpawnedMonster? target = null)
     {
         if (player.Character.Name is null || player.Closed || player.LeavingArea || player.RageRetired
             || player.Paused || player.PlayerLife == 0) return false;
@@ -45,6 +45,8 @@ public static partial class Game
                 || WeaponTypeDamage.FamilyOf(secondWeaponClass) is "axe" or "sword")
             && Get(Stat.GainXRageOnHitWithAxesSwords) is int weaponRage and not 0)
             inputs = inputs with { GainOnAttackHit = ActorScale.Saturate((long)inputs.GainOnAttackHit + weaponRage) };
+        if (attack && target is not null && TrarthusAttachmentRage(player, target) is > 0 and var trarthusRage)
+            inputs = inputs with { GainOnAttackHit = ActorScale.Saturate((long)inputs.GainOnAttackHit + trarthusRage) };
         return player.Rage.Hit(ProjectileWorldTime(player), inputs, attack, melee, critical, (random ?? AreaRng(player)).Next(100),
             soulGainPrevention: Get(Stat.HasSoulGainPrevention) != 0, nonDelayingRegenerationPerMinute: RageStats.ManaRegenerationPerMinute(player, Get));
     }

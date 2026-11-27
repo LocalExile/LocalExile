@@ -145,14 +145,6 @@ public static partial class Game
         int radius = SkillRadius(player, own.GetValueOrDefault(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius),
             own, spell: false, use.Gem.Effect);
         session.ShowInfernalBlowExplosion(at, radius, corpse: true);
-        if (!corpse.CorpseConsumed)
-        {
-            corpse.CorpseConsumed = true;
-            player.Area.Monsters.Remove(corpseId);
-            session.WorldRecords(corpseId, () => [InstanceProtocol.RemoveObject(corpseId)],
-                "Infernal Blow consumes corpse", remove: true);
-        }
-
         var stats = CharacterPlayerStats(player);
         int Get(uint key) => stats.GetValueOrDefault(key) + own.GetValueOrDefault(key);
         int ExplosionStat(uint key) => key == Stat.ElementalDamagePlusPct
@@ -161,23 +153,8 @@ public static partial class Game
         var packet = PlayerHitDamage.Resolve(DamagePacket.Of(DamageType.Fire, raw, raw), ExplosionStat,
             DamageStats.Conversion(stats, Stats, attack: null), spell: false, area: true, secondary: true,
             supportModifiers: use.Source.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value)));
-        var pen = Penetration.Of(stats, Stats, attack: false);
-        foreach (var (id, enemy) in player.Area.MonstersNear(at, radius))
-        {
-            if (!enemy.Hostile || enemy.Dead || enemy.Life == 0 || Dist(at, enemy.Walk.Position(now)) > radius)
-                continue;
-            var resisted = MitigateMonsterHit(enemy, packet, now, pen, Get(Stat.CannotPenetrateOrIgnoreElementalResistances));
-            int damage = MonsterTakesMitigated(enemy, resisted, false, now);
-            if (ApplyTypedMonsterHitLocked(player, enemy, damage,
-                MonsterHitChaosDamage(enemy, resisted, spell: false, now, damage), allyAt: at) is not { } hit)
-                continue;
-            if (hit.StageStarts) CommitBossStage(player, id, enemy, now);
-            if (hit.Life == 0) SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
-            session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life),
-                $"Infernal Blow corpse explosion target=0x{id:x} damage={damage} life={hit.Life}/{enemy.MaxLife}");
-            if (hit.Life == 0) CommitProjectileKill(session, id, enemy, session.Runtime.Now, AreaRng(player));
-            if (enemy.ThresholdReached) session.Enqueue(() => QuestThreshold(player, id, enemy));
-        }
+        ReleaseSkillCorpseExplosion(session, corpseId, corpse, at, now, radius, packet,
+            Penetration.Of(stats, Stats, attack: false), Get(Stat.CannotPenetrateOrIgnoreElementalResistances), "Infernal Blow");
     }
 
     public sealed partial class ProjectileSession
