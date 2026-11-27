@@ -5,6 +5,29 @@ namespace GameServer.Gateway.Tests;
 public sealed class ChargeRulesTests
 {
     [Fact]
+    public void ChargeGainsFollowEquipmentOnTheNextKill()
+    {
+        int conditionalChance(uint stat) => stat is Stat.EnduranceChargeOnKillPercentChanceWhileHoldingShield
+            or Stat.AddFrenzyChargeOnKillPctChanceWhileDualWielding ? 100 : 0;
+        var session = new ChargeSession();
+        session.Observe(conditionalChance);
+        var rng = new Random(1);
+        void Kill(int tick, WeaponProfile weapon, int endurance, int frenzy, Func<uint, int>? skill = null)
+        {
+            session.Admit(tick, [new ChargeEvent.Kill(MonsterRarity.Normal, Skill: skill)],
+                conditionalChance, () => weapon, alive: true, rng);
+            Assert.Equal(endurance, session.Effective(ChargeType.Endurance));
+            Assert.Equal(frenzy, session.Effective(ChargeType.Frenzy));
+        }
+
+        WeaponProfile shield = new() { Shield = true };
+        Kill(1, shield, 1, 0);
+        Kill(2, new() { DualWield = true }, 1, 1);
+        Kill(3, new() { TwoHand = true }, 1, 1);
+        Kill(4, shield, 3, 1, stat => stat == Stat.EnduranceChargeOnKillPct ? 100 : 0);
+    }
+
+    [Fact]
     public void KillChanceRulesCombineActorAndSkillStatsOnceAndRespectCaps()
     {
         var session = new ChargeSession();

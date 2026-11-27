@@ -21,8 +21,10 @@ sealed partial class ItemEffectRules
     ItemEffectRules(GameData.Snapshot snapshot)
     {
         List<ChargeGains.Rule> charges = [];
-        foreach (var row in snapshot.FxRules) Compile(row, charges);
-        ChargeRules = [.. charges, .. ChargeGains.OtherRules];
+        List<ChargeGains.Rule> equipmentCharges = [];
+        foreach (var row in snapshot.FxRules) Compile(row, charges, equipmentCharges);
+        // Keep the original roll order, including the random charge type drawn between the two sets.
+        ChargeRules = [.. charges, .. ChargeGains.AdditionalKillRules, .. equipmentCharges, .. ChargeGains.OtherRules];
         NeedsRareHit = onHit.All(rule => rule.RareOrUnique);
     }
 
