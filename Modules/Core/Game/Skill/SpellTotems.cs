@@ -360,8 +360,9 @@ public static partial class Game
                 {
                     var spell = SupportedSkill(player, totem.SkillId);
                     session.ReleaseBladeVortex(totem.Id, totem.SkillId, SkillArtVariation(player, gem.Gem), spell, TotemCasterStats(CharacterPlayerStats(player)), Current,
-                        (radius, scale, critIncrease) => TotemNovaLocked(player, session, totem, totem.At, radius, sequence,
-                            damageMore: scale, extraCriticalIncrease: critIncrease));
+                        (radius, scale, critIncrease) => TotemNovaLocked(player, session, totem, totem.At, radius + BladeVortexSizeReach, sequence,
+                            damageMore: scale, extraCriticalIncrease: critIncrease,
+                            targetFilter: (id, p) => BladeVortexReaches(player, totem.At, radius, id, p)));
                 });
                 continue;
             }

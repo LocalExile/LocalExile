@@ -423,7 +423,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Blade Blast of Unloading consumes up to ten orbiting blades in a sequence of expanding blasts.
 - Blade Blast of Dagger Detonation adds eligible weapon damage to its nova, including on spell totems.
 - Blade Vortex stacks individually timed blades on the caster, scales its pulse with the blade count, and supports
-  repeats, triggered casts, and spell totems.
+  repeats, triggered casts, spell totems and a held key; one blade buff draws the ring with the blade count and a
+  counter icon, and its pulse reaches monster bodies and stops at walls.
 - Vaal Blade Vortex pursues nearby enemies and hits periodically from direct casts and paid spell totems.
 - Ball Lightning of Static places a finite stationary orb for self-casts, damage triggers and mines.
 - Ball Lightning applies repeated bolts with one hit interval per target and release. Orbiting steers one orb along

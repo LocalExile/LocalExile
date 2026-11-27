@@ -41,7 +41,9 @@ public static partial class Game
                             var at = Player.Walk.Position(ProjectileWorldTime(Player));
                             // Repeats add blades to the same vortex. Its subsequent hits use the blade count.
                             var task = AreaSkillHitForUse(null, Player, gem.Id, gem, at, at, immediate: true, sequence: sequence,
-                                radiusOverride: radius, sacrifice: sacrifice, triggeredCurrent: Current, scheduledSession: this,
+                                radiusOverride: radius + BladeVortexSizeReach,
+                                targetFilter: (id, p) => BladeVortexReaches(Player, at, radius, id, p),
+                                sacrifice: sacrifice, triggeredCurrent: Current, scheduledSession: this,
                                 extraCriticalIncrease: critIncrease, hitAndAilmentMore: scale);
                             if (!task.IsCompleted) throw new InvalidOperationException("Blade Vortex contact must not yield.");
                             task.GetAwaiter().GetResult();
