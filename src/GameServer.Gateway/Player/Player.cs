@@ -1571,7 +1571,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
             // Resource loss belongs to the actual death transition, never a delayed death notification.
             if (playerLife > 0 && value == 0)
             {
-                VaalSouls.ClearBalance(); VaalPreventionUntil = 0; VaalUseState = null;
+                // Vaal souls are kept on death (poewiki "Vaal skill"); only the use in flight and prevention end.
+                VaalPreventionUntil = 0; VaalUseState = null;
                 MoltenStrikeAttackCounts.Clear(); MoltenStrikeFifthBuffs.Clear();
                 Rage.Clear(); Rampage.Clear(); RetireOwnedCombat(); RetireResourceEffects();
             }

@@ -3283,6 +3283,16 @@ public static partial class Game
         if (divineBlast) centre = to;
         if (lacerate is not null) centre = lacerate.Waves.Origin;
         if (cleaveAttack) centre = from;
+        // Cold Snap needs line of sight to where it lands: a point behind a wall moves back to the last cell the caster
+        // can see along the line (the client's sight layer; Ice Crash and Sunder stop at the floor's edge the same way).
+        if (spell && IsColdSnap(effectId) && centre != from && player.Layout.Sight is { } coldSnapSight
+            && GameServer.Core.World.ClientPathfinder.LineBelow(from, centre, coldSnapSight, 1, out var coldSnapSeen))
+        {
+            if (GameServer.Core.Diagnostics.ServerTrace.Skills)
+                Console.WriteLine($"[gateway] Cold Snap aimed out of sight at ({centre.X},{centre.Y}) from ({from.X},{from.Y}): " +
+                $"lands at ({coldSnapSeen.X},{coldSnapSeen.Y})");
+            centre = coldSnapSeen;
+        }
         // A later action (a Move, another use) replaces the swing; nothing of it lands from then on. The ordinary attack
         // says so at its own contact (Attack's HitTarget); this says so for a gem skill's sweep, whose drop was otherwise
         // invisible in the log (the live tests cannot count what a swing did without it).
@@ -3470,6 +3480,8 @@ public static partial class Game
             }
             if (divineBlast && !immediate && strikeIndex == 0)
                 ProjectilesFor(player).PlaceDivineBlastOrb(gem, centre, admittedGem, criticalRoll);
+            if (strikeIndex == 0 && retainedAttack is null && IsColdSnap(effectId))
+                ProjectilesFor(player).PlaceColdSnapGround(gem, centre, admittedGem, damageMore);
             // Queued mana output may outlast movement: resolve a channel at its current position.
             if (channelGeneration is not null)
             {
