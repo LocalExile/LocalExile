@@ -1,4 +1,3 @@
-using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 
@@ -27,18 +26,8 @@ public static class RageStats
 
     public static RageState.Inputs Inputs(Player player, Func<uint, int> get) => Inputs(get) with
     {
-        MaximumBonus = ActorScale.Saturate((long)get(Stat.MaximumRage) + SwordMaximumBonus(player, get)),
         NonDelayingRegenerationPerMinute = ManaRegenerationPerMinute(player, get),
     };
-
-    static long SwordMaximumBonus(Player player, Func<uint, int> get)
-    {
-        int perSword = get(Stat.MaximumRagePerEquippedOneHandedSword);
-        if (perSword == 0) return 0;
-        bool Sword((Item Item, ItemCatalog.BaseType? Type)? hand) =>
-            hand?.Type?.Class is "One Hand Sword" or "Thrusting One Hand Sword";
-        return (long)perSword * ((Sword(Game.ActiveMainHand(player)) ? 1 : 0) + (Sword(Game.ActiveOffHand(player)) ? 1 : 0));
-    }
 
     internal static double ManaRegenerationPerMinute(Player player, Func<uint, int> get)
     {
