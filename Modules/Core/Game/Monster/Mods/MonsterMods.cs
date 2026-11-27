@@ -133,6 +133,8 @@ public static partial class Game
         int basePermyriad = baseCritPermyriad >= 0 ? baseCritPermyriad : MonsterBaseCritChancePermyriad;
         int baseCrit = e.CriticalChanceWith(basePermyriad, increasedCriticalAgainstTarget);
         int chance = baseCrit + additionalCritical;
+        if (m.CoveredInFrostUntil > now)
+            chance = (int)(chance * (100L + CoveredInFrostCriticalPct) / 100);
         critical = !cannotCrit && chance > 0 && !(m.HasCurses && m.Curses.PreventsCritical(now))
             && random.Next(10_000) < chance;
         int extraMult = critical
@@ -362,7 +364,8 @@ public static partial class Game
     static double ElementalHitTakenPercent(MonsterModEffects effects, SpawnedMonster m, DamageType type, double now) => type switch
     {
         DamageType.Fire => (double)effects[Stat.FireDamageTakenPlusPct] + CoveredInAshFireTaken(m, now),
-        DamageType.Cold => effects[Stat.ColdDamageTakenPlusPct] + m.Ailments.ColdDamageTakenFromChillPct(now),
+        DamageType.Cold => (double)effects[Stat.ColdDamageTakenPlusPct] + m.Ailments.ColdDamageTakenFromChillPct(now)
+            + (m.CoveredInFrostUntil > now ? CoveredInFrostColdTakenPct : 0),
         DamageType.Lightning => effects[Stat.LightningDamageTakenPlusPct],
         _ => 0,
     };

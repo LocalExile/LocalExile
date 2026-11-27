@@ -470,6 +470,8 @@ public static partial class Game
         if (!Timed(ref hinderUntil, ref m.HinderShownUntil, ref m.HinderBuff, HinderedBuffRow, null))
             m.HinderedUntil = m.TotemHinderedUntil = double.NegativeInfinity;
         Timed(ref m.CoveredInAshUntil, ref m.CoveredInAshShownUntil, ref m.CoveredInAshBuff, CoveredInAshBuffRow, null);
+        Timed(ref m.CoveredInFrostUntil, ref m.CoveredInFrostShownUntil, ref m.CoveredInFrostBuff,
+            CoveredInFrostBuffRow, CoveredInFrostBuffValues);
         StepDebilitateLocked(player, id, m, now);
         PresentFireExposureLocked(player.Area, id, m, now, counts);
         for (int i = 1; i < ExposureTypes.Length; i++)
@@ -560,6 +562,7 @@ public static partial class Game
         Next(m.TauntedUntil); Next(m.IntimidatedUntil); Next(m.UnnervedUntil); Next(m.CrushedUntil);
         Next(m.MaimedUntil); Next(m.HinderedUntil); Next(m.TotemHinderedUntil);
         Next(m.CoveredInAshUntil); Next(m.DebilitatedUntil);
+        Next(m.CoveredInFrostUntil);
         foreach (double until in m.ExposureUntil) Next(until);
         foreach (var stack in m.Withered) Next(stack.Until);
         foreach (var curse in m.Curses.All.Values) { Next(curse.Until); Next(curse.AmplifiesAt); }

@@ -86,6 +86,8 @@ public static partial class Game
             return "Voidstorm triggers when a supported ranged attack lands";
         if (GolemStat(gem.Stats, Stat.TriggeredBySupportMovement) != 0)
             return "Windburst triggers on a supported attack hit after moving";
+        if (GolemStat(gem.Stats, Stat.TriggeredByHivebornSupport) != 0)
+            return "Summon Hiveborn triggers when you use a supported offering";
         if (gem.WornGrant is { EffectId: GoreShockwaveEffect })
             return "Gore Shockwave triggers on melee hits with at least 150 Strength";
         if (GolemStat(gem.Stats, Stat.TriggeredByDivineCry) != 0)

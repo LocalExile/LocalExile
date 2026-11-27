@@ -26,7 +26,7 @@ static partial class Game
             if (!player.Paused && AreaTime(player) >= release)
             {
                 if (effect == "SignalPrey") return SignalPreyLocked(player, source, gem, aim, target, release);
-                if (!recall) return StartOfferingLocked(player, source, gem, effect!, aim, target, release);
+                if (!recall) return StartOfferingLocked(player, source, gem, effect!, aim, target, release, selfCast: true);
                 RecallMinionsLocked(player, gem, release);
                 return true;
             }
@@ -82,7 +82,7 @@ static partial class Game
     }
 
     internal static bool StartOfferingLocked(Player player, ushort source, SupportedGem gem, string effect,
-        (int X, int Y) aim, uint target, double now)
+        (int X, int Y) aim, uint target, double now, bool selfCast = false)
     {
         var playerStats = CharacterPlayerStats(player);
         bool livingZombies = GolemStat(playerStats, Stat.RaisedZombiesAreUsableAsCorpsesWhenAlive) > 0;
@@ -166,6 +166,8 @@ static partial class Game
         while (all.Count >= limit) all.RemoveAt(0);
         all.Add(new(effect, now + duration, buff, source, stats, baseStats, increase));
         MinionUtilityTick(player, now);
+        if (selfCast && GolemStat(gem.Stats, Stat.SupportTriggerGreatAvalancheOnOfferingChancePct) > 0)
+            TriggerHivebornLocked(player, gem, centre, now);
         return true;
     }
 

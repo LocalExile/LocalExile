@@ -650,6 +650,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // damage taken, shown with BuffDefinitions 807 (cover_in_ash).
     public double CoveredInAshUntil = double.NegativeInfinity, CoveredInAshShownUntil;
     public ushort CoveredInAshBuff;
+    public double CoveredInFrostUntil = double.NegativeInfinity, CoveredInFrostShownUntil;
+    public ushort CoveredInFrostBuff;
     // Maimed by his hits until when (the sole movement owner) and the physical damage increase its support gave, whose
     // independent time plain Maim does not refresh; shown with its own maimed buff.
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;

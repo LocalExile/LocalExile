@@ -337,6 +337,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Thunderstorm blinds inside the storm, grows while occupied, and releases Thunderburst on a timely full-stage exit.
 - Voidstorm from supported rain landings grows and blinds enemies until its owner enters and detonates it.
 - Windburst triggers after the owner walks the required distance and hits with a supported attack, releasing piercing projectiles that burst at expiry.
+- Hiveborn Support summons temporary cold-attacking minions after the player's supported offering succeeds.
 - Kinetic Fusillade and Detonation refresh their capped hover queues and discharge in sequence.
   See [projectile skills](../docs/game/projectile-skills.md).
 - Kinetic Instability supports place Kinetic Flux on the linked wand attack's killing hit or, for Greater, its critical hit.

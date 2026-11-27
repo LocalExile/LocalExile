@@ -1037,6 +1037,11 @@ public static partial class Game
                 target.CoveredInAshUntil = Math.Max(target.CoveredInAshUntil, now + HitDebuffSeconds);
                 target.PresentationChanged?.Invoke();
             }
+            if (Golem(Stat.CoverInFrostOnHitPct) is > 0 and var frostChance && RandomRolls.Chance(frostChance, 100, random))
+            {
+                target.CoveredInFrostUntil = Math.Max(target.CoveredInFrostUntil, now + HitDebuffSeconds / target.RecipientDebuffRate);
+                target.PresentationChanged?.Invoke();
+            }
             InflictMonsterBlind(player, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 AreaRng(player));
             MinionAilmentsLocked(player, g, a, supported.Stats, id, target, critical, now, ailmentFactor,
