@@ -130,9 +130,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Act 11 Atlas endgame progression (offline verified; live client check pending): unconditional endgame flag bypass
-  removed (kept as `/atlas_unlock`), Karui Shores War Room Map Device works for `a11q1`, and Eagon stands in hideouts
-  once unlocked.
+- Act 11 Atlas endgame progression (verified live in 3.29.3d): unconditional endgame flag bypass removed (kept as
+  `/atlas_unlock`), Karui Shores War Room Map Device works for `a11q1`, and Eagon stands in hideouts once unlocked.
   `0x01a3` carries Tangle/Cleansing 28-map counts and sections `0x04` (Maven witnessed), `0x08` (Memory Lines), and
   `0x10` (Astrolabe Shaped Regions); `0x01a4` bit `0x04` marks incremental witnessing.
   Envoy encounters, Maven witnessing and Crucible (`0x7b` `0x52`, `0x0298`, Ruleset 112), Eldritch influence packs and
