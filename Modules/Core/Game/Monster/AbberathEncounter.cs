@@ -272,8 +272,9 @@ public static class AbberathEncounter
         {
             if (jumpOutMarkers.Count == 0) return;
             await BindSceneMarkers(runner, jumpOutMarkers, "[Abberath] jump-out marker");
+            // Do not emit 0x01ab (WorldOrder.First) targeting a marker created in the same lockstep frame (0x02bb WorldOrder.Last).
             var marker = jumpOutMarkers
-                .Where(m => Scenes(runner).Contains(m.Id))
+                .Where(m => Scenes(runner).Contains(m.Id) && !runner.Area.Delta.HasCreateFor(m.Id, runner))
                 .MinBy(m => Distance(pos, (m.X, m.Y)));
             if (marker is null) return;
             await CastAction(runner, p1Id, boss, 6753, (marker.X, marker.Y), 1.0, now,

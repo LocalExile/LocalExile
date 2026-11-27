@@ -70,7 +70,12 @@ internal static class CampaignBossHelpers
         bool allBound = true;
         foreach (var marker in markers)
         {
-            if (Scenes(player).Contains(marker.Id)) continue;
+            // Area.Objects survives Game hot-reload while module-local Scenes does not; avoid re-sending CreateObject.
+            if (Scenes(player).Contains(marker.Id) || player.Area.Objects.Has(marker.Id))
+            {
+                Scenes(player).Add(marker.Id);
+                continue;
+            }
             if (!player.Instance.World.SceneObjects.TryGetValue(marker.Key, out var entry))
             {
                 allBound = false;

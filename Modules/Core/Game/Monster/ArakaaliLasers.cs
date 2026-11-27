@@ -109,7 +109,11 @@ public static class ArakaaliLasers
                 .Select(p => p.Value).ToArray();
             foreach (var s in scenes)
             {
-                if (Scenes(c).Contains(s.Id)) continue;
+                if (Scenes(c).Contains(s.Id) || c.Area.Objects.Has(s.Id))
+                {
+                    Scenes(c).Add(s.Id);
+                    continue;
+                }
                 if (await SendWorldCreate(c, s.Id, () => InstanceEntities.CreateObject(s.Id, InstanceEntities.ObjectTypeHash(s.Type), s.Object.Blob()),
                     "[Arakaali] linked arena turret", wake: true))
                     Scenes(c).Add(s.Id);
@@ -189,7 +193,11 @@ public static class ArakaaliLasers
                 return;
             }
             var target = CampaignBossHelpers.NearestLivingTarget(c, boss.Walk.Position(now), now, 140, bossId);
-            if (target is null) return;
+            if (target is null)
+            {
+                if (activeSweep.Count > 0) { await Reset(); next = now + 5; }
+                return;
+            }
             if (reset) { await Reset(); reset = false; next = now + 5; return; }
 
             if (activeSweep.Count == 0)

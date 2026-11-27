@@ -338,7 +338,9 @@ public static class Arakaali
                 var corner = corners[cornerIndex];
                 if (corner.MarkerId != 0 && !Scenes(c).Contains(corner.MarkerId))
                     await CampaignBossHelpers.BindSceneMarkers(c, markers, "[Arakaali] arena teleport marker");
-                bool nativeHide = corner.MarkerId != 0 && Scenes(c).Contains(corner.MarkerId);
+                // Do not emit 0x01ab (WorldOrder.First) targeting a marker created in the same lockstep frame (0x02bb WorldOrder.Last).
+                bool nativeHide = corner.MarkerId != 0 && Scenes(c).Contains(corner.MarkerId)
+                    && !c.Area.Delta.HasCreateFor(corner.MarkerId, c);
                 boss.ActionGeneration++; boss.SwingGeneration = null;
                 boss.FlinchUntil = 0; boss.StunSerial++;
                 boss.Walk.Order(pos.X, pos.Y, now);
