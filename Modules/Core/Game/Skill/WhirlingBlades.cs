@@ -65,9 +65,11 @@ public static partial class Game
                     return;
                 var at = monster.Walk.Position(ProjectileWorldTime(player));
                 if (Dist(from, at) > contactClearance + LivingCollision.Size(monster)) return;
-                _ = AreaSkillHitForUse(null, player, gem.Id, gem, from, from, immediate: true, sequence: sequence,
+                var hit = AreaSkillHitForUse(null, player, gem.Id, gem, from, from, immediate: true, sequence: sequence,
                     actionToken: action, cooldownUse: ticket, criticalRoll: critical, scheduledSession: session,
                     triggeredCurrent: Current, cryExerted: exerted, rallyingDamage: rallyingDamage, contactTargets: [id]);
+                if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled Whirling Blades contact must not yield.");
+                hit.GetAwaiter().GetResult();
             });
         }
     }

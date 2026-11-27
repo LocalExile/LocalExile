@@ -134,7 +134,9 @@ public static class GatewayProjectileSkillProfiles
         {
             bool sideways = effect == "IceShotAltX";
             // The client selects visual variants by angle stat; the base damage angle is an estimate.
-            var halfAngle = Math.Clamp(Math.PI / 4 * (1 + get(Stat.IceShotAreaAnglePlusPct) / 100d), double.Epsilon, Math.PI);
+            // Gem quality grants skill_area_angle_+%, while enchantments/items use ice_shot_area_angle_+%.
+            int angleIncrease = get(Stat.SkillAreaAnglePlusPct) + get(Stat.IceShotAreaAnglePlusPct);
+            var halfAngle = Math.Clamp(Math.PI / 4 * (1 + angleIncrease / 100d), double.Epsilon, Math.PI);
             p = p with
             {
                 ContactArea = new("ice-shot-cone", 0, sideways ? 2 : 1)

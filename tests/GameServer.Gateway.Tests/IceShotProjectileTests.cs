@@ -34,11 +34,13 @@ public sealed class IceShotProjectileTests
     public void Penetration_has_sideways_contact_cones_and_no_explosion_when_an_arrow_expires()
     {
         var profile = GatewayProjectileSkillProfiles.Resolve("IceShotAltX", "Metadata/Projectiles/IceArrow",
-            key => key == Stat.ActiveSkillBaseAreaOfEffectRadius ? 26 : 0, 326, attack: true, arrows: true);
+            key => key == Stat.ActiveSkillBaseAreaOfEffectRadius ? 26 : key == Stat.SkillAreaAnglePlusPct ? 80 : 0,
+            326, attack: true, arrows: true);
         Assert.Null(profile.EndArea);
         var cone = Assert.IsType<GameServer.Core.Projectiles.ProjectileAreaRecipe>(profile.ContactArea);
         Assert.Equal(2, cone.Count);
         Assert.Equal(26, cone.Radius);
+        Assert.Equal(Math.PI / 4 * 1.8, cone.ConeHalfAngle, 6);
         Assert.Equal(Math.PI / 2, cone.ConeAxisRotation);
         Assert.Equal(Math.PI, cone.ConeAxisStep);
     }

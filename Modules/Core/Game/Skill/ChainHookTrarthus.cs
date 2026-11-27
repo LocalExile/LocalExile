@@ -2,7 +2,40 @@ using GameServer.Core.Projectiles;
 
 public static partial class Game
 {
-    static readonly RuleTable<SpawnedMonster, TrarthusLink> TrarthusAttachments = new();
+    sealed class TrarthusTargetLinks
+    {
+        readonly Lock gate = new();
+        readonly Dictionary<uint, TrarthusLink> byOwner = [];
+
+        public bool Contains(uint owner) { lock (gate) return byOwner.ContainsKey(owner); }
+
+        public bool TryAdd(uint owner, TrarthusLink link)
+        {
+            lock (gate) return byOwner.TryAdd(owner, link);
+        }
+
+        public void Remove(uint owner, TrarthusLink link)
+        {
+            lock (gate)
+            {
+                if (byOwner.TryGetValue(owner, out var current) && ReferenceEquals(current, link))
+                    byOwner.Remove(owner);
+            }
+        }
+
+        public int RageFor(uint owner)
+        {
+            lock (gate) return byOwner.TryGetValue(owner, out var link) ? link.Strike.Rage : 0;
+        }
+    }
+
+    static readonly RuleTable<SpawnedMonster, TrarthusTargetLinks> TrarthusAttachments = new();
+
+    static bool HasTrarthusAttachment(Player player, SpawnedMonster target) =>
+        TrarthusAttachments.TryGetValue(target, out var links) && links.Contains(player.Id);
+
+    static int TrarthusAttachmentRage(Player player, SpawnedMonster target) =>
+        TrarthusAttachments.TryGetValue(target, out var links) ? links.RageFor(player.Id) : 0;
 
     internal sealed record TrarthusStrike(
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem,
@@ -33,7 +66,7 @@ public static partial class Game
         var direction = origin == aim ? (0d, -1d) : GroundSlamWave.Direction(origin, aim);
         // The native attachment collector keeps the nearest eligible targets in its 55-degree sector.
         var targets = player.Area.MonstersNear(origin, range)
-            .Where(e => ChainHookTarget(e.Value) && !TrarthusAttachments.TryGetValue(e.Value, out _))
+            .Where(e => ChainHookTarget(e.Value) && !HasTrarthusAttachment(player, e.Value))
             .Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
             .Select(e => (e.Key, e.Value, e.At, Distance: Dist(origin, e.At)))
             .Where(e => e.Distance <= range && ChainHookInSector(origin, e.At, direction, e.Distance, ChainHookSearchCosine)
@@ -60,7 +93,7 @@ public static partial class Game
 
         internal void AttachTrarthus(TrarthusLink link, int maximum, double now)
         {
-            if (!Active || !ReferenceEquals(TrarthusAttachments.GetValue(link.Target, _ => link), link)) return;
+            if (!Active || !TrarthusAttachments.GetOrCreateValue(link.Target).TryAdd(Player.Id, link)) return;
             trarthusLinks ??= [];
             trarthusArea = Player.Area;
             while (trarthusLinks.Count >= maximum)
@@ -104,7 +137,7 @@ public static partial class Game
         void BreakTrarthus(TrarthusLink link, double now, bool snap)
         {
             trarthusLinks!.Remove(link);
-            TrarthusAttachments.Remove(link.Target);
+            if (TrarthusAttachments.TryGetValue(link.Target, out var links)) links.Remove(Player.Id, link);
             if (link.Strike.Buff != 0)
                 trarthusArea!.Buffs.Clear(link.TargetId, link.Strike.Buff, Player.Id);
             if (!snap || link.Strike.Radius <= 0) return;

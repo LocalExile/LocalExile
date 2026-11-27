@@ -89,7 +89,7 @@ public static partial class Game
             double sweepMore = Math.Max(0, 1 + (source.Stats.GetValueOrDefault(Stat.FrozenSweepDamagePlusPctFinal)
                 + stats.GetValueOrDefault(Stat.FrozenSweepDamagePlusPctFinal)) / 100d);
             var attack = CaptureAreaAttack(player, sweep.Id, source, hand, weapon, offCritical, sweepMore, sweepMore, "statue");
-            float speed = (float)(SweepClipSeconds / Math.Max(SweepTickSeconds, SupportedAttackSeconds(player, sweep.Id, hand)));
+            float speed = Math.Max(.01f, (float)(SweepClipSeconds / Math.Max(SweepTickSeconds, SupportedAttackSeconds(player, sweep.Id, hand))));
             var sweepContact = (sweep.Id, sweep.Effect, "Frozen Sweep", sweep.Level, sweep.Quality, sweep.Gem);
             foreach (var point in points)
                 PlaceFrozenStatue(session, point, origin, sweepContact, actorSkill,
@@ -110,10 +110,15 @@ public static partial class Game
         var centre = Along(SweepCentreOffset);
         int epoch = player.ProjectileEpoch;
         bool Current() => session.Active && player.ProjectileActive(epoch) && player.PlayerLife > 0;
+        bool created = false;
         player.TrackProjectileObject(id);
-        session.Create(id, () => Current() ? InstanceEntities.CreateObject(id, FrozenStatueType,
-            FrozenLegionStatueObject.Blob(at.X, at.Y, rotation, actorSkill, equipment, [(Stat.HideMiniLifeBar, 1)])) : null,
-            wake: true, log: $"Frozen Legion statue at ({at.X},{at.Y})");
+        session.Create(id, () =>
+        {
+            if (!Current()) return null;
+            created = true;
+            return InstanceEntities.CreateObject(id, FrozenStatueType,
+                FrozenLegionStatueObject.Blob(at.X, at.Y, rotation, actorSkill, equipment, [(Stat.HideMiniLifeBar, 1)]));
+        }, wake: true, log: $"Frozen Legion statue at ({at.X},{at.Y})");
         // Give the client one birth and wake cycle to register the statue's own granted sweep.
         long windup = session.Runtime.Now + ProjectileRuntime.Time(.15);
         session.ScheduleContact(windup, Current, () => session.World(id,
@@ -124,7 +129,7 @@ public static partial class Game
         session.ScheduleContact(release, Current, Release);
         session.Runtime.Schedule(release + ProjectileRuntime.Time(SweepClipSeconds / speed), () =>
         {
-            if (player.UntrackProjectileObject(id))
+            if (player.UntrackProjectileObject(id) && created)
                 session.WorldRecords(id, () => [InstanceProtocol.RemoveObject(id)], log: "Frozen Legion statue retirement", remove: true);
         });
 

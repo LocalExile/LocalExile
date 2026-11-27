@@ -45,8 +45,8 @@ public static partial class Game
                 || WeaponTypeDamage.FamilyOf(secondWeaponClass) is "axe" or "sword")
             && Get(Stat.GainXRageOnHitWithAxesSwords) is int weaponRage and not 0)
             inputs = inputs with { GainOnAttackHit = ActorScale.Saturate((long)inputs.GainOnAttackHit + weaponRage) };
-        if (attack && target is not null && TrarthusAttachments.TryGetValue(target, out var link) && link.Strike.Rage > 0)
-            inputs = inputs with { GainOnAttackHit = ActorScale.Saturate((long)inputs.GainOnAttackHit + link.Strike.Rage) };
+        if (attack && target is not null && TrarthusAttachmentRage(player, target) is > 0 and var trarthusRage)
+            inputs = inputs with { GainOnAttackHit = ActorScale.Saturate((long)inputs.GainOnAttackHit + trarthusRage) };
         return player.Rage.Hit(ProjectileWorldTime(player), inputs, attack, melee, critical, (random ?? AreaRng(player)).Next(100),
             soulGainPrevention: Get(Stat.HasSoulGainPrevention) != 0, nonDelayingRegenerationPerMinute: RageStats.ManaRegenerationPerMinute(player, Get));
     }

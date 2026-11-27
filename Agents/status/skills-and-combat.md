@@ -316,7 +316,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Storm Rain and its transfigured gems leave arrows that fire periodic area hits between their endpoints.
 - Conflagration leaves arrows that detonate near the caster, setting off adjacent arrows and applying a burning debuff.
 - Kinetic Rain variants land delayed area hits. See [projectile skills](../docs/game/projectile-skills.md).
-- Scourge Arrow and its Royale variant plant pods on release based on channel stages. Scourge Arrow of Menace plants a pod per arrow. See [projectile skills](../docs/game/projectile-skills.md).
+- Scourge Arrow and its Royale variant plant pods on release based on channel stages; Scourge Arrow of Menace plants
+  a pod per arrow. See [projectile skills](../docs/game/projectile-skills.md).
 - Somatic Shell absorbs damage and transfers on depletion. See [projectile skills](../docs/game/projectile-skills.md).
 - Caustic Arrow stops at the aimed point and leaves caustic ground: chaos damage over time that does not stack.
   The ground is the art's pieces laid over the radius, for the worn skill effect; the layout is the server's own.
@@ -528,7 +529,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 
-- Frozen Legion and Rallying spend stored uses per placed statue. Each statue steps inward and attacks once with Frozen Sweep.
+- Frozen Legion and Rallying spend stored uses per placed statue; each statue steps inward and attacks once with
+  Frozen Sweep.
 - Whirling Blades selects targets along its resolved slide and hits them in travel order.
 
 ## Not working yet
