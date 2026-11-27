@@ -116,8 +116,12 @@ public static partial class Game
         }
         if (player.Character.Name is null) return;
         var stats = CharacterPlayerStats(player);
-        player.Rage.EnemyHit(ProjectileWorldTime(player), RageStats.Inputs(player, name => RageStat(stats, name)),
-            AreaRng(player).Next(100), soulGainPrevention: RageStat(stats, Stat.HasSoulGainPrevention) != 0);
+        var inputs = RageStats.Inputs(player, name => RageStat(stats, name));
+        double now = ProjectileWorldTime(player);
+        int before = player.Rage.Read(now, inputs).Effective;
+        player.Rage.EnemyHit(now, inputs, AreaRng(player).Next(100), soulGainPrevention: RageStat(stats, Stat.HasSoulGainPrevention) != 0);
+        if (RageStat(stats, Stat.ArmourPlusPctPerRage) != 0 && player.Rage.Read(now, inputs).Effective != before)
+            player.Pools = PoolsFor(player, player.Pools.Level);
     }
 
     public static void ClearRageOnDeath(Player player)

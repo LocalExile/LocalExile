@@ -270,6 +270,7 @@ public static partial class MapStrongboxes
             await SendWorldRecord(player, player.Id, InstanceProtocol.LifeUpdate(player.Id, player.PlayerLife, player.PlayerReservedLife), "strongbox daemon hit");
             await SendPlayerEnergyShield(player);
             if (hit.Mana != hit.ManaBefore) await SendPlayerMana(player, "strongbox daemon mana");
+            if (player.PlayerLife > 0) await SendRage(player);
             if (player.PlayerLife == 0) await PlayerDied(player, "death from a strongbox daemon");
         }
     }
