@@ -431,11 +431,12 @@ public sealed class SkillCatalog
     };
 
     /// <summary>True when <paramref name="effectRow"/> carries a non-zero trigger/script-only stat
-    /// (<c>skill_unusable</c>, <c>spell_uncastable_if_triggerable</c>, or <c>triggered_skill_use_animation_event</c>).</summary>
+    /// (<c>skill_unusable</c> or <c>spell_uncastable_if_triggerable</c>). Not <c>triggered_skill_use_animation_event</c>:
+    /// the Cannibals' ScavengerThrowFire carries it and is their main ranged skill.</summary>
     public bool HasTriggerOnlyStat(int effectRow, int level = 1)
     {
         foreach (var (stat, value) in EffectStats(effectRow, level))
-            if (value != 0 && stat is Stat.SkillUnusable or Stat.SpellUncastableIfTriggerable or Stat.TriggeredSkillUseAnimationEvent)
+            if (value != 0 && stat is Stat.SkillUnusable or Stat.SpellUncastableIfTriggerable)
                 return true;
         return false;
     }
