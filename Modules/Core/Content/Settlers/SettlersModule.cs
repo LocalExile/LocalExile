@@ -42,7 +42,8 @@ public sealed partial class SettlersModule : IModule
 
         // 1. Kingsmarch Hub World, Karui Shores Intro/Quests, and Core Idle Town Engine.
         TownSubsystem.Register(module);
-        VillageTownService.OnSimulateTick += _bridge.OnSimulateTickLocked;
+        Func<VillageTownState, double, long, bool> onSimTick = _bridge.OnSimulateTickLocked;
+        VillageTownService.OnSimulateTick += onSimTick;
 
         // 2. Shipping, Atlas Map Runners, Rewards Stash, Disenchanting, and Dual-Mode Recombinator.
         OperationsSubsystem.Register(module);
@@ -54,11 +55,24 @@ public sealed partial class SettlersModule : IModule
         SettlersBosses.Register(module);
         SettlersBossCallbacks.GetOreFoundMultiplier = () => Settings.OreFoundMultiplier;
         SettlersBossCallbacks.GetBossRewardMultiplier = () => Settings.ShippingRewardMultiplier;
-        SettlersBossCallbacks.OnBossVerisiumClaimed += evt =>
+        Func<BossVerisiumClaimedEvent, Task> onBossVerisium = evt =>
             VillageTownService.AddResourceAsync(evt.Player, VillageData.ResPendingVerisium, evt.OreAmount);
-        SettlersBossCallbacks.OnRescueShipment += evt =>
+        Func<RescueShipmentEvent, Task> onRescueShipment = evt =>
             OperationsSubsystem.OnPirateBossDefeatedAsync(evt.Player);
-        SettlersBossCallbacks.OnRescueMappers += evt =>
+        Func<RescueMappersEvent, Task> onRescueMappers = evt =>
             OperationsSubsystem.OnBanditBossDefeatedAsync(evt.Player);
+        SettlersBossCallbacks.OnBossVerisiumClaimed += onBossVerisium;
+        SettlersBossCallbacks.OnRescueShipment += onRescueShipment;
+        SettlersBossCallbacks.OnRescueMappers += onRescueMappers;
+
+        module.Lifetime.Own(new Cleanup(() =>
+        {
+            VillageTownService.OnSimulateTick -= onSimTick;
+            SettlersBossCallbacks.OnBossVerisiumClaimed -= onBossVerisium;
+            SettlersBossCallbacks.OnRescueShipment -= onRescueShipment;
+            SettlersBossCallbacks.OnRescueMappers -= onRescueMappers;
+            SettlersBossCallbacks.GetOreFoundMultiplier = static () => 1.0;
+            SettlersBossCallbacks.GetBossRewardMultiplier = static () => 1.0;
+        }));
     }
 }

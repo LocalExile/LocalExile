@@ -619,9 +619,16 @@ public sealed class VillageTownState
             var s = Ships[i];
             if (s.State == 1 && s.ArrivalUtc > s.DepartedUtc)
             {
-                uint total = (uint)Math.Clamp(s.ArrivalUtc - s.DepartedUtc, 1, uint.MaxValue);
-                uint elapsed = (uint)Math.Clamp((long)serverNowSeconds - s.DepartedUtc, 0, total);
-                shipTimers[i] = new(elapsed, total);
+                long totalSec = Math.Max(1, s.ArrivalUtc - s.DepartedUtc);
+                long elapsedSec = Math.Clamp((long)serverNowSeconds - s.DepartedUtc, 0, totalSec);
+                uint target = Operations.VillageShippingService.ComputeTravelTime(s.PortRow, 0, 1.0).ProgressTarget;
+                uint elapsedProg = (uint)Math.Clamp((long)Math.Round(target * (elapsedSec / (double)totalSec)), 0, target);
+                shipTimers[i] = new(elapsedProg, target);
+            }
+            else if (s.State == 3)
+            {
+                uint target = Operations.VillageShippingService.ComputeTravelTime(s.PortRow, 0, 1.0).ProgressTarget;
+                shipTimers[i] = new(target, target);
             }
             else
             {
@@ -653,8 +660,8 @@ public sealed class VillageTownState
         if (DisenchantQueue.Count > 0)
         {
             var first = DisenchantQueue[0];
-            disElapsed = (uint)Math.Clamp((long)Math.Floor(first.ElapsedSeconds), 0, uint.MaxValue);
-            disTotal = (uint)Math.Clamp((long)Math.Ceiling(first.DurationSeconds), 0, uint.MaxValue);
+            disTotal = (uint)Math.Max(1, Math.Round(first.DurationSeconds * 100.0));
+            disElapsed = (uint)Math.Clamp(Math.Round(first.ElapsedSeconds * 100.0), 0, disTotal);
         }
 
         ulong stateTs = LastSimulatedUtc > 0 ? (ulong)LastSimulatedUtc : serverNowSeconds;

@@ -231,10 +231,11 @@ public sealed class SettlersTests
             {
                 Assert.Equal(VillageShippingService.ShipStateSailing, state.Ships[0].State);
                 Assert.Equal(1, state.Ships[0].PortRow);
-                // OnSimulateTickLocked advances sailing timer cleanly without touching SQLite on idle.
-                Assert.True(bridge.OnSimulateTickLocked(state, 300, now + 300));
-                Assert.Equal(300u, state.Ships[0].TimerElapsed);
-                Assert.Equal(1800u, state.Ships[0].TimerTotal);
+                // OnSimulateTickLocked advances sailing timer in 0x1424c7c10 progress units without forcing 1s SQLite writes.
+                uint expectedTarget = VillageShippingService.ComputeTravelTime(1, 0, 1.0).ProgressTarget;
+                Assert.False(bridge.OnSimulateTickLocked(state, 300, now + 300));
+                Assert.Equal(expectedTarget / 6, state.Ships[0].TimerElapsed);
+                Assert.Equal(expectedTarget, state.Ships[0].TimerTotal);
             }
             bridge.FlushIfDirty("settler_bob", "Standard");
 

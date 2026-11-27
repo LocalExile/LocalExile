@@ -246,25 +246,22 @@ public sealed class TownOperationsBridge : IOperationsHost, IVillageOreSink
 
     /// <summary>
     /// Hooked to <see cref="VillageTownService.OnSimulateTick"/> (called inside <see cref="VillageTownState.Gate"/>)
-    /// to keep live sailing ship countdown timers aligned with the authoritative simulation clock.
-    /// Returns false on idle towns so zero SQLite writes occur while nothing is running.
+    /// to keep live sailing ship countdown timers in <c>0x1424c7c10</c> progress units (<c>((dist/20) + 100) * 6000</c>)
+    /// in memory without forcing a per-second SQLite write (<c>DepartedUtc</c>/<c>ArrivalUtc</c> are already persisted).
     /// </summary>
     public bool OnSimulateTickLocked(VillageTownState state, double productiveSeconds, long nowUtc)
     {
-        bool changed = false;
         for (int i = 0; i < state.Ships.Length; i++)
         {
             var s = state.Ships[i];
             if (s.State != VillageShippingService.ShipStateSailing || s.ArrivalUtc <= s.DepartedUtc) continue;
-            uint total = (uint)Math.Clamp(s.ArrivalUtc - s.DepartedUtc, 1, uint.MaxValue);
-            uint elapsed = (uint)Math.Clamp(nowUtc - s.DepartedUtc, 0, total);
-            if (s.TimerTotal != total || s.TimerElapsed != elapsed)
-            {
-                s.TimerTotal = total;
-                s.TimerElapsed = elapsed;
-                changed = true;
-            }
+            long totalSec = Math.Max(1, s.ArrivalUtc - s.DepartedUtc);
+            long elapsedSec = Math.Clamp(nowUtc - s.DepartedUtc, 0, totalSec);
+            uint target = VillageShippingService.ComputeTravelTime(s.PortRow, 0, 1.0).ProgressTarget;
+            uint elapsedProg = (uint)Math.Clamp((long)Math.Round(target * (elapsedSec / (double)totalSec)), 0, target);
+            s.TimerTotal = target;
+            s.TimerElapsed = elapsedProg;
         }
-        return changed;
+        return false;
     }
 }
