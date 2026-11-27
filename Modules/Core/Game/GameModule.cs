@@ -42,6 +42,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.ResetAchievementCache();
         Rules.RetirePactConditions();
         Rules.ClearReaveCounters();
+        global::MonsterKitHooks.Clear();
         RuleTables.Empty();
     }
 

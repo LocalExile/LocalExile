@@ -24,9 +24,19 @@ public static partial class Game
         var session = ProjectilesFor(player);
         var source = SupportedSkill(player, gem.Id);
         double now = ProjectileWorldTime(player);
+        // All seven class rigs use leave_ground at 33 ms and hit_ground at 433 ms in their 1100 ms flurry clips.
+        // Native movement scales that window by attack time and travelled distance / 55 (0x141b5d9a0).
+        double length = Dist(start, landing);
+        double scale = SupportedAttackSeconds(player, gem.Id, sequence) * length / 55;
+        double takeoff = (swingAt ?? now) + scale * (33d / 1100);
+        double travel = scale * (400d / 1100);
+        bool Current() => PlayerStateAllowsAction(player) && player.ActionCount == action
+            && player.ActionInterruptionGeneration == interruption && (ticket?.Current(player) ?? true)
+            && SameTriggerSource(source, SupportedSkill(player, gem.Id))
+            && GemSkillInstanceDisabled(player, gem.Effect, gem.Id) is null;
+        session.ScheduleVenomGyreRelease(start, landing, takeoff, travel, Current);
         var cells = ClientPathfinder.Line(start, landing).ToArray();
         var sightBarrier = player.SightBarrier;
-        double length = Dist(start, landing);
         var midpoint = ((start.X + landing.X) / 2, (start.Y + landing.Y) / 2);
         var targets = new List<(uint Id, SpawnedMonster Monster, double Distance)>();
         foreach (var (id, monster) in player.Area.MonstersNear(midpoint, length / 2 + reach + 1))
@@ -43,15 +53,6 @@ public static partial class Game
         }
         if (targets.Count == 0) return;
 
-        // All seven class rigs use leave_ground at 33 ms and hit_ground at 433 ms in their 1100 ms flurry clips.
-        // Native movement scales that window by attack time and travelled distance / 55 (0x141b5d9a0).
-        double scale = SupportedAttackSeconds(player, gem.Id, sequence) * length / 55;
-        double takeoff = (swingAt ?? now) + scale * (33d / 1100);
-        double travel = scale * (400d / 1100);
-        bool Current() => PlayerStateAllowsAction(player) && player.ActionCount == action
-            && player.ActionInterruptionGeneration == interruption && (ticket?.Current(player) ?? true)
-            && SameTriggerSource(source, SupportedSkill(player, gem.Id))
-            && GemSkillInstanceDisabled(player, gem.Effect, gem.Id) is null;
         foreach (var (id, monster, distance) in targets.OrderBy(target => target.Distance).Take(maximumTargets))
         {
             // The update releases a target when travelled^2 + 10 exceeds its stored squared distance.

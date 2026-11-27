@@ -17,6 +17,7 @@ public sealed class KillOnslaught
     public IReadOnlyList<(int Chance, double Seconds)> Rolls = [];
     // "You gain Onslaught for 4 seconds on Hit" (gain_onslaught_on_hit_duration_ms): every hit, no roll.
     public int HitMs;
+    public int TauntedKillMs;
     public double Until = double.NegativeInfinity;
     public double SentUntil = double.NegativeInfinity;
     public ushort Buff;
@@ -91,6 +92,7 @@ public static partial class Game
         var onslaught = KillOnslaughtOf(player);
         onslaught.Rolls = rolls;
         onslaught.HitMs = get(Stat.GainOnslaughtOnHitDurationMs);
+        onslaught.TauntedKillMs = get(Stat.OnslaughtBuffDurationOnKillingTauntedEnemyMs);
     }
 
     // A hostile monster the player killed (MonsterKilled, CommitProjectileKill): whether Onslaught started or lengthened.
@@ -104,10 +106,15 @@ public static partial class Game
         return true;
     }
 
-    public static bool OnslaughtOnKill(Player player)
+    public static bool OnslaughtOnKill(Player player) => OnslaughtOnKill(player, AreaTime(player), taunted: false);
+
+    static bool OnslaughtOnKill(Player player, double now, bool taunted)
     {
-        return player.PlayerLife > 0 && KillOnslaughtOf(player).Kill(AreaTime(player), AreaRng(player))
-            && Marked(player, PlayerStatStep.Onslaught);
+        if (player.PlayerLife == 0) return false;
+        var onslaught = KillOnslaughtOf(player);
+        bool gained = onslaught.Kill(now, AreaRng(player));
+        if (taunted) gained |= onslaught.Gain(now, onslaught.TauntedKillMs / 1000d);
+        return gained && Marked(player, PlayerStatStep.Onslaught);
     }
 
     // "You gain Onslaught for X seconds on Hit" (the Honoured Berserker tattoo and other sources): every player hit.

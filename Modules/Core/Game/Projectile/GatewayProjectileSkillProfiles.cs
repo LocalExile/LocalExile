@@ -18,13 +18,21 @@ public static class GatewayProjectileSkillProfiles
 
     static readonly HashSet<string> CannotReturn = new(StringComparer.Ordinal)
     {
-        "Spark", "SparkAltX", "SparkAltY", "Twister", "RainOfArrows", "BlastRain", "SplittingSteel", "VenomGyre",
+        "Spark", "SparkAltX", "SparkAltY", "Twister", "RainOfArrows", "BlastRain", "SplittingSteel",
         "WinterOrb", "ForbiddenRite", "Cremation", "RollingMagma", "ToxicRain", "PoisonousConcoction"
     };
     static readonly IReadOnlySet<ProjectileEndReason> TerminalStops = new HashSet<ProjectileEndReason>
         { ProjectileEndReason.Enemy, ProjectileEndReason.Terrain, ProjectileEndReason.Distance, ProjectileEndReason.Returned };
+    static readonly IReadOnlySet<ProjectileEndReason> ShatteringSteelStops =
+        new HashSet<ProjectileEndReason>(TerminalStops) { ProjectileEndReason.Lifetime };
     static readonly IReadOnlySet<ProjectileEndReason> NonContactStops = new HashSet<ProjectileEndReason>
         { ProjectileEndReason.Distance, ProjectileEndReason.Returned };
+
+    const string SplittingSteelShard = "Metadata/Projectiles/ImpactingSteelProjectileSecondary";
+    static readonly IReadOnlySet<ProjectileEndReason> SplittingSteelStops = new HashSet<ProjectileEndReason>
+        { ProjectileEndReason.Split, ProjectileEndReason.Enemy, ProjectileEndReason.Terrain, ProjectileEndReason.Distance };
+
+    internal static bool IsSplittingSteel(string? effect) => effect is "SplittingSteel" or "SplittingSteelAltX" or "SplittingSteelAltY";
 
     public static bool IsKineticBlast(string effect) => effect is "KineticBlast" or "KineticBlastAltX" or "KineticBlastAltY";
     public static bool IsKineticBolt(string effect) => effect is "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY";
@@ -48,10 +56,13 @@ public static class GatewayProjectileSkillProfiles
     public static ProjectileProfile Resolve(string effect, string metadata, Func<uint, int> get, double speed, bool attack,
         bool arrows = false)
     {
+        if (effect == Game.SpectrumHitEffect && !arrows) metadata = "Metadata/Projectiles/ElementalHitWandCombined";
         var p = GatewayProjectileDefaults.Create(metadata, get, speed, arrows) with
         {
             CannotReturn = CannotReturn.Contains(effect), ReturnOnDistance = effect != "FreezingPulse"
         };
+        if (effect == Game.SpectrumHitEffect) p = p with { ContactArea = Game.ElementalHitBurst(0) };
+        if (Game.VenomGyreEffect(effect)) p = p with { ReturnOvershoot = 0 };
         if (IsKineticBlast(effect))
         {
             bool clustering = effect == "KineticBlastAltX";
@@ -190,16 +201,33 @@ public static class GatewayProjectileSkillProfiles
                 EndAreaReasons = NonContactStops,
             };
 
+        else if (IsSplittingSteel(effect))
+            p = p with
+            {
+                EndsAtAim = true, CannotReturn = true, SplitWithoutTargets = true,
+                EndArea = new("splitting-steel-split", 0) { ExcludeContactTarget = true },
+                EndAreaReasons = SplittingSteelStops,
+                // Projectiles.dat's split shard has 3000 speed and 2 contact cells, versus 5000 and 3 for the initial bolt.
+                SplitForm = new(.6, Pierce: 0)
+                {
+                    Metadata = SplittingSteelShard, ContactCells = 2, PreservePierce = true,
+                    EndArea = new("splitting-steel-shard", 0) { ExcludeContactTarget = true },
+                },
+            };
+
         else if (IsShatteringSteel(effect))
             p = p with
             {
+                // 3.29.3c 0x141481630 starts the 140 ms flight timer at projectile launch.
+                // Each projectile keeps that timer while its resolved speed changes how far it travels.
+                Lifetime = ProjectileRuntime.Time(.14),
                 EndArea = new("shattering-steel-cone", 0)
                 {
                     ConeHalfAngle = Math.PI / 2,
                     ReplacesDirectContact = false,
                     ExcludeContactTarget = true,
                 },
-                EndAreaReasons = TerminalStops,
+                EndAreaReasons = ShatteringSteelStops,
             };
         else if (effect is "LancingSteel" or "LancingSteelAltX")
             p = p with
@@ -236,6 +264,7 @@ public static class GatewayProjectileSkillProfiles
         if (nova && get(Stat.SupportParallelProjectileNumberOfPointsPerSide) == 0)
             p = p with { NativeVolley = new() { Nova = true } };
         p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
+        if (Game.IsSpectralHelix(effect)) p = Game.SpectralHelixProfile(p, get);
         if (effect == "SoulrendAltY") p = SoulrendSpiral(p, get);
         if (Game.MovingBallLightning(effect)) p = Game.BallLightningPulses(effect, p, get);
         if (Game.IsIceSpear(effect)) p = Game.IceSpearForms(effect, p, get);
@@ -293,7 +322,7 @@ public static class GatewayProjectileSkillProfiles
         if (IsKineticBolt(effect)) p = WithKineticBoltLegs(p);
         if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
-        if (p.ContactArea is { } contact && !IsIceShot(effect)) p = p with { EndArea = contact };
+        if (p.ContactArea is { RequiresEnemyHit: false } contact && !IsIceShot(effect)) p = p with { EndArea = contact };
         return ScaleAreas(p, effect, get, spell: !attack);
     }
 
@@ -472,6 +501,8 @@ public static class GatewayProjectileSkillProfiles
         if (IsLightningArrow(effect) && p.ContactTargets is { } targets)
             return p with { ContactTargets = targets with
                 { Radius = SkillArea.Radius(Value(Stat.ActiveSkillBaseAreaOfEffectRadius, 18), get, spell) } };
+        if (effect == Game.SpectrumHitEffect && p.ContactArea is { } spectrum)
+            return p with { ContactArea = spectrum with { Radius = SkillArea.Radius(SkillArea.BaseRadius(effect, get), get, spell) } };
         if (IsIceShot(effect) && p.ContactArea is { } iceCone)
         {
             int AreaStat(uint key) => key == SkillArea.BaseIncreased
@@ -499,6 +530,16 @@ public static class GatewayProjectileSkillProfiles
         }
         if (Game.IsPyroclastMine(effect) && p.EndArea is { } pyroclast)
             return p with { EndArea = pyroclast with { Radius = SkillArea.Radius(12, get, spell) } };
+        if (IsSplittingSteel(effect) && p.EndArea is { } splitArea && p.SplitForm is { EndArea: { } shardArea } splitForm)
+        {
+            int basis = SkillArea.BaseRadius(effect, get);
+            double shardMore = Math.Max(0, 1 + get(Stat.SplittingSteelAreaPlusPctFinalAfterSplitting) / 100d);
+            return p with
+            {
+                EndArea = splitArea with { Radius = SkillArea.Radius(basis, get, spell) },
+                SplitForm = splitForm with { EndArea = shardArea with { Radius = SkillArea.Radius(basis, get, spell, shardMore) } },
+            };
+        }
         if (p.EndArea is { } terminal)
         {
             int basis = SkillArea.BaseRadius(effect, get);

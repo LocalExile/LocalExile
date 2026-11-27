@@ -177,7 +177,7 @@ public static partial class Game
         if (SkillAnimations.IsStanced(variety.Id) && SkillAnimations.Key(catalog, effect, DualWields(variety)) is { } key
             && SkillAnimations.StanceClip(variety.Id, SkillAnimations.StanceName(variety.Weapons), key, sequence) is { ContactFraction: double at } stanced)
             return new(stanced.Animation, at, null, Has(Stat.ActionShouldFaceAwayFromTarget));
-        var clip = catalog.MonsterContact(variety.Id, projectile.AnimationKey ?? "Melee", sequence);
+        var clip = catalog.MonsterContact(variety.Id, projectile.AnimationKey ?? "Melee", sequence, projectile.FallbackAnimationKey);
         if (clip is null) return null;
         var point = Has(Stat.ProjectileUsesContactPosition) ? clip.Point : null;
         if (point is { } p && Has(Stat.UseScaledContactOffset)) point = p.Scaled(variety.ModelScale);
@@ -713,11 +713,12 @@ public static partial class Game
             : scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[]
             : BossKits.Kit(player, variety, level, effect, attack, unique: !friendly && rarity == MonsterRarity.Unique,
                 modifiers: mods.Effects, mapDamage: mapBossScaling.Damage);
+        bool fromOrdinaryKit = false;
         if (kit.Count == 0 && !friendly && !scripted && kingSkills is null && extraKit is not { Count: > 0 })
         {
             var (ordinaryKit, ordinaryAuraStats, ordinaryAuraRows) = MonsterKits.ForOrdinary(player, variety, level, effect,
                 mods.Effects, mapBoss ? mapBossScaling.Damage : 1.0, applyAuraStats: freshMods && auras.Stats is null);
-            if (ordinaryKit.Count > 0) kit = ordinaryKit;
+            if (ordinaryKit.Count > 0) { kit = ordinaryKit; fromOrdinaryKit = true; }
             if (freshMods && auras.Stats is null && ordinaryAuraStats.Count > 0)
                 mods = mods with { Effects = mods.Effects.Combine(ordinaryAuraStats) };
             if ((auras.Rows is null || auras.Rows.Count == 0) && ordinaryAuraRows.Count > 0)
@@ -729,13 +730,19 @@ public static partial class Game
         if (kit.Count == 0 && extraKit is { Count: > 0 } && skill is not null)
             kit = [new MonsterKitSkill(effect, attack with { SkillId = (ushort)0x4000 }, 0)];
         // A caller's extra specials (a summon's own usable kit, BossKits.SummonKit) append to the built kit.
-        kit = BossKits.WithExtra(kit, extraKit);
+        var combinedKit = BossKits.WithExtra(kit, extraKit);
+        if (!ReferenceEquals(combinedKit, kit)) fromOrdinaryKit = false;
+        kit = combinedKit;
         // The kit's first entry is the effect the default attack uses, given its own id in the kit: the actor needs that
         // list, not a second copy of the default attack under the hash-derived id. The stage skill stays: it is 0x0103.
+        IReadOnlyList<GrantedSkill>? kitSkills = kit.Count > 0
+            ? (fromOrdinaryKit ? MonsterKits.SkillsForOrdinary(player, variety, level, kit) : BossKits.SkillsOf(player, variety, level, kit))
+            : null;
         var skills = kingSkills is { Count: > 0 } ? kingSkills
-            : kit.Count > 0 ? [.. BossKits.SkillsOf(player, variety, level, kit), .. stageSkill is null ? [] : new List<GrantedSkill> { stageSkill }]
+            : kitSkills is not null ? (stageSkill is null ? kitSkills : [.. kitSkills, stageSkill])
             : skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill];
         if (ownedSkills is not null) skills = ownedSkills;
+        if (skills is not null) skills = MonsterCombos.WithChildSkills(player, variety, level, kit, skills);
         if (skills is not null) skills = Yugul.AddSkills(player, variety, level, skills);
         if (skills is not null) skills = SolarisLunaris.AddSkills(player, variety, level, skills);
         // The effect behind each actor skill id, so a mod's command can play one of the monster's own skills by the
@@ -759,7 +766,15 @@ public static partial class Game
             (stats ??= []).Add((maximumEnergyShield, (int)maximumEnergyShieldValue));
         bool waitingForBanditChoice = !friendly && BanditChoices.In(player) is { } bandit
             && bandit.Variety == variety.Id && variety.ComponentsOrBase.Contains("NPC") && BanditChoices.Held(player, bandit);
-        var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety) ?? (player.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? MapBeyond.StartStates(variety) ?? BossKits.StartStates(variety) ?? variety.StateMachine;
+        var bespokeStates = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety)
+            ?? (player.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null)
+            ?? MavenNucleus.StartStates(variety) ?? MapBeyond.StartStates(variety) ?? BossKits.StartStates(variety);
+        var states = bespokeStates
+            ?? (!scripted && shape is null && !IsBossControllerVariety(variety)
+                ? MonsterStates.DefaultVisibleStates(variety, variety.StateMachine)
+                : variety.StateMachine);
+        if (MonsterKitHooks.HasStateProviders)
+            states = MonsterKitHooks.ApplyStateTransitions(variety, states);
         // MonsterObject.Blob() omits Actor's two dead-on-birth bytes, so a create packet must carry life >= 1;
         // a dead-on-arrival owned spawn is born with life 1 and immediately zeroed by LifeUpdate(id, 0).
         uint initialLife = Math.Min(damagedLife ?? life, life);
@@ -1097,7 +1112,7 @@ public static partial class Game
     // Kept separate from socket dispatch so all decisions in a pass use the same game time and player pose.
     static readonly System.Collections.Concurrent.ConcurrentDictionary<MonsterCatalog.Variety, bool> BossControllerVarieties = new();
 
-    static bool IsBossControllerVariety(MonsterCatalog.Variety? variety) =>
+    internal static bool IsBossControllerVariety(MonsterCatalog.Variety? variety) =>
         variety is not null && BossControllerVarieties.GetOrAdd(variety, static v =>
             Sirus.IsActor(v) || KitavaActFive.IsActor(v) || KitavaActTen.IsActor(v) || DepravedTrinity.IsBoss(v)
             || VaalOversoul.IsBoss(v) || DoedreSewers.IsBoss(v) || BrineKing.IsBoss(v) || Arakaali.IsBoss(v)
@@ -1198,7 +1213,8 @@ public static partial class Game
             bool protectedEntry = InGracePeriod(player);
             bool hasRampageWeapons = CurrentRampageWork && player.StandingRampageWorld is { Actors.Count: > 0 };
             var askers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, double D)>();
-            bool crowdedPack = player.Area.Driven && player.Area.SyncLivingMonsters().Count > 16;
+            var living = player.Area.SyncLivingMonsters();
+            bool crowdedPack = player.Area.Driven && living.Count > 16;
             bool playerMoving = player.Walk.Moving(now);
             var decoyChasers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, TotemState.Totem Totem)>();
             var bandit = BanditChoices.In(player);
@@ -1294,22 +1310,22 @@ public static partial class Game
                 var decoy = DecoyTarget(m, now);
                 if (m.Hostile && decoy is null && !(m.TauntedUntil > now && m.TauntingPlayerId == player.Id)
                     && GolemEnemyOrderLocked(player, id, m, now, d)) continue;
-                // A boss's kit (BossKits): the skill that is ready and reaches the player, else its chase swing. Never
-                // while a swing or arrived lockstep walk-up swing still runs: the attack an order names must stay the one
-                // its hit is applied with, and switching skills must close any open melee walk-up so StepWalkUp never
-                // tests a melee chase against a newly chosen ranged skill's reach.
-                if (m.Kit.Count > 0 && now >= m.BusyUntil && m.ClientSwingAt is null && !cadence.SwingPending(m))
-                {
-                    var chosen = BossKits.Choose(m, now, d, a => MonsterSkills.Usable(player, id, m, a, now));
-                    if (chosen?.SkillId != m.Attack?.SkillId) m.ClientChase = null;
-                    m.Attack = chosen;
-                }
                 if (!m.Aggro && d <= MonsterNoticeRange(m))
                 {
                     m.Aggro = true;
                     m.ReturningHome = false;
                     m.LastTarget = null;
                     AlertPackLocked(player, m, (mx, my), now);
+                }
+                // A boss's or multi-skill monster's kit (BossKits): only evaluated once aggroed (idle monsters skip
+                // skill selection completely), and never while a swing or arrived lockstep walk-up swing still runs:
+                // the attack an order names must stay the one its hit is applied with, and switching skills must close
+                // any open melee walk-up so StepWalkUp never tests a melee chase against a newly chosen ranged reach.
+                if (m.Aggro && m.Kit.Count > 0 && now >= m.BusyUntil && m.ClientSwingAt is null && !cadence.SwingPending(m))
+                {
+                    var chosen = BossKits.Choose(player, id, m, now, d, cachedAreaLists: true);
+                    if (chosen?.SkillId != m.Attack?.SkillId) m.ClientChase = null;
+                    m.Attack = chosen;
                 }
                 // No boss bar during an encounter's entrance: its script shows the bar as the fight starts.
                 if (m.Aggro && !m.BossBarShown && !m.EntranceGrace && m.Variety is { BossHealthBar: true } && m.States?.IndexOf("boss_life_bar") >= 0)
@@ -2566,6 +2582,17 @@ public static partial class Game
             ? (a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
                 : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player with {(a.Effect is int used ? SkillsFor(player).EffectId(used) : null) ?? "its attack"} 0x{a.SkillId:x4}, attack time {seconds:0.00} s")
             : null)) return false;
+        if (MonsterKitHooks.HasActionLifecycleObservers && BossKits.EffectOf(m, a) is int observedEffect)
+        {
+            MonsterKitHooks.NotifyActionLifecycle(player, id, m, observedEffect, MonsterKitHooks.ActionLifecyclePhase.Started, startedAt);
+            double remaining = Math.Max(0, startedAt + seconds - AreaTime(player));
+            SendAfter(player, remaining, () =>
+            {
+                if (MonsterActionCurrent(player, id, m, action))
+                    MonsterKitHooks.NotifyActionLifecycle(player, id, m, observedEffect, MonsterKitHooks.ActionLifecyclePhase.Ended, AreaTime(player));
+                return Task.CompletedTask;
+            });
+        }
         if (a.Summon is null && BossKits.EffectOf(m, a) is int channelEffect && SkillsFor(player).IsChannelled(channelEffect))
         {
             double remaining = Math.Max(0, startedAt + seconds - AreaTime(player));
@@ -2592,6 +2619,11 @@ public static partial class Game
                 await Task.WhenAll(peers.Where(other => !other.Closed && !other.LeavingArea && ReferenceEquals(other.Instance, player.Instance))
                     .Select(other => RunPietyBeam(other, id, m, a, action, seq, startedAt, seconds, beamOrigin, beamAim)).Append(primary));
             else await primary;
+            return false;
+        }
+        if (a.ComboSteps is { Count: > 0 })
+        {
+            await MonsterCombos.RunComboAsync(player, id, m, a, action, seq, startedAt, seconds, beamOrigin, beamAim);
             return false;
         }
         // The contact: the clip's keyframe (the Spitter's attack1 spits at 37.5 % of the attack; GGG's melee hits land by
@@ -2718,8 +2750,23 @@ public static partial class Game
     // limit of its own, fewer than MaxSummoned of its monsters alive; one with a limit retires its oldest instead);
     // any other attack may.
     public static bool SummonReadyLocked(Player player, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
-        a.Summon is null || now >= m.SummonReadyAt && (a.Summon.Limit > 0
-            || player.Area.Monsters.Values.Count(s => s.SummonerId == id && !s.Dead && s.Life > 0) < MaxSummoned);
+        SummonReadyLocked(player, id, m, a, now, cachedAreaLists: false);
+
+    internal static bool SummonReadyLocked(Player player, uint id, SpawnedMonster m, MonsterAttack a, double now, bool cachedAreaLists)
+    {
+        if (a.Summon is null) return true;
+        if (now < m.SummonReadyAt) return false;
+        if (a.Summon.Limit > 0) return true;
+        if (!cachedAreaLists) player.Area.SyncLivingMonsters();
+        var summons = player.Area.LivingSummons;
+        int count = 0;
+        for (int i = 0; i < summons.Count; i++)
+        {
+            var s = summons[i].Monster;
+            if (s.SummonerId == id && !s.Dead && s.Life > 0 && ++count >= MaxSummoned) return false;
+        }
+        return true;
+    }
 
     // A summoning skill's contact: its monsters (normal, at the summoner's level) where the skill puts them, its offset
     // ahead of the summoner towards the player (summon_specific_monsters_in_front_offset); hostile, as their summoner's,
@@ -3130,6 +3177,12 @@ public static partial class Game
         var ailmentTaken = DamagePacket.Empty;
         int sourceTakenPct = ActorScale.Saturate((long)DamageTakenFromBlindedPct(player, id, stats)
             + DamageTakenFromMonster(m, stats) + NearbyAllyDamageTaken(player, here, now));
+        if (spellHit && StatOf(Stat.SpellDamageTakenPlusPctFromBlindedEnemies) is int blindedSpell and not 0
+            && Blinded(player, id, now))
+            sourceTakenPct = ActorScale.Saturate((long)sourceTakenPct + blindedSpell);
+        int opportunistic = StatOf(Stat.DamageTakenPlusPctIfThereAreAtLeast2RareOrUniqueEnemiesNearby);
+        double opportunisticFactor = opportunistic != 0 && !AtMostOneRareEnemy(player, now)
+            ? DamageFactor(opportunistic) : 1;
         bool hitRecently = player.RecentEvents.Happened(StatConditions.BeenHit, now);
         int pantheonElemTakenPct = hitRecently
             ? StatOf(Stat.ElementalDamageTakenPlusPctIfBeenHitRecently)
@@ -3155,7 +3208,7 @@ public static partial class Game
             int extraTakenPct = sourceTakenPct + (DamageTypes.IsElemental(type) ? pantheonElemTakenPct : 0);
             value = (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now,
                     extraTakenPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit, projectile: projectile))
-                * reservationFactor * ReservationTypedHitTakenFactor(player, type, now) * windDancer
+                * reservationFactor * ReservationTypedHitTakenFactor(player, type, now) * windDancer * opportunisticFactor
                 * (halfAreaDamage ? 0.5 : 1.0)
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             // Suppression prevents calculated damage. Armour must see the unsuppressed hit, and flat taken damage
@@ -3230,6 +3283,9 @@ public static partial class Game
         }
         RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, damage > 0, monsterCritical,
             projectile: projectile, attack: attackHit, attacker: m);
+        if (suppressed && player.PlayerLife > 0 && StatOf(Stat.EnergyShieldRechargesOnSuppressPct) is int rechargeChance and > 0
+            && GameServer.Core.World.RandomRolls.Chance(rechargeChance, 100, player.IncomingHitRandom))
+            player.EnergyShield.StartRecharge(now, StatOf);
         RecentHitLifeLossOnHitLocked(player, now);
         UnhingedHitRecoveryLocked(player, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki

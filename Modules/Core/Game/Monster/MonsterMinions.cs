@@ -93,7 +93,20 @@ public static partial class Game
     /// object id) first, to make room for <paramref name="incoming"/> more.</summary>
     /// <summary>How many of a summon's monsters its summoner has standing. In the area's frame.</summary>
     public static int LivingSummonsLocked(Player player, uint summoner, SkillCatalog.MonsterSummonInfo summon) =>
-        player.Area.Monsters.Values.Count(m => m.SummonerId == summoner && !m.Dead && m.Life > 0 && m.Variety?.Row == summon.Variety);
+        LivingSummonsLocked(player, summoner, summon, cachedAreaLists: false);
+
+    internal static int LivingSummonsLocked(Player player, uint summoner, SkillCatalog.MonsterSummonInfo summon, bool cachedAreaLists)
+    {
+        if (!cachedAreaLists) player.Area.SyncLivingMonsters();
+        var summons = player.Area.LivingSummons;
+        int count = 0;
+        for (int i = 0; i < summons.Count; i++)
+        {
+            var m = summons[i].Monster;
+            if (m.SummonerId == summoner && !m.Dead && m.Life > 0 && m.Variety?.Row == summon.Variety) count++;
+        }
+        return count;
+    }
 
     static List<uint> SurplusMinionsLocked(Player player, uint summoner, SkillCatalog.MonsterSummonInfo summon, int incoming)
     {

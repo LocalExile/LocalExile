@@ -156,7 +156,7 @@ public sealed class ConnectionPerformance
         totals.Append(' ').Append(RuntimeSummary(before));
         long builds = Interlocked.Exchange(ref statBuilds, 0), buildTicks = Interlocked.Exchange(ref statBuildTicks, 0);
         double interval = Stopwatch.GetElapsedTime(before, now).TotalSeconds;
-        totals.Append($" stat-builds={builds / Math.Max(.001, interval):0}/s={buildTicks * 100.0 / Stopwatch.Frequency / Math.Max(.001, interval):0}%cpu");
+        totals.Append(FormattableString.Invariant($" stat-builds={builds / Math.Max(.001, interval):0.00}/s={buildTicks * 100.0 / Stopwatch.Frequency / Math.Max(.001, interval):0.00}%cpu"));
         totals.Append($" bytes-out={Interlocked.Exchange(ref bytesOut, 0) / 1024.0 / Math.Max(.001, interval):0}KB/s");
         // The first interval of a connection carries one-time work (the first stat build, the first use of a skill).
         if (Interlocked.Exchange(ref reported, 1) == 0) totals.Append(" first-interval");

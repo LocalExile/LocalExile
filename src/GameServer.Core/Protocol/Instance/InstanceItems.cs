@@ -994,6 +994,37 @@ public static class InstanceItems
         uint rawItem = r.U32();
         return new(inventory, rawItem & 0x7fffffff, (rawItem & 0x80000000) != 0, r.WStr());
     }
+
+    /// <summary>C→S 0x1a2 (variable length, writer 0x141fa2510, sender 0x140b05b50): Ctrl + click of an inventory item while
+    /// the Merchant window is open, after the client asked for its price. u8 (1: the item is in the expanded inventory,
+    /// type 0x54), u32 BE item id, WStr note (as in 0x1a1), u32 BE inventory id of the merchant tab, u8 + u8 token (low
+    /// byte first, as in 0xe0). Live 2026-11-26: <c>01A2 00 4000000D 000D "~b/o 1 divine" 00000A00 90 86</c>.</summary>
+    public const ushort ListWithPriceId = 0x1a2;
+
+    public sealed record ListWithPrice(bool Expanded, uint ItemId, string Note, uint InventoryId, byte TokenLo, byte TokenHi);
+
+    public static int? ListWithPriceLength(ReadOnlySpan<byte> m) =>
+        MeasureListWithPriceLength(m, out int length) == WireMeasure.Ok ? length : null;
+
+    internal static WireMeasure MeasureListWithPriceLength(ReadOnlySpan<byte> m, out int length)
+    {
+        length = 0;
+        if (m.Length < 7) return WireMeasure.Incomplete;
+        var status = LoginReader.TryMeasureWStr(m[7..], out int textLength);
+        if (status != WireMeasure.Ok) return status;
+        if (m.Length < 7 + textLength + 6) return WireMeasure.Incomplete;
+        length = 7 + textLength + 6;
+        return WireMeasure.Ok;
+    }
+
+    public static ListWithPrice ReadListWithPrice(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        bool expanded = r.U8() != 0;
+        uint item = r.U32();
+        string note = r.WStr();
+        return new(expanded, item, note, r.U32(), r.U8(), r.U8());
+    }
 }
 
 /// <summary>The DeepwaterChart component's three bytes: the Area Level (+0x30), the rotation (+0x31) and the DeepwaterRooms

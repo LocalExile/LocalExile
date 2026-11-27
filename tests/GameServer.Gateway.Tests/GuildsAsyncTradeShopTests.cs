@@ -373,4 +373,106 @@ public class GuildsAsyncTradeShopTests
             TestEnvironment.ReleaseSaves(saves);
         }
     }
+
+    [Fact]
+    public async Task Ctrl_click_with_a_price_lists_into_a_merchant_tab_saved_before_tabs_were_public()
+    {
+        string saves = Path.Combine(Path.GetTempPath(), $"localexile-merchant-price-{Guid.NewGuid():N}.db");
+        Player? player = null;
+        string account = "MerchantPriceAcc" + Guid.NewGuid().ToString("N")[..8];
+        string character = "MerchantPriceHero" + Guid.NewGuid().ToString("N")[..6];
+        string tradeKey = "trade:" + AccountStash.Key(account, "Standard");
+        try
+        {
+            Saves.Open(saves);
+            using var runtime = new PartyFollowerTests.Runtime();
+            using var wire = new DrainingWire();
+            player = new Player(new AreaLayout(0x235c, "1_1_town", 300, 300, 100, 100, null, []), 1, 1)
+            {
+                Instance = new InstanceState(),
+                Character = { Account = account, Name = character, League = "Standard" },
+            };
+            player.PlayerLife = 1000;
+            player.Connection.PlayerSent = true;
+            player.Connection.Session = new("merchant-price", wire.Stream, wire.Ciphers);
+            player.Commands = new() { Send = (_, _) => Task.CompletedTask, Reply = _ => Task.CompletedTask };
+
+            // A merchant stash saved without the Public flag (older saves): it comes back Public, and stays so.
+            Game.TradeStashOf(player);
+            var old = Saves.LoadStash(tradeKey)!;
+            var modules = new Dictionary<string, string>(old.ModuleData ?? []);
+            modules.Remove("stash.public-tabs.v1");
+            Saves.PutStash(tradeKey, old with { Tabs = [.. old.Tabs.Select(t => t with { Public = false })], ModuleData = modules });
+            AccountStash.Forget(tradeKey);
+            var trade = Game.TradeStashOf(player);
+            Assert.True(trade.IsPublic(0));
+            Assert.False(trade.SetPublic(0, false));
+            Assert.True(trade.IsPublic(0));
+
+            // The live message frames to its 28 bytes.
+            byte[] live = Convert.FromHexString("01A2004000000D000D7E622F6F203120646976696E6500000A009086");
+            var split = InstanceProtocol.SplitClientMessages(live, out var partial, out var unknown);
+            Assert.Equal(InstanceItems.ListWithPriceId, Assert.Single(split).Id);
+            Assert.Equal(28, split[0].Bytes.Length);
+            Assert.Equal(new InstanceItems.ListWithPrice(false, 0x4000000d, "~b/o 1 divine", 0xa00, 0x90, 0x86),
+                InstanceItems.ReadListWithPrice(split[0].Bytes));
+            Assert.Empty(partial);
+            Assert.Empty(unknown);
+
+            await Game.OpenAsyncTradeStash(player);
+            var inv = PlayerInventories.For(character, Program.Items);
+            var chaosType = Program.Items.Find("Metadata/Items/Currency/CurrencyRerollRare")!;
+            var chaos = inv.Put(PlayerInventories.MainInventory, new InventoryItem(inv.NewItemId(), 0, 0,
+                ItemCatalog.Create(chaosType)));
+            byte[] Listing(uint itemId, uint inventoryId, string note = "~b/o 1 divine", byte expanded = 0) =>
+                new LoginWriter().U16(InstanceItems.ListWithPriceId).U8(expanded).U32(itemId)
+                    .WStr(note).U32(inventoryId).U8(0x90).U8(0x86).ToArray();
+
+            // Not a merchant tab: nothing moves, the item keeps no note.
+            await Game.OnClientMessages([(InstanceItems.ListWithPriceId, Listing(chaos.Id, 0x1234))], [], player);
+            Assert.Null(inv.Items(PlayerInventories.MainInventory).Single(i => i.Id == chaos.Id).Item.Note);
+
+            // Wrong Expanded flag or non-carried inventory (equipped gear) is refused without mutating notes.
+            await Game.OnClientMessages([(InstanceItems.ListWithPriceId, Listing(chaos.Id, trade.InventoryOf(0), expanded: 1))], [], player);
+            Assert.Contains(inv.Items(PlayerInventories.MainInventory), i => i.Id == chaos.Id && i.Item.Note is null);
+            var ringType = Program.Items.Find("Metadata/Items/Rings/Ring1")!;
+            var equippedRing = inv.Put(PlayerInventories.Ring1, new InventoryItem(inv.NewItemId(), 0, 0, ItemCatalog.Create(ringType)));
+            await Game.OnClientMessages([(InstanceItems.ListWithPriceId, Listing(equippedRing.Id, trade.InventoryOf(0)))], [], player);
+            Assert.Single(inv.Items(PlayerInventories.Ring1), i => i.Id == equippedRing.Id && i.Item.Note is null);
+
+            // Ctrl + click with the price: the item lies in the first merchant tab with its note, and PayOne still refuses it.
+            await Game.OnClientMessages([(InstanceItems.ListWithPriceId, Listing(chaos.Id, trade.InventoryOf(0)))], [], player);
+            Assert.DoesNotContain(inv.Items(PlayerInventories.MainInventory), i => i.Id == chaos.Id);
+            var listed = Assert.Single(trade.Inventory(0).Items);
+            Assert.Equal("~b/o 1 divine", listed.Item.Note);
+            Assert.Null(trade.PayOne(0, listed, allowPublic: true));
+
+            // Listing from ExpandedInventory (0x54) with a different price does not merge into the differently-priced stack and persists across reload.
+            var expandedChaos = inv.Put(PlayerInventories.ExpandedInventory, new InventoryItem(inv.NewItemId(), 0, 0,
+                ItemCatalog.Create(chaosType)));
+            await Game.OnClientMessages([(InstanceItems.ListWithPriceId, Listing(expandedChaos.Id, trade.InventoryOf(0), "~b/o 2 divine", expanded: 1))], [], player);
+            Assert.DoesNotContain(inv.Items(PlayerInventories.ExpandedInventory), i => i.Id == expandedChaos.Id);
+            Assert.Equal(2, trade.Inventory(0).Items.Count);
+            Assert.Contains(trade.Inventory(0).Items, i => i.Item.Note == "~b/o 1 divine");
+            Assert.Contains(trade.Inventory(0).Items, i => i.Item.Note == "~b/o 2 divine");
+            AccountStash.Forget(tradeKey);
+            var reloaded = Game.TradeStashOf(player);
+            Assert.True(reloaded.IsPublic(0));
+            Assert.Equal(2, reloaded.Inventory(0).Items.Count);
+            Assert.Contains(reloaded.Inventory(0).Items, i => i.Item.Note == "~b/o 2 divine");
+
+            // Hidden/removed merchant tab is refused without modifying the inventory item's note.
+            reloaded.RemoveTab(1);
+            var untouched = inv.Put(PlayerInventories.MainInventory, new InventoryItem(inv.NewItemId(), 1, 0,
+                ItemCatalog.Create(chaosType)));
+            await Game.OnClientMessages([(InstanceItems.ListWithPriceId, Listing(untouched.Id, reloaded.InventoryOf(1), "~b/o 3 divine"))], [], player);
+            Assert.Single(inv.Items(PlayerInventories.MainInventory), i => i.Id == untouched.Id && i.Item.Note is null);
+        }
+        finally
+        {
+            if (player is not null) player.Closed = true;
+            AccountStash.Forget(tradeKey);
+            TestEnvironment.ReleaseSaves(saves);
+        }
+    }
 }

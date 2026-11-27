@@ -43,12 +43,12 @@ public static partial class Game
     sealed class SandstormBlind
     {
         readonly Lock gate = new();
-        readonly Dictionary<ProjectileSession, int> sources = [];
+        readonly Dictionary<object, int> sources = [];
         int less;
 
         public int Less => Volatile.Read(ref less);
 
-        public void Set(ProjectileSession source, int value)
+        public void Set(object source, int value)
         {
             lock (gate)
             {
@@ -214,16 +214,17 @@ public static partial class Game
             prior.Clear();
         }
 
-        void SetStormBlind(GameArea area, SpawnedMonster enemy, int less)
+        void SetStormBlind(GameArea area, SpawnedMonster enemy, int less, object? source = null,
+            ushort row = FlaskGrounds.BlindedBuffRow, ushort tag = (ushort)BuffTag.BladestormBlind)
         {
-            if (less > 0) SandstormBlinds.GetOrCreateValue(enemy).Set(this, less);
-            else if (SandstormBlinds.TryGetValue(enemy, out var blind)) blind.Set(this, 0);
+            source ??= this;
+            if (less > 0) SandstormBlinds.GetOrCreateValue(enemy).Set(source, less);
+            else if (SandstormBlinds.TryGetValue(enemy, out var blind)) blind.Set(source, 0);
 
             uint target = enemy.ObjectId;
             if (!area.Monsters.TryGetValue(target, out var current) || !ReferenceEquals(current, enemy)) return;
-            const ushort tag = (ushort)BuffTag.BladestormBlind;
-            if (less > 0) area.Buffs.Set(target, new(FlaskGrounds.BlindedBuffRow, Player.Id, Tag: tag));
-            else area.Buffs.Clear(target, FlaskGrounds.BlindedBuffRow, Player.Id, tag: tag);
+            if (less > 0) area.Buffs.Set(target, new(row, Player.Id, Tag: tag));
+            else area.Buffs.Clear(target, row, Player.Id, tag: tag);
             enemy.PresentationChanged?.Invoke();
         }
 
