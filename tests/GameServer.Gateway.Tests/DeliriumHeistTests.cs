@@ -273,6 +273,95 @@ public class DeliriumHeistTests
     }
 
     [Fact]
+    public async Task Heist_locker_0x00fc_quick_moves_blueprints_and_stacks_markers_in_layout_regions()
+    {
+        Assert.Equal(8, ClientPackets.Find(InstanceHeist.LockerMoveId)?.FixedLength);
+        var decoded = InstanceHeist.ReadLockerMove([0x00, 0xfc, 0x00, 0x00, 0x00, 0x2a, 0x01, 0x01]);
+        Assert.Equal(new InstanceItems.LeagueWindowMove(42u, FromExpanded: true, Into: true), decoded);
+
+        using var host = new ModHost("Modules", _ => { }, modules: true) { Wanted = () => new HashSet<string>(["Game", "Heist"]) };
+        host.Start(watch: false);
+        Assert.True(GameEvents.WantsPacket(InstanceHeist.LockerMoveId));
+
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        player.LeagueModule = new(new League("heist-locker", "Standard", false, false), new HashSet<string>(["Game", "Heist"]));
+        var sent = new List<byte[]>();
+        player.Connection.Outbox = (bytes, _) => { sent.Add(bytes); return Task.CompletedTask; };
+        var items = Game.ItemsOf(player);
+        const byte lockerRow = 56;
+
+        var bpItem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Heist/HeistBlueprintMines")!);
+        var bp = items.Add(PlayerInventories.MainInventory, 0, 0, bpItem);
+        byte[] IntoPkt(uint id, bool expanded = false, bool into = true)
+        {
+            byte[] p = [0x00, 0xfc, 0, 0, 0, 0, (byte)(expanded ? 1 : 0), (byte)(into ? 1 : 0)];
+            BinaryPrimitives.WriteUInt32BigEndian(p.AsSpan(2, 4), id);
+            return p;
+        }
+
+        // Closed locker refuses 0x00fc without moving.
+        Assert.True(await GameEvents.AnyPacket(player, InstanceHeist.LockerMoveId, IntoPkt(bp.Id)));
+        Assert.Single(items.Items(PlayerInventories.MainInventory), i => i.Id == bp.Id);
+        Assert.Empty(items.Items(lockerRow));
+        Assert.Empty(sent);
+
+        // Open locker: BlueprintMines lands in its HeistStorageLayout region (11, 6, 11, 6) and emits a 0x00bf pair.
+        player.ModuleWindow = "heist";
+        Assert.True(await GameEvents.AnyPacket(player, InstanceHeist.LockerMoveId, IntoPkt(bp.Id)));
+        Assert.DoesNotContain(items.Items(PlayerInventories.MainInventory), i => i.Id == bp.Id);
+        var storedBp = Assert.Single(items.Items(lockerRow));
+        Assert.Equal((bp.Id, (byte)11, (byte)6), (storedBp.Id, storedBp.X, storedBp.Y));
+        Assert.Equal(2, sent.Count);
+        Assert.All(sent, pkt => Assert.Equal(InstanceItems.InventoryChangeId, BinaryPrimitives.ReadUInt16BigEndian(pkt)));
+        sent.Clear();
+
+        // Rogue's Markers stack onto an existing stack inside region (99, 0, 7, 3) first.
+        var coinType = Program.Items.Find("Metadata/Items/Heist/HeistCoin")!;
+        var existingCoins = items.Add(lockerRow, 99, 0, ItemCatalog.Create(coinType) with { StackSize = 50 });
+        var bagCoins = items.Add(PlayerInventories.MainInventory, 0, 0, ItemCatalog.Create(coinType) with { StackSize = 25 });
+        Assert.True(await GameEvents.AnyPacket(player, InstanceHeist.LockerMoveId, IntoPkt(bagCoins.Id)));
+        Assert.DoesNotContain(items.Items(PlayerInventories.MainInventory), i => i.Id == bagCoins.Id);
+        var merged = Assert.Single(items.Items(lockerRow), i => i.Id == existingCoins.Id);
+        Assert.Equal((ushort)75, merged.Item.StackSize);
+        Assert.Equal(2, sent.Count);
+
+        // Ctrl+click out of the locker returns the blueprint to MainInventory.
+        Assert.True(await GameEvents.AnyPacket(player, InstanceHeist.LockerMoveId, IntoPkt(storedBp.Id, into: false)));
+        Assert.Single(items.Items(PlayerInventories.MainInventory), i => i.Id == bp.Id);
+        Assert.DoesNotContain(items.Items(lockerRow), i => i.Id == bp.Id);
+    }
+
+    [Fact]
+    public async Task Heist_locker_0x002a_enforces_blueprint_layout_regions_and_rejects_non_heist_items()
+    {
+        using var host = new ModHost("Modules", _ => { }, modules: true) { Wanted = () => new HashSet<string>(["Game", "Heist"]) };
+        host.Start(watch: false);
+
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        player.LeagueModule = new(new League("heist-place", "Standard", false, false), new HashSet<string>(["Game", "Heist"]));
+        var items = Game.ItemsOf(player);
+        const byte lockerRow = 56;
+        uint lockerInvId = PlayerInventories.InventoryId(lockerRow);
+
+        var bpMines = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Heist/HeistBlueprintMines")!);
+        items.Add(PlayerInventories.Cursor, 0, 0, bpMines);
+
+        // ContractsBunker (0, 0) and out-of-bounds (22, 6) are outside BlueprintsMines (11, 6, 11, 6); (11, 6) is allowed.
+        Assert.True(await GameEvents.AnyInventoryPlace(player, new InstanceItems.PlaceItem(lockerInvId, 0, 0, 0, 0, 0, 0)));
+        Assert.True(await GameEvents.AnyInventoryPlace(player, new InstanceItems.PlaceItem(lockerInvId, 22, 6, 0, 0, 0, 0)));
+        Assert.False(await GameEvents.AnyInventoryPlace(player, new InstanceItems.PlaceItem(lockerInvId, 11, 6, 0, 0, 0, 0)));
+        Assert.Null(GameEvents.FirstInventoryRefusal(player, lockerRow, bpMines));
+
+        // Non-Heist items and quest contracts are refused in row 56.
+        var scroll = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/CurrencyIdentification")!);
+        var questContract = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Heist/QuestContracts/HeistContractTutorial")!);
+        Assert.NotNull(GameEvents.FirstInventoryRefusal(player, lockerRow, scroll));
+        Assert.NotNull(GameEvents.FirstInventoryRefusal(player, lockerRow, questContract));
+    }
+
+    [Fact]
     public async Task Delirium_mirror_coop_broadcasts_encrypt_independently_per_peer_and_keep_last_tiles_plaintext()
     {
         using var fixture = new TriggeredSummonTests.Fixture();
