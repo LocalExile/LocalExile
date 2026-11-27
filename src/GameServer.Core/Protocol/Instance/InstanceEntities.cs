@@ -1082,8 +1082,8 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     public bool Blocking { get; init; } = true;
 
     /// <summary>Sets bit 15 (<c>0x8000</c>) of <c>Positioned</c>'s team <c>u16</c> (<c>+0x1e0</c>, "Is Minion" in
-    /// <c>0x141e36650</c>): same-team non-minion walkers (players, team 0) pass through this body while hostile
-    /// monsters and other minions still collide with it (<c>0x141e65ae0</c>, <c>0x141e36100</c>).</summary>
+    /// <c>0x141e36650</c>): a same-team walker without the bit (the players, team 0) passes this body
+    /// (<c>0x141e65ae0</c>); other teams' walkers and minions still collide with it.</summary>
     public bool IsMinion { get; init; }
 
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
