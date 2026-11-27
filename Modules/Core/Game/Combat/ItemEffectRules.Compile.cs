@@ -52,7 +52,17 @@ sealed partial class ItemEffectRules
                         dualWield = Matches(equipment.Args, """{"is":"dual_wielding"}""");
                         if (!shield && !dualWield) throw new FormatException("expected holding_shield or dual_wielding");
                     }
+                    int minPoisons = 0, maxPoisons = int.MaxValue;
+                    if (conditions.Remove("enemy_poison_count_at_death", out var poison))
+                    {
+                        if (poison.Group != 0 || JsonNode.Parse(poison.Args) is not JsonObject { Count: 1 } bounds ||
+                            bounds["at_least"] is not JsonValue bound || !bound.TryGetValue<int>(out int threshold) || threshold < 0)
+                            throw new FormatException("enemy_poison_count_at_death requires a nonnegative integer at_least");
+                        if (poison.Negate) maxPoisons = threshold - 1;
+                        else minPoisons = threshold;
+                    }
                     bool Applies(ChargeEvent e, WeaponProfile w) => e is ChargeEvent.Kill kill
+                        && kill.Poisons >= minPoisons && kill.Poisons <= maxPoisons
                         && (!frozen || kill.Frozen) && (!shield || w.Shield) && (!dualWield || w.DualWield);
                     var destination = row.KillChargeOrder < 0 ? beforeAdditional : afterAdditional;
                     foreach (uint stat in Sources("stat")) destination.Add(new(stat, type, Applies));
