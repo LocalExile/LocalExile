@@ -62,11 +62,15 @@ public sealed class Act11FoundationTests
             "Metadata/Items/QuestItems/SkillBooks/AtlasSkillBookThirdMemoryBoss",
         ];
         Assert.Equal(9, AtlasFeature.AtlasSkillBooks.Count);
+        int usableQuestBookWireLen = ItemCatalog.Create(Program.Items.ById("Metadata/Items/QuestItems/SkillBooks/Book-a1q6")!).Payload().Length;
         foreach (string bookId in expectedBooks)
         {
             var type = Program.Items.ById(bookId)!;
             Assert.NotNull(type.Quest);
             Assert.NotNull(type.Quest.LeagueFlag);
+            // Client 0x1424fbd20 overrides QuestItems with non-empty Script to AbstractUsableQuestItem (adds Usable + Stack u16).
+            Assert.Equal(["Base", "Quest", "Usable", "Stack"], type.Components);
+            Assert.Equal(usableQuestBookWireLen, ItemCatalog.Create(type).Payload().Length);
             if (type.Quest.Grant is { } grant) player.Character.QuestFlags.Add(grant);
             var placed = items.Put(PlayerInventories.MainInventory,
                 new InventoryItem(items.NewItemId(), 0, 0, ItemCatalog.Create(type)));

@@ -1254,19 +1254,31 @@ public sealed class ItemCatalog
                 var itemComponents = components.GetValueOrDefault(id) ?? [];
                 int visual = r.Int("ItemVisualIdentity");
                 var quest = questFlags.GetValueOrDefault(id);
-                if (!id.Contains("/Deepwater/", StringComparison.OrdinalIgnoreCase)
-                    && questItemsByBaseRow.TryGetValue(rows.Count, out var qi)
-                    && (qi.Grant is not null || qi.LeagueFlag is not null || qi.Script is not null))
+                if (questItemsByBaseRow.TryGetValue(rows.Count, out var qi))
                 {
-                    quest = quest is null
-                        ? new QuestItemFlags(qi.Grant, null, null, null, null, qi.LeagueFlag, qi.Script, qi.DescriptionRow)
-                        : quest with
-                        {
-                            Grant = quest.Grant ?? qi.Grant,
-                            LeagueFlag = quest.LeagueFlag ?? qi.LeagueFlag,
-                            Script = quest.Script ?? qi.Script,
-                            DescriptionRow = quest.DescriptionRow ?? qi.DescriptionRow,
-                        };
+                    // Client 0x1424fbd20 overrides BaseItemTypes.InheritsFrom to AbstractUsableQuestItem for every
+                    // QuestItems.dat row with a non-empty Script (9 AtlasSkillBook* + Sentinel/Controller), adding
+                    // Usable and Stack (u16 stack count on the wire; omitting Stack causes Buffer Underflow).
+                    if (qi.Script is not null && (!itemComponents.Contains("Usable") || !itemComponents.Contains("Stack")))
+                    {
+                        var merged = new List<string>(itemComponents);
+                        if (!merged.Contains("Usable")) merged.Add("Usable");
+                        if (!merged.Contains("Stack")) merged.Add("Stack");
+                        itemComponents = merged;
+                    }
+                    if (!id.Contains("/Deepwater/", StringComparison.OrdinalIgnoreCase)
+                        && (qi.Grant is not null || qi.LeagueFlag is not null || qi.Script is not null))
+                    {
+                        quest = quest is null
+                            ? new QuestItemFlags(qi.Grant, null, null, null, null, qi.LeagueFlag, qi.Script, qi.DescriptionRow)
+                            : quest with
+                            {
+                                Grant = quest.Grant ?? qi.Grant,
+                                LeagueFlag = quest.LeagueFlag ?? qi.LeagueFlag,
+                                Script = quest.Script ?? qi.Script,
+                                DescriptionRow = quest.DescriptionRow ?? qi.DescriptionRow,
+                            };
+                    }
                 }
                 rows.Add(new BaseType(rows.Count, id, name, r.UInt("HASH32"),
                     (byte)r.Int("Width"), (byte)r.Int("Height"),

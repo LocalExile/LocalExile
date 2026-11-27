@@ -745,8 +745,16 @@ def item_types():
     """BaseItemTypes rows -> {Id: InheritsFrom}. Item types are not object types: the client's
     Metadata/ItemTypeRegister files each BaseItemTypes row under its HASH32 (MurmurHash2 of the Id, the same hash as
     object types; FUN_1421f2d00 looks it up) and builds it from the .it chain. Most leaf rows have no .it file of their
-    own: their chain is InheritsFrom's."""
-    return {r["Id"]: r.get("InheritsFrom") or "nothing" for r in clientdb.table("BaseItemTypes")}
+    own: their chain is InheritsFrom's; QuestItems.dat rows with a non-empty Script override their parent to
+    AbstractUsableQuestItem (client 0x1424fbd20)."""
+    base_rows = clientdb.table("BaseItemTypes")
+    parents = {r["Id"]: r.get("InheritsFrom") or "nothing" for r in base_rows}
+    if clientdb.has("QuestItems"):
+        for qr in clientdb.table("QuestItems"):
+            item_row = qr.get("Item")
+            if qr.get("Script") and isinstance(item_row, int) and 0 <= item_row < len(base_rows):
+                parents[base_rows[item_row]["Id"]] = "Metadata/Items/QuestItems/AbstractUsableQuestItem"
+    return parents
 
 
 def merge_items(fetch_missing=True):
