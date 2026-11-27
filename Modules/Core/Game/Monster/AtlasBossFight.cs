@@ -234,6 +234,8 @@ abstract class AtlasBossFight
     protected static async Task RefreshPlayerStats(Player player)
     {
         if (player.Closed || player.LeavingArea) return;
+        // The boss effects reach stats through PlayerStatSources: without the mark a frame-built graph keeps the old values.
+        MarkPlayerStats(player, PlayerStatStep.Sources);
         player.Pools = PoolsFor(player, player.Pools.Level);
         player.ApplyMovementSpeed();
         await SendPlayerStatSnapshot(player, () => PlayerStatsOffFrames(player), null);
