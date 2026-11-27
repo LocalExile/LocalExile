@@ -275,7 +275,7 @@ static class VendorsFeature
         sale.QuoteError = null;
         VendorRecipes.Quote quote;
         try { quote = VendorSales.Evaluate(offered, Game.AreaRng(player),
-            basicSaleMultiplier: LeagueFor(player).Rules.VendorRewardMultiplier); }
+            basicSaleMultiplier: LeagueFor(player).Rules.VendorRewardMultiplier, player: player); }
         catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
         {
             sale.QuoteError = ex.Message;
