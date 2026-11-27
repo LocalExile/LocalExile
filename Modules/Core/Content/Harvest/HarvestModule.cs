@@ -51,6 +51,7 @@ public sealed class HarvestModule : IModule, IDisposable
     public void Load(IModuleContext module)
     {
         LoadData();
+        module.Lifetime.Own(RegisterDeliriumPauseSource(SacredGrove.IsActivePause));
         GameEvents.HideoutReady.Add(module.Manifest.Id, async player =>
         {
             var modPlayer = PlayerOf(player);

@@ -277,7 +277,10 @@ public sealed partial class AccountStash
             if (added.Count > 0) headers = [.. headers, .. added];
             for (int i = 0; i < headers.Count; i++)
             {
-                var header = headers[i] with { Items = [], Public = headers[i].Public || publicTabs.Contains(i) };
+                // A merchant tab is always Public (retail); one saved before that rule gets the flag here.
+                bool isPublic = headers[i].Public || publicTabs.Contains(i) || headers[i] is { Type: StashRules.Trade, Hidden: false };
+                if (isPublic && !publicTabs.Contains(i)) stash._publicTabsDirty = true;
+                var header = headers[i] with { Items = [], Public = isPublic };
                 var tab = new TabState(header);
                 // Each tab's items are a row of their own; a stash saved before that (imported) keeps them in its header,
                 // and its first save gives every tab its row.
@@ -401,7 +404,8 @@ public sealed partial class AccountStash
                 int n = 1;
                 string name;
                 do name = $"{prefix} {n++}"; while (!names.Add(name));
-                _tabs.Add(new TabState(new SavedTab(name, type, r, g, b, [])));
+                _tabs.Add(new TabState(new SavedTab(name, type, r, g, b, [], Public: type == StashRules.Trade)));
+                if (type == StashRules.Trade) _publicTabsDirty = true;
                 added.Add(_tabs.Count - 1);
             }
         }
@@ -730,7 +734,7 @@ public sealed partial class AccountStash
 
     /// <summary>Sets or clears a premium tab's Public flag (C→S 0xcf, bit 3 = 0x08 in S→C 0x136) and propagates it to
     /// any hidden child pages owned by that tab (matching 0x14216e103). False for no such tab, hidden/deleted tabs,
-    /// child pages, or non-premium tabs.</summary>
+    /// child pages, non-premium tabs, or clearing a merchant tab's flag.</summary>
     public bool SetPublic(int tab, bool isPublic)
     {
         bool changed = false;
@@ -739,6 +743,8 @@ public sealed partial class AccountStash
             if (tab < 0 || tab >= _tabs.Count) return false;
             var saved = _tabs[tab].Saved;
             if (saved.Hidden || saved.UniqueCategory != 0 || !IsPremium(saved.Type)) return false;
+            // A merchant tab stays Public: its items are listed by their price notes, which Place keeps only there.
+            if (saved.Type == StashRules.Trade && !isPublic) return false;
             if (saved.Public != isPublic)
             {
                 _tabs[tab].Saved = saved with { Public = isPublic };
@@ -1111,33 +1117,41 @@ public sealed partial class AccountStash
             if (tab < 0 || tab >= _tabs.Count) { why = "no such tab"; return null; }
             var t = _tabs[tab];
             if (shapeOf(item) is not { } shape) { why = "unknown item type"; return null; }
-            if (CellIn(t, item, 0, 0, out why) is not var (slotX, slotY)) return null;
-            if (!t.Saved.Public && item.Note is not null) item = item with { Note = null };   // as in Place
             bool slotted = _rules.Slotted(t.Saved.Type);
-            int max = Math.Max(1, MaxStack(t, item, shape, -1, -1));   // stacks into the item's own slot, never the crafting slot
+            List<(int X, int Y)> spots;
+            if (CellIn(t, item, 0, 0, out why) is var (slotX, slotY))
+                spots = slotted ? [(slotX, slotY), .. _rules.OverflowSlots(t.Saved.Type).Select(s => (s, 0))] : [];
+            else if (slotted && _rules.Holds(t.Saved.Type, item.TypeHash) && _rules.OverflowFallbackSlots(t.Saved.Type) is { Count: > 0 } overflow)
+            {
+                why = "";
+                spots = [.. overflow.Select(s => (s, 0))];
+            }
+            else return null;
+            if (!t.Saved.Public && item.Note is not null) item = item with { Note = null };   // as in Place
+            int SlotMax(int sx, int sy) => Math.Max(1, MaxStack(t, item, shape, sx, sy));
             left = item.StackSize;
-            // A slotted tab's cells for it, in order: its own slot, then the spare slots (left to right, top to bottom).
-            List<(int X, int Y)> spots = slotted ? [(slotX, slotY), .. _rules.OverflowSlots(t.Saved.Type).Select(s => (s, 0))] : [];
-            if (max > 1)
-                foreach (var s in t.Items.Where(i => i.Item.TypeHash == item.TypeHash && i.Item.StackSize < max && (!slotted || spots.Contains((i.X, i.Y))))
-                             .OrderBy(i => slotted ? spots.IndexOf((i.X, i.Y)) : 0).ThenByDescending(i => i.Item.StackSize).ToList())
-                {
-                    if (left == 0) break;
-                    int take = Math.Min(left, max - s.Item.StackSize);
-                    left -= take;
-                    var bigger = s with { Item = s.Item with { StackSize = (ushort)(s.Item.StackSize + take) } };
-                    var grown = slotted ? bigger : PlayerInventories.Completed(bigger, shape);
-                    t.Items[t.Items.IndexOf(s)] = grown;
-                    changed.Add(grown);
-                }
+            foreach (var s in t.Items.Where(i => i.Item.TypeHash == item.TypeHash && SlotMax(i.X, i.Y) is int max && max > 1 && i.Item.StackSize < max
+                         && (slotted ? spots.Contains((i.X, i.Y)) : string.Equals(i.Item.Note, item.Note, StringComparison.Ordinal)))
+                         .OrderBy(i => slotted ? spots.IndexOf((i.X, i.Y)) : 0).ThenByDescending(i => i.Item.StackSize).ToList())
+            {
+                if (left == 0) break;
+                int take = Math.Min(left, SlotMax(s.X, s.Y) - s.Item.StackSize);
+                left -= take;
+                var bigger = s with { Item = s.Item with { StackSize = (ushort)(s.Item.StackSize + take) } };
+                var grown = slotted ? bigger : PlayerInventories.Completed(bigger, shape);
+                if (!string.Equals(s.Item.Note, grown.Item.Note, StringComparison.Ordinal)) _itemNotesDirty = true;
+                t.Items[t.Items.IndexOf(s)] = grown;
+                changed.Add(grown);
+            }
             while (left > 0 && (slotted
                        ? spots.Where(p => !t.Items.Any(i => i.X == p.X && i.Y == p.Y)).Select(p => ((byte, byte)?)((byte)p.X, (byte)p.Y)).FirstOrDefault()
                        : FreeCellIn(t, shape.Width, shape.Height, shapeOf)) is { } cell)
             {
-                int take = Math.Min(left, max);
+                int take = Math.Min(left, SlotMax(cell.Item1, cell.Item2));
                 left -= take;
                 var placed = new InventoryItem(_nextItemId++, cell.Item1, cell.Item2, item with { StackSize = (ushort)take });
                 if (!slotted) placed = PlayerInventories.Completed(placed, shape);
+                if (placed.Item.Note is { Length: > 0 }) _itemNotesDirty = true;
                 t.Items.Add(placed);
                 added.Add(placed);
             }
@@ -1339,12 +1353,17 @@ public sealed partial class AccountStash
     public sealed record Payment(IReadOnlyDictionary<int, (List<uint> Removed, List<InventoryItem> Changed)> Tabs);
 
     /// <summary>Spends one unit from the named stack, using its current size when multiple players share a stash.</summary>
-    public Payment? PayOne(int tab, InventoryItem selected)
+    public Payment? PayOne(int tab, InventoryItem selected) => PayOne(tab, selected, allowPublic: false);
+
+    /// <summary>Spends one unit from the named stack, optionally allowing an explicitly clicked public stash tab.</summary>
+    public Payment? PayOne(int tab, InventoryItem selected, bool allowPublic)
     {
         Payment payment;
         lock (_lock)
         {
-            if (tab < 0 || tab >= _tabs.Count || _tabs[tab].Saved.Public) return null;
+            if (IsTrade || tab < 0 || tab >= _tabs.Count || _tabs[tab].Saved.Hidden
+                || _tabs[tab].Saved.Type == StashRules.Trade
+                || (!allowPublic && _tabs[tab].Saved.Public)) return null;
             var items = _tabs[tab].Items;
             int at = items.FindIndex(i => i.Id == selected.Id && i.Item.TypeHash == selected.Item.TypeHash);
             if (at < 0) return null;

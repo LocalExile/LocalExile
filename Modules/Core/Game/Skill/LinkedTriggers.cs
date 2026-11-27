@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
@@ -111,7 +112,7 @@ public static partial class Game
     // group (an item's trigger cycles for the item: ReleaseItemCriticalTrigger).
     static bool ReleaseLinkedSpell(Player player, ProjectileSession session, LinkedTriggerSource source,
         string family, (int X, int Y) aim, double at, uint spellFlag, (int X, int Y)? origin = null,
-        Func<bool>? activeTarget = null, (uint Host, int Group)? rotation = null)
+        Func<bool>? activeTarget = null, (uint Host, int Group)? rotation = null, bool announce = false)
     {
         var state = LinkedTriggersOf(player);
         var key = (rotation?.Host ?? source.Gem.Host, rotation?.Group ?? source.Gem.Group, family);
@@ -148,6 +149,15 @@ public static partial class Game
             state.ReadyAt[gem.Effect] = milliseconds == 0 ? now
                 : rate > 0 ? now + milliseconds / 1000d / rate : double.PositiveInfinity;
             state.Rotation[key] = (source.Spells, (index + 1) % source.Spells.Length);
+            if (announce)
+            {
+                bool lockstep = player.Connection.LockstepClient;
+                ushort sequence = NextLockstepSequence(player);
+                if (!lockstep) sequence &= 0x7fff;
+                session.World(player.Id, InstanceProtocol.InstantAction(player.Id, spell.Skill, aim.X, aim.Y,
+                    sequence: sequence, flags: lockstep ? (ushort)0x101 : (ushort)0, triggered: true),
+                    $"0x01ce {family} triggers skill 0x{spell.Skill:x4} at {aim}");
+            }
             release();
             if (mana > 0 || life > 0)
                 session.Enqueue(() => SendSkillCost(player, life, family + " cost"));

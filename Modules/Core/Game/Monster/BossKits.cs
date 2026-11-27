@@ -218,7 +218,6 @@ public static class BossKits
         foreach (int effect in candidates)
         {
             if (MonsterKitHooks.HasEffectFilters && !MonsterKitHooks.AllowEffect(variety, effect, catalog.EffectId(effect))) continue;
-            if (allowCombos && MonsterCombos.IsComboChild(catalog, variety, effect)) continue;
             if ((IsUsable(catalog, variety, effect)
                     || (allowCombos && MonsterCombos.HasCombo(catalog, variety, effect)))
                 && !effects.Contains(effect))
@@ -228,7 +227,6 @@ public static class BossKits
             foreach (int effect in candidates)
                 if (effect >= 0 && !effects.Contains(effect) && !catalog.CastsOnDeath(effect) && !IsLeavePortal(catalog, effect)
                     && !(MonsterKitHooks.HasEffectFilters && !MonsterKitHooks.AllowEffect(variety, effect, catalog.EffectId(effect)))
-                    && !(allowCombos && MonsterCombos.IsComboChild(catalog, variety, effect))
                     && IsDamageTakenTrigger(catalog, effect) == trigger
                     && (MonsterSkills.ShapeOf(catalog, effect) is not null || trigger && (catalog.IsAttack(effect) || catalog.IsSpell(effect))))
                     effects.Add(effect);
@@ -289,10 +287,13 @@ public static class BossKits
         var catalog = SkillsFor(player);
         List<MonsterKitSkill> kit = [];
         var comboChildIds = new Dictionary<int, ushort>();
+        // A combo parent fires its children from its clip events, so they leave the list only when it builds.
+        var boundChildren = unique ? MonsterCombos.ChildrenOfBuiltParents(player, variety, level, effects) : null;
         foreach (int effect in effects)
         {
             // The first entry stays a monster's own attack whatever it is; the other entries must be something.
             bool kept = kit.Count == 0 && keepFirst;
+            if (!kept && boundChildren is not null && boundChildren.Contains(effect)) continue;
             int effectLevel = catalog.MaxLevelAt(effect, level);
             double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
             bool isBarrage = BossMoves.BarrageOf(catalog, effect) is not null;
@@ -307,8 +308,8 @@ public static class BossKits
                     var scaledCombo = modifiers is null ? combo : MonsterCombos.ScaleComboAttack(combo, modifiers, c => ScaleAttack(c));
                     var (comboMin, comboGroup) = KitSkillConstraints(catalog, effect, level, scaledCombo.Range);
                     kit.Add(new(effect, scaledCombo, comboCd) { MinRange = comboMin, CooldownGroup = comboGroup });
+                    continue;
                 }
-                continue;
             }
             var built = AttackFor(player, variety, level, effect, id);
             // A unique's default skill that places a totem or a minion is that summon, not the plain hit its default
@@ -1077,7 +1078,11 @@ public static class BossKits
             {
                 monster.LastSpecialAt = Math.Max(monster.LastSpecialAt, now);
                 if (entry.CooldownGroup > 0)
-                    (monster.KitCooldownGroupReadyAt ??= [])[entry.CooldownGroup] = readyAt;
+                {
+                    // A shorter member never cuts short the lock a longer one set.
+                    var groups = monster.KitCooldownGroupReadyAt ??= [];
+                    groups[entry.CooldownGroup] = Math.Max(groups.GetValueOrDefault(entry.CooldownGroup), readyAt);
+                }
             }
             else
             {

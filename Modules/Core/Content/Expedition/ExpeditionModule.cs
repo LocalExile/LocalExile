@@ -13,7 +13,7 @@ namespace GameServer.Modules.Expedition;
 public sealed class ExpeditionModule : IModule
 {
     /// <summary>This module's game data, built when it loads.</summary>
-    public static void LoadData() => ExpeditionTables.LoadGameData();
+    public static void LoadData() { ExpeditionTables.LoadGameData(); ExpeditionLogbooks.LoadData(); }
 
     /// <inheritdoc/>
     public void Load(IModuleContext module)
@@ -21,11 +21,13 @@ public sealed class ExpeditionModule : IModule
         LoadData();
         var encounter = new ExpeditionEncounter();
         module.Lifetime.Own(encounter);
+        module.Lifetime.Own(RegisterDeliriumPauseSource(encounter.IsActivePause));
         string id = module.Manifest.Id;
+        GameEvents.MapOpening.Add(id, Opening);
         // The roll, once per instance and before its seed: the plugin state is a generation input of both sides.
         InstanceEvents.TerrainPluginStates.Add(id, PlanTerrain);
-        // ExpeditionRules, after 0x21 and before the area's objects: the 0x2c9 messages and the client's placements need it.
-        GameEvents.EnterMessages.Add(id, encounter.RulesetMessages);
+        // ExpeditionRules, before 0x21 so the client builds its placement HUD attachment on area entry.
+        GameEvents.BeforeEnterMessages.Add(id, encounter.RulesetMessages);
         // The client places explosives only with IsMapOwner: the owner of the instance has it in this area.
         GameEvents.AreaQuestFlags.Add(id, encounter.QuestFlags);
         GameEvents.AreaGenerated.Add(id, player => encounter.OnAreaGenerated(module.Log, player));
@@ -33,8 +35,16 @@ public sealed class ExpeditionModule : IModule
         GameEvents.PlayerLeaving.Add(id, (player, why) => encounter.OnPlayerLeaving(module.Log, player, why));
         GameEvents.AreaTick.Add(id, encounter.TickFor);
         GameEvents.Kill.Add(id, encounter.OnKill);
+        GameEvents.Drops.Add(id, encounter.Drops);
+        GameEvents.GroundItemPreparing.Add(id, ExpeditionLogbooks.Prepare);
         GameEvents.ObjectUse.Add(id, encounter.OnUse);
         GameEvents.Packet(InstanceRulesets.ActionId).Add(id, encounter.RulesetAction);
+    }
+
+    public static void Opening(MapOpening request)
+    {
+        if (!request.Campaign && request.Opening is { } opening && MapDevices.IsMapArea(opening.Area.Hash16)
+            && ExpeditionTables.PluginId is not null && ExpeditionTables.RulesetRow is not null && ExpeditionLogbooks.Ready) request.HandledContent.Add("Expedition");
     }
 
     public static IReadOnlyList<(ushort Plugin, byte[] State)>? PlanTerrain(AreaStatsRequest request) =>

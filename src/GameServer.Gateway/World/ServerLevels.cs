@@ -75,6 +75,9 @@ public static class ServerLevels
         /// <summary>Where the player arrives when a terrain plugin marks a start room (<see cref="AreaObjects.Start"/>);
         /// null for every other area.</summary>
         public (int X, int Y, float Angle)? Start { get; init; }
+        /// <summary>The first non-feature room's <c>default</c> point (<see cref="AreaObjects.Entrance"/>): the arrival after
+        /// <see cref="Start"/> and the room fit.</summary>
+        public (int X, int Y, float Angle)? Entrance { get; init; }
     }
 
     static readonly bool Enabled = Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") != "0";
@@ -468,7 +471,7 @@ public static class ServerLevels
                 TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds, Records = result.Records,
                 // One tile slot is 23 x 23 cells (the client's tile map, TileGrid).
                 TileAt = TileLookup(result.Grid),
-                Exits = exits.Exits, Entrances = exits.Entrances, Start = start,
+                Exits = exits.Exits, Entrances = exits.Entrances, Start = start, Entrance = AreaObjects.Entrance(result),
                 TileQuestObjects = AreaObjects.TileObjects(files, result, QuestObjectTypes.IsTileQuestObject),
                 TileLabyrinthObjects = AreaObjects.TileObjects(files, result, t => t.StartsWith("Metadata/Terrain/Labyrinth/", StringComparison.Ordinal)
                     || t.StartsWith(LabyrinthTrials.StatueFolder, StringComparison.Ordinal)),

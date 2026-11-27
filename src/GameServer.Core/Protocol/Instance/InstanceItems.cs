@@ -136,6 +136,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// <summary>The RitualEncounter component (157, Blood-filled Vessel; write 0x1425121e0 → 0x14250eab0, read 0x142512230 → 0x14250ebc0):
     /// u8 monster count, u32 LE monster level, count × (u16 LE MonsterVarieties HASH16, u16 LE count), u16 LE WorldAreas HASH16.</summary>
     public RitualEncounterData? RitualEncounter { get; init; }
+    public IncursionTempleData? IncursionTemple { get; init; }
+    public ExpeditionSagaData? ExpeditionSaga { get; init; }
 
     /// <summary>The u16 after the type hash (reader 0x1421f2d00): bit 0 → item +0x28; bit 1 → +0x29, which keeps the item
     /// out of every inventory but InventoryIdKey 0 and 0x41 and is required for 0x41 (0x141d65f80); bit 2 → +0x2a, with
@@ -181,7 +183,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter", "IncursionTemple", "ExpeditionSaga"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -290,6 +292,12 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     for (int ri = 0; ri < ritualCount; ri++)
                         w.U16(ritual!.Monsters[ri].VarietyHash).U16(ritual.Monsters[ri].Count);
                     w.U16(ritual?.AreaHash ?? 0);
+                    break;
+                case "IncursionTemple":
+                    (IncursionTemple ?? new IncursionTempleData(0, [], 0)).Write(w);
+                    break;
+                case "ExpeditionSaga":
+                    (ExpeditionSaga ?? new ExpeditionSagaData(0, [])).Write(w);
                     break;
                 // 0x1424755d0: i32 experience (-1: one level over the cap), u32 +0x3c the variant (the copy 0x142476520
                 // checks it against the GemVariants count and sets +0x10 bit 5 when it is not 0), u8 +0x10, u16 +0x40 an
@@ -985,6 +993,37 @@ public static class InstanceItems
         uint inventory = r.U32();
         uint rawItem = r.U32();
         return new(inventory, rawItem & 0x7fffffff, (rawItem & 0x80000000) != 0, r.WStr());
+    }
+
+    /// <summary>C→S 0x1a2 (variable length, writer 0x141fa2510, sender 0x140b05b50): Ctrl + click of an inventory item while
+    /// the Merchant window is open, after the client asked for its price. u8 (1: the item is in the expanded inventory,
+    /// type 0x54), u32 BE item id, WStr note (as in 0x1a1), u32 BE inventory id of the merchant tab, u8 + u8 token (low
+    /// byte first, as in 0xe0). Live 2026-11-26: <c>01A2 00 4000000D 000D "~b/o 1 divine" 00000A00 90 86</c>.</summary>
+    public const ushort ListWithPriceId = 0x1a2;
+
+    public sealed record ListWithPrice(bool Expanded, uint ItemId, string Note, uint InventoryId, byte TokenLo, byte TokenHi);
+
+    public static int? ListWithPriceLength(ReadOnlySpan<byte> m) =>
+        MeasureListWithPriceLength(m, out int length) == WireMeasure.Ok ? length : null;
+
+    internal static WireMeasure MeasureListWithPriceLength(ReadOnlySpan<byte> m, out int length)
+    {
+        length = 0;
+        if (m.Length < 7) return WireMeasure.Incomplete;
+        var status = LoginReader.TryMeasureWStr(m[7..], out int textLength);
+        if (status != WireMeasure.Ok) return status;
+        if (m.Length < 7 + textLength + 6) return WireMeasure.Incomplete;
+        length = 7 + textLength + 6;
+        return WireMeasure.Ok;
+    }
+
+    public static ListWithPrice ReadListWithPrice(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        bool expanded = r.U8() != 0;
+        uint item = r.U32();
+        string note = r.WStr();
+        return new(expanded, item, note, r.U32(), r.U8(), r.U8());
     }
 }
 

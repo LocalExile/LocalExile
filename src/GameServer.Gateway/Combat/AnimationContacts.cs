@@ -175,10 +175,14 @@ public sealed class AnimationContacts
 
     /// <summary>Named events of the exact single clip selected by an ACT action and weapon stance.</summary>
     public (string Name, int LengthMs, IReadOnlyList<int> Times)? ActAnimationEvents(
-        string animatedObject, WeaponProfile weapon, string action, string eventName)
+        string animatedObject, WeaponProfile weapon, string action, string eventName) =>
+        ActAnimationEvents(animatedObject, StanceFor(weapon) ?? "Unarmed", action, eventName);
+
+    public (string Name, int LengthMs, IReadOnlyList<int> Times)? ActAnimationEvents(
+        string animatedObject, string stance, string action, string eventName)
     {
         if (!_byAo.TryGetValue(animatedObject, out var actor)
-            || !actor.SkillClips.TryGetValue((StanceFor(weapon) ?? "Unarmed", action), out string? name)
+            || !actor.SkillClips.TryGetValue((stance, action), out string? name)
             || !actor.AllClips.TryGetValue(name, out var clip) || clip.Length <= 0
             || clip.Events is not { } events || !events.TryGetValue(eventName, out var times)) return null;
         return (name, clip.Length, times);
@@ -317,6 +321,15 @@ public sealed class AnimationContacts
     public double DefaultAttackContactSeconds(string animatedObject, WeaponProfile weapon, ushort sequence, double attackSeconds) =>
         TryDefaultAttackClip(animatedObject, weapon, sequence, attackSeconds, out var clip)
             ? clip.ContactSeconds(attackSeconds) : attackSeconds * AttackContact(animatedObject, weapon);
+
+    /// <summary>A single swing using the ACT Melee action starts at the first clip of a paired stance.</summary>
+    public double SingleMeleeContactSeconds(string animatedObject, WeaponProfile weapon, ushort sequence, double attackSeconds)
+    {
+        if (StanceFor(weapon) is { } stance && _byAo.TryGetValue(animatedObject, out var actor)
+            && actor.AttackPools.TryGetValue(stance, out var pool) && pool[0].Pair)
+            return pool[0].ContactSeconds(attackSeconds);
+        return DefaultAttackContactSeconds(animatedObject, weapon, sequence, attackSeconds);
+    }
 
     /// <summary>When the client runs a Move it holds during the default attack's swing (seconds after the swing's start):
     /// the stance pool's clip's lock_cancelling event, else its contact (<see cref="DefaultAttackClip.CutInSeconds"/>);

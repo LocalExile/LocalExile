@@ -27,6 +27,7 @@ static partial class Game
         Stat.SupportEfficacySpellDamagePlusPctFinal, Stat.SupportEfficacyDamageOverTimePlusPctFinal,
         Stat.CrueltyDamageOverTimePlusPctFinal, Stat.SupportTrapDamagePlusPctFinal,
         Stat.SupportTrapAndMineDamagePlusPctFinal, Stat.SupportRemoteMine2DamagePlusPctFinal,
+        Stat.SupportDivineCryDamagePlusPctFinal,
     ];
 
     static bool IsContagionEffect(string? effect) => effect is "Contagion" or "ContagionAltX" or "ContagionAltY";

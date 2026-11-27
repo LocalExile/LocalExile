@@ -72,6 +72,16 @@ public static partial class Game
             return "Foulgrasp triggers when a supported Brand is recalled";
         if (GolemStat(gem.Stats, Stat.TriggeredPrismaticBurst) != 0)
             return "Prismatic Burst triggers on a supported attack hit";
+        if (GolemStat(gem.Stats, Stat.TriggeredByInfernalCry) != 0)
+            return "Combust triggers on an attack exerted by Infernal Cry";
+        if (GolemStat(gem.Stats, Stat.TriggeredByShockwaveSupport) != 0)
+            return "this Shockwave triggers on supported melee hits";
+        if (GolemStat(gem.Stats, Stat.TriggeredByPyreSupport) != 0)
+            return "Call the Pyre triggers on supported melee hits against ignited enemies";
+        if (gem.WornGrant is { EffectId: GoreShockwaveEffect })
+            return "Gore Shockwave triggers on melee hits with at least 150 Strength";
+        if (GolemStat(gem.Stats, Stat.TriggeredByDivineCry) != 0)
+            return "this spell triggers on an attack exerted by Battlemage's Cry";
         if (GolemStat(gem.Stats, Stat.InfernalBoltTriggeredWhenTotemWithThisSkillHitByEnemy) != 0)
             return "Avenging Flame triggers when its totem is hit by an enemy";
         if (GolemStat(gem.Stats, Stat.TriggerOnSkillUsePctIfYouHaveASpiritCharge) > 0)

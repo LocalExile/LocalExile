@@ -149,6 +149,8 @@ public static class MonsterCombos
         "TriggerBeam", "MultiTriggerBeam", "ExecuteGEAL",
         "ExpandingPulse", "FireStorm", "DelayedSkillTrigger",
         "MonsterSlam", "ArchitectComboStomp", "Melee",
+        "MonsterCleave", "MonsterShockNova", "MonsterFlameblast",
+        "MonsterLightningWarp", "MonsterColdSnap", "MonsterFrostWall",
     };
 
     static readonly HashSet<string> ProjectileActionTypes = new(StringComparer.Ordinal)
@@ -157,9 +159,7 @@ public static class MonsterCombos
         "MonsterMortar", "MonsterMortarAttack", "Fireball", "LunarisGlaiveProjectile",
         "GeometryProjectiles", "GeometryProjectilesAttack",
         "DeceleratingProjectile", "MonsterFadingProjectileSpell",
-        "MonsterSnipe", "MonsterCleave", "MonsterShockNova",
-        "MonsterFlameblast", "MonsterSpark", "MonsterIceSpear",
-        "MonsterLightningWarp", "MonsterColdSnap", "MonsterFrostWall",
+        "MonsterSnipe", "MonsterSpark", "MonsterIceSpear",
     };
 
     static readonly HashSet<string> ServerSpawnActionTypes = new(StringComparer.Ordinal)
@@ -263,6 +263,22 @@ public static class MonsterCombos
     public static bool IsComboChild(SkillCatalog catalog, MonsterCatalog.Variety? variety, int effect) =>
         For(catalog, variety).BoundChildren.Contains(effect);
 
+    /// <summary>The child effects that the combo parents among <paramref name="effects"/> fire, counting only the
+    /// parents that build (<see cref="BuildParentAttack"/>). A child whose parent is missing or fails to build stays a
+    /// skill of its own.</summary>
+    public static HashSet<int>? ChildrenOfBuiltParents(Player player, MonsterCatalog.Variety variety, byte level,
+        IReadOnlyList<int> effects)
+    {
+        var catalog = SkillsFor(player);
+        if (!For(catalog, variety).HasAny) return null;
+        HashSet<int>? children = null;
+        foreach (int effect in effects)
+            if (HasCombo(catalog, variety, effect)
+                && BuildParentAttack(player, variety, level, effect, 0, new()) is { ComboSteps: { } steps })
+                foreach (var step in steps) (children ??= []).Add(step.ChildEffect);
+        return children;
+    }
+
     /// <summary>Deduplicates raw <c>.ao</c>/<c>.amd</c> clip events by <c>(name, ms, roundedPos)</c>, removing exact
     /// duplicate tracks (e.g., LegionTemplarGeneral <c>projectile_shield_throw_01</c> 62 → 31, Hyrri <c>leap_attack_01</c>
     /// 30 → 10) while preserving simultaneous multi-position launches at the same millisecond.</summary>
@@ -360,7 +376,7 @@ public static class MonsterCombos
             for (int i = 0; i < deduped.Count; i++)
             {
                 var ev = deduped[i];
-                if (TryParseControlEvent(ev, out var ctrl))
+                if (TryParseControlEvent(ev, clip.LengthMs, out var ctrl))
                     controls.Add(ctrl);
                 else if (!IsNonCombatEvent(ev))
                     combat.Add(ev);
@@ -672,11 +688,13 @@ public static class MonsterCombos
 
         if (dispatch == MonsterComboDispatch.Projectile)
         {
+            // No 0x1ce goes out for a projectile step, so the client draws nothing of its own: a variation shot (a mortar
+            // the client would draw from the action) must be the server's object (Variation 0), as in MonsterKits.
             var shaped = BossKits.Shaped(player, variety, level, childEffect, raw);
-            if (shaped is { Projectile: not null }) return shaped;
-            if (raw.Projectile is not null) return raw;
+            if (shaped is { Projectile: { } shapedShot }) return shaped with { Projectile = shapedShot with { Variation = 0 } };
+            if (raw.Projectile is { } rawShot) return raw with { Projectile = rawShot with { Variation = 0 } };
             if (BossKits.ArtShot(catalog, childEffect, level) is { } shot)
-                return raw with { Projectile = shot, ReleaseEffect = childEffect };
+                return raw with { Projectile = shot with { Variation = 0 }, ReleaseEffect = childEffect };
             // Fallback: if a projectile child has damage but no resolved Projectile row, still fire as area/ranged hit.
             return !raw.Damage.IsZero ? raw with { AreaRadius = Math.Max(raw.AreaRadius, 14) } : null;
         }
@@ -809,14 +827,16 @@ public static class MonsterCombos
         if (steps is not { Count: > 0 }) return;
         var controls = parent.ComboControls ?? [];
 
-        double clipLenMs = parent.Seconds > 0 ? parent.Seconds * 1000.0 : 1000.0;
-        double speedScale = seconds > 0.01 ? (clipLenMs / 1000.0) / seconds : 1.0;
+        double fallbackClipLenMs = parent.Seconds > 0 ? parent.Seconds * 1000.0 : 1000.0;
 
-        // Build unified chronological timeline of controls + child steps.
+        // Build unified chronological timeline of controls + child steps (both normalized to raw clip length).
         var timeline = new List<(double At, bool IsControl, int Index)>(steps.Count + controls.Count);
         for (int i = 0; i < controls.Count; i++)
         {
-            double frac = Math.Clamp(controls[i].Ms / clipLenMs, 0.0, 1.0);
+            var c = controls[i];
+            double frac = c.Fraction > 0 || c.Ms <= 0
+                ? c.Fraction
+                : Math.Clamp(c.Ms / fallbackClipLenMs, 0.0, 1.0);
             timeline.Add((startedAt + seconds * frac, true, i));
         }
         for (int i = 0; i < steps.Count; i++)
@@ -861,7 +881,7 @@ public static class MonsterCombos
                         facingAngle = Math.Atan2(aim.Y - monsterPos.Y, aim.X - monsterPos.X);
                         break;
                     case "MoveEventType":
-                        ApplyRootMotionMove(player, m, ctrl, monsterPos, facingAngle, speedScale, now);
+                        ApplyRootMotionMove(player, m, ctrl, monsterPos, facingAngle, seconds, fallbackClipLenMs, now);
                         break;
                 }
                 continue;
@@ -887,13 +907,18 @@ public static class MonsterCombos
         MonsterComboControl ctrl,
         (int X, int Y) from,
         double facingAngle,
-        double speedScale,
+        double actionSeconds,
+        double fallbackClipLenMs,
         double now)
     {
         if (ctrl.Point is not { } delta) return;
-        double durSec = ctrl.EndMs is int endMs && endMs > ctrl.Ms
-            ? Math.Max(0.05, (endMs - ctrl.Ms) / 1000.0 / Math.Max(0.1, speedScale))
-            : 0.25;
+        double durSec;
+        if (ctrl.EndFraction is double endFrac && endFrac > ctrl.Fraction)
+            durSec = Math.Max(0.05, actionSeconds * (endFrac - ctrl.Fraction));
+        else if (ctrl.EndMs is int endMs && endMs > ctrl.Ms && fallbackClipLenMs > 0)
+            durSec = Math.Max(0.05, actionSeconds * ((endMs - ctrl.Ms) / fallbackClipLenMs));
+        else
+            durSec = 0.25;
         var target = ComputeEventOrigin(from, delta, facingAngle);
         if (target == from) return;
 
@@ -1000,9 +1025,10 @@ public static class MonsterCombos
         return trimmed.ToLowerInvariant();
     }
 
-    static bool TryParseControlEvent(SkillCatalog.ClipNamedEvent ev, out MonsterComboControl control)
+    static bool TryParseControlEvent(SkillCatalog.ClipNamedEvent ev, int clipLengthMs, out MonsterComboControl control)
     {
         control = default!;
+        double frac = clipLengthMs > 0 ? Math.Clamp((double)ev.Ms / clipLengthMs, 0.0, 1.0) : 0.0;
         string name = NormalizeEventName(ev.Name);
         if (!string.IsNullOrEmpty(ev.ArgsJson))
         {
@@ -1014,9 +1040,11 @@ public static class MonsterCombos
                     && EngineControlTypes.Contains(typeStr))
                 {
                     int? endMs = root.TryGetProperty("end_ms", out var endProp) && endProp.TryGetInt32(out int e) ? e : null;
+                    double? endFrac = endMs is int em && clipLengthMs > 0
+                        ? Math.Clamp((double)em / clipLengthMs, 0.0, 1.0) : null;
                     bool terrain = root.TryGetProperty("data", out var dataProp)
                         && dataProp.GetString()?.Contains("Terrain", StringComparison.OrdinalIgnoreCase) == true;
-                    control = new(typeStr, ev.Ms, endMs, ev.Point, terrain);
+                    control = new(typeStr, ev.Ms, endMs, ev.Point, terrain) { Fraction = frac, EndFraction = endFrac };
                     return true;
                 }
             }
@@ -1031,7 +1059,7 @@ public static class MonsterCombos
                 "move" => "MoveEventType",
                 _ => "face",
             };
-            control = new(kind, ev.Ms, null, ev.Point, TerrainClamped: true);
+            control = new(kind, ev.Ms, null, ev.Point, TerrainClamped: true) { Fraction = frac };
             return true;
         }
         return false;

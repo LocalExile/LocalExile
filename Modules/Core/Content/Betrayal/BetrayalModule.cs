@@ -22,13 +22,21 @@ public sealed class BetrayalModule : IModule
     {
         LoadData();
         string id = module.Manifest.Id;
+        GameEvents.MapOpening.Add(id, Opening);
         module.Lifetime.Own(new Cleanup(encounter.Clear));
+        module.Lifetime.Own(RegisterDeliriumPauseSource(encounter.IsActivePause));
         GameEvents.AreaPopulated.Add(id, encounter.Place);
         GameEvents.EnterMessages.Add(id, encounter.EnterMessages);
         GameEvents.PlayerEntered.Add(id, encounter.Entered);
         GameEvents.AreaTick.Add(id, GameEvents.Always((player, seconds) => encounter.Has(player) ? encounter.Advance(player, seconds) : Task.CompletedTask));
         GameEvents.ObjectUse.Add(id, encounter.Use);
         GameEvents.Kill.Add(id, encounter.Killed);
+    }
+
+    public static void Opening(MapOpening request)
+    {
+        if (!request.Campaign && request.Opening is { } opening && MapDevices.IsMapArea(opening.Area.Hash16)
+            && BetrayalTables.Members.Count > 0 && BetrayalTables.AssassinationRules is not null) request.HandledContent.Add("Betrayal");
     }
 
     sealed class Cleanup(Action clean) : IDisposable

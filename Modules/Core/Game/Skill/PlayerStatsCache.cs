@@ -24,6 +24,8 @@ public static partial class Game
     /// A stat rule works them out itself, so the graph records what it read.
     public static IReadOnlyDictionary<uint, int> StatSourceValues(Player player) =>
         !StatGraph.InRule && FrameStatsOf.TryGetValue(player, out var frame) && frame.ByFrame && frame.Outputs.Sources is { } sources
+            && ReferenceEquals(ItemsOfUnread(player), frame.Items)
+            && ItemsOfUnread(player).Changes == frame.ItemChanges
             ? sources : CharacterStatSources(player).Stats;
 
     /// <summary>The player's stats, not to be changed: in an area's frames the graph's last step's values, off them a
@@ -304,8 +306,16 @@ public static partial class Game
         }
         runningFrame = frame;
         bool built;
+        long statProbe = ConnectionPerformance.ProbeStart();
+        long previousRuns = statProbe == 0 ? 0 : graph.RuleRuns;
         try { built = graph.Step(); }
-        finally { runningFrame = null; }
+        finally
+        {
+            runningFrame = null;
+            // Step's result only reports published changes. A recomputation can produce the same values.
+            if (statProbe != 0 && graph.RuleRuns != previousRuns)
+                player.Connection.Performance.StatBuild(statProbe);
+        }
         if (frame.Conditions < 0 || built) CheckConditions(player, frame, graph);
         if (built || frame.Updated)
         {
@@ -380,7 +390,9 @@ public static partial class Game
         {
             if (key == StatConditions.UsedSkill && MapSkillActionSpeedPerUse(player) != 0)
                 MarkPlayerStats(player, PlayerStatStep.TailCritical);
-            if (player.StatSourcesCache?.Key.Amounts?.WasRead(key) == true)
+            if (player.StatSourcesCache?.Key.Amounts?.WasRead(key) == true
+                || key == StatConditions.ConsumedCorpse
+                    && graph.Values.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPctPerCorpseConsumedRecently) > 0)
                 MarkPlayerStats(player, PlayerStatStep.Sources);
         };
         On([PlayerStatStep.Rage], a => player.Rage.Changed = a);
@@ -480,10 +492,19 @@ public static partial class Game
     public static byte[][] PlayerSkillsBatchesIfChanged(Player player, IReadOnlyList<GrantedSkill> skills) =>
         PlayerSkillsBatchesIfChanged(player, skills, out _);
 
+    /// <summary>As the overload below, forcing the skill-bar restore: a change that can empty a bound slot (an aura
+    /// turning on or off) sends the bar even when it reads the same as the last one.</summary>
+    public static byte[][] PlayerSkillsBatchesIfChanged(Player player, IReadOnlyList<GrantedSkill> skills, bool forceRestore) =>
+        PlayerSkillsBatchesIfChanged(player, skills, out _, forceRestore);
+
     /// <summary>The skill records to send for a refresh: the changed stats as 0x1b4 records when nothing but stat values
     /// changed (SkillStatDeltas), otherwise the whole list. <paramref name="wholeList"/> is true when the whole list is
     /// what goes out, which replaces the client's skill records.</summary>
-    public static byte[][] PlayerSkillsBatchesIfChanged(Player player, IReadOnlyList<GrantedSkill> skills, out bool wholeList)
+    public static byte[][] PlayerSkillsBatchesIfChanged(Player player, IReadOnlyList<GrantedSkill> skills, out bool wholeList) =>
+        PlayerSkillsBatchesIfChanged(player, skills, out wholeList, forceRestore: false);
+
+    public static byte[][] PlayerSkillsBatchesIfChanged(Player player, IReadOnlyList<GrantedSkill> skills, out bool wholeList,
+        bool forceRestore)
     {
         wholeList = false;
         if (SkillStatDeltasAtGate(player, skills, out bool detonate) is { } deltas)
@@ -503,8 +524,15 @@ public static partial class Game
         }
         wholeList = true;
         // Any 0x02bc Actor skill-list update can reset client-side skill bar bindings; schedule a coalesced 0x0053 restore.
-        _ = RestoreSkillBarAfterActorUpdate(player);
-        return batches;
+        // A skill really joining or leaving can empty a bound slot, so that restore goes out even when the bar reads the
+        // same; a list whose skills are all the ones the client holds only changed their stats (live 2026-11-26: those
+        // restores replayed the guard's ring several times a second).
+        bool membershipChanged = !player.ClientSkillIds.SetEquals(skills.Select(s => s.Id));
+        _ = RestoreSkillBarAfterActorUpdate(player, force: forceRestore || membershipChanged);
+        // The replacement also refreshes a held guard's zero-rate entry into counting (0x141ef1573, 11-skills §9), and
+        // a re-held entry a couple of frames later still leaves the ring counting for that gap (live 2026-11-26). The
+        // held entry rides in the same flush, directly behind the list, so the bar never counts during the buff (#1127).
+        return HeldGuardCooldownRefresh(player) is { Length: > 0 } held ? [.. batches, held] : batches;
     }
 
     // What the full refresh sent: the base the next partial refresh compares with.

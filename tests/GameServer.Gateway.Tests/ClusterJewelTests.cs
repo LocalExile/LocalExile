@@ -104,4 +104,27 @@ public class ClusterJewelTests
         Assert.NotEmpty(expected);
         Assert.Equal(expected, fromNotable);
     }
+
+    [Fact]
+    public async Task Removing_a_cluster_jewel_keeps_SavedPassiveProgress_in_sync_for_subsequent_passive_changes()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var player = f.Player;
+        player.Character.ClassRow = 1;
+        string name = player.Character.Name!;
+        CharacterSaves.Write(name, new(new Dictionary<byte, List<CharacterSaves.SavedPlacement>>(),
+            Experience: player.Character.Experience,
+            RefundPoints: 5));
+        player.Character.RefundPoints = 5;
+        player.Character.SavedPassiveProgress = new(default, player.Character.Passives, player.Character.MasteryEffects, 5);
+
+        Game.SpendClusterRemoval(player);
+        Assert.Equal((ushort)4, player.Character.RefundPoints);
+
+        byte baseClass = (byte)Program.Skills.ClassFor(player.Character.ClassRow).IntegerId;
+        ushort node = Game.OrdinaryPassives.Frontier(baseClass, AscendancyFamily.Normal, [])[0];
+        Assert.Null(await Game.ChangePassives(player, [node], allocate: true, "test"));
+        Assert.Contains(node, player.Character.Passives);
+        Assert.Equal((ushort)4, CharacterSaves.Load(name)!.RefundPoints);
+    }
 }

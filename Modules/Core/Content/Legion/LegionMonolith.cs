@@ -200,6 +200,16 @@ static partial class LegionMonolith
             foreach (var (m, _) in Holds) { m.OnNonLethalZero = null; m.EntranceGrace = true; }
             Encounters.Clear(); Holds.Clear(); LegionStasis.ClearFighters();
         }));
+        module.Lifetime.Own(RegisterDeliriumPauseSource(p =>
+        {
+            if (p.Instance is not { } instance || !Encounters.TryGetValue(instance, out var list)) return false;
+            for (int i = 0; i < list.Length; i++)
+            {
+                var e = list[i];
+                lock (e) if (e.Phase is Phase.Charging or Phase.Running or Phase.Frozen or Phase.Battle) return true;
+            }
+            return false;
+        }));
         GameEvents.Drops.Add(id, drop => LegionRewards.Drops(drop));
         GameEvents.MonsterKilled.Add(id, LegionRewards.Killed);
         GameEvents.AreaPopulated.Add(id, area => Place(module, area));

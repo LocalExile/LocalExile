@@ -42,8 +42,7 @@ public static partial class Game
             Player(PlayerAccuracyModifiers.BootsMore), localDifference, blindLess);
         var accuracy = AttackAccuracyProfile.From(pools, player, Stats, own, offLocal) with { Rating = rating };
         // Critical chance: the off-hand weapon's base with its local mods, the same override and global increases.
-        int weaponBase = AddedBaseCriticalStrike.LocalWeaponChance(catalog.WeaponCritical(offType),
-            offLocal.GetValueOrDefault(Stat.LocalCriticalStrikeChance), offLocal.GetValueOrDefault(Stat.LocalCriticalStrikeChancePlusPct));
+        int weaponBase = OffHandWeaponCriticalBase(catalog.WeaponCritical(offType), offLocal, player);
         int basis = AttackBaseCriticalStrike.OfMainHand(true, weaponBase, Player);
         if (own is not null && elusiveActive
             && Own(Stat.AdditionalCriticalStrikeChancePermyriadWhileAffectedByElusive) is int elusiveBase and not 0)

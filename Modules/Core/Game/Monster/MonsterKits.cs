@@ -24,7 +24,8 @@ public static class MonsterKits
         IReadOnlyDictionary<uint, int> AuraStats,
         IReadOnlyList<ushort> AuraRows,
         bool HasMeleeFallback,
-        IReadOnlyList<GrantedSkill>? BaseSkills = null);
+        IReadOnlyList<GrantedSkill>? BaseSkills = null,
+        IReadOnlyList<MonsterKitSkill>? UnmoddedKit = null);
 
     /// <summary>Pre-resolved on-death skill specification (Porcupine Goliath spine nova, death explosions, chilled/caustic ground, on-death curses).</summary>
     public sealed record DeathSkillSpec(
@@ -51,7 +52,8 @@ public static class MonsterKits
     static bool IsGenericMelee(string? effectId) =>
         effectId is "Melee" or "MeleeAtAnimationSpeed" or "MeleeAtAnimationSpeedUnique" or "MeleeAtAnimationSpeedFireUnique";
 
-    static bool IsExcludedOrdinaryEffect(SkillCatalog catalog, MonsterCatalog.Variety variety, int effect, string? id)
+    static bool IsExcludedOrdinaryEffect(SkillCatalog catalog, MonsterCatalog.Variety variety, int effect, string? id,
+        bool comboParent = false)
     {
         if (effect < 0 || string.IsNullOrEmpty(id)) return true;
         if (MonsterKitHooks.HasEffectFilters && !MonsterKitHooks.AllowEffect(variety, effect, id))
@@ -60,22 +62,18 @@ public static class MonsterKits
             return true;
         if (catalog.HasType(effect, "Triggered") || catalog.HasType(effect, "RemoteMined"))
             return true;
-        // S3 bound combo children stay out of top-level AI selection (while staying registered in 0x2bb for 0x1ce).
-        // Never blanket-exclude Animation == NULL: 74.4% of monster GEs (Melee, MonsterFireball, etc.) have Animation = NULL.
-        if (MonsterCombos.IsComboChild(catalog, variety, effect))
+        // Skip skills flagged skill_unusable (they are script/death-only), combo parents included.
+        if (catalog.EffectStats(effect, 1).Any(s => s.Item1 == Stat.SkillUnusable && s.Item2 != 0))
             return true;
-        // Bound EmptyAction* combo parents are real castable combo openers on non-controller varieties.
-        if (SkillCatalog.IsEmptyAction(effect))
-            return !MonsterCombos.HasCombo(catalog, variety, effect);
+        // A bound EmptyAction* combo parent is a castable combo opener; one without a combo plays as it did before.
+        // Its children leave the kit in BuildTemplate, and only once the parent has built.
+        if (comboParent)
+            return false;
         if (id.StartsWith("GS", StringComparison.Ordinal) || id.StartsWith("GT", StringComparison.Ordinal)
-            || id.StartsWith("EAS", StringComparison.Ordinal) || id.StartsWith("EAA", StringComparison.Ordinal)
-            || id.StartsWith("GA", StringComparison.Ordinal))
+            || id.StartsWith("EAS", StringComparison.Ordinal) || id.StartsWith("GA", StringComparison.Ordinal))
             return true;
         for (int i = 0; i < ExcludedOrdinaryTokens.Length; i++)
             if (id.Contains(ExcludedOrdinaryTokens[i], StringComparison.Ordinal)) return true;
-        // Skip skills flagged skill_unusable / trigger-only.
-        if (catalog.HasTriggerOnlyStat(effect, 1))
-            return true;
         return false;
     }
 
@@ -96,12 +94,15 @@ public static class MonsterKits
         IReadOnlyList<MonsterKitSkill> kit)
     {
         var template = TemplateFor(player, variety, level);
-        if (template.BaseSkills is not { } baseSkills || baseSkills.Count != kit.Count || template.BaseKit.Count != kit.Count)
+        var unmodded = template.UnmoddedKit ?? template.BaseKit;
+        if (template.BaseSkills is not { } baseSkills || baseSkills.Count != kit.Count || unmodded.Count != kit.Count)
             return BossKits.SkillsOf(player, variety, level, kit);
+        if (ReferenceEquals(kit, unmodded))
+            return baseSkills;
 
         bool allSame = true;
         for (int i = 0; i < kit.Count; i++)
-            if (!SameWireSkill(kit[i], template.BaseKit[i])) { allSame = false; break; }
+            if (!SameWireSkill(kit[i], unmodded[i])) { allSame = false; break; }
         if (allSame) return baseSkills;
 
         var catalog = SkillsFor(player);
@@ -109,7 +110,7 @@ public static class MonsterKits
         for (int i = 0; i < kit.Count; i++)
         {
             var entry = kit[i];
-            if (SameWireSkill(entry, template.BaseKit[i]))
+            if (SameWireSkill(entry, unmodded[i]))
             {
                 skills.Add(baseSkills[i]);
                 continue;
@@ -126,11 +127,31 @@ public static class MonsterKits
         a.Effect == b.Effect
         && a.Attack.SkillId == b.Attack.SkillId
         && a.Attack.Seconds == b.Attack.Seconds
+        && a.Attack.Range == b.Attack.Range
+        && a.Attack.Spell == b.Attack.Spell
+        && a.Attack.DualWielding == b.Attack.DualWielding
         && a.Attack.InPlace == b.Attack.InPlace
         && a.Attack.Proxy == b.Attack.Proxy
         && a.Attack.Ranged == b.Attack.Ranged
+        && (a.Attack.Projectile is not null) == (b.Attack.Projectile is not null)
         && a.Attack.Projectile?.Count == b.Attack.Projectile?.Count
-        && a.Attack.Projectile?.Variation == b.Attack.Projectile?.Variation;
+        && a.Attack.Projectile?.Variation == b.Attack.Projectile?.Variation
+        && (a.Attack.Spell || SameAttackDamage(a.Attack.Damage, b.Attack.Damage));
+
+    static bool SameAttackDamage(DamagePacket a, DamagePacket b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        var pa = a[DamageType.Physical];
+        var pb = b[DamageType.Physical];
+        var ca = a[DamageType.Chaos];
+        var cb = b[DamageType.Chaos];
+        return (int)Math.Floor(pa.Min) == (int)Math.Floor(pb.Min)
+            && (int)Math.Floor(pa.Max) == (int)Math.Floor(pb.Max)
+            && (int)Math.Floor(ca.Min) == (int)Math.Floor(cb.Min)
+            && (int)Math.Floor(ca.Max) == (int)Math.Floor(cb.Max)
+            && (int)Math.Floor(a.MinTotal) == (int)Math.Floor(b.MinTotal)
+            && (int)Math.Floor(a.MaxTotal) == (int)Math.Floor(b.MaxTotal);
+    }
 
     /// <summary>Builds a modded multi-skill kit for an ordinary hostile monster, or empty if the variety only has a
     /// single plain attack matching <paramref name="defaultEffect"/> (which stays on the fast single-attack path).</summary>
@@ -142,6 +163,8 @@ public static class MonsterKits
         if (template.BaseKit.Count == 0 || (template.BaseKit.Count == 1 && template.BaseKit[0].Effect == defaultEffect))
             return ([], template.AuraStats, template.AuraRows);
         var effectiveMods = applyAuraStats && template.AuraStats.Count > 0 ? mods.Combine(template.AuraStats) : mods;
+        if (effectiveMods.Ids.Count == 0 && mapBossDamage == 1.0 && template.UnmoddedKit is { } unmodded)
+            return (unmodded, template.AuraStats, template.AuraRows);
         return (ApplyMods(template.BaseKit, effectiveMods, level, mapBossDamage), template.AuraStats, template.AuraRows);
     }
 
@@ -227,10 +250,12 @@ public static class MonsterKits
         {
             if (!seen.Add(effect)) continue;
             string? id = catalog.EffectId(effect);
-            if (IsExcludedOrdinaryEffect(catalog, variety, effect, id)) continue;
+            bool comboParent = SkillCatalog.IsEmptyAction(effect) && MonsterCombos.HasCombo(catalog, variety, effect);
+            if (IsExcludedOrdinaryEffect(catalog, variety, effect, id, comboParent)) continue;
 
-            // 0. S3 EmptyAction* combo parent (fires bound children on clip events via 0x1ce / 0x2bb)
-            if (SkillCatalog.IsEmptyAction(effect) && MonsterCombos.HasCombo(catalog, variety, effect))
+            // 0. S3 EmptyAction* combo parent (fires bound children on clip events via 0x1ce / 0x2bb); one whose combo
+            // does not build plays as any other skill.
+            if (comboParent)
             {
                 int comboLvl = catalog.MaxLevelAt(effect, level);
                 double comboCd = catalog.CooldownMs(effect, comboLvl) / 1000d;
@@ -238,8 +263,9 @@ public static class MonsterKits
                 {
                     comboCd = Math.Max(comboCd, Math.Max(comboAttack.Seconds + 1.5, 4.0));
                     primaries.Add((1, new MonsterKitSkill(effect, comboAttack, comboCd)));
+                    continue;
                 }
-                continue;
+                if (IsExcludedOrdinaryEffect(catalog, variety, effect, id)) continue;
             }
 
             // 1. Utility / Movement / Curse / Self-buff / Rally skills (MonsterSkills.UseOf)
@@ -369,6 +395,18 @@ public static class MonsterKits
             }
         }
 
+        // A built combo parent fires its children from its clip events: they leave the kit (they stay registered in
+        // 0x2bb for 0x1ce). A child whose parent did not build keeps its own slot.
+        HashSet<int>? bound = null;
+        foreach (var (_, skill) in primaries)
+            if (skill.Attack.ComboSteps is { } steps)
+                foreach (var step in steps) (bound ??= []).Add(step.ChildEffect);
+        if (bound is not null)
+        {
+            primaries.RemoveAll(p => bound.Contains(p.Skill.Effect));
+            if (meleeFallback is not null && bound.Contains(meleeFallback.Effect)) meleeFallback = null;
+        }
+
         if (primaries.Count == 0)
             return new([], deathSkills, auraStats, auraRows, meleeFallback is not null);
 
@@ -413,8 +451,10 @@ public static class MonsterKits
 
         // Pre-build base GrantedSkill wire records once per (Variety.Row, Level) for H4 zero-alloc Normal spawning.
         // Strictly 1:1 with finalKit (BossKits.SkillsOf invariant); S3 0x4400+ children are appended by MonsterCombos.WithChildSkills.
-        var baseSkills = finalKit.Length > 0 ? BossKits.SkillsOf(player, variety, level, finalKit) : [];
-        return new(finalKit, deathSkills, auraStats, auraRows, meleeFallback is not null, baseSkills);
+        // The kit as an unmodded spawn gets it: ApplyMods rounds the hit (MonsterModEffects.Hit) as main always did.
+        var unmoddedKit = finalKit.Length > 0 ? ApplyMods(finalKit, MonsterModEffects.None, level, 1.0) : finalKit;
+        var baseSkills = finalKit.Length > 0 ? BossKits.SkillsOf(player, variety, level, unmoddedKit) : [];
+        return new(finalKit, deathSkills, auraStats, auraRows, meleeFallback is not null, baseSkills, unmoddedKit);
     }
 
     static readonly IReadOnlyDictionary<uint, int> EmptyStats = new Dictionary<uint, int>();

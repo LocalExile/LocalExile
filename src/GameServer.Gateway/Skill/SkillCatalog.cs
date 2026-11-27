@@ -42,7 +42,6 @@ public sealed class SkillCatalog
         _monsterMeleeClocks = LoadMonsterMeleeClocks();
         _summonedMonsters = LoadSummonedMonsters();
         _monsterVarietyRowsById = LoadMonsterVarietyRowsById();
-        _noBorrowSkills = LoadNoBorrowSkills();
         _monsterProjectiles = BuildMonsterProjectiles(false);
         _weaponMonsterProjectiles = BuildMonsterProjectiles(true);
     }
@@ -58,7 +57,6 @@ public sealed class SkillCatalog
 
     public bool CastsOnDeath(int effect) => _castsOnDeath.GetOrAdd(effect, row =>
         EffectStats(row, 1).Any(stat => (stat.Item1 == Stat.CastOnDeathPct || stat.Item1 == Stat.AttackOnDeathPct) && stat.Item2 > 0));
-
 
     // Both sets of effects already have their own native rows and per-level stat sets. Only name-based lookups
     // require resolution; explicit row-based calls retain their exact identity (including monster effects).
@@ -429,16 +427,6 @@ public sealed class SkillCatalog
         string at when at.StartsWith("EmptyActionAttack", StringComparison.Ordinal) => "Melee",
         _ => null,
     };
-
-    /// <summary>True when <paramref name="effectRow"/> carries a non-zero trigger/script-only stat
-    /// (<c>skill_unusable</c>, <c>spell_uncastable_if_triggerable</c>, or <c>triggered_skill_use_animation_event</c>).</summary>
-    public bool HasTriggerOnlyStat(int effectRow, int level = 1)
-    {
-        foreach (var (stat, value) in EffectStats(effectRow, level))
-            if (value != 0 && stat is Stat.SkillUnusable or Stat.SpellUncastableIfTriggerable or Stat.TriggeredSkillUseAnimationEvent)
-                return true;
-        return false;
-    }
 
     /// <summary>
     /// A GrantedEffects row's SkillID, 0 for none: the value the client's own skill-stat builder adds as
@@ -923,14 +911,12 @@ public sealed class SkillCatalog
     /// the same ActiveSkills row, the action the client runs for both (<see cref="ProjectileFor"/>: Ethereal Knives'
     /// EtherealKnivesProjectile, Spectral Throw's ThrownWeapon, Essence Drain's Siphon, all live-verified for the player's
     /// gem). A monster's ExileEtherealKnives shares ethereal_knives with the gem's EtherealKnives. Its own row first, then
-    /// the others' in table order; null when none of them names one, except on a generic shared monster skill in
-    /// <see cref="_noBorrowSkills"/> (the effect's own row only; its projectile comes from its variation/art row) (a bow's
-    /// arrow comes from the equipped item: projectiles/bow-wand-and-burning-arrow.md, its priority still open).</summary>
+    /// the others' in table order; null when none of them names one (a bow's arrow comes from the equipped item:
+    /// projectiles/bow-wand-and-burning-arrow.md, its priority still open). A weapon attack's own variation row
+    /// (<see cref="VariationProjectileInfo"/>) goes before this borrow.</summary>
     public (string Id, int Speed, int CollisionRadius)? SharedProjectile(int effectRow)
     {
-        // Generic monster ActiveSkills shared across unrelated monsters never borrow another effect's projectile row.
-        bool generic = _activeSkillOfEffect.TryGetValue(effectRow, out int activeRow) && _noBorrowSkills.Contains(activeRow);
-        foreach (int row in generic ? [effectRow] : SameActionEffects(effectRow))
+        foreach (int row in SameActionEffects(effectRow))
             if (ProjectileFor(row) is { } found)
             {
                 int radius = ClientTables.TableOrEmpty("Projectiles").FirstOrDefault(p => p.Text("Id") == found.Id).IntOrNull("CollisionRadius") ?? 1;
@@ -938,23 +924,6 @@ public sealed class SkillCatalog
             }
         return null;
     }
-
-    /// <summary>Generic monster ActiveSkills shared by unrelated effects whose projectile comes per effect from a
-    /// variation or art table, so <see cref="SharedProjectile"/> never cross-borrows another monster's projectile.</summary>
-    private readonly HashSet<int> _noBorrowSkills;
-
-    static readonly HashSet<string> NoBorrowSkillIds = new(StringComparer.Ordinal)
-    {
-        "monster_projectile_weapon",
-        "monster_projectile_weapon_cast_triggerable",
-        "decelerating_projectile",
-        "lunaris_glaive_projectile",
-        "geometry_projectiles_spell",
-        "geometry_projectiles_attack",
-    };
-
-    HashSet<int> LoadNoBorrowSkills() => ClientTables.TableOrEmpty("ActiveSkills").Select((r, i) => (r, i))
-        .Where(a => a.r.TextOrNull("Id") is { } id && NoBorrowSkillIds.Contains(id)).Select(a => a.i).ToHashSet();
 
     /// <summary>The projectile the client's own path gives a weapon-attack effect: its <c>monster_projectile_variation</c>
     /// names a MonsterProjectileAttack row, which names the Projectiles row (Roc Sentinel's dash 76 LegionMarakethRangedDash,

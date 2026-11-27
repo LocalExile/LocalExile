@@ -80,6 +80,27 @@ start an arm; kills of monsters created 62 to 85 cells from a piece did, one cre
 **Testing:** `Game_LEAGUE_CHANCES=Anarchy=100` (CoreLeagues ids, comma-separated) gives that chance in every area the
 Gateway populates. `Game_ENCOUNTERS_AT_ARRIVAL=1` places each encounter about 12 cells from where the player arrives.
 
+## Bestiary and Sulphite scarab boundaries
+
+The pinned client tables supply all twelve Bestiary scarab/lure inputs and seven Sulphite inputs, including legacy
+rows. Family lures use BestiaryCapturableMonsters, BestiaryGroups and BestiaryFamilies; Shadowed Crow selects
+AtlasMorriganBeast rather than a similarly named ordinary bird. Herd, Duplicating, Crow, Greed and Fumes modify an
+existing master encounter; they do not independently guarantee one. The base scarabs and legacy lures carry that stat.
+
+The account/league capture store retains the capturable row, variety, level, rarity, modifiers and separate copy IDs.
+Its source identity prevents repeated kills or reload from crediting the same capture twice. The mission snapshot
+keeps each red beast's separate wave and random progression. Native book, itemisation and Blood Altar protocols are
+not implemented by this store. The base mission's level/count mapping, equal red selection weights and map fallback
+pool remain estimates. The full store retains 1,000 entries and replaces the oldest; the replacement order and the
+50% nearby-party capture roll are local approximations. The official
+[3.20 party change](https://www.pathofexile.com/forum/view-thread/3323944#bestiaryparty-play) establishes per-player
+chance and guaranteed instance-owner credit, but does not publish its exact constant. Nearby non-owners use 250 cells.
+
+Sulphite retains the shipped resource curve and existing party yield formula, with owner-only scarab bonuses,
+map quantity, mined-sulphite modifiers and equipment capacity. The three deposits have a shared single-use claim.
+Fumes adds its 50% quantity once, preserving other encounter quantity and other stats, and uses a separate retained
+mark for the native enrage presentation. Its radius, guard placement and combat tuning remain local approximations.
+
 ## Ritual
 
 CoreLeagues 20 is rolled by the module at `AreaPopulated` in maps (`ExtraTerrainFeatures.LeagueCount`; `map_area_contains_rituals`
@@ -168,3 +189,31 @@ modifiers. Wild mercenaries pay actual carried items through ordinary ground pub
 panel and duel remain the base module's route. Carried item selection is uniform without replacement; build/equipment
 weights and the difficulty curve remain calibration. Following, party AI and all league gameplay beyond these scarab
 effects remain separate work.
+
+## Expedition, Incursion, Betrayal and Pandemonium scarabs
+
+The nine legacy/current Expedition inputs compose encounter admission, explosive counts and radius, runic markers,
+and remnant prefix/suffix counts. Runic increases add markers without replacing the ordinary population. Remnants
+exclude duplicate modifier families. Logbooks retain each location, faction and implicit roll through inventory and
+stash storage; Infusion prepares four implicits per location on newly generated ground items. The baseline runic
+logbook chance is calibrated at 2%. Each detonated remnant under Infusion adds 20% life, 10% damage, 20% quantity and
+20% rarity to subsequently unearthed monsters; this curve and uniform remnant selection are server calibration.
+
+The four Incursion inputs force eligible Alva missions, add the table's 12-16 map packs, increase room population and
+roll the Champions minimum rarity once per incursion. Timelines copies the final incursion's architect outcome once
+per map. Newly found temples randomize room tiers without changing the character's plan. The item retains the eleven
+room hashes and the server graph's open-edge mask. The d-client's item reader format is verified; retail door-bit
+ordering and polarity remain unverified. The past-room terrain section, temple area and its reward encounters remain
+base-module work.
+
+The four Betrayal inputs use the supported Transportation and Intervention encounters. Available unassigned targets
+can join either supported mission; all writable Syndicate targets can reinforce it. Each member owns its kneel and
+Interrogate choice. Interrogation excludes the target for three subsequent completed encounters, then releases it
+with one rank lost unless the retained scarab roll preserves it. Reinforcement odds use a calibrated 40% baseline,
+scaled by the map's increased chance. Board relationships, recruitment/Execute choices, Fortification/Research,
+safehouses and Catarina remain separate work. The Allflame scarab multiplies the client table's pack substitution
+counts; Ember-specific reward and behaviour scripts are separate from this count effect.
+
+Pandemonium rolls per non-unique population pack and replaces the entire selected pack with one supported standalone
+Atlas boss. Existing uniques remain in their packs; ordinary instance population retains the replacements and final
+map-boss modifiers apply. The selection pool is the existing supported standalone pool, not every Atlas boss script.
