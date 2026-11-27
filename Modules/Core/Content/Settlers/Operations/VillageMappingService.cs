@@ -147,7 +147,7 @@ public sealed class VillageMappingService(IOperationsHost host)
     {
         foreach (var d in snap.MapDevices)
             if (d.BossAmbushPending && d.State == DeviceStateKidnapped && d.DeviceIndex is >= 0 and < OperationsData.MapDeviceCount)
-                return ((byte)(d.DeviceIndex + 1), 1);
+                return ((byte)(d.DeviceIndex + 1), 0);
         return (0, 0);
     }
 

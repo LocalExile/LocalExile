@@ -177,7 +177,7 @@ public sealed class VillageShippingService(IOperationsHost host)
     {
         foreach (var s in snap.Ships)
             if (s.BossPending && s.State == ShipStateCommandeered && s.ShipIndex is >= 0 and < OperationsData.ShipCount)
-                return ((byte)(s.ShipIndex + 1), 1);
+                return ((byte)(s.ShipIndex + 1), 0);
         return (0, 0);
     }
 

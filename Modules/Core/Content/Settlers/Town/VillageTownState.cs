@@ -616,8 +616,8 @@ public sealed class VillageTownState
     public InstanceVillage.VillageStateSnapshot ToWireSnapshot(ulong serverNowSeconds)
     {
         var shipTimers = new InstanceVillage.TimerState[VillageData.ShipCount];
-        byte shipKidnapSlot = ShipKidnapSlot1Based;
-        byte shipKidnapFlag = ShipKidnapFlag;
+        byte shipKidnapSlot = 0;
+        byte shipKidnapFlag = 0; // 0 = Rescue & Ransom enabled; 1 = rescue portal already open (disables buttons at 0x14057f78e)
         for (int i = 0; i < VillageData.ShipCount; i++)
         {
             var s = Ships[i];
@@ -641,13 +641,13 @@ public sealed class VillageTownState
             if (shipKidnapSlot == 0 && (s.BossPending || s.State == 3))
             {
                 shipKidnapSlot = (byte)(i + 1);
-                shipKidnapFlag = 1;
+                shipKidnapFlag = 0;
             }
         }
 
         var mapStates = new InstanceVillage.MapDeviceState[VillageData.MapDeviceCount];
-        byte mapKidnapSlot = MapKidnapSlot1Based;
-        byte mapKidnapFlag = MapKidnapFlag;
+        byte mapKidnapSlot = 0;
+        byte mapKidnapFlag = 0; // 0 = Rescue & Ransom enabled; 1 = rescue portal already open (disables buttons at 0x14054df36)
         for (int i = 0; i < VillageData.MapDeviceCount; i++)
         {
             var d = MapDevices[i];
@@ -655,7 +655,7 @@ public sealed class VillageTownState
             if (mapKidnapSlot == 0 && (d.BossAmbushPending || d.State == 3))
             {
                 mapKidnapSlot = (byte)(i + 1);
-                mapKidnapFlag = 1;
+                mapKidnapFlag = 0;
             }
         }
 
@@ -1045,7 +1045,7 @@ public sealed class VillageTownState
             if (Ships[i].BossPending || Ships[i].State == 3)
             {
                 ShipKidnapSlot1Based = (byte)(i + 1);
-                ShipKidnapFlag = 1;
+                ShipKidnapFlag = 0;
                 break;
             }
         }
@@ -1057,7 +1057,7 @@ public sealed class VillageTownState
             if (MapDevices[i].BossAmbushPending || MapDevices[i].State == 3)
             {
                 MapKidnapSlot1Based = (byte)(i + 1);
-                MapKidnapFlag = 1;
+                MapKidnapFlag = 0;
                 break;
             }
         }
