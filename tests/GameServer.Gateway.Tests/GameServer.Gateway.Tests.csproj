@@ -47,6 +47,7 @@
     <ProjectReference Include="..\..\Modules\Core\Content\Harvest\Harvest.csproj" />
     <!-- The Bestiary mission's effect bytes and tables (BestiaryTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Bestiary\Bestiary.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Delve\Delve.csproj" />
     <!-- Alva's incursions and the temple plan (IncursionTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Incursion\Incursion.csproj" />
     <!-- Jun's mission: the roll, the plan and the creates (BetrayalTests). -->
