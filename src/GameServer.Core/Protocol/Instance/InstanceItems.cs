@@ -136,6 +136,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// <summary>The RitualEncounter component (157, Blood-filled Vessel; write 0x1425121e0 → 0x14250eab0, read 0x142512230 → 0x14250ebc0):
     /// u8 monster count, u32 LE monster level, count × (u16 LE MonsterVarieties HASH16, u16 LE count), u16 LE WorldAreas HASH16.</summary>
     public RitualEncounterData? RitualEncounter { get; init; }
+    public IncursionTempleData? IncursionTemple { get; init; }
+    public ExpeditionSagaData? ExpeditionSaga { get; init; }
 
     /// <summary>The u16 after the type hash (reader 0x1421f2d00): bit 0 → item +0x28; bit 1 → +0x29, which keeps the item
     /// out of every inventory but InventoryIdKey 0 and 0x41 and is required for 0x41 (0x141d65f80); bit 2 → +0x2a, with
@@ -181,7 +183,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter", "IncursionTemple", "ExpeditionSaga"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -290,6 +292,12 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     for (int ri = 0; ri < ritualCount; ri++)
                         w.U16(ritual!.Monsters[ri].VarietyHash).U16(ritual.Monsters[ri].Count);
                     w.U16(ritual?.AreaHash ?? 0);
+                    break;
+                case "IncursionTemple":
+                    (IncursionTemple ?? new IncursionTempleData(0, [], 0)).Write(w);
+                    break;
+                case "ExpeditionSaga":
+                    (ExpeditionSaga ?? new ExpeditionSagaData(0, [])).Write(w);
                     break;
                 // 0x1424755d0: i32 experience (-1: one level over the cap), u32 +0x3c the variant (the copy 0x142476520
                 // checks it against the GemVariants count and sets +0x10 bit 5 when it is not 0), u8 +0x10, u16 +0x40 an

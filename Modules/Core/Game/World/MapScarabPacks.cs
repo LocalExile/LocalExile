@@ -8,22 +8,24 @@ public static class MapScarabPacks
     public static void LoadGameData()
     {
         Fragments = LoadFragments();
-        CloisterPacks = LoadCloisterPacks();
+        CloisterPacks = LoadPacks(CountStat);
+        IncursionPacks = LoadPacks(IncursionCountStat);
     }
 
-    public const string Cloister = "CloisterPacks";
+    public const string Cloister = "CloisterPacks", Incursion = "Incursion.Invasion";
+    public const uint IncursionCountStat = Stat.MapContainsXAdditionalIncursionPacks;
     public const uint CountStat = Stat.MapContainsXAdditionalDivCardPacks;
     const uint DeckChance = Stat.MapPutridMonsterPctChanceToDropStackDeck;
     public const string Deck = "Metadata/Items/DivinationCards/DivinationCardDeck";
 
     static MapRunCatalog Fragments = default!;
     static MapRunCatalog LoadFragments() => MapRunCatalog.Load("data");
-    static IReadOnlyList<PackCatalog.Pack> CloisterPacks = default!;
+    static IReadOnlyList<PackCatalog.Pack> CloisterPacks = default!, IncursionPacks = default!;
 
-    static IReadOnlyList<PackCatalog.Pack> LoadCloisterPacks()
+    public static IReadOnlyList<PackCatalog.Pack> LoadPacks(uint countStat)
     {
         if (!ClientTables.Has("AdditionalMonsterPacksFromStats")) return [];
-        int stat = (int)CountStat - 1;
+        int stat = (int)countStat - 1;
         var rows = ClientTables.Table("AdditionalMonsterPacksFromStats").Where(r => r.IntOrNull("StatsKey") == stat
             && r.IntOrNull("__col1") == 2 && r.IntOrNull("AdditionalMonsterPacksStatMode") == 0).ToList();
         var names = ClientTables.Table("MonsterPacks").Select(r => r.Text("Id") ?? "").ToList();
@@ -40,9 +42,17 @@ public static class MapScarabPacks
 
     public static void Opening(MapOpening request, Random random)
     {
-        if (request.Campaign || request.Opening is not { } opening || !Ready) return;
-        request.HandledContent.Add(Cloister);
-        RollFragmentCount(request, CountStat, random);
+        if (request.Campaign || request.Opening is not { } opening) return;
+        if (Ready)
+        {
+            request.HandledContent.Add(Cloister);
+            RollFragmentCount(request, CountStat, random);
+        }
+        if (ReadyPacks(IncursionPacks))
+        {
+            request.HandledContent.Add(Incursion);
+            RollFragmentCount(request, IncursionCountStat, random);
+        }
     }
 
     public static void RollFragmentCount(MapOpening request, uint name, Random random)
@@ -57,9 +67,20 @@ public static class MapScarabPacks
             request.Opening = opening with { Mods = opening.Mods.WithFragmentStat(name, count) };
     }
 
-    public static IReadOnlyList<AreaPopulation.AdditionalPacks> Requests(MapMods? mods) =>
-        mods?.Get(CountStat) is int count and > 0 && Ready
-            ? [new(Program.Stats.Name(CountStat), Packs, count, mods.PackSizeFactor)] : [];
+    static bool ReadyPacks(IReadOnlyList<PackCatalog.Pack> packs) => packs.Count > 0
+        && packs.All(p => p.Entries.Count > 0 && p.Entries.Select(e => e.Variety).Concat(p.BossVarieties)
+            .All(v => Game.Monsters.Find(v.ToString()) is { Supported: true }));
+
+    public static IReadOnlyList<AreaPopulation.AdditionalPacks> Requests(MapMods? mods)
+    {
+        var result = new List<AreaPopulation.AdditionalPacks>();
+        if (mods is null) return result;
+        if (mods.Get(CountStat) is int cloister and > 0 && Ready)
+            result.Add(new(Program.Stats.Name(CountStat), Packs, cloister, mods.PackSizeFactor));
+        if (mods.Get(IncursionCountStat) is int incursion and > 0 && ReadyPacks(IncursionPacks))
+            result.Add(new(Program.Stats.Name(IncursionCountStat), IncursionPacks, incursion, mods.PackSizeFactor));
+        return result;
+    }
 
     public static bool DropsDeck(MapMods? mods, string variety, Random random) => mods?.Get(DeckChance) is int chance and > 0
         && Packs.Any(p => p.Entries.Any(e => Game.Monsters.Find(e.Variety.ToString())?.Id == variety))
