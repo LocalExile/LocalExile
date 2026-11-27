@@ -175,6 +175,7 @@ public sealed class TormentTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
         using var life = MonsterModEffects.HandOverMore([MapTorment.LifeStat], [], [MapTorment.TaperStat]);
         await using var owner = await ScarabEncounterTests.Wire.Open(instance, layout, seed);
+        owner.Player.Clock.Start();
         instance.World.Runner = owner.Player;
         try
         {
@@ -219,8 +220,7 @@ public sealed class TormentTests
             var possessed = owner.Player.Area.Monsters[rare];
             possessed.Dead = true;
             MapTorment.Kill(new(owner.Player, possessed, possessed.Variety!.Id, (far.X, far.Y)));
-            // The freed spirit is active and walks: a monster's order waits for a client that is not paused.
-            owner.Player.Clock.Start();
+            // The test client also runs while any additional natural spirit steers before this release.
             await MapTorment.Tick(owner.Player, 0.25);
             Assert.Equal(spirits + 1, JsonSerializer.Deserialize<MapTorment.Spirit[]>(instance.ContentState["Torment/spirits"])!.Length);
             Assert.Contains(owner.Player.Area.Monsters, p => p.Key > boss && !p.Value.Dead && p.Value.Rarity == MonsterRarity.Rare
