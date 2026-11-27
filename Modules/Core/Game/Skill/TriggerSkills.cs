@@ -40,6 +40,8 @@ public static partial class Game
         if (CooldownTriggerSupport(gem) is { } timed)
             return timed.Effect.Id == AutoexertionSupport
                 ? "this warcry can only be triggered by Autoexertion" : "this spell can only be triggered by Automation";
+        if (ItemEffectRules.Enabled && gem.WornGrant is { } grant && ItemEffectRules.MarkFamily(grant.EffectId) is not null)
+            return "this mark is triggered by the granting item";
         if (gem.WornGrant is { EffectId: GuardianWeaponEffect })
             return "Animate Guardian's Weapon triggers from a qualifying minion kill";
         if (GolemStat(gem.Stats, Stat.CastOnLoseCatsStealth) != 0)
@@ -80,6 +82,9 @@ public static partial class Game
             if (effect == SummonSacredWispEffect) return "Sacred Wisps are summoned by a supported wand hit";
             if (IsRelicSkill(effect)) return "Summon Elemental Relic triggers automatically; manual use is unavailable";
         }
+        if (ItemEffectRules.Enabled && gem.Supports.Any(s => s.Effect.Added.Contains(36)
+            && ItemEffectRules.Current.TriggersOnBlock(s.Stats)))
+            return "this socketed spell triggers when you block";
         if (GolemStat(gem.Stats, Stat.SpellUncastableIfTriggerable) != 0
             || gem.Supports.Any(s => s.Effect.Added.Contains(36)))
             return "this trigger has no server executor; manual use is unavailable";

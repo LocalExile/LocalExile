@@ -118,6 +118,7 @@ public sealed class IncomingHitEventsTests
                     Game.ChargeSessions.Remove(player);
                 }
             }
+            VerifySocketedSpellOnBlock();
         }
         finally
         {
@@ -126,5 +127,78 @@ public sealed class IncomingHitEventsTests
             Program.SetGameLogic(previousLogic!);
             TestEnvironment.ReleaseSaves(path);
         }
+    }
+
+    static void VerifySocketedSpellOnBlock()
+    {
+        using var battle = new ArrowRainAndMirageTests.Battle("Fireball");
+        var player = battle.Player;
+        player.Clock.Start();
+        player.IncomingHitRandom = new LowRolls();
+        var items = Game.ItemsOf(player);
+        var weapon = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        items.Change(PlayerInventories.Weapon1, weapon.Id, bow => ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!)
+            with { Sockets = bow.Sockets, Links = bow.Links });
+        var random = new Random(1375);
+        ItemSocket Socket(string name)
+        {
+            var gem = Program.Items.FindGem(name)!.Value;
+            return new(SocketColour.White, ItemCatalog.Create(gem.Type) with { GemVariant = gem.Variant.Index });
+        }
+        var shield = Assert.IsType<Item>(Game.Uniques.Create("Svalinn", random)) with
+        {
+            Sockets = [Socket("Fireball"), Socket("Ethereal Knives"), Socket("Freezing Pulse")], Links = [1, 1, 1]
+        };
+        var offhand = items.Add(PlayerInventories.Offhand1, 0, 0, shield);
+        var sockets = Game.GemSkillEffects(player).Where(s => Game.SupportedSkill(player, s.Id).Host == offhand.Id).ToArray();
+        var fire = Assert.Single(sockets, s => s.Name == "Fireball");
+        var cold = Assert.Single(sockets, s => s.Name == "Freezing Pulse");
+        int Cost(ushort id) => Game.SupportedStats(player, id)[Stat.ManaCost];
+        var fireCost = Cost(fire.Id);
+        var coldCost = Cost(cold.Id);
+        Assert.True(fireCost > 0 && coldCost > 0);
+        Assert.NotNull(Game.GemSkillInstanceDisabled(player, fire.Effect, fire.Id));
+        var attack = new MonsterAttack(0, 1, 35, DamagePacket.Of(DamageType.Physical, 1, 1));
+        void Block(double at, bool spell = false)
+        {
+            player.EvasionEntropy = 100;
+            player.Pools = player.Pools with { BlockChance = 100, SpellBlockChance = 100 };
+            var outcome = Game.CommitMonsterHitLocked(player, 200, battle.Enemy, attack with { Spell = spell }, at,
+                (100, 100), (120, 100), checkRange: false);
+            Assert.True(outcome?.Blocked);
+        }
+        uint mana = player.PlayerMana;
+        Assert.True(Game.TrySyntheticEnemyHit(player, DamageType.Physical, 1, block: false, spell: false,
+            suppress: false, out var unblocked));
+        Assert.False(unblocked.Blocked);
+        Assert.Equal(mana, player.PlayerMana);
+        Block(1);
+        if (Environment.GetEnvironmentVariable("Game_EFFECT_RULES") == "0")
+        {
+            Assert.Equal(mana, player.PlayerMana);
+            return;
+        }
+        Assert.Equal(mana - fireCost, player.PlayerMana);
+        battle.Session.AdvanceTo(battle.Session.Runtime.Now);
+        Assert.Contains(battle.Session.Runtime.Projectiles, p => p.Use.Payload is ProjectileOffense shot && shot.SourceSkill == fire.Id);
+        Block(1.01, spell: true);
+        Assert.Equal(mana - fireCost - coldCost, player.PlayerMana);
+        Block(1.24);
+        Assert.Equal(mana - fireCost - coldCost, player.PlayerMana);
+        Block(1.25);
+        Assert.Equal(mana - 2 * fireCost - coldCost, player.PlayerMana);
+        var remaining = player.PlayerMana;
+        battle.StatOverrides[Stat.YourSpellsAreDisabled] = 1;
+        Block(2);
+        Assert.Equal(remaining, player.PlayerMana);
+        battle.StatOverrides.Remove(Stat.YourSpellsAreDisabled);
+        player.PlayerMana = 0;
+        Block(3);
+        Assert.Equal(0u, player.PlayerMana);
+        items.Change(PlayerInventories.Offhand1, offhand.Id, old => ItemCatalog.Create(Program.Items.ByHash(shield.TypeHash)!)
+            with { Sockets = old.Sockets, Links = old.Links });
+        player.PlayerMana = 100;
+        Block(4);
+        Assert.Equal(100u, player.PlayerMana);
     }
 }

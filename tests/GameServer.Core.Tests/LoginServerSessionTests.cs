@@ -241,4 +241,58 @@ public class LoginServerSessionTests
         Assert.Empty(session.Handle(new EmptyMessage(0x18)).OfType<List15>().SelectMany(l => l.Entries));
         Assert.Empty(session.Handle(new U8U32(0, 0)));
     }
+
+    [Fact]
+    public async Task Create_character_parses_options_and_applies_gateway_overrides_before_list_and_enter()
+    {
+        var (basePlain, emptyOpts) = LoginServerSession.ParseStartState("DexDefault");
+        Assert.Equal("DexDefault", basePlain);
+        Assert.Empty(emptyOpts);
+
+        var (baseWithOpts, opts) = LoginServerSession.ParseStartState("DexDefault|nm:skip_campaign=1&preset=act10%2B&flag");
+        Assert.Equal("DexDefault", baseWithOpts);
+        Assert.Equal("1", opts["skip_campaign"]);
+        Assert.Equal("act10+", opts["PRESET"]);
+        Assert.Equal("", opts["flag"]);
+
+        Assert.Equal(CharacterClass.Ranger, LoginServerSession.ClassOf(new CreateCharacter("A", "Standard", 0, 0, "DexDefault|nm:skip_campaign=1", new byte[32])));
+        Assert.Equal(CharacterClass.Witch, LoginServerSession.ClassOf(new CreateCharacter("B", "Standard", 0, 0, "Metadata/Characters/Int/Int|nm:x=y", new byte[32])));
+        Assert.Equal(CharacterClass.Templar, LoginServerSession.ClassOf(new CreateCharacter("C", "Standard", 0, 0, "Templar|nm:x=y", new byte[32])));
+
+        var accounts = new AccountService(new JsonAccountStore());
+        var acc = accounts.Register("optuser", "pw1234").Value!;
+        IReadOnlyDictionary<string, string>? seenOptions = null;
+        var session = new LoginServerSession(accounts)
+        {
+            IsValidStartingArea = id => id is "1_1_town" or "2_11_endgame_town",
+            CharacterCreatedAsync = (_, _, o) =>
+            {
+                seenOptions = o;
+                return Task.FromResult<LoginServerSession.CharacterCreatedEffects?>(
+                    o.TryGetValue("skip_campaign", out var v) && v == "1"
+                        ? new LoginServerSession.CharacterCreatedEffects("2_11_endgame_town", 68, SuppressStartKit: true)
+                        : null);
+            },
+        };
+        session.Handle(Request("optuser", "pw1234"));
+
+        // With |nm: options -> overrides apply BEFORE S->C 0x15 + 0x13, so list shows level 68 and Play starts in 2_11_endgame_town.
+        var replies = await session.HandleAsync(new CreateCharacter("SkipHero", "Standard", 0, 0, "DexDefault|nm:skip_campaign=1", new byte[32]));
+        Assert.NotNull(seenOptions);
+        Assert.Equal("1", seenOptions!["skip_campaign"]);
+        var listEntry = Assert.Single(Assert.IsType<List15>(replies[0]).Entries);
+        Assert.Equal(LoginServerSession.ResultOk, Assert.IsType<CreateCharacterResult>(replies[1]).Result);
+        Assert.Equal((byte)68, listEntry.B48);
+
+        session.Handle(new U8U32(0, 0));
+        Assert.Equal(68, session.CharacterLevel);
+        Assert.Equal("2_11_endgame_town", session.CharacterLastTown);
+
+        // Without |nm: options -> backwards-compatible default level 1 and null LastTown.
+        var plainReplies = await session.HandleAsync(new CreateCharacter("PlainHero", "Standard", 0, 0, "IntDefault", new byte[32]));
+        Assert.Empty(seenOptions!);
+        var plainEntry = Assert.IsType<List15>(plainReplies[0]).Entries.Single(e => e.Name == "PlainHero");
+        Assert.Equal((byte)1, plainEntry.B48);
+        Assert.Null(accounts.Characters(acc.Id).Single(c => c.Name == "PlainHero").LastTown);
+    }
 }

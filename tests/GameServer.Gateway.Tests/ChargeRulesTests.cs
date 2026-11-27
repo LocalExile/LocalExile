@@ -5,6 +5,52 @@ namespace GameServer.Gateway.Tests;
 public sealed class ChargeRulesTests
 {
     [Fact]
+    public void ChargeGainsFollowEquipmentOnTheNextKill()
+    {
+        int conditionalChance(uint stat) => stat is Stat.EnduranceChargeOnKillPercentChanceWhileHoldingShield
+            or Stat.AddFrenzyChargeOnKillPctChanceWhileDualWielding ? 100 : 0;
+        var session = new ChargeSession();
+        session.Observe(conditionalChance);
+        var rng = new Random(1);
+        void Kill(int tick, WeaponProfile weapon, int endurance, int frenzy, Func<uint, int>? skill = null)
+        {
+            session.Admit(tick, [new ChargeEvent.Kill(MonsterRarity.Normal, Skill: skill)],
+                conditionalChance, () => weapon, alive: true, rng);
+            Assert.Equal(endurance, session.Effective(ChargeType.Endurance));
+            Assert.Equal(frenzy, session.Effective(ChargeType.Frenzy));
+        }
+
+        WeaponProfile shield = new() { Shield = true };
+        Kill(1, shield, 1, 0);
+        Kill(2, new() { DualWield = true }, 1, 1);
+        Kill(3, new() { TwoHand = true }, 1, 1);
+        Kill(4, shield, 3, 1, stat => stat == Stat.EnduranceChargeOnKillPct ? 100 : 0);
+    }
+
+    [Fact]
+    public void KillChanceRulesCombineActorAndSkillStatsOnceAndRespectCaps()
+    {
+        var session = new ChargeSession();
+        int Actor(uint stat) => stat switch
+        {
+            Stat.EnduranceChargeOnKillPct => 100,
+            Stat.AddFrenzyChargeOnKillPctChance => 60,
+            _ => 0
+        };
+        var kill = new ChargeEvent.Kill(MonsterRarity.Normal, Skill: stat =>
+            stat == Stat.AddFrenzyChargeOnKillPctChance ? 40 : 0);
+        var rng = new Random(1);
+        session.Observe(Actor);
+        for (int i = 1; i <= 4; i++)
+        {
+            session.Admit(i, [kill], Actor, () => default, alive: true, rng);
+            Assert.Equal(Math.Min(i, 3), session.Effective(ChargeType.Endurance));
+            Assert.Equal(Math.Min(i, 3), session.Effective(ChargeType.Frenzy));
+            Assert.Equal(0, session.Effective(ChargeType.Power));
+        }
+    }
+
+    [Fact]
     public void CoreChargesGainRefreshExpireAndTriggerAtTheirLimits()
     {
         // Tulfall (+1 maximum, a Frenzy Charge and then the loss of every Power Charge on reaching the maximum), Voll's

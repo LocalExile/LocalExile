@@ -63,23 +63,23 @@ public static class MercenaryTables
 
     /// <summary>The classes this server can place: a variety it can serialise (the Mercenary component is written) and at
     /// least one build of its own.</summary>
-    public static IReadOnlyList<Class> Eligible() =>
-        [.. Classes.Where(c => c.Path.Length > 0 && c.Supported && BuildsOf(c.Row).Count > 0)];
+    public static IReadOnlyList<Class> Eligible(bool infamous = false) =>
+        [.. Classes.Where(c => c.Path.Length > 0 && c.Supported && BuildsOf(c.Row, infamous).Count > 0)];
 
     /// <summary>The builds one class draws from: its own rows, without the IsInfamous variants. How often the official server
     /// picks an infamous build is a spawn-chance GameStat of the class (HouseSpawnChanceStats), which nothing here reads, so
     /// only the plain builds are drawn.</summary>
-    public static IReadOnlyList<Build> BuildsOf(int classRow) =>
-        [.. Builds.Where(b => b.ClassRow == classRow && !b.Infamous)];
+    public static IReadOnlyList<Build> BuildsOf(int classRow, bool infamous = false) =>
+        [.. Builds.Where(b => b.ClassRow == classRow && b.Infamous == infamous)];
 
     /// <summary>One eligible class and one of its builds, drawn uniformly from <paramref name="rng"/>; null when no class is
     /// eligible.</summary>
-    public static (Class Kind, Build Build)? Pick(Random rng)
+    public static (Class Kind, Build Build)? Pick(Random rng, bool infamous = false)
     {
-        var pool = Eligible();
+        var pool = Eligible(infamous);
         if (pool.Count == 0) return null;
         var kind = pool[rng.Next(pool.Count)];
-        var builds = BuildsOf(kind.Row);
+        var builds = BuildsOf(kind.Row, infamous);
         return (kind, builds[rng.Next(builds.Count)]);
     }
 

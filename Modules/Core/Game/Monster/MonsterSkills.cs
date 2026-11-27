@@ -376,7 +376,8 @@ public static partial class MonsterSkills
                 if (isDash)
                 {
                     target = Game.DashLanding(player.Layout, player.Barrier, from,
-                        order.Player, TravelPct(player, a.Effect!.Value, m.Level), false, m.Variety?.ObjectSize ?? 1);
+                        order.Player, TravelPct(player, a.Effect!.Value, m.Level), false, m.Variety?.ObjectSize ?? 1,
+                        player.SightBarrier);
                 }
                 else
                 {
@@ -391,9 +392,10 @@ public static partial class MonsterSkills
                 bool groundSlide = a.Effect is int slideEffect
                     && SkillCatalog.ActionTypeId(slideEffect) is "BladeFlurry" or "WhirlingBlades"
                         or "ShieldCharge" or "NewShieldCharge" or "NewNewShieldCharge";
+                var travelBarrier = isDash ? player.SightBarrier : player.Barrier;
                 foreach (var cell in GameServer.Core.World.ClientPathfinder.Line(from, target))
                 {
-                    if (player.Barrier.Contains(cell)) return null;
+                    if (travelBarrier.Contains(cell)) return null;
                     if (groundSlide && cell != from && !m.Walk.Floor(cell.X, cell.Y)) return null;
                 }
             }

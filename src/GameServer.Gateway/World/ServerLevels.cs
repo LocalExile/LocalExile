@@ -562,6 +562,18 @@ public static class ServerLevels
         ModelHulls.GetOrAdd(model, m => DoodadHull.Load(Files().Text, m)) is { IsEmpty: false } hull
             ? Walkability.ClosedTo(Walkability.WalkCells(hull, new PlacedDoodad(model, x, y, angle, scale, mirrored))) : [];
 
+    /// <summary>Whether the model carries a non-empty Hull in its .ao (so walk-only vs projectile-blocking doors can be
+    /// distinguished from models that fall back to rectangular door hulls).</summary>
+    public static bool HasModelHull(string model) =>
+        !string.IsNullOrEmpty(model) && ModelHulls.GetOrAdd(model, m => DoodadHull.Load(Files().Text, m)) is { IsEmpty: false };
+
+    /// <summary>The cells a model's Hull closes on the client's projectile/sight layer (layer 1, <c>proj_tri</c> /
+    /// <c>proj_circle</c> only, matching <c>0x141d8ad70</c>). Walk-only grate doors return an empty set so blink/dash
+    /// travel skills can cross them while walking stays blocked.</summary>
+    public static HashSet<(int X, int Y)> ModelSightCells(string model, int x, int y, float angle, float scale = 1, bool mirrored = false) =>
+        ModelHulls.GetOrAdd(model, m => DoodadHull.Load(Files().Text, m)) is { IsEmpty: false } hull
+            ? Walkability.SightCells(hull, new PlacedDoodad(model, x, y, angle, scale, mirrored)) : [];
+
     static byte[]? Read(string path) => GamePack.Default.TryRead(path);
 
     static Dictionary<string, int> Levels = default!;
