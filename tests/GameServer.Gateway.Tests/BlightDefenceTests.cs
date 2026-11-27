@@ -67,11 +67,21 @@ public sealed class BlightDefenceTests
         Assert.True(await encounter.Build(area.A, request));
         Assert.Equal(1, spot.Row);
         Assert.NotEqual(foundation, spot.Id);
+        Assert.Equal(4, spot.SkillIds.Length);
+        Assert.True(spot.SkillIds.All(id => id >= 0x4100) && spot.SkillIds.Distinct().Count() == 4,
+            "Chilling Tower Mk I registers distinct 0x4100+ skill IDs for Empowering tiers 0..3");
         Assert.Equal(BlightEncounter.StartResource - (uint)BlightTables.Towers[1].Cost, d.Resource);
         Assert.False(d.Spots.ContainsKey(foundation));
 
+        // Build a Fireball Tower Mk I (row 26) to verify EmptyAction* parent + 4 triggered child projectile skill IDs (0x01ce).
+        d.Resource += 2500;
+        var fireSpot = d.Spots.Values.First(s => s.Row == 0);
+        Assert.True(await encounter.Build(area.A, [0x02, 0x65, .. BitConverter.GetBytes(fireSpot.Id).Reverse(), 0, 0, 0, 26]));
+        Assert.NotEqual((ushort)0, fireSpot.EmptyActionSkillId);
+        Assert.Equal(4, fireSpot.TriggeredSkillIds.Length);
+        Assert.Equal(4, fireSpot.TriggeredSkillIds.Distinct().Count());
+
         // Build a Summoning Tower Mk I (row 21) and an Imbuing Tower (row 14) on another spot to verify minion + aura towers.
-        d.Resource += 2000;
         var second = d.Spots.Values.First(s => s.Row == 0);
         Assert.True(await encounter.Build(area.A, [0x02, 0x65, .. BitConverter.GetBytes(second.Id).Reverse(), 0, 0, 0, 21]));
         Assert.Equal(21, second.Row);
@@ -180,6 +190,11 @@ public sealed class BlightDefenceTests
         Assert.Equal(Phase.Running, d.Phase);
         Assert.Equal(d.Plan!.Lanes.Count * 2, d.Monsters.Count);
         Assert.All(d.Monsters.Keys, id => Assert.Equal(d.Level, area.A.Area.Monsters[id].Level));
+        // Unique Blight Bosses carry blight_boss=1 on their StateMachine (matching PR #1618 S5 state schema).
+        uint bossId = d.Monsters.First(kv => kv.Value.Rarity == MonsterRarity.Unique).Key;
+        var bossStates = area.A.Area.Monsters[bossId].States;
+        Assert.NotNull(bossStates);
+        Assert.Equal(1, bossStates!.SharedStates[bossStates.IndexOf("blight_boss")]);
 
         // Cassia's Pride reduces player outgoing damage against Blight monsters by 75% (0.25x).
         uint probeId = d.Monsters.Keys.First();

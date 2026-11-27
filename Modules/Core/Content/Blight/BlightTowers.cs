@@ -450,8 +450,8 @@ public static class BlightTowers
 
             lock (d) spot.NextFire = now + interval;
 
-            // Emit native tower cast animation when the tower has a registered GrantedEffects skill.
-            await SendTowerCast(player, d, spot, inRange[0].Pos.X, inRange[0].Pos.Y, update);
+            // Emit native tower cast animation for the exact Empowering tier (0..3), triggering EmptyAction* child projectiles via 0x01ce.
+            await SendTowerCast(player, d, spot, empower, inRange[0].Pos.X, inRange[0].Pos.Y, update);
 
             // Pure control towers (no damage): Glacial Cage & Stone Gaze.
             if (tower.Id == "IcePrisonTower")
@@ -788,20 +788,35 @@ public static class BlightTowers
         }
     }
 
-    static async Task SendTowerCast(Player player, Defence d, Spot spot, int targetX, int targetY,
+    static async Task SendTowerCast(Player player, Defence d, Spot spot, int empower, int targetX, int targetY,
         Func<Player, uint, Func<byte[]>, string, Task> update)
     {
-        ushort skillId, seq;
+        int tier = Math.Clamp(empower, 0, 3);
+        ushort primarySkillId, triggeredSkillId = 0, seq;
         lock (d)
         {
-            skillId = spot.SkillId;
-            if (skillId == 0) return;
+            if (spot.EmptyActionSkillId != 0 && spot.TriggeredSkillIds.Length > tier && spot.TriggeredSkillIds[tier] != 0)
+            {
+                // EmptyAction* towers (Fireball Mk I..III, Freezebolt): start parent clip (0x01cd) and trigger exact _buff0..3 child projectile (0x01ce, triggered: true).
+                primarySkillId = spot.EmptyActionSkillId;
+                triggeredSkillId = spot.TriggeredSkillIds[tier];
+            }
+            else
+            {
+                primarySkillId = spot.SkillIds.Length > tier ? spot.SkillIds[tier]
+                    : spot.SkillIds.Length > 0 ? spot.SkillIds[0] : (ushort)0;
+            }
+            if (primarySkillId == 0) return;
             seq = spot.ActionSeq++;
             if (seq == 0 || seq == 0xffff) seq = spot.ActionSeq = 1;
         }
         await update(player, spot.Id,
-            () => InstanceProtocol.ActionStarted(spot.Id, spot.X, spot.Y, targetX, targetY, skillId, seq, 0x0400),
-            $"Blight tower 0x{spot.Id:x} cast skill 0x{skillId:x4}");
+            () => InstanceProtocol.ActionStarted(spot.Id, spot.X, spot.Y, targetX, targetY, primarySkillId, seq, 0x0400),
+            $"Blight tower 0x{spot.Id:x} cast skill 0x{primarySkillId:x4} (empower {tier})");
+        if (triggeredSkillId != 0)
+            await update(player, spot.Id,
+                () => InstanceProtocol.InstantAction(spot.Id, triggeredSkillId, targetX, targetY, triggered: true),
+                $"0x01ce Blight tower 0x{spot.Id:x} triggered skill 0x{triggeredSkillId:x4} (empower {tier})");
     }
 
     static void ApplyTowerAilment(SpawnedMonster m, MonsterElementalAilments.Kind kind, double seconds, int magnitude, double now) =>
@@ -863,7 +878,7 @@ public static class BlightTowers
         if (!needSpawn) return;
         if (Monsters.Find(minionVarietyId) is not { Supported: true } variety) return;
 
-        await SendTowerCast(player, d, spot, spot.X, spot.Y, update);
+        await SendTowerCast(player, d, spot, empower, spot.X, spot.Y, update);
 
         // Empower + Ring Anoint minion life/MS/damage scaling + Cassia's Pride (+300% more).
         int lifePct = isSentinel ? empower * 40 + ringStats.GetValueOrDefault(Stat.BlightSentinelTowerMinionLifePlusPct)
@@ -885,6 +900,11 @@ public static class BlightTowers
         if (msPct != 0) minionTempStats[Stat.BaseMovementVelocityPlusPct] = msPct;
         if (dmgPct != 0) minionTempStats[Stat.DamagePlusPct] = dmgPct;
 
+        // BlightTowerSummonedHelicopter (Scout Tower minion) defaults to visible=0 (DisableRendering in .ot); set visible=1
+        // so Scout minions render cleanly both on current main and alongside PR #1618 S5 MonsterStates.DefaultVisibleStates.
+        Func<MonsterObject, MonsterObject>? minionShape = variety.StateMachine?.IndexOf("visible") >= 0
+            ? m => m with { StateMachine = m.StateMachine?.Set("visible", 1) }
+            : null;
         var spawned = new List<uint>(count);
         for (int k = 0; k < count; k++)
         {
@@ -892,6 +912,7 @@ public static class BlightTowers
             var cell = player.Layout.Near((spot.X + (int)Math.Round(Math.Cos(angle) * 4), spot.Y + (int)Math.Round(Math.Sin(angle) * 4)));
             uint id = await SpawnMonster(player, variety, d.Level, MonsterRarity.Normal, cell.X, cell.Y,
                 friendly: true, log: false, alone: false, instanceOwned: true, ownedMaximumLife: scaledLife,
+                shape: minionShape,
                 owned: (_, m) =>
                 {
                     m.AlliedFighter = true;

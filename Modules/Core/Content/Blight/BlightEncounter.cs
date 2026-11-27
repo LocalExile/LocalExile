@@ -14,8 +14,12 @@ public sealed class Spot(uint id, int x, int y)
     public int Raising;
     public bool Upgrade;
     public double NextFire;
-    /// <summary>Registered GrantedEffects skill id (0x4100+) for native cast animations, or 0 if none.</summary>
-    public ushort SkillId;
+    /// <summary>Registered GrantedEffects skill ids (0x4100+, disjoint from monster kit 0x4000..0x401f) indexed by Empowering tier 0..3.</summary>
+    public ushort[] SkillIds = [];
+    /// <summary>Parent EmptyAction* skill id for combo-cast towers (Fireball 1..3, Freezebolt), played via 0x01cd before 0x01ce triggered child.</summary>
+    public ushort EmptyActionSkillId;
+    /// <summary>Triggered child projectile skill ids indexed by Empowering tier 0..3 for EmptyAction* towers (sent via S→C 0x01ce triggered: true).</summary>
+    public ushort[] TriggeredSkillIds = [];
     public ushort ActionSeq = 1;
     /// <summary>Active Empowering aura visual buff instance on this tower (BuffDefinitions 1406).</summary>
     public ushort EmpowerBuffInstance;
@@ -131,7 +135,9 @@ public sealed class SavedSpot
 {
     public uint Id;
     public int X, Y, Row, Raising;
-    public ushort SkillId;
+    public ushort[] SkillIds = [];
+    public ushort EmptyActionSkillId;
+    public ushort[] TriggeredSkillIds = [];
     public bool Upgrade;
     public double NextFire;
     public List<uint> Minions = [];
@@ -376,7 +382,11 @@ public sealed class BlightEncounter
             Array.Copy(s.PumpStates, d.PumpStates, Math.Min(s.PumpStates.Length, d.PumpStates.Length));
             foreach (var p in s.Spots)
             {
-                var spot = new Spot(p.Id, p.X, p.Y) { Row = p.Row, Raising = p.Raising, Upgrade = p.Upgrade, NextFire = p.NextFire, SkillId = p.SkillId };
+                var spot = new Spot(p.Id, p.X, p.Y)
+                {
+                    Row = p.Row, Raising = p.Raising, Upgrade = p.Upgrade, NextFire = p.NextFire,
+                    SkillIds = p.SkillIds ?? [], EmptyActionSkillId = p.EmptyActionSkillId, TriggeredSkillIds = p.TriggeredSkillIds ?? [],
+                };
                 if (p.Minions is { Count: > 0 }) spot.Minions.AddRange(p.Minions);
                 d.Spots[p.Id] = spot;
             }
@@ -412,7 +422,12 @@ public sealed class BlightEncounter
                         MonstersPerLane = d.MonstersPerLane, PlanSeed = d.PlanSeed, Resource = d.Resource, StartedAt = d.StartedAt,
                         EndedAt = d.EndedAt, EncounterDuration = d.EncounterDuration,
                         KilledCount = d.KilledCount, ExtraBossChests = d.ExtraBossChests, PumpStates = [.. d.PumpStates],
-                        Spots = [.. d.Spots.Values.Select(s => new SavedSpot { Id = s.Id, X = s.X, Y = s.Y, Row = s.Row, Raising = s.Raising, SkillId = s.SkillId, Upgrade = s.Upgrade, NextFire = s.NextFire, Minions = [.. s.Minions] })],
+                        Spots = [.. d.Spots.Values.Select(s => new SavedSpot
+                        {
+                            Id = s.Id, X = s.X, Y = s.Y, Row = s.Row, Raising = s.Raising,
+                            SkillIds = [.. s.SkillIds], EmptyActionSkillId = s.EmptyActionSkillId, TriggeredSkillIds = [.. s.TriggeredSkillIds],
+                            Upgrade = s.Upgrade, NextFire = s.NextFire, Minions = [.. s.Minions],
+                        })],
                         LaneNext = new(d.LaneNext), LaneSpawned = new(d.LaneSpawned), LaneEncounterTypes = new(d.LaneEncounterTypes),
                         LaneRewards = new(d.LaneRewards), BossLanes = [.. d.BossLanes], BossOnlyLanes = [.. d.BossOnlyLanes],
                         PathIndex = new(d.PathIndex), Resolved = [.. d.Resolved],
@@ -479,21 +494,49 @@ public sealed class BlightEncounter
     static MonsterCatalog.Variety? VarietyOf(int row) =>
         BlightTables.Towers.ElementAtOrDefault(row) is { Variety: >= 0 } t && Monsters.Find(t.Variety.ToString()) is { Supported: true, StateMachine: not null } v ? v : null;
 
-    static List<GrantedSkill> BuildTowerSkills(Player player, MonsterCatalog.Variety variety, byte level)
+    static (List<GrantedSkill> Skills, ushort[] TierSkills, ushort EmptyActionId, ushort[] TriggeredTierSkills) BuildTowerSkills(
+        Player player, MonsterCatalog.Variety variety, byte level)
     {
         var skills = new List<GrantedSkill>();
-        if (variety.GrantedEffects is not { Count: > 0 } effects) return skills;
+        var tierSkills = new ushort[4];
+        ushort emptyActionId = 0;
+        var triggeredTierSkills = new ushort[4];
+        if (variety.GrantedEffects is not { Count: > 0 } effects) return (skills, tierSkills, emptyActionId, triggeredTierSkills);
         var catalog = SkillsFor(player);
-        ushort nextId = 0x4100; // Disjoint from player gem skill IDs (0x0103..0x0142) and monster defaults.
+        ushort nextId = 0x4100; // Disjoint from player gem skill IDs (0x0103..0x0142) and PR #1618 lifted monster kit IDs (0x4000..0x401f).
         foreach (int effectRow in effects)
         {
-            if (catalog.FindByRow(nextId, effectRow, level) is { } granted)
+            if (catalog.FindByRow(nextId, effectRow, level) is not { } granted) continue;
+            skills.Add(granted);
+            string effectId = catalog.EffectId(effectRow) ?? "";
+            int tier = effectId.EndsWith("_buff3", StringComparison.Ordinal) ? 3
+                : effectId.EndsWith("_buff2", StringComparison.Ordinal) ? 2
+                : effectId.EndsWith("_buff1", StringComparison.Ordinal) ? 1 : 0;
+
+            if (effectId.StartsWith("EmptyAction", StringComparison.Ordinal))
             {
-                skills.Add(granted);
-                nextId++;
+                if (emptyActionId == 0) emptyActionId = granted.Id;
             }
+            else if (effectId.Contains("FreezeProjectile", StringComparison.Ordinal)
+                || effectId.Contains("TowerFireball", StringComparison.Ordinal))
+            {
+                // Child projectile skills for EmptyAction* towers (Freezebolt & Fireball Mk I..III), dispatched via S→C 0x01ce triggered: true.
+                if (triggeredTierSkills[tier] == 0) triggeredTierSkills[tier] = granted.Id;
+            }
+            else if (!effectId.StartsWith("GeometrySpellBlightTowerFireballExplode", StringComparison.Ordinal)
+                && !effectId.EndsWith("Triggered", StringComparison.Ordinal))
+            {
+                if (tierSkills[tier] == 0) tierSkills[tier] = granted.Id;
+            }
+            nextId++;
         }
-        return skills;
+        // Fill higher empowering tiers from lower tiers when a tower only has a single base skill (e.g. Empowering Mk I..III).
+        for (int t = 1; t < 4; t++)
+        {
+            if (tierSkills[t] == 0) tierSkills[t] = tierSkills[t - 1];
+            if (triggeredTierSkills[t] == 0) triggeredTierSkills[t] = triggeredTierSkills[t - 1];
+        }
+        return (skills, tierSkills, emptyActionId, triggeredTierSkills);
     }
 
     async Task ShowSpot(Player player, Defence d, SpotView spot)
@@ -502,10 +545,17 @@ public sealed class BlightEncounter
         byte level = d.Level;
         await RegisterType(player, variety.Row, level, $"0x0020 monster type {variety.Id}@{level}");
         var states = SpotStates(variety, spot);
-        var skills = spot.Row > 0 ? BuildTowerSkills(player, variety, level) : [];
+        var (skills, tierSkills, emptyActionId, triggeredTierSkills) = spot.Row > 0
+            ? BuildTowerSkills(player, variety, level)
+            : ([], [], (ushort)0, []);
         if (skills.Count > 0)
             lock (d)
-                if (d.Spots.TryGetValue(spot.Id, out var liveSpot)) liveSpot.SkillId = skills[0].Id;
+                if (d.Spots.TryGetValue(spot.Id, out var liveSpot))
+                {
+                    liveSpot.SkillIds = tierSkills;
+                    liveSpot.EmptyActionSkillId = emptyActionId;
+                    liveSpot.TriggeredSkillIds = triggeredTierSkills;
+                }
         uint life = (uint)Math.Max(1, Monsters.BaseLife(variety, level) ?? 1);
         var blob = new MonsterObject(spot.X, spot.Y, life, variety.ComponentsOrBase, StateMachine: states, TransitionState: variety.TransitionStates,
             Team: 0, Skills: skills.Count > 0 ? skills : null, Stats: [(Stat.MaximumLife, (int)life)]) { LifeData = variety.LifeData }.Blob();
@@ -845,8 +895,13 @@ public sealed class BlightEncounter
             }
             var end = plan.Lanes[lane].End;
             uint? ownedLife = rarity == MonsterRarity.Unique ? BlightWaves.ComputeBossLife(variety, d.Level, stats) : null;
+            // Set blight_boss=1 on Unique Blight Bosses; leave shape=null on normal/magic/rare lane monsters so
+            // PR #1618 S5 MonsterStates.DefaultVisibleStates and S6 MonsterKitHooks.ApplyStateTransitions apply unhindered.
+            Func<MonsterObject, MonsterObject>? bossShape = rarity == MonsterRarity.Unique && variety.StateMachine?.IndexOf("blight_boss") >= 0
+                ? m => m with { StateMachine = m.StateMachine?.Set("blight_boss", 1) }
+                : null;
             uint id = await SpawnMonster(player, variety, d.Level, rarity, end.X, end.Y,
-                log: rarity == MonsterRarity.Unique, alone: false, instanceOwned: true, ownedMaximumLife: ownedLife);
+                log: rarity == MonsterRarity.Unique, alone: false, instanceOwned: true, ownedMaximumLife: ownedLife, shape: bossShape);
             if (id == 0) continue;
             lock (d)
             {
@@ -865,7 +920,8 @@ public sealed class BlightEncounter
             foreach (var (id, info) in d.Monsters)
             {
                 if (d.Resolved.Contains(id) || !d.PathIndex.TryGetValue(id, out int index) || index <= 0) continue;
-                if (!player.Area.Monsters.TryGetValue(id, out var m) || m.Dead || m.Life == 0 || m.Aggro || now < m.Walk.ArrivesAt) continue;
+                // Never interrupt aggro'd monsters or an active skill/EmptyAction* combo (BusyUntil) by incrementing ActionGeneration.
+                if (!player.Area.Monsters.TryGetValue(id, out var m) || m.Dead || m.Life == 0 || m.Aggro || now < m.Walk.ArrivesAt || now < m.BusyUntil) continue;
                 if (m.Ailments.ActionFactor(now) <= 0 || m.Effects[Stat.ActionSpeedMinusPct] >= 100) continue;
                 var path = plan.Lanes[info.Lane].Path;
                 var from = m.Walk.Position(now);
@@ -909,7 +965,24 @@ public sealed class BlightEncounter
             }
         }
         await BlightTowers.CleanupDefence(player, d, Members);
-        foreach (var (id, m) in left) await RemoveMonster(player, id, m);
+        foreach (var (id, m) in left)
+        {
+            if (!won && m.States is { } cur && cur.IndexOf("encounter_failed") >= 0 && m.Variety is { } v)
+            {
+                var comps = v.ComponentsOrBase;
+                int smIdx = -1;
+                for (int cIdx = 0; cIdx < comps.Count; cIdx++)
+                    if (comps[cIdx] == "StateMachine") { smIdx = cIdx; break; }
+                if (smIdx >= 0)
+                {
+                    var failed = cur.Set("encounter_failed", 1);
+                    m.States = failed;
+                    await Update(player, id, () => InstanceEntities.StateMachineUpdate(id, (byte)smIdx, failed),
+                        $"Blight monster 0x{id:x} encounter_failed=1");
+                }
+            }
+            await RemoveMonster(player, id, m);
+        }
         await SendPumpStates(player, d, won ? "success" : "fail");
         await SendPumpTransition(player, d, 4);
 
@@ -1136,7 +1209,9 @@ public sealed class BlightEncounter
             spot.Upgrade = spot.Row > 0;
             spot.Row = (int)row;
             spot.Raising = spot.Upgrade ? RaiseSteps : 1;
-            spot.SkillId = 0;
+            spot.SkillIds = [];
+            spot.EmptyActionSkillId = 0;
+            spot.TriggeredSkillIds = [];
             spot.EmpowerBuffInstance = 0;
             spot.EmpowerBuffTier = 0;
             spot.Id = player.Instance.World.TakeObjectId();

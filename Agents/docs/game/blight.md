@@ -10,6 +10,10 @@ Server implementation of Path of Exile 3.29.3c Blight (`Modules/Core/Content/Bli
   - Row 9 (`LightningStormTower`): `StatsKeys[1]` (`10654`) and `StatsKeys2[1]` (`10596`) are swapped relative to ring mod `21529` (`BlightLightningstormTowerRangePlusPct = 10596`).
   - Row 19 (`TemporalTower`): `StatsKeys` has 6 entries vs 5 in `StatsKeys2` (`12355` belongs to Stone Gaze).
   - Row 14 (`BuffPlayersTower`): references `17745` rather than `17747`.
+- **Tower skill pipeline & PR #1618 readiness (`BlightEncounter.cs`, `BlightTowers.cs`):**
+  - Towers register their `GrantedEffects` at `0x4100+` (disjoint from the lifted 16-skill `0x4000..0x401f` monster kits) indexed by Empowering tier `0..3` (`base` / `_buff1..3`).
+  - `EmptyAction*` towers (`Fireball Mk I..III` `8080`, `Freezebolt` `8081`) start their parent clip via `S→C 0x01cd` and dispatch their tier-matched child projectile via `S→C 0x01ce` (`InstantAction(..., triggered: true)`).
+  - `BlightTowerSummonedAirSupportRank4` (`BlightTowerSummonedHelicopter`, the only Blight variety whose `.ot` disables rendering at default) sets `visible = 1`; Unique Blight Bosses set `blight_boss = 1`; failed encounters set `encounter_failed = 1`; normal/magic/rare lane monsters keep `shape = null` and `March` respects `BusyUntil` so `EmptyAction*` combos are never cancelled.
 - **Same-type lane resistance:** Cold, Lightning, Physical, and Fire lanes take `-99%` less damage and ignore control from matching tower families (`Mods 21478..21481`), bypassed by Freezebolt (`10585`), Shock Nova (`10591`), and Flamethrower (`10649`) ring anoints, and by Meteor Burning Ground (`12350`).
 - **Tower chests vs reward chests:** `BlightTowerChestRank1..4` (`Chests 1772..1775`) have no `Transitionable` component and are spawned only by Atlas notable **Templar Ingenuity** (`map_blight_towers_are_chests`). Regular `"Blight"` reward lanes use `BlightMushrunes` / `MushrunesUber` / `MushrunesBlightRavaged` / `BlightInfectedMapsT1..T16` (`1750..1771`).
 - **Blighted vs Blight-ravaged maps (`OnMapOpening`):**

@@ -25,6 +25,7 @@ public static class BlightWaves
         "Metadata/Monsters/LeagueBlight/Generic/CockerelSlow",
         "Metadata/Monsters/LeagueBlight/Generic/GladiatorSwordShield",
         "Metadata/Monsters/LeagueBlight/Generic/CockerelBow",
+        "Metadata/Monsters/LeagueBlight/Generic/BlightGenericDemonRanged",
     ];
 
     static readonly Dictionary<TowerFamily, string[]> FamilyVarieties = new()
@@ -111,7 +112,17 @@ public static class BlightWaves
             "Metadata/Monsters/LeagueBlight/Generic/BlightGenericZombie4Boss",
             "Metadata/Monsters/LeagueBlight/Generic/BlightGenericRhoaSkeletonBoss",
             "Metadata/Monsters/LeagueBlight/Generic/BlightGenericDemonModularBoss_",
+            "Metadata/Monsters/LeagueBlight/Generic/BanditMeleeKamikazeBoss",
+            "Metadata/Monsters/LeagueBlight/Generic/SeaWitchBoss",
+            "Metadata/Monsters/LeagueBlight/Generic/NessaCrabBoss",
             "Metadata/Monsters/LeagueBlight/Generic/GoatmanBossLeaper",
+            "Metadata/Monsters/LeagueBlight/Generic/SkeletonCannonBoss",
+            "Metadata/Monsters/LeagueBlight/Generic/MonkeyChieftainBoss",
+            "Metadata/Monsters/LeagueBlight/Generic/UndyingEvangalistBoss",
+            "Metadata/Monsters/LeagueBlight/Generic/BlackguardCasterBoss",
+            "Metadata/Monsters/LeagueBlight/Generic/SnakeBoss",
+            "Metadata/Monsters/LeagueBlight/Generic/KitavaDemonBoss",
+            "Metadata/Monsters/LeagueBlight/Generic/CannibalFirebreatherBoss",
             "Metadata/Monsters/LeagueBlight/Generic/BullBoss",
         ],
     };
