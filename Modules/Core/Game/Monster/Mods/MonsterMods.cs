@@ -569,7 +569,9 @@ public static partial class Game
             double recently = Math.Max(0, Math.Min(now, m.PlayerHitAt + RecentlySeconds) - Math.Max(now - seconds, m.PlayerHitAt));
             perSecond *= 1 - recently / seconds * (1 - Math.Max(0, 1 + onHitPct / 100.0));
         }
-        if (perSecond > 0 && seconds > 0) perSecond *= FrostBombRegenerationFactor(m, now - seconds, now);
+        if (perSecond > 0 && seconds > 0)
+            perSecond *= Math.Max(0, FrostBombRegenerationFactor(m, now - seconds, now)
+                + BlightRegenerationFactor(m, now - seconds, now) - 1);
         if (perSecond <= 0 && spreadRecovery <= 0) return;
         double total = m.Regen + Math.Max(0, perSecond) * seconds + spreadRecovery;
         uint whole = (uint)Math.Truncate(total);

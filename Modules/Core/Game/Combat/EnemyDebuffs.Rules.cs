@@ -466,7 +466,7 @@ public static partial class Game
         Timed(ref m.UnnervedUntil, ref m.UnnerveShownUntil, ref m.UnnerveBuff, UnnervedBuffRow, null);
         Timed(ref m.CrushedUntil, ref m.CrushShownUntil, ref m.CrushBuff, CrushedBuffRow, null);
         Timed(ref m.MaimedUntil, ref m.MaimShownUntil, ref m.MaimBuff, MaimedBuffRow, null);
-        double hinderUntil = Math.Max(m.HinderedUntil, m.TotemHinderedUntil);
+        double hinderUntil = Math.Max(Math.Max(m.HinderedUntil, m.TotemHinderedUntil), BlightHinder(m, now).Until);
         if (m.WitherHinders is { } witherHinders)
         {
             witherHinders.RemoveAll(h => !living || h.Until <= now);

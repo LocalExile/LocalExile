@@ -1625,8 +1625,8 @@ public static partial class Game
                         channelGeneration = BeginPaidChannel(player, skillId, gem.Effect, action, sequence);
                         if (SkillsFor(player).EffectId(gem.Effect) == WitherEffect)
                             WitherChannels.AddOrUpdate(player, new(skillId, channelGeneration.Value, to));
-                        if (IsLightningTendrils(SkillsFor(player).EffectId(gem.Effect)))
-                            TendrilsChannels.AddOrUpdate(player, new(skillId, channelGeneration.Value, to));
+                        if (IsAimedPulseEffect(SkillsFor(player).EffectId(gem.Effect)))
+                            AimedPulseChannels.AddOrUpdate(player, new(skillId, channelGeneration.Value, to));
                         if (IsFlameblast(SkillsFor(player).EffectId(gem.Effect)))
                             BeginFlameblast(player, paymentGem, skillId, action, channelGeneration.Value, sequence, to);
                         if (IsBladeFlurry(player, gem.Effect))
@@ -1720,7 +1720,7 @@ public static partial class Game
             player.NextChannelHitAt = AreaTime(player) + (IsSnipe(gem.Effect) ? interval / 2 : interval);
             _ = RunChannel(player, skillId, gem, action, to, initialCostPaid: true);
             if (IsFlameblast(SkillsFor(player).EffectId(gem.Effect))
-                || IsLightningTendrils(SkillsFor(player).EffectId(gem.Effect))) return CompleteSupportedUse(true);
+                || IsAimedPulseEffect(SkillsFor(player).EffectId(gem.Effect))) return CompleteSupportedUse(true);
             if (SkillsFor(player).EffectId(gem.Effect) == WitherEffect)
             {
                 using (ProjectileMutation(player))
@@ -2605,7 +2605,8 @@ public static partial class Game
         bool scourge = IsChannelledScourgeArrow(gem.Effect);
         var flameblast = FlameblastChannels.TryGetValue(player, out var flame)
             && flame.Skill == skillId && flame.Generation == generation && flame.Action == action ? flame : null;
-        var tendrils = ActiveTendrilsChannel(player);
+        var aimedPulse = ActiveAimedPulseChannel(player);
+        bool blight = aimedPulse is not null && IsBlightChannel(SkillsFor(player).EffectId(gem.Effect));
         bool firstStagePaid = snipe || flameblast is not null && initialCostPaid;
         ChargedDashChannel? dash;
         lock (LevelUpdatesFor(player).Gate) dash = CurrentChargedDash(player);
@@ -2627,10 +2628,19 @@ public static partial class Game
         bool divineIre = IsDivineIre(player, gem.Effect);
         int divineIreMaxStages = divineIre && SkillsFor(player).EffectId(gem.Effect) == "DivineIreRoyale" ? 20 : 10;
         int divineIreStages = 0;
+
+        Task AimedPulse(AimedPulseChannel pulse, double elapsed)
+        {
+            double pact = lycia?.Pact.DamageMore ?? 1;
+            if (!blight) return PulseLightningTendrils(player, pulse, gem, action, elapsed, pact);
+            PulseBlight(player, pulse, gem.Effect, action, elapsed, pact);
+            return Task.CompletedTask;
+        }
+
         try
         {
-            if (initialCostPaid && tendrils is not null)
-                await PulseLightningTendrils(player, tendrils, gem, action, 0, lycia?.Pact.DamageMore ?? 1);
+            if (initialCostPaid && aimedPulse is not null)
+                await AimedPulse(aimedPulse, 0);
             if (dash is not null) StartChargedDashWave(player, dash, channelStarted);
             if (IsWinterOrb(gem.Effect))
                 orbEffect = await WinterOrbStart(player, skillId, gem, action);
@@ -2779,9 +2789,9 @@ public static partial class Game
                         if (Running()) WitherPulseLocked(player, SupportedSkill(player, skillId), wither.Aim, AreaTime(player));
                     continue;
                 }
-                if (tendrils is not null)
+                if (aimedPulse is not null)
                 {
-                    await PulseLightningTendrils(player, tendrils, gem, action, now - channelStarted, lycia?.Pact.DamageMore ?? 1);
+                    await AimedPulse(aimedPulse, now - channelStarted);
                     continue;
                 }
                 double focusedMore = FocusedChannelMore(now - channelStarted,
@@ -2818,8 +2828,8 @@ public static partial class Game
                     && WitherChannels.TryGetValue(player, out var wither) && wither.Generation == generation)
                     WitherChannels.Remove(player);
                 if (flameblast is not null) RetireFlameblastLocked(player, generation);
-                if (tendrils is not null && TendrilsChannels.TryGetValue(player, out var currentTendrils)
-                    && ReferenceEquals(tendrils, currentTendrils)) TendrilsChannels.Remove(player);
+                if (aimedPulse is not null && AimedPulseChannels.TryGetValue(player, out var currentPulse)
+                    && ReferenceEquals(aimedPulse, currentPulse)) AimedPulseChannels.Remove(player);
             }
             EndCycloneStages(player, generation, AreaTime(player));
             RetireBladeFlurry(player, generation);
@@ -2866,7 +2876,7 @@ public static partial class Game
             wither.Aim = (x, y);
             return true;
         }
-        return AimLightningTendrils(player, (x, y)) || AimBladeFlurry(player, (x, y)) || dashAimed;
+        return AimPulseChannel(player, (x, y)) || AimBladeFlurry(player, (x, y)) || dashAimed;
     }
 
     // C→S 0x193 (class 0x1431767e8, writer 0x140911210, sender 0x14011ecb0): retarget an active held or channelled
@@ -2989,7 +2999,7 @@ public static partial class Game
                 || IsBladeFlurryChannelling(player, skill, generation, action)
                 || CurrentChargedDash(player) is not null
                 || player.PaidChannel is { } paid && paid.Skill == skill
-                    && (IsLightningTendrils(SkillsFor(player).EffectId(paid.Effect))
+                    && (IsAimedPulseEffect(SkillsFor(player).EffectId(paid.Effect))
                         || IsDivineIre(player, paid.Effect) || IsFlameblast(SkillsFor(player).EffectId(paid.Effect)))
                 || now - player.LastChannelUpdateAt <= ChannelSilenceSeconds);
     }

@@ -465,6 +465,7 @@ public static partial class Game
                 m.TauntedUntil = RecipientEffectTime.RetimedDeadline(m.TauntedUntil, now, oldRate, rate); m.RecipientDebuffRate = rate;
                 RetimePestilentStrike(player, id, m, now, oldRate, rate);
                 RetimeSoulrendDamage(player.Area, id, m, now, oldRate, rate);
+                RetimeBlight(m, now, oldRate, rate);
                 RetimeFleshrendDamage(m, now, oldRate, rate);
                 m.Ruptures.SetExpiryRate(now, rate);
                 m.Bleeds.SetExpiryRate(now, BleedingExpiryRate(m, now));
