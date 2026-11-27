@@ -5,7 +5,7 @@ using GameServer.Storage;
 sealed partial class ItemEffectRules
 {
     // Compile once per world snapshot. Combat only sees resolved stat keys and typed values.
-    void Compile(GameDataStore.FxRuleRow row, List<ChargeGains.Rule> charges, List<ChargeGains.Rule> equipmentCharges)
+    void Compile(GameDataStore.FxRuleRow row, List<ChargeGains.Rule> charges, List<ChargeGains.Rule> conditionalCharges)
     {
         try
         {
@@ -49,7 +49,12 @@ sealed partial class ItemEffectRules
                         when = Matches(equipment.Args, """{"is":"holding_shield"}""") ? static (e, w) => e is ChargeEvent.Kill && w.Shield
                             : Matches(equipment.Args, """{"is":"dual_wielding"}""") ? static (e, w) => e is ChargeEvent.Kill && w.DualWield
                             : throw new FormatException("expected holding_shield or dual_wielding");
-                        destination = equipmentCharges;
+                        destination = conditionalCharges;
+                    }
+                    else if (Take("enemy_frozen_at_death", "{}"))
+                    {
+                        when = static (e, _) => e is ChargeEvent.Kill { Frozen: true };
+                        destination = conditionalCharges;
                     }
                     foreach (uint stat in Sources("stat")) destination.Add(new(stat, type, when));
                     break;

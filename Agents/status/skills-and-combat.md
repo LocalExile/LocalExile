@@ -429,7 +429,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   ground effects.
   Docs: [11](../docs/protocol/11-skills.md) Â§10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) Â§12.
-- World effect rules drive Onslaught and basic percentage-based charge gains on kill and their shield and dual-wield variants, item-granted marks on hit and Svalinn's socketed spell on block.
+- World effect rules drive Onslaught and basic percentage-based charge gains on kill and their shield, dual-wield and frozen-enemy variants, item-granted marks on hit and Svalinn's socketed spell on block.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) Â§8a.
 - Rampage and Soul Eater from item stats, with Soul Ascension's souls from hits on rare and unique enemies.
   Docs: [11](../docs/protocol/11-skills.md) Â§12.
