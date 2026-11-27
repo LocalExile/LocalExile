@@ -174,6 +174,16 @@ public sealed partial class ProjectileRuntime
         return result;
     }
 
+    /// <summary>Resolve a fresh hit from a completed flight, retaining its distance and continuation modifiers.</summary>
+    public ProjectileHitResult RepeatContact(ProjectileEntity flight, ProjectileActor target, string stage)
+    {
+        var contact = flight.AreaSnapshot();
+        contact.Position = target.Position(Now);
+        var result = Damage(contact, target, stage, group: ++sequence, rule: new());
+        removals++;
+        return result;
+    }
+
     ProjectileEntity ImpactEntity(ProjectileUse use, ProjectileVector centre)
     {
         long id = ++sequence;

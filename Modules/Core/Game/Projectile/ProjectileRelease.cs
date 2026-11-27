@@ -616,6 +616,8 @@ public static partial class Game
         };
         if (!spell) otherWarcryExertions += MeleeWarcryTriggersFor(criticalRoll)?.Count ?? 0;
         shot = shot with { IntimidatingCryExerted = cryExerted, OtherWarcryExertions = otherWarcryExertions, RallyingDamage = rallyingDamage };
+        if (SkillsFor(player).EffectId(gem.Effect) == "LightningArrowAltX")
+            shot = shot with { Electrocution = CaptureElectrocution(Get) };
         if (GatewayProjectileSkillProfiles.IsIceShot(SkillsFor(player).EffectId(gem.Effect)) && areaHitInputs is { } coneInputs)
         {
             shot = shot with

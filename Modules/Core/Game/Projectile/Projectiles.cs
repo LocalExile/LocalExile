@@ -346,6 +346,7 @@ public static partial class Game
             ClearPlacedVolatileOrbs();
             ClearCremationGeysers();
             ClearEnsnares();
+            ClearElectrocutionArrows();
             ClearStormRain();
             ClearConflagration();
             ClearExplosiveFuses();
@@ -1156,6 +1157,7 @@ public static partial class Game
                 LeaveKnifeBlade(value);
                 ExplosiveArrowAtEnd(value);
                 EnsnaringArrowAtEnd(value);
+                ElectrocutionAtEnd(value);
                 if (value.Reason == ProjectileEndReason.Landing && p.Use.Payload is ProjectileOffense { Unearth: { } corpse })
                     LandUnearth(corpse, (x, y));
             }

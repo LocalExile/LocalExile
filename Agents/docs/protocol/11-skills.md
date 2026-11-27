@@ -2467,6 +2467,8 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   it by radius. The server estimates the base damage angle at 90 degrees before applying the gem's angle modifier.
 - **Lightning Arrow**: each hit calls secondary strikes on up to 3 nearby enemies within 18 cells (`ContactTargets`,
   `lightning_arrow_maximum_number_of_extra_targets`), scaled by area of effect.
+- **Lightning Arrow of Electrocution**: a completed enemy hit attaches an arrow. Its additional strikes use the
+  original flight's attack inputs and the target's current state. The gem's attachment cap is shared per enemy.
 - **Rolling Magma**: its base radius 14 and the 16 cells between impacts are estimates, not read from the client; its
   slower bounces (375 ms each) make a bounce's hits land about 0.1 s early.
 - **Tornado Shot's secondaries**: each primary arrow pierces its contacts and emits three `TornadoShotSecondaryArrow`
