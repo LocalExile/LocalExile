@@ -22,9 +22,10 @@ static partial class Game
             uint obj = player.TakeObjectId();
             // Native art radii are world units, the area radius grid cells; art with no radius plays at its own size.
             float scale = Art.ArtRadius(art) is int native and > 0 ? (float)(radius * (250d / 23) / native) : 1;
-            await SendWorldCreate(player, obj, CreateEffectObject(obj, new EffectObject(at.X, at.Y, art)
+            await SendWorldCreate(player, obj, () => CreateEffectObject(obj, new EffectObject(at.X, at.Y, art)
                 { Flags0 = EffectObject.FixedRotation, Scale = scale }),
-                $"0x02bb triggered shock nova effect 0x{obj:x} {art} at ({at.X}, {at.Y}), scale {scale:0.###}");
+                $"0x02bb triggered shock nova effect 0x{obj:x} {art} at ({at.X}, {at.Y}), scale {scale:0.###}",
+                awaitBirth: false);
             SendAfter(player, 1.5, async () =>
             {
                 if (player.Closed || player.LeavingArea || player.ProjectileEpoch != epoch) return;
