@@ -211,8 +211,8 @@ public sealed class HarvestCropRotationTests
             Assert.Contains(up.Seeds, s => tables.Seeds[s.Row].Tier == 2);
             Assert.Equal(up.Seeds, after.Objects[up.Extractor].Seeds);
             Assert.Equal(up.Seeds, after.Objects[up.Irrigator].Seeds);
-            Assert.Equal(0, after.Objects[up.Extractor].States["in_combat"]);
-            Assert.Equal(0, after.Objects[up.Irrigator].States["in_combat"]);
+            Assert.False(after.Objects[up.Extractor].States.ContainsKey("in_combat"));
+            Assert.False(after.Objects[up.Irrigator].States.ContainsKey("in_combat"));
             var rows = up.SeedObjects.Select(id => after.Objects[id].Seeds.Single().Row).ToList();
             Assert.Equal(up.Seeds.SelectMany(s => Enumerable.Repeat(s.Row, s.Count)).Order(), rows.Order());
             Assert.All(up.SeedObjects, id => Assert.Equal(tables.Seeds[after.Objects[id].Seeds.Single().Row].Model, after.Objects[id].Model));
@@ -411,6 +411,68 @@ public sealed class HarvestCropRotationTests
         Assert.Equal(SacredGrove.Phase.Withered, after.Crops.Single(c => c.Site == chosen.Site && c.Slot != chosen.Slot).Phase);
     }
 
+    [Fact]
+    public async Task Harvest_rules_0x02c9_toggles_in_progress_on_enter_start_and_complete()
+    {
+        SacredGrove.LoadGameData();
+        Assert.Equal((byte[])[0x02, 0xc9, 105, 3, 0, 0, 0], InstanceHarvest.HarvestRulesSnapshot(false));
+        Assert.Equal((byte[])[0x02, 0xc9, 105, 3, 0, 1, 0], InstanceHarvest.HarvestRulesSnapshot(true));
+        Assert.Equal((byte[])[0x02, 0xc9, 105, 7, 1, 1, 0, 0, 0, 0, 0], InstanceHarvest.HarvestRulesUpdate(true));
+        Assert.Equal((byte[])[0x02, 0xc9, 105, 7, 1, 0, 0, 0, 0, 0, 0], InstanceHarvest.HarvestRulesUpdate(false));
+
+        var level = SyntheticGroveLevel(siteCount: 2);
+        var layout = new AreaLayout(1, "MapWorldsStrand", 300, 300, 10, 10, (x, y) => x is >= 0 and < 300 && y is >= 0 and < 300, [])
+        {
+            Level = level,
+        };
+        var instance = new InstanceState();
+        instance.OpenedWith(new("CropOwner", new(layout.Hash, layout.Id, "Strand", 16) { Level = 83 }, new MapMods(new Dictionary<uint, int>())));
+
+        // Entering an idle grove sends AddRuleset followed by mode 0 snapshot with inProgress=0.
+        await using var enterWire = new CaptureWire();
+        var player = NewConn(layout, instance, seed: 7, enterWire);
+        await SacredGrove.Enter(player);
+        enterWire.CloseWriter();
+        var enterPackets = ParsePackets(await enterWire.ReadAllAsync());
+        int rulesIdx = enterPackets.FindIndex(p => p.Id == InstanceProtocol.AddRulesetId);
+        int snapIdx = enterPackets.FindIndex(p => p.Id == InstanceRulesets.DataId && p.EntityId == InstanceHarvest.HarvestRulesetRow);
+        Assert.True(rulesIdx >= 0 && snapIdx == rulesIdx + 1);
+        Assert.Equal((byte[])[0, 0, 0], enterPackets[snapIdx].Blob);
+
+        // Starting a crop broadcasts mode 1 inProgress=1 (exact 7 bytes).
+        var initial = ReadGrove(instance);
+        var chosen = initial.Crops[0];
+        var irrigator = initial.Objects[chosen.Irrigator];
+        player.Walk.Teleport(irrigator.X, irrigator.Y, 0);
+
+        await using var startWire = new CaptureWire();
+        player.Connection.Session = new("harvest-rules-start", startWire.Stream, startWire.Ciphers);
+        Assert.True(await SacredGrove.ActivateFromLabel(player, chosen.Irrigator));
+        startWire.CloseWriter();
+        var startPackets = ParsePackets(await startWire.ReadAllAsync());
+        var startRules = Assert.Single(startPackets, p => p.Id == InstanceRulesets.DataId);
+        Assert.Equal((byte[])[1, 1, 0, 0, 0, 0, 0], startRules.Blob);
+
+        // Re-entering while a crop is running sends mode 0 snapshot with inProgress=1.
+        await using var reentryWire = new CaptureWire();
+        var peer = NewConn(layout, instance, seed: 7, reentryWire);
+        await SacredGrove.Enter(peer);
+        reentryWire.CloseWriter();
+        var reentrySnap = Assert.Single(ParsePackets(await reentryWire.ReadAllAsync()), p => p.Id == InstanceRulesets.DataId);
+        Assert.Equal((byte[])[0, 1, 0], reentrySnap.Blob);
+
+        // Completing the crop broadcasts mode 1 inProgress=0 (exact 7 bytes).
+        var runningCrop = ReadGrove(instance).Crops.Single(c => c.Irrigator == chosen.Irrigator);
+        foreach (uint mid in runningCrop.Monsters)
+            if (player.Area.Monsters.TryGetValue(mid, out var m)) { m.Dead = true; m.Life = 0; }
+        await using var tickWire = new CaptureWire();
+        player.Connection.Session = new("harvest-rules-complete", tickWire.Stream, tickWire.Ciphers);
+        await SacredGrove.Tick(player);
+        tickWire.CloseWriter();
+        var completeRules = Assert.Single(ParsePackets(await tickWire.ReadAllAsync()), p => p.Id == InstanceRulesets.DataId);
+        Assert.Equal((byte[])[1, 0, 0, 0, 0, 0, 0], completeRules.Blob);
+    }
+
     static byte[] BlobOf(SacredGrove.GroveObject o)
     {
         var type = HarvestTables.Current.Objects[o.Type];
@@ -468,6 +530,15 @@ public sealed class HarvestCropRotationTests
                     p += 5;
                     list.Add(new(id, 0, []));
                     break;
+                case InstanceRulesets.DataId:
+                {
+                    byte row = raw[p++];
+                    int len = raw[p++];
+                    byte[] blob = raw[p..(p + len)];
+                    p += len;
+                    list.Add(new(id, row, blob));
+                    break;
+                }
                 case InstanceProtocol.MonstersRemainingId:
                     p += 1;
                     list.Add(new(id, 0, []));
