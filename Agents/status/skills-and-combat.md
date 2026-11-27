@@ -511,6 +511,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Not working yet
 
+- Frozen Legion still needs a statue executor.
+  The player is prevented from using Frozen Sweep directly in both gem variants.
 - Projectile spawn height on platforms and doodads: the server has no surface-height model (#182).
   Docs: [11](../docs/protocol/11-skills.md) Â§10.
 - Spirit of Utula's Leadership and Rakiata's Mark trigger need their own chieftain executors.

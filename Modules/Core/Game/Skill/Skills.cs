@@ -1227,6 +1227,8 @@ public static partial class Game
 
     static string? ActorSkillDisabledNow(Player player, int effect, ushort? skillId)
     {
+        // RingOfIceSweep is a derived action of the Frozen Legion statues, including the Rallying variant.
+        if (SkillsFor(player).ActionHash(effect) == 0x93fb) return "this skill can only be used by Frozen Legion statues";
         if (VaalMinionProxyDisabled(player, effect, skillId) is { } proxy) return proxy;
         if (SkillMinionFamily(SkillsFor(player).EffectId(effect)) is { } family && !CanHaveMinion(PlayerStatValues(player), family))
             return "equipment prevents summoning this type of minion";
