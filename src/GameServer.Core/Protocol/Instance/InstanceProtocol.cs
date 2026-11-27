@@ -28,6 +28,16 @@ public static class InstanceProtocol
     /// (instance dispatcher 0x142150ae0 case 8, slot 8 0x1415a6800); client code finds a ruleset there by its row.</summary>
     public static byte[] AddRuleset(byte row, uint value = 0) => new LoginWriter().U16(AddRulesetId).U8(row).U32(value).ToArray();
 
+    public const ushort VillageEventId = 0x1e;
+
+    /// <summary>S→C 0x1e: u32 settlement record kind, then the event name as a narrow string (u16 length + bytes).
+    /// The instance dispatcher's case for 0x1e (client 0x1421514af) reads the u32 at message +0x10 and looks the
+    /// settlement record up by it (<c>0x141ec5880</c>), then hands the name at +0x18 to the record's vtable slot 3
+    /// (<c>0x1421714f0</c> → <c>0x14176a8e0</c>), which answers "village_imgui" (<c>0x14348e980</c>), "reroll_recruits"
+    /// (<c>0x14348e990</c>) and "super_reroll_recruits" (<c>0x14348e928</c>); "village_imgui" is the one that builds the
+    /// village UI (the town panel).</summary>
+    public static byte[] VillageEvent(uint kind, string name) => new LoginWriter().U16(VillageEventId).U32(kind).Str(name).ToArray();
+
     /// <summary>0x1d's extra data (<see cref="AreaInstance.TerrainData"/>) holding only terrain plugin states: flag bytes
     /// 0x00, 0x01 (second byte bit 0), u8 count, then per plugin its TerrainPlugins <c>__col1</c> id (u16), the state's
     /// length (u16) and the state, little-endian (<c>0x141ecdad0</c> → world +0x70). At generation start the client

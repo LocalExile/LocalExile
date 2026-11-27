@@ -13,6 +13,7 @@
   </Folder>
   <Folder Name="/Modules/">
     <Project Path="Modules/Core/Game/Game.csproj" />
+    <Project Path="Modules/Core/Village/Village.csproj" />
     <Project Path="Modules/Core/Content/Abyss/Abyss.csproj" />
     <Project Path="Modules/Core/Content/Anarchy/Anarchy.csproj" />
     <Project Path="Modules/Core/Content/Breach/Breach.csproj" />
