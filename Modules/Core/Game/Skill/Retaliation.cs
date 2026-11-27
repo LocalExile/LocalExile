@@ -7,6 +7,7 @@ public static partial class Game
     const string DivineRetributionOpportunity = "divine_retribution_opportunity";
     const string VengefulCryEffect = "VengefulCry";
     const string VengefulCryOpportunity = "vengeful_cry_opportunity";
+    const ushort CrushingFistAction = 0x11f1;
     readonly record struct RetaliationGate(string Event, ushort Buff, bool OnBlock = true);
 
     static RetaliationGate? RetaliationOpportunity(string? effect) => effect switch
@@ -72,6 +73,76 @@ public static partial class Game
 
     static bool IsSwordstorm(string? effect) => effect == "Swordstorm";
 
+    static double CrushingFistContactDelay(Player player, AttackHand hand, double attackSeconds,
+        out double placementDelay, out string? clip, out double contactFraction)
+    {
+        // RetaliationHandOfJustice fits SpellAreaOfEffect and GroundSlam (or GroundSlamOffhand) into
+        // successive halves of the attack time. The first contact fixes the centre, the second deals damage.
+        string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO")
+            ?? SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject;
+        var profile = AnimationWeaponProfileFor(player);
+        string stance = Stance(ActiveMainHand(player)?.Type?.Class) + Stance(ActiveOffHand(player)?.Type?.Class);
+        if (stance.Length == 0) stance = "Unarmed";
+        double placement = Contact("SpellAreaOfEffect")?.Contact ?? Animations.SpellAreaRelease(ao);
+        var slam = (hand == AttackHand.Off ? Contact("GroundSlamOffhand") : null)
+            ?? Contact("GroundSlam")
+            ?? Animations.SkillAttackContact(ao, profile, "groundslam");
+        placementDelay = attackSeconds * placement / 2;
+        clip = slam?.Name ?? "GroundSlam";
+        contactFraction = (1 + (slam?.Contact ?? .65)) / 2;
+        return attackSeconds * contactFraction;
+
+        (string Name, double Contact)? Contact(string action) =>
+            Animations.ActAnimationEvents(ao, stance, action, "contact") is { Times.Count: > 0 } animation
+                ? (animation.Name, (double)animation.Times[0] / animation.LengthMs) : null;
+
+        static string Stance(string? itemClass) => itemClass switch
+        {
+            null => "",
+            "Claw" => "Claw",
+            "Dagger" or "Rune Dagger" => "Dagger",
+            "Thrusting One Hand Sword" => "OneHandSwordThrusting",
+            "Staff" or "Warstaff" => "Staff",
+            "Two Hand Sword" or "Two Hand Axe" => "TwoHandSword",
+            "Two Hand Mace" => "TwoHandMace",
+            "Shield" => "Shield",
+            _ => "OneHandSword",
+        };
+    }
+
+    static (int X, int Y) PlaceCrushingFist(Player player, int effect, SkillCatalog.Unarmed weapon,
+        IReadOnlyDictionary<uint, int> skillStats, (int X, int Y) aim, uint targetId)
+    {
+        double now = ProjectileWorldTime(player);
+        var origin = player.Walk.Position(now);
+        if (targetId != 0 && player.Area.Monsters.TryGetValue(targetId, out var target) && !target.Dead)
+            aim = target.Walk.Position(now);
+
+        double distance = Dist(origin, aim);
+        double reach = RetaliationActionReach(player, weapon, effect, skillStats);
+        if (distance > reach)
+        {
+            double scale = reach / distance;
+            aim = (origin.X + (int)Math.Floor((aim.X - origin.X) * scale + .5),
+                origin.Y + (int)Math.Floor((aim.Y - origin.Y) * scale + .5));
+        }
+        var centre = origin;
+        var sight = player.Layout.Sight;
+        foreach (var cell in ClientPathfinder.Line(origin, aim))
+        {
+            // The projectile layer stops the projection. The walking layer only decides which cells can hold the fist.
+            if (sight?.Invoke(cell.X, cell.Y) == 0 || player.Barrier.Contains(cell)) break;
+            if (player.Layout.WalkableFor(cell.X, cell.Y, 0)) centre = cell;
+        }
+        return centre;
+    }
+
+    static long RetaliationActionReach(Player player, SkillCatalog.Unarmed weapon, int effect,
+        IReadOnlyDictionary<uint, int> skillStats) =>
+        Math.Max(0, (long)MeleeSkillReach(player, weapon, effect, skillStats)
+            + CharacterPlayerStats(player).GetValueOrDefault(Stat.AttackMaximumActionDistancePlus)
+            + skillStats.GetValueOrDefault(Stat.AttackMaximumActionDistancePlus));
+
     // The ice and lightning retaliation cones advance the same 10-cell band, at different speeds and angles.
     static List<uint>? RetaliationConeTargetsLocked(Player player, (int X, int Y) origin, (double X, double Y) facing,
         double sine, double cosine, int radius, int step, int steps, HashSet<uint> seen)
@@ -129,10 +200,7 @@ public static partial class Game
             ? (Math.Sin(player.Layout.SpawnRotation), -Math.Cos(player.Layout.SpawnRotation))
             : GroundSlamWave.Direction(origin, aim);
         // RetaliationWeaponStorm (0x141c13e50) fixes the centre one attack reach forward.
-        var stats = CharacterPlayerStats(player);
-        long offset = Math.Max(0, (long)MeleeSkillReach(player, weapon, gem.Effect, source.Stats)
-            + stats.GetValueOrDefault(Stat.AttackMaximumActionDistancePlus)
-            + source.Stats.GetValueOrDefault(Stat.AttackMaximumActionDistancePlus));
+        long offset = RetaliationActionReach(player, weapon, gem.Effect, source.Stats);
         var centre = (origin.X + (int)Math.Floor(direction.Item1 * offset + .5),
             origin.Y + (int)Math.Floor(direction.Item2 * offset + .5));
         var attack = CaptureAreaAttack(player, gem.Id, source, AttackHand.Both, weapon, null,

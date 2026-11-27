@@ -175,10 +175,14 @@ public sealed class AnimationContacts
 
     /// <summary>Named events of the exact single clip selected by an ACT action and weapon stance.</summary>
     public (string Name, int LengthMs, IReadOnlyList<int> Times)? ActAnimationEvents(
-        string animatedObject, WeaponProfile weapon, string action, string eventName)
+        string animatedObject, WeaponProfile weapon, string action, string eventName) =>
+        ActAnimationEvents(animatedObject, StanceFor(weapon) ?? "Unarmed", action, eventName);
+
+    public (string Name, int LengthMs, IReadOnlyList<int> Times)? ActAnimationEvents(
+        string animatedObject, string stance, string action, string eventName)
     {
         if (!_byAo.TryGetValue(animatedObject, out var actor)
-            || !actor.SkillClips.TryGetValue((StanceFor(weapon) ?? "Unarmed", action), out string? name)
+            || !actor.SkillClips.TryGetValue((stance, action), out string? name)
             || !actor.AllClips.TryGetValue(name, out var clip) || clip.Length <= 0
             || clip.Events is not { } events || !events.TryGetValue(eventName, out var times)) return null;
         return (name, clip.Length, times);
