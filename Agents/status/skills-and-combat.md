@@ -550,6 +550,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Player-cast Blade Flurry and Blade Flurry of Incision with aimed acquisition, paid stages, and release strikes.
   Docs: [11](../docs/protocol/11-skills.md#blade-flurry).
 - Both Charged Dash gems channel in place, hit along the steered path and release a final wave. Only the base gem teleports.
+- Player-cast Flameblast gains paid stages and explodes at its aimed location on release. Celerity also explodes at
+  maximum stages, and Contraction loses radius as it stages.
 - Wither pulses follow the channel aim. Players and spell totems apply Hinder and separately expiring Withered stacks.
 - Channel-dependent item modifiers follow the player's active channel through release, interruption and skill removal.
   The normal gem moves to a legal landing; the Projection variant stays in place.

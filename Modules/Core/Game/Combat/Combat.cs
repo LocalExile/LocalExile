@@ -39,6 +39,7 @@ public static partial class Game
             double at = AreaTime(player);
             RetireChargedDashLocked(player, started);
             RetireBladeFlurry(player, started);
+            RetireFlameblastLocked(player, started);
             if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill)
             {
                 var (x, y) = player.Walk.Position(at);
@@ -1624,6 +1625,8 @@ public static partial class Game
                         channelGeneration = BeginPaidChannel(player, skillId, gem.Effect, action, sequence);
                         if (SkillsFor(player).EffectId(gem.Effect) == WitherEffect)
                             WitherChannels.AddOrUpdate(player, new(skillId, channelGeneration.Value, to));
+                        if (IsFlameblast(SkillsFor(player).EffectId(gem.Effect)))
+                            BeginFlameblast(player, paymentGem, skillId, action, channelGeneration.Value, sequence, to);
                         if (IsBladeFlurry(player, gem.Effect))
                             BeginBladeFlurry(player, paymentGem, skillId, action, channelGeneration.Value, sequence, to);
                         if (IsChargedDash(player, gem.Effect))
@@ -1714,6 +1717,7 @@ public static partial class Game
             { AbortStartedChannel(player, channelGeneration); return false; }
             player.NextChannelHitAt = AreaTime(player) + (IsSnipe(gem.Effect) ? interval / 2 : interval);
             _ = RunChannel(player, skillId, gem, action, to, initialCostPaid: true);
+            if (IsFlameblast(SkillsFor(player).EffectId(gem.Effect))) return CompleteSupportedUse(true);
             if (SkillsFor(player).EffectId(gem.Effect) == WitherEffect)
             {
                 using (ProjectileMutation(player))
@@ -2596,7 +2600,9 @@ public static partial class Game
         uint orbEffect = 0;
         bool snipe = IsSnipe(gem.Effect);
         bool scourge = IsChannelledScourgeArrow(gem.Effect);
-        bool firstStagePaid = snipe;
+        var flameblast = FlameblastChannels.TryGetValue(player, out var flame)
+            && flame.Skill == skillId && flame.Generation == generation && flame.Action == action ? flame : null;
+        bool firstStagePaid = snipe || flameblast is not null && initialCostPaid;
         ChargedDashChannel? dash;
         lock (LevelUpdatesFor(player).Gate) dash = CurrentChargedDash(player);
         bool OwnsChannel() => player.ChannelGeneration == generation && player.ChannelSkill == skillId && player.ActionCount == action;
@@ -2665,6 +2671,11 @@ public static partial class Game
                     await EndPaidDash(now);
                     return;
                 }
+                if (flameblast is not null && (blocked || flameblast.Interruption != player.ActionInterruptionGeneration))
+                {
+                    AbortStartedChannel(player, generation);
+                    return;
+                }
                 if (blocked) { player.NextChannelHitAt = now + TickSeconds; continue; }
                 var activeGem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
                 if (activeGem.Name is null || activeGem.Effect != gem.Effect
@@ -2675,6 +2686,12 @@ public static partial class Game
                 if (SupportedChannelSeconds(player, skillId) is not double interval)
                 { player.ChannelSkill = 0; player.ChannelGeneration++; player.PaidChannel = null; return; }
                 player.NextChannelHitAt = Math.Max(player.NextChannelHitAt, now - 0.05) + interval;
+                if (flameblast is not null)
+                {
+                    await TickFlameblast(player, flameblast, now, firstStagePaid, overheatPerThree, lycia);
+                    firstStagePaid = false;
+                    continue;
+                }
                 // Payment and admission share the channel's generation check.
                 if (firstStagePaid)
                 {
@@ -2789,6 +2806,7 @@ public static partial class Game
                 if (SkillsFor(player).EffectId(gem.Effect) == WitherEffect
                     && WitherChannels.TryGetValue(player, out var wither) && wither.Generation == generation)
                     WitherChannels.Remove(player);
+                if (flameblast is not null) RetireFlameblastLocked(player, generation);
             }
             EndCycloneStages(player, generation, AreaTime(player));
             RetireBladeFlurry(player, generation);
@@ -2913,12 +2931,15 @@ public static partial class Game
 
     static (int X, int Y)? EndChannel(Player player, double at)
     {
-        if (player.ProjectileRuntime is ProjectileSession { LyciaChannel: { } lycia } session)
+        var session = player.ProjectileRuntime as ProjectileSession;
+        var lycia = session?.LyciaChannel;
+        if (session is not null && lycia is not null)
             using (ProjectileMutation(player, advance: false))
                 FinishLyciaChannel(session, lycia, GameServer.Core.Projectiles.ProjectileRuntime.Time(at));
         lock (LevelUpdatesFor(player).Gate)
         {
             var landing = ReleaseChargedDashLocked(player, at);
+            ReleaseFlameblastLocked(player, at, lycia);
             SnipeReleasedByInput(player, at);
             ReleaseScourgeChannel(player, at);
             _ = ReleaseBladeFlurry(player, at);
@@ -2956,7 +2977,7 @@ public static partial class Game
                 || CurrentChargedDash(player) is not null
                 || player.PaidChannel is { } paid && paid.Skill == skill
                     && (SkillsFor(player).EffectId(paid.Effect) is "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale"
-                        || IsDivineIre(player, paid.Effect))
+                        || IsDivineIre(player, paid.Effect) || IsFlameblast(SkillsFor(player).EffectId(paid.Effect)))
                 || now - player.LastChannelUpdateAt <= ChannelSilenceSeconds);
     }
 
@@ -3068,7 +3089,8 @@ public static partial class Game
         BoneshatterContact? boneshatter = null, InfernalBlowUse? infernalBlast = null,
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false, bool seismicExerted = false, int ancestralTargets = 0,
-        int? rallyingDamage = null, RetainedAreaAttack? retainedAttack = null, IReadOnlyList<uint>? contactTargets = null) =>
+        int? rallyingDamage = null, RetainedAreaAttack? retainedAttack = null, IReadOnlyList<uint>? contactTargets = null,
+        double spellMore = 1, double ailmentMore = 1) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
@@ -3079,7 +3101,7 @@ public static partial class Game
             boneshatter: boneshatter, infernalBlast: infernalBlast, strikeSeconds: strikeSeconds,
             extraShockChance: extraShockChance, cascadeBurst: cascadeBurst,
             flurryRelease: flurryRelease, nearbyOnly: nearbyOnly, seismicExerted: seismicExerted, ancestralTargets: ancestralTargets,
-            rallyingDamage: rallyingDamage, contactTargets: contactTargets);
+            rallyingDamage: rallyingDamage, contactTargets: contactTargets, spellMore: spellMore, ailmentMore: ailmentMore);
 
     private static async Task AreaSkillHitStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -3099,7 +3121,7 @@ public static partial class Game
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         IReadOnlyList<uint>? contactTargets = null, BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false,
         LacerateUse? lacerate = null, SupportedGem? triggeredSpellSource = null, bool seismicExerted = false,
-        int ancestralTargets = 0, int? rallyingDamage = null)
+        int ancestralTargets = 0, int? rallyingDamage = null, double spellMore = 1, double ailmentMore = 1)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
@@ -4132,9 +4154,12 @@ public static partial class Game
                         if (m.FlinchUntil > ProjectileWorldTime(player))
                             profileMore *= Math.Max(0, 1 + Stat(global::Stat.ActiveSkillDamagePlusPctFinalVsStunnedEnemies) / 100d);
                     }
-                    if (profileMore != 1)
-                        profile = new(profile.Hit.Scale(profileMore), RepeatAilment(profile.Ignite, profileMore),
-                            RepeatAilment(profile.Bleed, profileMore), RepeatAilment(profile.Poison, profileMore));
+                    if (profileMore != 1 || spellMore != 1 || ailmentMore != 1)
+                    {
+                        double profileAilment = profileMore * ailmentMore;
+                        profile = new(profile.Hit.Scale(profileMore * spellMore), RepeatAilment(profile.Ignite, profileAilment),
+                            RepeatAilment(profile.Bleed, profileAilment), RepeatAilment(profile.Poison, profileAilment));
+                    }
                     if (!spell && repeat > 0 && retainedAttack is null)
                     {
                         double repeatMore = MeleeRepeatDamageMore(player, skillId, repeat);
