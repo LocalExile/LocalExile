@@ -23,6 +23,7 @@ sealed class GuardedPacksEffect : IShrineEffect
         {
             byte level = ShrineManager.AreaLevel(player);
             var created = new List<string>(shrine.Definition.GuardPacks.Count);
+            bool auraOwned = shrine.Before.Any(e => e is MonsterAuraEffect);
             int buffed = 0;
             foreach (var pack in shrine.Definition.GuardPacks)
             {
@@ -36,7 +37,7 @@ sealed class GuardedPacksEffect : IShrineEffect
                         MonsterRarity.Normal, x, y, alone: false, log: false);
                     if (guard == 0) break;
                     made++;
-                    if (shrine.Definition.Monster is { } monsterBuff
+                    if (!auraOwned && shrine.Definition.Monster is { } monsterBuff
                         && await GuardBuff(player, guard, monsterBuff))
                         buffed++;
                 }

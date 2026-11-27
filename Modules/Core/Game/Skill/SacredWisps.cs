@@ -4,17 +4,21 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    const string SummonSacredWispEffect = "SummonSacredWisp";
+
     public sealed partial class ProjectileSession
     {
         const string SacredWispVariety = "Metadata/Monsters/SacredWisp/SacredWisp_";
         const string SacredWispSupport = "SupportSacredWisps";
 
-        sealed record SacredWispStats(int BaseLimit, int DurationMs, int AttackChance, int PresenceChance);
+        sealed record SacredWispStats(int AttackChance, int PresenceChance);
 
-        sealed class SacredWisps(ushort skill, SupportedGem source, int cap, SacredWispStats native)
+        sealed class SacredWisps(ushort skill, SupportedGem source, ushort summonSkill, SupportedGem summon, int cap, SacredWispStats native)
         {
             public readonly ushort Skill = skill;
             public readonly SupportedGem Source = source;
+            public readonly ushort SummonSkill = summonSkill;
+            public readonly SupportedGem Summon = summon;
             public readonly List<(uint Id, SpawnedMonster Body)> Actors = new(cap);
             public readonly int Limit = cap;
             public readonly SacredWispStats Native = native;
@@ -35,23 +39,35 @@ public static partial class Game
                 || PlacedKind(source) != (false, false) || GolemStat(source.Stats, Stat.IsTotem) != 0) return;
             var active = sacredWisps is { } candidate && candidate.Skill == shot.SourceSkill
                 && Runtime.Now < candidate.Expires && SameTriggerSource(candidate.Source, source) ? candidate : null;
-            var native = active?.Native ?? NativeSacredWispStats(support.Gem.Level);
+            ushort? summonSkill = active?.SummonSkill;
+            var summon = summonSkill is ushort cached ? SupportedSkill(Player, cached) : null;
+            bool sameSummon = active is not null && summon is not null
+                && (ReferenceEquals(active.Summon, summon) || SameTriggerSource(active.Summon, summon));
+            if (!sameSummon)
+            {
+                summonSkill = SacredWispSummonFor(source, support);
+                summon = summonSkill is ushort resolved ? SupportedSkill(Player, resolved) : null;
+            }
+            if (summonSkill is not ushort summonId || summon is not { RequirementsMet: true }
+                || SkillsFor(Player).EffectId(summon.Effect) != SummonSacredWispEffect) return;
+            var own = summon.Stats;
             const uint capStat = Stat.BaseNumberOfSacredWispsAllowed;
             var stats = PlayerStatValues(Player);
-            int cap = (int)Math.Clamp(native.BaseLimit + (long)source.Stats.GetValueOrDefault(capStat)
-                + stats.GetValueOrDefault(capStat), 0, 200);
-            double duration = SkillDurationModifiers.Seconds(native.DurationMs,
-                key => GolemStat(stats, key), key => GolemStat(source.Stats, key));
+            int cap = (int)Math.Clamp((long)own.GetValueOrDefault(capStat) + stats.GetValueOrDefault(capStat), 0, 200);
+            double duration = SkillDurationModifiers.Seconds(own.GetValueOrDefault(Stat.BaseSkillEffectDuration),
+                stats.GetValueOrDefault, own.GetValueOrDefault, DurationKinds(Player, summon.Effect));
             if (cap <= 0 || duration <= 0) return;
             long until = Runtime.Now + ProjectileRuntime.Time(duration);
-            if (active is not null && active.Limit == cap)
+            if (active is not null && active.Limit == cap && sameSummon)
             {
                 active.Expires = until;
                 return;
             }
 
             EndSacredWisps();
-            var current = sacredWisps = new(shot.SourceSkill, source, cap, native) { Expires = until };
+            var native = new SacredWispStats(own.GetValueOrDefault(Stat.SupportSacredWispsWispPctChanceToAttack),
+                own.GetValueOrDefault(Stat.SupportSacredWispsWispAdditionalPctChanceToAttackWhenRareOrUniqueEnemyInPresence));
+            var current = sacredWisps = new(shot.SourceSkill, source, summonId, summon, cap, native) { Expires = until };
             Enqueue(() => SpawnSacredWisps(current));
 
             void Check()
@@ -63,16 +79,8 @@ public static partial class Game
             Runtime.Schedule(Math.Min(until, Runtime.Now + ProjectileRuntime.Time(.25)), Check);
         }
 
-        SacredWispStats NativeSacredWispStats(int level)
-        {
-            var catalog = SkillsFor(Player);
-            var native = catalog.EffectStats(catalog.EffectRow("SummonSacredWisp"), level)
-                .ToDictionary(pair => pair.Item1, pair => pair.Item2);
-            return new(native.GetValueOrDefault(Stat.BaseNumberOfSacredWispsAllowed),
-                native.GetValueOrDefault(Stat.BaseSkillEffectDuration),
-                native.GetValueOrDefault(Stat.SupportSacredWispsWispPctChanceToAttack),
-                native.GetValueOrDefault(Stat.SupportSacredWispsWispAdditionalPctChanceToAttackWhenRareOrUniqueEnemyInPresence));
-        }
+        ushort? SacredWispSummonFor(SupportedGem attack, GemSupports.Applied support) =>
+            SupportCompanionSourceLocked(Player, attack, support, SummonSacredWispEffect, "HungryLoopSupportedBySacredWisps")?.Id;
 
         async Task SpawnSacredWisps(SacredWisps wisps)
         {
@@ -137,14 +145,17 @@ public static partial class Game
                 WorldRecords(id, () => CurrentSacredWisps(wisps)
                     ? [InstanceProtocol.ActionStarted(id, from.X, from.Y, (int)Math.Round(use.Aim.X), (int)Math.Round(use.Aim.Y),
                         wisps.Skill, 0xffff, Player.MonsterOrderFlags), InstanceProtocol.ActionEnded(id)] : null);
-                Runtime.Release(use with
+                var wispUse = use with
                 {
-                    Seed = ++seed, Emitter = actor, Origin = Vector(from), ReturnAnchor = actor,
+                    Emitter = actor, Origin = Vector(from), ReturnAnchor = actor,
                     Payload = copy ??= Copy(shot), CanEmit = () => CurrentSacredWisps(wisps) && Runtime.Now < wisps.Expires
                         && !body.Dead && ReferenceEquals(Player.Area.Monsters.GetValueOrDefault(id), body),
                     ProjectilePayloads = perProjectile ??= use.ProjectilePayloads?.Select(payload => payload is ProjectileOffense offense
                         ? Copy(offense) : payload).ToArray(),
-                });
+                };
+                if (wispUse.Payload is ProjectileOffense { Fusillade: { } cast } fusillade)
+                    QueueFusillade(wispUse, fusillade, cast);
+                else Runtime.Release(wispUse with { Seed = ++seed });
             }
         }
 

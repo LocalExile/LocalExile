@@ -82,6 +82,17 @@ public sealed class BreachEncounter
         return encounters.GetValue(instance, _ => JsonSerializer.Deserialize<Encounter>(text, serialization) ?? new());
     }
 
+    public bool IsActivePause(Player player)
+    {
+        if (player.Instance is not { } instance || !encounters.TryGetValue(instance, out var encounter)) return false;
+        for (int i = 0; i < encounter.Breaches.Count; i++)
+        {
+            var b = encounter.Breaches[i];
+            if (!b.Gone && b.Open) return true;
+        }
+        return false;
+    }
+
     void Save(InstanceState instance, Encounter encounter) =>
         instance.ContentState[StateKey] = JsonSerializer.Serialize(encounter, serialization);
 

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
@@ -19,6 +20,8 @@ public sealed class MonsterCatalog
         this.folder = folder;
         _resistance = new(folder);
         _rows = Load(folder);
+        _stockSnapshot = BuildSnapshot(_rows.Rows, [], [], 0, 0);
+        _snapshot = _stockSnapshot;
         _life = LifeTables.Load(folder);
         _mapBoss = MapBossScalingTable.Load(folder);
         _areaTiers = LoadAreaTiers();
@@ -76,6 +79,11 @@ public sealed class MonsterCatalog
         public IReadOnlyList<int>? Part2Mods { get; init; }
         public IReadOnlyList<int>? EndgameMods { get; init; }
         public IReadOnlyList<string> ComponentsOrBase => Components ?? MonsterObject.BaseComponents;
+        /// <summary>Index of the <c>StateMachine</c> component in <see cref="ComponentsOrBase"/>, or −1 when absent.</summary>
+        public int StateMachineComponentIndex => IndexOfComponent(ComponentsOrBase, "StateMachine");
+        /// <summary>Per-shared-state metadata from <c>object_type_state_meta</c> (client listeners, client GEAL writers,
+        /// and default-hidden rendering flags), merged with <c>AddonMonsterTypeIndex</c>.</summary>
+        public IReadOnlyDictionary<string, ObjectTypes.StateFlagMeta> StateMeta { get; init; } = EmptyStateMeta;
         /// <summary>The type's .ot chain from object-types.json, for lineage-gated extras
         /// (<see cref="MonsterObject.CanSerialize"/>): empty when object-types.json is absent.</summary>
         public IReadOnlyList<string> Chain { get; init; } = [];
@@ -87,6 +95,16 @@ public sealed class MonsterCatalog
         public IReadOnlyList<int> EndgameModsOrEmpty => EndgameMods ?? [];
         public bool Supported => MonsterObject.CanSerialize(ComponentsOrBase, StateMachine is not null, Chain);
         public override string ToString() => $"{Name} ({Id}, row {Row})";
+    }
+
+    static readonly IReadOnlyDictionary<string, ObjectTypes.StateFlagMeta> EmptyStateMeta =
+        new Dictionary<string, ObjectTypes.StateFlagMeta>();
+
+    static int IndexOfComponent(IReadOnlyList<string> components, string name)
+    {
+        for (int i = 0; i < components.Count; i++)
+            if (components[i] == name) return i;
+        return -1;
     }
 
     private readonly (List<Variety> Rows, string? Error) _rows;
@@ -471,15 +489,185 @@ public sealed class MonsterCatalog
         }
     }
 
+    sealed record RegisteredOverlay(long Id, string Owner, Variety Variety);
+
+    sealed record CatalogSnapshot(
+        List<Variety> Rows,
+        Dictionary<int, Variety> ByRow,
+        Dictionary<string, Variety> ById,
+        long LocalRevision,
+        long SharedRevision);
+
+    static ImmutableArray<RegisteredOverlay> _sharedOverlays = [];
+    static long _sharedNextId;
+    static long _sharedRevision;
+
+    ImmutableArray<RegisteredOverlay> _localOverlays = [];
+    long _localNextId;
+    long _localRevision;
+    readonly Lock _snapshotLock = new();
+    readonly CatalogSnapshot _stockSnapshot;
+    CatalogSnapshot _snapshot;
+
+    /// <summary>Advances whenever shared runtime <see cref="MonsterCatalog"/> overlays change.</summary>
+    public static long OverlayRevision => Volatile.Read(ref _sharedRevision);
+
+    /// <summary>Advances whenever this catalog's instance or shared runtime overlays change.</summary>
+    public long Revision => Volatile.Read(ref _localRevision) + Volatile.Read(ref _sharedRevision);
+
+    /// <summary>Registers a runtime <see cref="Variety"/> overlay visible to every <see cref="MonsterCatalog"/> instance
+    /// until the handle is disposed or <paramref name="owner"/> unloads via <see cref="GameEventOwners"/>.</summary>
+    public static IDisposable RegisterOverlay(string owner, Variety variety)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ValidateOverlay(variety);
+        long id = Interlocked.Increment(ref _sharedNextId);
+        ImmutableInterlocked.Update(ref _sharedOverlays, list => list.Add(new(id, owner, variety)));
+        Interlocked.Increment(ref _sharedRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _sharedOverlays, list => list.RemoveAll(e => e.Id == id)))
+                Interlocked.Increment(ref _sharedRevision);
+        }));
+    }
+
+    /// <summary>Registers a runtime <see cref="Variety"/> overlay on this <see cref="MonsterCatalog"/> instance until
+    /// disposed or <paramref name="owner"/> unloads via <see cref="GameEventOwners"/>.</summary>
+    public IDisposable Register(string owner, Variety variety)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ValidateOverlay(variety);
+        long id = Interlocked.Increment(ref _localNextId);
+        ImmutableInterlocked.Update(ref _localOverlays, list => list.Add(new(id, owner, variety)));
+        Interlocked.Increment(ref _localRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _localOverlays, list => list.RemoveAll(e => e.Id == id)))
+                Interlocked.Increment(ref _localRevision);
+        }));
+    }
+
+    static void ValidateOverlay(Variety variety)
+    {
+        ArgumentNullException.ThrowIfNull(variety);
+        if (string.IsNullOrWhiteSpace(variety.Id))
+            throw new ArgumentException("MonsterCatalog.Variety.Id must be non-empty.", nameof(variety));
+    }
+
+    CatalogSnapshot CurrentSnapshot()
+    {
+        long localRev = Volatile.Read(ref _localRevision);
+        long sharedRev = Volatile.Read(ref _sharedRevision);
+        var current = Volatile.Read(ref _snapshot);
+        if (current.LocalRevision == localRev && current.SharedRevision == sharedRev)
+            return current;
+        lock (_snapshotLock)
+        {
+            localRev = Volatile.Read(ref _localRevision);
+            sharedRev = Volatile.Read(ref _sharedRevision);
+            current = _snapshot;
+            if (current.LocalRevision == localRev && current.SharedRevision == sharedRev)
+                return current;
+            var shared = _sharedOverlays;
+            var local = _localOverlays;
+            if (shared.IsEmpty && local.IsEmpty)
+            {
+                var stock = _stockSnapshot with { LocalRevision = localRev, SharedRevision = sharedRev };
+                Volatile.Write(ref _snapshot, stock);
+                return stock;
+            }
+            var rebuilt = BuildSnapshot(_rows.Rows, shared, local, localRev, sharedRev);
+            Volatile.Write(ref _snapshot, rebuilt);
+            return rebuilt;
+        }
+    }
+
+    static CatalogSnapshot BuildSnapshot(
+        List<Variety> stockRows,
+        ImmutableArray<RegisteredOverlay> shared,
+        ImmutableArray<RegisteredOverlay> local,
+        long localRev,
+        long sharedRev)
+    {
+        var rows = new List<Variety>(stockRows.Count + shared.Length + local.Length);
+        rows.AddRange(stockRows);
+        var byRow = new Dictionary<int, Variety>(rows.Count + shared.Length + local.Length);
+        var byId = new Dictionary<string, Variety>(rows.Count + shared.Length + local.Length, StringComparer.OrdinalIgnoreCase);
+        var rowPos = new Dictionary<int, int>(rows.Count);
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var v = rows[i];
+            byRow[v.Row] = v;
+            byId.TryAdd(v.Id, v);
+            rowPos[v.Row] = i;
+        }
+        int nextSyntheticRow = stockRows.Count;
+        void Apply(ImmutableArray<RegisteredOverlay> entries)
+        {
+            for (int i = 0; i < entries.Length; i++)
+            {
+                var v = entries[i].Variety;
+                if (v.Row < 0)
+                {
+                    if (byId.TryGetValue(v.Id, out var existingById))
+                        v = v with { Row = existingById.Row };
+                    else
+                    {
+                        while (byRow.ContainsKey(nextSyntheticRow)) nextSyntheticRow++;
+                        v = v with { Row = nextSyntheticRow++ };
+                    }
+                }
+                if (byRow.TryGetValue(v.Row, out var replacedRow)
+                    && byId.TryGetValue(replacedRow.Id, out var curId) && ReferenceEquals(curId, replacedRow))
+                    byId.Remove(replacedRow.Id);
+                if (byId.TryGetValue(v.Id, out var replacedId) && replacedId.Row != v.Row)
+                {
+                    byRow.Remove(replacedId.Row);
+                    if (rowPos.Remove(replacedId.Row, out int oldPos))
+                    {
+                        int lastIdx = rows.Count - 1;
+                        if (oldPos < lastIdx)
+                        {
+                            var moved = rows[lastIdx];
+                            rows[oldPos] = moved;
+                            rowPos[moved.Row] = oldPos;
+                        }
+                        rows.RemoveAt(lastIdx);
+                    }
+                }
+                if (rowPos.TryGetValue(v.Row, out int pos))
+                    rows[pos] = v;
+                else
+                {
+                    rowPos[v.Row] = rows.Count;
+                    rows.Add(v);
+                }
+                byRow[v.Row] = v;
+                byId[v.Id] = v;
+            }
+        }
+        Apply(shared);
+        Apply(local);
+        return new(rows, byRow, byId, localRev, sharedRev);
+    }
+
+    sealed class Undo(Action undo) : IDisposable
+    {
+        Action? _undo = undo;
+        public void Dispose() => Interlocked.Exchange(ref _undo, null)?.Invoke();
+    }
+
     /// <summary>A MonsterVarieties row by number, or by Id: exact, then the last path segment, then any part of it,
     /// then the display name. Several matches: the first one the blob writer supports.</summary>
     /// <summary>Every MonsterVarieties row (the launcher's suggestions).</summary>
-    public IReadOnlyList<Variety> All => _rows.Rows;
+    public IReadOnlyList<Variety> All => CurrentSnapshot().Rows;
 
     public Variety? Find(string query)
     {
-        var rows = _rows.Rows;
-        if (int.TryParse(query, out int row)) return row >= 0 && row < rows.Count ? rows[row] : null;
+        var snap = CurrentSnapshot();
+        if (int.TryParse(query, out int row)) return snap.ByRow.GetValueOrDefault(row);
+        if (snap.ById.TryGetValue(query, out var exact)) return exact;
+        var rows = snap.Rows;
         foreach (Func<Variety, bool> match in new Func<Variety, bool>[]
         {
             v => v.Id.Equals(query, StringComparison.OrdinalIgnoreCase),
@@ -499,6 +687,7 @@ public sealed class MonsterCatalog
         if (!ClientTables.Has("MonsterVarieties")) return ([], $"the MonsterVarieties client table is missing from {ClientTables.DefaultPath}");
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var stateMachines = new Dictionary<string, StateMachineData>();
+        var stateMetas = new Dictionary<string, IReadOnlyDictionary<string, ObjectTypes.StateFlagMeta>>();
         var transitionStates = new Dictionary<string, byte>();
         var chains = new Dictionary<string, string[]>();
         var lifeData = new Dictionary<string, MonsterLifeData>();
@@ -509,6 +698,7 @@ public sealed class MonsterCatalog
         if (ClientTables.TableOrNull("object_types") is { } objectTypes)
         {
             var sharedStates = ObjectTypes.SharedStates();
+            var stateMetaLookup = ObjectTypes.StateMeta();
             foreach (var t in objectTypes)
             {
                 string type = t.Text("type")!;
@@ -520,6 +710,7 @@ public sealed class MonsterCatalog
                 idleSlowAnimations[type] = t.BoolOrNull("actor_slow_animations_go_to_idle");
                 // Data generated before the StateMachine data has no shared timers: those types stay unsupported.
                 if (ObjectTypes.StateMachine(t, sharedStates) is { } machine) stateMachines[type] = machine;
+                if (ObjectTypes.StateMetaFor(t, stateMetaLookup) is { } meta) stateMetas[type] = meta;
                 if (t.IntOrNull("transitionable_num_states") is int numStates)
                     transitionStates[type] = (byte)Math.Clamp(numStates, 1, 127);
                 // A type with Life has its three flags; one without has none.
@@ -619,11 +810,22 @@ public sealed class MonsterCatalog
                 // read wave_monster, size and one timer). Add-on components are not merged (not traced). An add-on the type
                 // already inherits adds nothing (Abberath2Gauntlet lists itself).
                 var machine = stateMachines.GetValueOrDefault(type);
+                var meta = stateMetas.GetValueOrDefault(type);
+                Dictionary<string, ObjectTypes.StateFlagMeta>? mergedMeta = null;
                 var chain = chains.GetValueOrDefault(type) ?? [];
                 foreach (string addon in r.Texts("AddonMonsterTypeIndex"))
                     if (machine is not null && addon != type && !chain.Contains(addon) && stateMachines.GetValueOrDefault(addon) is { } extra)
+                    {
                         machine = new StateMachineData([.. machine.SharedStates, .. extra.SharedStates], machine.SharedTimers + extra.SharedTimers,
                             [.. machine.Names ?? machine.SharedStates.Select(_ => ""), .. extra.Names ?? extra.SharedStates.Select(_ => "")]);
+                        if (stateMetas.GetValueOrDefault(addon) is { } extraMeta)
+                        {
+                            if (mergedMeta is null)
+                                mergedMeta = meta is null ? new Dictionary<string, ObjectTypes.StateFlagMeta>() : new Dictionary<string, ObjectTypes.StateFlagMeta>(meta);
+                            foreach (var (k, v) in extraMeta)
+                                mergedMeta.TryAdd(k, v);
+                        }
+                    }
                 int[] speciesMods = new[] { "ModsKeys", "ModsKeys2", "Special_ModsKeys" }
                     .SelectMany(r.Ints)
                     .Distinct().ToArray();
@@ -649,6 +851,7 @@ public sealed class MonsterCatalog
                         LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r), Weapons = Weapons(r),
                         PositionedBlocking = blocking.GetValueOrDefault(type, true), Phases = phasing.Contains(type), Immobile = immobile.Contains(type),
                         Chain = chain,
+                        StateMeta = mergedMeta ?? meta ?? EmptyStateMeta,
                         SlowAnimationsGoToIdle = r.Texts("AddonMonsterTypeIndex").Length == 0 ? idleSlowAnimations.GetValueOrDefault(type) : null,
                         Hash16 = (ushort)r.Int("HASH16"),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),

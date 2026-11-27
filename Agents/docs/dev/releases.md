@@ -68,6 +68,7 @@ Node.
 
 It keeps a checkout's relative paths, so the servers and tools run unchanged, with the install as working directory.
 The zip's one folder is always `LocalExile/`, so an update extracts the new zip over the old; `data/` (saves, keys, extracted data) and `Client/` are not in it, so they stay.
+Folders a release no longer ships stay too; `LocalExile.exe run` and `setup` move those of `RetiredFolders.Paths` (old modules and leagues, most of them mods now) to `backups/retired-<time>/` before anything else.
 `build-release.ps1` refuses a package with game files, keys or a save database, or whose client command differs from below.
 
 A new file that a server or generator reads outside `data/` must be added to `build-release.ps1`, or a release lacks it.

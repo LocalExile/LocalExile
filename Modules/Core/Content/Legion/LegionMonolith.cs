@@ -158,11 +158,22 @@ static partial class LegionMonolith
             foreach (var (m, _) in Holds) { m.OnNonLethalZero = null; m.EntranceGrace = true; }
             Encounters.Clear(); Holds.Clear(); LegionStasis.ClearFighters();
         }));
+        module.Lifetime.Own(RegisterDeliriumPauseSource(p =>
+        {
+            if (p.Instance is not { } instance || !Encounters.TryGetValue(instance, out var list)) return false;
+            for (int i = 0; i < list.Length; i++)
+            {
+                var e = list[i];
+                lock (e) if (e.Phase is Phase.Charging or Phase.Running or Phase.Frozen or Phase.Battle) return true;
+            }
+            return false;
+        }));
         GameEvents.Drops.Add(id, drop => LegionRewards.Drops(drop));
         GameEvents.MonsterKilled.Add(id, LegionRewards.Killed);
         GameEvents.AreaPopulated.Add(id, area => Place(module, area));
         GameEvents.EnterMessages.Add(id, player => EnterMessages(module, player));
         GameEvents.PlayerEntered.Add(id, player => Enter(module, player));
+        GameEvents.PlayerLeaving.Add(id, (player, _) => LegionStasis.KeepFighters(player));
         GameEvents.AreaTick.Add(id, player => HasLocator(player) ? (p, _) => Tick(module, p) : null);
         GameEvents.ObjectUse.Add(id, (player, use, requestedAt) => Use(module, player, use, requestedAt));
     }
@@ -184,6 +195,11 @@ static partial class LegionMonolith
         var restored = Encounters.GetValue(instance, _ => [.. saved.Select(s => new Encounter(s))]);
         foreach (var e in restored)
         {
+            if (e.Army is { } savedArmy) e.Army = LegionStasis.RebindArmy(player, savedArmy);
+            if (e.ReleasedIds is { } released) e.ReleasedIds = LegionStasis.RebindReleased(player, released);
+            e.GeneralId = e.Army?.FirstOrDefault(m => !m.Chest && m.Tier == 3)?.Id ?? e.GeneralId;
+            if (e.Phase == Phase.Running && Multiple(player) && e.Army is { } repeat)
+                e.Army = [.. repeat.Select(m => m.Chest ? m : m with { Broken = false })];
             // The old module's holds were cleared on unload (leaving EntranceGrace true): re-arm holds and non-lethal floors.
             if (e.Army is { } army && e.Phase is Phase.Idle or Phase.Charging or Phase.Running)
                 foreach (var m in army) Arm(module, player, e, m);
@@ -284,6 +300,37 @@ static partial class LegionMonolith
     {
         foreach (var e in AllOf(module, player))
         {
+            lock (e)
+            {
+                if (e.Army is { } old)
+                {
+                    var rebound = LegionStasis.RebindArmy(player, old);
+                    if (!old.Select(m => m.Id).SequenceEqual(rebound.Select(m => m.Id)))
+                    {
+                        bool repeat = e.Phase == Phase.Running && Multiple(player);
+                        if (repeat) rebound = [.. rebound.Select(m => m.Chest ? m : m with { Broken = false })];
+                        e.Army = rebound;
+                        foreach (var member in rebound)
+                        {
+                            if (repeat && !member.Chest && player.Area.Monsters.TryGetValue(member.Id, out var m))
+                            {
+                                var reset = (m.States ?? m.Variety?.StateMachine)?.Set("breakout", 0);
+                                if (reset is not null)
+                                {
+                                    m.States = reset;
+                                    if (player.Instance.World.MonsterOrigins.TryGetValue(member.Id, out var origin))
+                                        player.Instance.World.MonsterOrigins[member.Id] = origin with { Object = origin.Object with { StateMachine = reset } };
+                                }
+                                LegionStasis.SetOriginState(player, member.Id, LegionStasis.Revealed);
+                            }
+                            Arm(module, player, e, member);
+                        }
+                    }
+                }
+                if (e.ReleasedIds is { } released) e.ReleasedIds = LegionStasis.RebindReleased(player, released);
+                e.GeneralId = e.Army?.FirstOrDefault(m => !m.Chest && m.Tier == 3)?.Id ?? e.GeneralId;
+                Keep(player, e);
+            }
             await Show(player, e);
             await ShowRules(player, e);
             await LegionStasis.Present(player, e.Army, e.Plan);
@@ -667,6 +714,7 @@ static partial class LegionMonolith
     /// lock, so the timer and this cannot both finish it.</summary>
     static async Task EarlyEnd(IModuleContext module, Player player, Encounter e)
     {
+        if (Multiple(player)) return;
         uint pulse;
         lock (e)
         {
@@ -767,7 +815,7 @@ static partial class LegionMonolith
         foreach (var m in army)
         {
             if (!player.Area.Monsters.TryGetValue(m.Id, out var monster) || monster.Dead) continue;
-            bool broken = m.Broken;
+            bool broken = m.Broken || m.Breakouts > 0;
             if (Holds.TryGetValue(monster, out var hold)) { lock (hold) broken |= hold.Broken; }
             monster.OnNonLethalZero = null;
             monster.EntranceGrace = true;

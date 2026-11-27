@@ -6,6 +6,51 @@ namespace GameServer.Gateway.Tests;
 public sealed class ProjectileReleaseRegressionTests
 {
     [Fact]
+    public async Task Spectral_Helix_launches_one_spiral_and_converts_extra_projectiles_to_wall_bounces()
+    {
+        var clock = new Clock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = Prepare(fixture, clock.At, "Corroded Blade");
+        using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (owner == player) values[Stat.NumberOfAdditionalProjectiles] = 2;
+            return values;
+        });
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            ushort skill = Assert.Single(fixture.Equip(("Spectral Helix", 1)));
+            var wire = Game.PlayerSkills(player).Single(row => row.Id == skill).Stats!;
+            Assert.Equal(5, wire.Single(stat => stat.Key == Stat.SpectralSpiralWeaponNumberOfBounces).Value);
+            Assert.Equal(1, wire.Single(stat => stat.Key == Stat.TotalNumberOfProjectilesToFire).Value);
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (80, 100)));
+            clock.At += 1.1;
+            fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            var flight = Assert.Single(fixture.Session.Runtime.Projectiles);
+            Assert.Equal("Metadata/Projectiles/ThrownWeapon", flight.Profile.Id);
+            Assert.Equal(new ProjectileVector(97, 100), flight.Use.Origin);
+            var legs = Assert.IsAssignableFrom<IProjectileLegs>(flight.Profile.Legs?.Invoke(0));
+            var leg = legs.First(flight.Use.Origin, flight.Use.Aim, flight.Profile.Speed);
+            for (int i = 0; i < 38; i++) leg = Assert.IsType<ProjectileLegTurn>(legs.NextTurn(leg.Target, false)).Leg;
+            for (int i = 0; i < 5; i++)
+                leg = Assert.IsType<ProjectileLegTurn>(legs.NextTurn(leg.Target, true)).Leg;
+            Assert.Null(legs.NextTurn(leg.Target, true));
+
+            var items = Game.ItemsOf(player);
+            var main = Assert.Single(items.Items(PlayerInventories.Weapon1));
+            items.Change(PlayerInventories.Weapon1, main.Id, item => ItemCatalog.Create(Program.Items.Find("Rusted Sword")!)
+                with { Sockets = item.Sockets, Links = item.Links });
+            Assert.NotNull(items.Add(PlayerInventories.Offhand1, 0, 0, ItemCatalog.Create(Program.Items.Find("Glass Shank")!)));
+            var gem = Game.SupportedSkill(player, skill);
+            Assert.Equal((true, true), Game.HandsFit(player, gem.Effect, gem.Stats));
+            Assert.Equal(AttackHand.Main, Game.AttackHandFor(player, skill, sequence: 1));
+            Assert.Equal(AttackHand.Main, Game.PanelHands(player, skill));
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    [Fact]
     public async Task Gathering_lightning_is_granted_after_a_paid_melee_hit()
     {
         var clock = new Clock();
@@ -347,6 +392,79 @@ public sealed class ProjectileReleaseRegressionTests
         Assert.Equal(6, cloudburstMine.EndEmission!.Child.Count);
         Assert.True(cloudburstMine.EndEmission.Child.SplitOnTerrain);
         Assert.True(cloudburstMine.EndEmission.Child.SplitAtEndOfRange);
+    }
+
+    [Fact]
+    public async Task Returning_projectiles_emit_orientation_0x01b9_only_when_direction_changes()
+    {
+        var clock = new Clock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = Prepare(fixture, clock.At, "Gnarled Branch");
+        var session = Game.ProjectilesFor(player);
+        var packets = new List<byte[]>();
+        var outgoing = Program.Outgoing;
+        Program.Outgoing = (p, bytes) => { if (ReferenceEquals(p, player)) lock (packets) packets.Add(bytes.ToArray()); };
+        try
+        {
+            async Task Flush()
+            {
+                var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                session.Enqueue(() => { drained.TrySetResult(); return Task.CompletedTask; });
+                await drained.Task;
+            }
+
+            // Same-direction lobbed arc segments emit zero 0x01b9 orientation updates.
+            var lobbed = new ProjectileProfile("Metadata/Projectiles/FrostBolt")
+                { Speed = 40, Radius = 2, Range = 80, Lobbed = true, ArcHeight = 20 };
+            session.Runtime.Release(new ProjectileUse(lobbed, new(player.Id), new(player.Id), 1, new(100, 100), new(180, 100)));
+            await Flush();
+            for (int step = 0; step < 5; step++)
+            {
+                clock.At += 0.25;
+                session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                await Flush();
+            }
+            static float[] OrientAngles(List<byte[]> sent, uint objectId)
+            {
+                var found = new List<float>();
+                Span<byte> prefix = [0x01, 0xb9, (byte)(objectId >> 24), (byte)(objectId >> 16), (byte)(objectId >> 8), (byte)objectId];
+                foreach (var pkt in sent)
+                    for (int idx = 0; idx + 17 <= pkt.Length; idx++)
+                        if (pkt.AsSpan(idx, 6).SequenceEqual(prefix))
+                            found.Add(BitConverter.Int32BitsToSingle(
+                                System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(pkt.AsSpan(idx + 12, 4))));
+                return [.. found];
+            }
+
+            lock (packets)
+            {
+                uint lobbedId = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(
+                    packets.First(b => b.Length >= 6 && b[0] == 0x02 && b[1] == 0xbb).AsSpan(2, 4));
+                Assert.Empty(OrientAngles(packets, lobbedId));
+            }
+
+            // Returning projectile reverses (+X -> -X) at end of range and emits 0x01b9 facing -X.
+            lock (packets) packets.Clear();
+            var returning = new ProjectileProfile("Metadata/Projectiles/FrostBolt")
+                { Speed = 40, Radius = 2, Range = 20, Returns = true };
+            session.Runtime.Release(new ProjectileUse(returning, new(player.Id), new(player.Id), 1, new(100, 100), new(120, 100))
+                { ReturnPoint = new(100, 100) });
+            await Flush();
+            for (int step = 0; step < 6; step++)
+            {
+                clock.At += 0.2;
+                session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                await Flush();
+            }
+            lock (packets)
+            {
+                uint returnId = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(
+                    packets.First(b => b.Length >= 6 && b[0] == 0x02 && b[1] == 0xbb).AsSpan(2, 4));
+                float angle = Assert.Single(OrientAngles(packets, returnId));
+                Assert.InRange(MathF.Abs(angle - MathF.Atan2(-1, 0)), 0f, 1e-3f);
+            }
+        }
+        finally { Program.Outgoing = outgoing; }
     }
 
     static Player Prepare(TriggeredSummonTests.Fixture fixture, double now, string weapon)

@@ -122,11 +122,10 @@ public static partial class Game
         if (layout.Waypoint is { } wp) safePoints.Add((wp.GridX, wp.GridY));
         var earlyMapMods = MapModsOf(player);
         bool isMapArea = MapDevices.IsMapArea(layout.Hash);
-        int greedChancePct = earlyMapMods?.Get(Stat.MapShrinesChanceToBeGreedShrinePct) ?? 0;
         bool magicShrineGuards = earlyMapMods?.Get(Stat.MapShrinesHaveGuaranteedMagicPack) > 0;
         int extraShrinePackChance = earlyMapMods?.Get(Stat.MapShrinesAdditionalPackChancePct) ?? 0;
         var shrineGuards = ServerLevels.For(layout.Id, player.Seed) is { } shrineLevel
-            ? ShrinePlacement.Plan(shrineLevel.RoomObjects, walkable, player.Seed, greedChancePct: greedChancePct)
+            ? MapShrines.Plan(shrineLevel.RoomObjects, walkable, player.Seed, earlyMapMods)
                 .Where(p => !ShrineGuards.TooNearEntrance((p.X, p.Y), (layout.SpawnX, layout.SpawnY),
                     safePoints, AreaPopulation.TransitionClearance))
                 .SelectMany(p =>
@@ -217,14 +216,15 @@ public static partial class Game
             localTransitions: [.. layout.AreaTransitions.Where(t => t.Transition.DestinationHash16 == layout.Hash
                     && t.Transition.TeleportTo.HasValue)
                 .Select(t => (layout.Near((t.Transition.GridX, t.Transition.GridY)), layout.Near(t.Transition.TeleportTo!.Value)))],
-            additionalPacks: MapScarabPacks.Requests(mapMods),
+            additionalPacks: [.. MapScarabPacks.Requests(mapMods), .. MapInfluence.Requests(mapMods)],
             ordinaryPacks: mapMods?.Get(Stat.MapMonstrousTreasureNoMonsters) is not > 0,
             grounds: layout.Level?.Grounds);
         // Twinned doubles the area's own bosses, not the shrines' Atlas guards.
         spawns = WithTwinBosses(spawns, mapMods).ToList();
+        spawns.AddRange(MapInfluence.Accompany(player, layout, spawns));
         if (mapMods?.Get(Stat.MapShrinesHaveStandaloneMapBoss) > 0 && ServerLevels.For(layout.Id, player.Seed) is { } shrineRooms)
             spawns.AddRange(MapScarabBosses.Guards(player,
-                [.. ShrinePlacement.Plan(shrineRooms.RoomObjects, walkable, player.Seed).Select(p => (p.X, p.Y))], spawns, layout));
+                [.. MapShrines.Plan(shrineRooms.RoomObjects, walkable, player.Seed, mapMods).Select(p => (p.X, p.Y))], spawns, layout));
         spawns.AddRange(nests);
         var directPlaced = new HashSet<(int Variety, int X, int Y)>();
         foreach (var chest in QuestsOf(player).Chests(layout.Id).Where(r => r.Guards is not null))

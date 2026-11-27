@@ -18,7 +18,9 @@ public static class GameDataCatalog
     static TimelessJewelCatalog.Entry[] _timeless = [];
     static IReadOnlyDictionary<string, (uint Stat, int Value)[]> _tattoos = Empty<(uint, int)[]>();
     static IReadOnlyDictionary<string, ushort> _visuals = Empty<ushort>();
+    static long _revision;
 
+    public static long Revision => Volatile.Read(ref _revision);
     public static UniqueCatalog.Definition[] Uniques => Volatile.Read(ref _uniques);
     public static RadiusJewelCatalogue.Entry[] RadiusJewels => Volatile.Read(ref _radiusAll);
     public static RadiusJewelCatalogue.Entry[] ThresholdJewels => Volatile.Read(ref _threshold);
@@ -44,6 +46,7 @@ public static class GameDataCatalog
         Volatile.Write(ref _timeless, []);
         Volatile.Write(ref _tattoos, Empty<(uint, int)[]>());
         Volatile.Write(ref _visuals, Empty<ushort>());
+        Interlocked.Increment(ref _revision);
     }
 
     public static void Reload(GameDataStore store)
@@ -65,6 +68,7 @@ public static class GameDataCatalog
         Volatile.Write(ref _timeless, timeless);
         Volatile.Write(ref _tattoos, tattoos);
         Volatile.Write(ref _visuals, visuals);
+        Interlocked.Increment(ref _revision);
     }
 
     static UniqueCatalog.Definition[] LoadUniques(GameDataStore store)

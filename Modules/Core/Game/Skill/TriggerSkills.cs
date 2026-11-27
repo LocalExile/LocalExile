@@ -40,6 +40,8 @@ public static partial class Game
         if (CooldownTriggerSupport(gem) is { } timed)
             return timed.Effect.Id == AutoexertionSupport
                 ? "this warcry can only be triggered by Autoexertion" : "this spell can only be triggered by Automation";
+        if (ItemEffectRules.Enabled && gem.WornGrant is { } grant && ItemEffectRules.MarkFamily(grant.EffectId) is not null)
+            return "this mark is triggered by the granting item";
         if (gem.WornGrant is { EffectId: GuardianWeaponEffect })
             return "Animate Guardian's Weapon triggers from a qualifying minion kill";
         if (GolemStat(gem.Stats, Stat.CastOnLoseCatsStealth) != 0)
@@ -66,10 +68,33 @@ public static partial class Game
             return "Fissure triggers on a supported slam's ground impact";
         if (GolemStat(gem.Stats, Stat.TriggeredByCrystalfallSupport) != 0)
             return "Falling Crystal triggers on a supported slam hit";
+        if (GolemStat(gem.Stats, Stat.TriggeredByFoulgraspSupport) != 0)
+            return "Foulgrasp triggers when a supported Brand is recalled";
+        if (GolemStat(gem.Stats, Stat.TriggeredPrismaticBurst) != 0)
+            return "Prismatic Burst triggers on a supported attack hit";
+        if (GolemStat(gem.Stats, Stat.TriggeredByInfernalCry) != 0)
+            return "Combust triggers on an attack exerted by Infernal Cry";
+        if (GolemStat(gem.Stats, Stat.TriggeredByShockwaveSupport) != 0)
+            return "this Shockwave triggers on supported melee hits";
+        if (GolemStat(gem.Stats, Stat.TriggeredByPyreSupport) != 0)
+            return "Call the Pyre triggers on supported melee hits against ignited enemies";
+        if (gem.WornGrant is { EffectId: GoreShockwaveEffect })
+            return "Gore Shockwave triggers on melee hits with at least 150 Strength";
+        if (GolemStat(gem.Stats, Stat.TriggeredByDivineCry) != 0)
+            return "this spell triggers on an attack exerted by Battlemage's Cry";
+        if (GolemStat(gem.Stats, Stat.InfernalBoltTriggeredWhenTotemWithThisSkillHitByEnemy) != 0)
+            return "Avenging Flame triggers when its totem is hit by an enemy";
         if (GolemStat(gem.Stats, Stat.TriggerOnSkillUsePctIfYouHaveASpiritCharge) > 0)
             return "Spirit Burst triggers on skill use while a Spirit Charge is held";
-        if (gem.Effect >= 0 && IsRelicSkill(Skills.EffectId(gem.Effect) ?? ""))
-            return "Summon Elemental Relic triggers automatically; manual use is unavailable";
+        if (gem.Effect >= 0)
+        {
+            string effect = Skills.EffectId(gem.Effect) ?? "";
+            if (effect == SummonSacredWispEffect) return "Sacred Wisps are summoned by a supported wand hit";
+            if (IsRelicSkill(effect)) return "Summon Elemental Relic triggers automatically; manual use is unavailable";
+        }
+        if (ItemEffectRules.Enabled && gem.Supports.Any(s => s.Effect.Added.Contains(36)
+            && ItemEffectRules.Current.TriggersOnBlock(s.Stats)))
+            return "this socketed spell triggers when you block";
         if (GolemStat(gem.Stats, Stat.SpellUncastableIfTriggerable) != 0
             || gem.Supports.Any(s => s.Effect.Added.Contains(36)))
             return "this trigger has no server executor; manual use is unavailable";
@@ -83,6 +108,7 @@ public static partial class Game
     // Every payload needs an independent executor; unsupported mechanics stay unavailable.
     static bool TriggeredSpellExecutable(Player player, ushort id, SupportedGem gem) => SkillsFor(player).IsSpell(gem.Effect)
         && !SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).IsTravel(gem.Effect)
+        && !SkillsFor(player).IsRetaliation(gem.Effect)
         && Supports.Of(gem.Effect)?.Types.Contains(47) != true && PlacedKind(gem) is (false, false)
         && gem.Supports.Count(s => s.Effect.Added.Contains(36)) == 1
         && SupportedReservation(player, id) is null && SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null

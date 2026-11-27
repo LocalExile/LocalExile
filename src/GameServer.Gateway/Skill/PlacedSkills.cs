@@ -8,6 +8,7 @@ public sealed class PlacedSkills
         IReadOnlyDictionary<uint, int> Caster, bool Spell)
     {
         public SpiderDamageSource? Spider { get; init; }
+        public IReadOnlyDictionary<uint, int>? WeaponLocal { get; init; }
     }
 
     public sealed record Placed(uint Id, ushort Skill, int Effect, (int X, int Y) At, bool Mine,

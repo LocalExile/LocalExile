@@ -660,6 +660,7 @@ public static partial class MapTorment
             int level = Math.Clamp(payout.Level, 1, 100);
             var drops = DropsFor(killer);
             int tier = MapRunOf(killer)?.Area.Tier ?? 0;
+            bool corruptEightMods = (Game.MapModsOf(player)?.Get(Stat.MapDroppedMapsAreCorruptedWith8Mods) ?? 0) > 0;
             if (payout.SpiritRow >= 0)
             {
                 if (area.Spirits!.FirstOrDefault(s => s.Monster == payout.Id && s.State is not (SpiritState.Possessed or SpiritState.Slain)) is { } slain)
@@ -673,7 +674,7 @@ public static partial class MapTorment
                 if (TormentCatalog.ByRow(payout.SpiritRow) is { Unusual: true } unusual
                     && (unusual.Variety.EndsWith("Betrayer", StringComparison.Ordinal) ? Game.MapScarab(drops, random, level, Game.MapModsOf(player))
                         : unusual.Variety.EndsWith("Felon", StringComparison.Ordinal) ? Unique(killer, level, random)
-                        : drops.Map(level, MonsterRarity.Unique, Math.Max(1, tier), random)) is { } own) items.Add(own);
+                        : drops.Map(level, MonsterRarity.Unique, Math.Max(1, tier), random, 0, 1, 0, 0, corruptEightMods)) is { } own) items.Add(own);
             }
             if (payout.Mark is { } mark)
             {
@@ -686,7 +687,7 @@ public static partial class MapTorment
                 for (int i = Chance(Stat.MonsterDropAdditionalUniqueItems) + Count(Stat.PossessedMonsterDropItemTemplateForUniqueItem); i > 0; i--)
                     if (Unique(killer, level, random) is { } unique) items.Add(unique);
                 for (int i = Chance(Stat.MonsterDropAdditionalMapItems) + Count(Stat.PossessedMonsterDropTemplateAnyMap); i > 0; i--)
-                    if (drops.Map(level, MonsterRarity.Unique, Math.Max(1, tier), random) is { } map) items.Add(map);
+                    if (drops.Map(level, MonsterRarity.Unique, Math.Max(1, tier), random, 0, 1, 0, 0, corruptEightMods) is { } map) items.Add(map);
                 for (int i = Count(Stat.PossessedMonsterDropTemplateAnyScarab); i > 0; i--)
                     if (Game.MapScarab(drops, random, level, Game.MapModsOf(player)) is { } scarab) items.Add(scarab);
                 foreach (var (stat, name) in new[] { (Stat.MonsterDropAdditionalWisdomScrolls, "Scroll of Wisdom"), (Stat.MonsterDropAdditionalPortalScrolls, "Portal Scroll") })
@@ -702,7 +703,7 @@ public static partial class MapTorment
                 {
                     foreach (var (stat, kind) in PossessedDropChances)
                         if (AreaStat(killer, stat) is int chance and > 0 && random.Next(100) < chance)
-                            if ((kind == "unique" ? Unique(killer, level, random) : kind == "map" ? drops.Map(level, MonsterRarity.Unique, Math.Max(1, tier), random)
+                            if ((kind == "unique" ? Unique(killer, level, random) : kind == "map" ? drops.Map(level, MonsterRarity.Unique, Math.Max(1, tier), random, 0, 1, 0, 0, corruptEightMods)
                                 : Game.MapScarab(drops, random, level, Game.MapModsOf(player))) is { } extra) items.Add(extra);
                     await Release(killer, area, mark, payout.At);
                 }

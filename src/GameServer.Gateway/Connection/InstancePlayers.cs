@@ -139,6 +139,18 @@ public static class InstanceEvents
         return [.. states.Select(p => (p.Key, p.Value))];
     }
 
+    /// <summary>An area instance expired or was removed from <see cref="InstanceStore"/>. Invoked outside the store lock
+    /// so subscribers may safely release per-instance encounter state and timers.</summary>
+    public static readonly GameEvent<Action<InstanceState>> InstanceClosing = new();
+
+    /// <summary>Notifies all <see cref="InstanceClosing"/> subscribers outside any store lock.</summary>
+    public static void RunInstanceClosing(InstanceState instance)
+    {
+        if (!InstanceClosing.Any) return;
+        foreach (var subscriber in InstanceClosing.Snapshot)
+            GameEventOwners.Guard(subscriber.Owner, nameof(InstanceClosing), () => subscriber.Run(instance));
+    }
+
     /// <summary>Two stat lists summed (the area stats and the league's own, both sent in 0x1d's first list).</summary>
     public static IReadOnlyDictionary<uint, int>? Merge(IReadOnlyDictionary<uint, int>? a, IReadOnlyDictionary<uint, int>? b)
     {

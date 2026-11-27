@@ -25,12 +25,13 @@ public sealed class DeliriumMirrorEncounter
     static int MaxRewardTiles => MirrorRewardPool.Length;
 
     static readonly string[] FallbackMirrorComponents = ["Positioned", "BaseEvents", "Functions", "Animated", "MinimapIcon", "StateMachine"];
-    static readonly int[] MirrorRewardPool = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 14, 15, 17, 22, 23, 24, 25];
+    internal static readonly int[] MirrorRewardPool = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 14, 15, 17, 22, 23, 24, 25];
     static readonly string[] DeliriumMonsterIds =
     [
         "AfflictionMinion1", "AfflictionMinion2", "AfflictionMinion3",
         "AfflictionMinion4", "AfflictionMinion5_", "AfflictionMinion6_",
     ];
+    static readonly string[] BossVarieties = [SimulacrumRules.Omniphobia, SimulacrumRules.Kosis];
 
     readonly ConditionalWeakTable<InstanceState, MirrorState> _states = new();
     readonly JsonSerializerOptions _json = new() { TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver() };
@@ -49,6 +50,7 @@ public sealed class DeliriumMirrorEncounter
         public float OutOfFogSeconds { get; set; }
         public int LastTimerSeconds { get; set; }
         public bool FogPaused { get; set; }
+        public float PauseTimer { get; set; }
         public int DepthPercent { get; set; }
         public int Kills { get; set; }
         public int KillPoints { get; set; }
@@ -61,12 +63,17 @@ public sealed class DeliriumMirrorEncounter
         public int[] RewardCounts { get; set; } = [];
         public int InitialRewards { get; set; }
         public HashSet<uint> Monsters { get; set; } = [];
+        public HashSet<string> SpawnedBosses { get; set; } = [];
+        public Dictionary<uint, string> Bosses { get; set; } = [];
+        public HashSet<uint> RewardedBosses { get; set; } = [];
+        public HashSet<string> RewardedBossVarieties { get; set; } = [];
         public string Why { get; set; } = "";
 
         [System.Text.Json.Serialization.JsonIgnore] public readonly SemaphoreSlim Gate = new(1, 1);
         [System.Text.Json.Serialization.JsonIgnore] public object? ShownArea;
         [System.Text.Json.Serialization.JsonIgnore] public byte[]? LastTiles;
         [System.Text.Json.Serialization.JsonIgnore] public bool TilesDirty;
+        [System.Text.Json.Serialization.JsonIgnore] public bool Spawning;
 
         public void EnsureRewardArrays()
         {
@@ -101,7 +108,19 @@ public sealed class DeliriumMirrorEncounter
             return Math.Max(12, 18 + completed * 8);
         }
 
-        public void RecordKill(MonsterRarity rarity, int progressBonusPct)
+        public bool AddReward(Random rng)
+        {
+            var pool = MirrorRewardPool.Where(p => !Rewards.Contains(p)).ToArray();
+            if (pool.Length == 0) return false;
+            Rewards = [.. Rewards, pool[rng.Next(pool.Length)]];
+            RewardPoints = [.. RewardPoints, 0];
+            RewardCounts = [.. RewardCounts, 0];
+            InitialRewards = Math.Max(1, InitialRewards) + 1;
+            TilesDirty = true;
+            return true;
+        }
+
+        public void RecordKill(MonsterRarity rarity, int progressBonusPct, int counterBonusPct = 0)
         {
             if (Stage != MirrorStage.Active) return;
             int basePoints = rarity switch
@@ -112,7 +131,7 @@ public sealed class DeliriumMirrorEncounter
                 _ => 1,
             };
             int depthBonus = 100 + DepthPercent / 2 + Math.Max(0, progressBonusPct);
-            int points = Math.Max(1, (basePoints * depthBonus) / 100);
+            int points = (int)Math.Clamp(basePoints * (long)depthBonus * Math.Max(0L, 100L + counterBonusPct) / 10000, 1, int.MaxValue / 100);
             Kills++;
             KillPoints += points;
             EnsureRewardArrays();
@@ -175,9 +194,8 @@ public sealed class DeliriumMirrorEncounter
             || LabyrinthTrials.InLabyrinth(id)) return null;
 
         int S(uint stat) => stats.GetValueOrDefault(stat);
-        if (S(Stat.MapDisableLeagues) > 0 || S(Stat.AtlasKeystoneNoExtraContent) > 0
-            || S(Stat.MapNukeEverything) > 0 || S(Stat.MapAreaUnderlevelled) > 0) return null;
-        if (S(Stat.MapAfflictionLeague) <= 0)
+        if (!DeliriumScarabs.Eligible(request.Area, stats) || S(Stat.MapAreaUnderlevelled) > 0) return null;
+        if (S(Stat.MapAfflictionLeague) <= 0 && S(Stat.MapSpawnAfflictionMirror) <= 0)
         {
             if (S(Stat.MapDisableDeliriumFromChance) > 0) return null;
             var rng = new Random(AreaPopulation.PopulationSeed(request.Area, request.Seed) ^ 0x44656c69);
@@ -196,6 +214,9 @@ public sealed class DeliriumMirrorEncounter
     {
         var state = instance.ContentState.TryGetValue(StateKey, out var text)
             ? JsonSerializer.Deserialize<MirrorState>(text, _json) ?? new() : new MirrorState();
+        // Older in-memory snapshots used transient world ids for the award guard.
+        foreach (uint id in state.RewardedBosses)
+            if (state.Bosses.TryGetValue(id, out var variety)) state.RewardedBossVarieties.Add(variety);
         if (state.Level == 0)
             state.Level = (byte)Math.Clamp(MapRunOf(player) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
         state.Wave = MirrorFogWave.For(state.Level, instance.AreaStats(() => AreaLeagueStats(player)));
@@ -363,7 +384,7 @@ public sealed class DeliriumMirrorEncounter
         float dissipationTime = ended ? state.OuterElapsed : float.PositiveInfinity;
         var regions = state.Regions ??= MirrorFogRegions.Build(player.Layout, state.MirrorX, state.MirrorY);
         return AfflictionRuleset.EncounterSnapshot(started, ended, state.OuterElapsed, state.OuterElapsed,
-            dissipationTime, 0f, state.FogPaused, state.MirrorX, state.MirrorY, state.EntityId,
+            dissipationTime, state.PauseTimer, state.FogPaused, state.MirrorX, state.MirrorY, state.EntityId,
             regions, BuildTilesLocked(state));
     }
 
@@ -402,10 +423,12 @@ public sealed class DeliriumMirrorEncounter
                 state.Stage = MirrorStage.Active;
                 state.OuterElapsed = WaveStart;
                 state.OutOfFogSeconds = 0f;
+                state.FogPaused = false;
+                state.PauseTimer = 0f;
                 state.LastTimerSeconds = 0;
                 state.DepthPercent = 10;
                 state.LastTickAt = AreaTime(player);
-                state.NextSpawnAt = state.LastTickAt;
+                state.NextSpawnAt = state.LastTickAt + SpawnIntervalSeconds;
                 state.TilesDirty = false;
                 entityId = state.EntityId;
                 SaveLocked(player, state);
@@ -469,9 +492,11 @@ public sealed class DeliriumMirrorEncounter
 
         if (stage != MirrorStage.Active) return;
 
+        bool pausedNow = IsDeliriumEncounterPaused(player);
         bool shouldEnd = false;
         bool shouldSpawn = false;
         byte[]? tilesPacket = null;
+        byte[]? pausePacket = null;
         int? timerChange = null;
         double nowTime = AreaTime(player);
         float step = (float)Math.Clamp(dt, 0.0, 0.5);
@@ -484,8 +509,21 @@ public sealed class DeliriumMirrorEncounter
             {
                 if (state.Stage != MirrorStage.Active) return;
                 state.LastTickAt = nowTime;
+                bool pauseChanged = pausedNow != state.FogPaused;
+                if (pauseChanged)
+                {
+                    state.FogPaused = pausedNow;
+                    if (pausedNow && state.LastTimerSeconds != 0)
+                    {
+                        state.LastTimerSeconds = 0;
+                        timerChange = 0;
+                    }
+                    pausePacket = AfflictionRuleset.EncounterPause(state.PauseTimer, pausedNow);
+                }
                 if (!state.FogPaused)
                     state.OuterElapsed += step;
+                else
+                    state.PauseTimer += step;
 
                 // Reap dead Delirium monsters from our active tracking set.
                 foreach (uint id in state.Monsters.ToArray())
@@ -511,13 +549,13 @@ public sealed class DeliriumMirrorEncounter
                         state.LastTimerSeconds = 0;
                         timerChange = 0;
                     }
-                    if (nowTime >= state.NextSpawnAt && state.Monsters.Count < MaxActiveMonsters && state.Spawned < MaxSpawnTotal)
+                    if (!state.FogPaused && nowTime >= state.NextSpawnAt && state.Monsters.Count < MaxActiveMonsters && state.Spawned < MaxSpawnTotal)
                     {
                         state.NextSpawnAt = nowTime + SpawnIntervalSeconds;
                         shouldSpawn = true;
                     }
                 }
-                else if (state.OuterElapsed > 0)
+                else if (!state.FogPaused && state.OuterElapsed > 0)
                 {
                     state.OutOfFogSeconds += step;
                     int remaining = Math.Max(0, (int)Math.Ceiling(OutOfFogGraceSeconds - state.OutOfFogSeconds));
@@ -530,7 +568,7 @@ public sealed class DeliriumMirrorEncounter
                         shouldEnd = true;
                 }
 
-                bool needSave = timerChange.HasValue;
+                bool needSave = timerChange.HasValue || pauseChanged;
                 if (state.TilesDirty)
                 {
                     state.TilesDirty = false;
@@ -552,6 +590,9 @@ public sealed class DeliriumMirrorEncounter
             await EndEncounter(player, state, byPlayer: false);
             return;
         }
+        if (pausePacket is not null)
+            foreach (var peer in Clients(player))
+                await PlayerOf(peer).Send((byte[])pausePacket.Clone(), pausedNow ? "0x02c9 Delirium fog paused" : "0x02c9 Delirium fog resumed");
         if (timerChange is int sec)
         {
             var pkt = sec > 0
@@ -567,6 +608,36 @@ public sealed class DeliriumMirrorEncounter
             await SpawnPack(player, state);
     }
 
+    static readonly ConditionalWeakTable<ItemCatalog, string[]> ClusterJewelBases = [];
+
+    static string[] ClusterBases(Player player) => ClusterJewelBases.GetValue(ItemsFor(player),
+        catalog => [.. catalog.All.Where(t => t.Supported && t.Cluster is not null).Select(t => t.Id)]);
+
+    public void OnDrop(DropRoll drop)
+    {
+        if (!IsEligibleMap(drop.Player) || Existing(drop.Player) is not { Stage: MirrorStage.Active } state) return;
+        string variety = drop.Monster.VarietyId;
+        bool boss = variety is SimulacrumRules.Omniphobia or SimulacrumRules.Kosis;
+        if (!boss && !variety.Contains("LeagueAffliction/", StringComparison.Ordinal)) return;
+        var clusters = ClusterBases(drop.Player);
+        if (clusters.Length == 0) return;
+        var rng = AreaRng(drop.Player);
+        if (boss)
+        {
+            drop.RolledItems.Add(clusters[rng.Next(clusters.Length)]);
+            return;
+        }
+        double chance = (drop.Monster.Rarity switch
+        {
+            MonsterRarity.Unique => 0.25,
+            MonsterRarity.Rare => 0.04,
+            MonsterRarity.Magic => 0.012,
+            _ => 0.004,
+        }) + Math.Max(0, state.DepthPercent) * 0.0004;
+        if (rng.NextDouble() < chance)
+            drop.RolledItems.Add(clusters[rng.Next(clusters.Length)]);
+    }
+
     public void OnKill(KillContext kill)
     {
         if (!IsEligibleMap(kill.Player) || Existing(kill.Player) is not { } state) return;
@@ -576,7 +647,18 @@ public sealed class DeliriumMirrorEncounter
         lock (state)
         {
             if (state.Stage != MirrorStage.Active) return;
-            state.RecordKill(kill.Monster.Rarity, bonusPct);
+            string? boss = state.Bosses.GetValueOrDefault(kill.Monster.ObjectId);
+            if (boss is null && state.SpawnedBosses.Contains(kill.VarietyId) && Array.IndexOf(BossVarieties, kill.VarietyId) >= 0)
+                boss = kill.VarietyId;
+            if (boss is not null)
+            {
+                if (!state.RewardedBossVarieties.Add(boss)) return;
+                state.RewardedBosses.Add(kill.Monster.ObjectId);
+            }
+            state.RecordKill(kill.Monster.Rarity, bonusPct, stats.GetValueOrDefault(Stat.MapAfflictionRewardKillsPlusPct));
+            if (boss is not null
+                && RandomRolls.Chance(stats.GetValueOrDefault(Stat.MapAfflictionPctChanceAdditionalRewardOnAfflictionUniqueMonsterKilled), 100, AreaRng(kill.Player)))
+                state.AddReward(AreaRng(kill.Player));
             state.Monsters.Remove(kill.Monster.ObjectId);
             SaveLocked(kill.Player, state);
         }
@@ -627,6 +709,7 @@ public sealed class DeliriumMirrorEncounter
             {
                 if (state.Stage != MirrorStage.Active) return;
                 state.Stage = MirrorStage.Ended;
+                state.FogPaused = false;
                 state.LastTimerSeconds = 0;
                 state.OutOfFogSeconds = 0f;
                 state.EnsureRewardArrays();
@@ -674,6 +757,18 @@ public sealed class DeliriumMirrorEncounter
     async Task SpawnPack(Player player, MirrorState state)
     {
         if (!_context.Lifetime.IsActive || !Current(player)) return;
+        lock (state)
+        {
+            if (state.Spawning || state.Stage != MirrorStage.Active) return;
+            state.Spawning = true;
+        }
+        try { await SpawnPackCore(player, state); }
+        finally { lock (state) state.Spawning = false; }
+    }
+
+    async Task SpawnPackCore(Player player, MirrorState state)
+    {
+        var stats = player.Instance.AreaStats(() => AreaLeagueStats(player));
         byte level;
         int packSize;
         int spawnedBase;
@@ -684,7 +779,8 @@ public sealed class DeliriumMirrorEncounter
             level = state.Level > 0 ? state.Level : (byte)Math.Clamp(ServerLevels.AreaLevel(player.Layout.Id), 68, 84);
             packSize = Math.Min(5, Math.Min(MaxActiveMonsters - state.Monsters.Count, MaxSpawnTotal - state.Spawned));
             spawnedBase = state.Spawned;
-            delirious = Math.Clamp(state.DepthPercent / 100.0, 0.05, 1.0);
+            delirious = Math.Max(0.05, DeliriumScarabs.MonsterDepth(state.DepthPercent,
+                stats.GetValueOrDefault(Stat.MapAfflictionEncounterMonsterDepthPlusPct)) / 100.0);
         }
         if (packSize <= 0) return;
 
@@ -702,10 +798,15 @@ public sealed class DeliriumMirrorEncounter
         for (int i = 0; i < packSize; i++)
         {
             if (!_context.Lifetime.IsActive || !Current(player) || !IsActive(state)) break;
-            var variety = pool[rng.Next(pool.Length)];
+            string? boss = null;
+            lock (state)
+                if (stats.GetValueOrDefault(Stat.MapAfflictionContainsBosses) > 0)
+                    boss = BossVarieties.FirstOrDefault(b => !state.SpawnedBosses.Contains(b));
+            var variety = boss is null ? pool[rng.Next(pool.Length)] : Monsters.Find(boss);
+            if (variety is not { Supported: true }) break;
             variety = variety with { StateMachine = DeliriumModule.MonsterStates(variety.StateMachine), AggroRange = Math.Max(90, variety.AggroRange) };
             int roll = rng.Next(100);
-            var rarity = roll < 8 ? MonsterRarity.Rare : roll < 30 ? MonsterRarity.Magic : MonsterRarity.Normal;
+            var rarity = boss is not null ? MonsterRarity.Unique : roll < 8 ? MonsterRarity.Rare : roll < 30 ? MonsterRarity.Magic : MonsterRarity.Normal;
             var rolledMods = MonsterModsFor(player, variety, level, rarity, null, true);
             var extraStats = new Dictionary<uint, int>
             {
@@ -730,6 +831,11 @@ public sealed class DeliriumMirrorEncounter
                         if (state.Stage != MirrorStage.Active) return;
                         state.Monsters.Add(spawnedId);
                         state.Spawned++;
+                        if (boss is not null)
+                        {
+                            state.SpawnedBosses.Add(boss);
+                            state.Bosses[spawnedId] = boss;
+                        }
                         spawnedAny = true;
                     }
                 });
@@ -737,4 +843,13 @@ public sealed class DeliriumMirrorEncounter
         if (spawnedAny)
             lock (state) SaveLocked(player, state);
     }
+
+    static readonly string[] OwnerFlags = ["IsMapOwner"], NoFlags = [];
+
+    /// <summary>Grants the client's IsMapOwner flag to the map owner when an eligible Delirium mirror area is active
+    /// so the HUD shows the Delirium fast-forward button even when no other owner-flagged encounter spawned.</summary>
+    public IReadOnlyList<string> QuestFlags(Player player) =>
+        IsEligibleMap(player) && (MapRunOf(player)?.Owner is not { Length: > 0 } owner
+            || string.Equals(owner, CharacterName(player), StringComparison.OrdinalIgnoreCase))
+            ? OwnerFlags : NoFlags;
 }

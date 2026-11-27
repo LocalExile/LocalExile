@@ -36,13 +36,33 @@ public sealed class DropDataProvider
             new Dictionary<(string, string), GameDataStore.ItemWeightRow>());
     }
 
-    public static DropDataProvider Default { get; } = new();
+    public static DropDataProvider Default { get; } = new(DropPoolOverlays.Default);
 
     Snapshot _snapshot = Snapshot.Empty;
     int _hasTable;
+    long _dataRevision;
+
+    public DropDataProvider() : this(new DropPoolOverlays()) { }
+
+    public DropDataProvider(DropPoolOverlays overlays)
+    {
+        Overlays = overlays ?? throw new ArgumentNullException(nameof(overlays));
+    }
+
+    /// <summary>Declarative runtime drop-pool overlays layered over the SQLite snapshot and preserved across <c>/reload</c>.</summary>
+    public DropPoolOverlays Overlays { get; }
 
     public Snapshot Current => Volatile.Read(ref _snapshot);
     public bool HasTable => Volatile.Read(ref _hasTable) != 0;
+
+    /// <summary>Advances whenever SQLite drop tables reload or runtime drop-pool overlays change.</summary>
+    public long Revision => Volatile.Read(ref _dataRevision) + Overlays.Revision;
+
+    /// <summary>Registers a declarative drop-pool entry on this provider's <see cref="Overlays"/>, owned by <paramref name="owner"/>.</summary>
+    public IDisposable RegisterOverlay(string owner, DropPoolEntry entry) => Overlays.Add(owner, entry);
+
+    /// <summary>Registers a batch of declarative drop-pool entries on this provider's <see cref="Overlays"/>, owned by <paramref name="owner"/>.</summary>
+    public IDisposable RegisterOverlays(string owner, IEnumerable<DropPoolEntry> entries) => Overlays.AddRange(owner, entries);
 
     public void Replace(GameDataStore store)
     {
@@ -56,11 +76,13 @@ public sealed class DropDataProvider
         Volatile.Write(ref _snapshot, new Snapshot(weights, sources, bosses, items, areas, cards, itemWeights));
         Volatile.Write(ref _hasTable, weights.Count + sources.Count + bosses.Count + items.Count + areas.Count + cards.Count
             + itemWeights.Count > 0 ? 1 : 0);
+        Interlocked.Increment(ref _dataRevision);
     }
 
     public void Reset()
     {
         Volatile.Write(ref _snapshot, Snapshot.Empty);
         Volatile.Write(ref _hasTable, 0);
+        Interlocked.Increment(ref _dataRevision);
     }
 }

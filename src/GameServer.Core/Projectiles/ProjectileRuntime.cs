@@ -132,9 +132,10 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             || p.Steering is { } s && (s.TargetInterval < s.TurnInterval || s.TurnInterval <= 0
                 || !double.IsFinite(s.MaximumTurn) || s.MaximumTurn <= 0 || s.MaximumTurn > Math.PI))
             throw new ArgumentOutOfRangeException(nameof(p));
-        foreach (var area in new[] { p.LaunchArea, p.ContactArea, p.EndArea })
+        foreach (var area in new[] { p.LaunchArea, p.ContactArea, p.EndArea, p.SplitForm?.EndArea })
             if (area is { Delay: < 0 } or { Interval: < 0 } or { ConeHalfAngle: < 0 or > Math.PI }
-                || area is not null && !double.IsFinite(area.ConeHalfAngle))
+                || area is not null && (!double.IsFinite(area.ConeHalfAngle)
+                    || !double.IsFinite(area.ConeAxisRotation) || !double.IsFinite(area.ConeAxisStep)))
                 throw new ArgumentOutOfRangeException(nameof(p));
     }
 
@@ -150,6 +151,17 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         ProjectileVector position, ProjectileVector direction, ProjectileEntity? continuing = null, bool split = false,
         int index = 0, bool fork = false)
     {
+        var splitForm = split ? use.Profile.SplitForm : null;
+        if (splitForm is { } form && (form.Metadata is not null || form.ContactCells is not null || form.EndArea is not null))
+        {
+            var profile = use.Profile;
+            use = use with { Profile = profile with
+            {
+                Id = form.Metadata ?? profile.Id,
+                ContactCells = form.ContactCells ?? profile.ContactCells,
+                EndArea = form.EndArea ?? profile.EndArea,
+            } };
+        }
         var p = new ProjectileEntity(++sequence, useId, emission, parent, use, position, direction, Now)
             { VolleyIndex = index, HasSplit = split || continuing?.HasSplit == true };
         projectiles.Add(p.Id, p);
@@ -167,12 +179,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             p.Fork = previous.Fork; p.Chain = previous.Chain; p.Split = 0;
             p.Contacts.UnionWith(previous.Contacts); p.Interactions.UnionWith(previous.Interactions);
         }
-        if (split && p.Profile.SplitForm is { } splitForm)
+        if (splitForm is not null)
         {
-            p.Form = 1; p.Speed *= splitForm.SpeedMultiplier; p.Pierce = splitForm.Pierce;
+            p.Form = 1; p.Speed *= splitForm.SpeedMultiplier;
+            if (!splitForm.PreservePierce) p.Pierce = splitForm.Pierce;
         }
         // A lobbed child still lands at the use's aim, never past it.
-        if (p.Profile.Lobbed) p.Remaining = Math.Max(.001, Math.Min(p.Remaining, (use.Aim - position).Length));
+        if (p.Profile.Lobbed || (p.Profile.EndsAtAim && continuing is null)) p.Remaining = Math.Max(.001, Math.Min(p.Remaining, (use.Aim - position).Length));
         if (continuing is null && p.Profile.Legs is { } legs)
         {
             p.Legs = legs(index); p.LegStart = position;
@@ -431,19 +444,25 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             bool targetPierces = !p.Profile.CannotPierce && !p.Profile.StopOnEnemy && p.Use.TargetPierce?.Invoke(target.Key) == true;
             int splitBonus = p.Profile is { DirectDamage: true, CannotSplit: false, StopOnEnemy: false } && !p.HasSplit
                 ? Math.Clamp(p.Use.TargetSplit?.Invoke(target.Key, Now) ?? 0, 0, 256) : 0;
+            bool splitImpact = p.Split > 0 && p.Profile is { CannotSplit: false, StopOnEnemy: false, SplitWithoutTargets: true }
+                && p.Profile.EndAreaReasons?.Contains(ProjectileEndReason.Split) == true;
             var terminal = p.Profile.EndArea is { ReplacesDirectContact: true } endArea
-                && AllowsEndArea(p, ProjectileEndReason.Enemy) && splitBonus == 0
-                && !CanContinue(p, actors, targetPierces) && ReturnDestination(p, ProjectileEndReason.Enemy) is null ? endArea : null;
-            var result = Damage(p, target, terminal?.Stage ?? "direct", multiplier: terminal?.Multiplier ?? 1,
-                admissionStage: "direct", isArea: terminal is not null);
+                && (splitImpact || AllowsEndArea(p, ProjectileEndReason.Enemy) && splitBonus == 0
+                    && !CanContinue(p, actors, targetPierces) && ReturnDestination(p, ProjectileEndReason.Enemy) is null)
+                ? endArea : null;
+            var contactArea = p.Phase == 0 || p.Profile.ContactAreaOnReturn ? p.Profile.ContactArea : null;
+            ProjectileVector? centre = contactArea is { CentreOnContactTarget: true } ? target.Position(Now) : null;
+            var contactDamage = terminal ?? (p.Profile.ContactAreaReplacesDirectContact ? contactArea : null);
+            var result = Damage(p, target, contactDamage?.Stage ?? "direct", multiplier: contactDamage?.Multiplier ?? 1,
+                admissionStage: "direct", isArea: contactDamage is not null);
             if (result == ProjectileHitResult.Miss) return;
-            if ((p.Phase == 0 || p.Profile.ContactAreaOnReturn) && p.Profile.ContactArea is { } area)
-                Area(p, area, area.ExcludeContactTarget ? target.Key : null);
+            if (contactArea is not null && (!contactArea.RequiresEnemyHit || result == ProjectileHitResult.Hit))
+                Area(p, contactArea, contactArea.ExcludeContactTarget ? target.Key : null, centre);
             if (result == ProjectileHitResult.Hit && p.Profile.ContactTargets is { } strikes)
                 TargetedHits(p, target, strikes);
             if (result != ProjectileHitResult.Hit) splitBonus = 0;
             bool needsNearby = (!p.Profile.CannotSplit && (p.Split > 0 || splitBonus > 0)) || (!p.Profile.CannotChain && p.Chain > 0);
-            if (Continue(p, needsNearby ? world.Actors(Now, Now) : [], splitBonus, targetPierces))
+            if (Continue(p, needsNearby ? world.Actors(Now, Now) : [], splitBonus, targetPierces, target.Key))
             {
                 if (p.Profile.EndEmission is { EmitOnContinueContact: true } emission)
                     EmitAfterEnd(p, emission, emission.ExcludeImpactTarget ? target.Key : null);
@@ -468,7 +487,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         else if (c.End == ProjectileEndReason.Terrain)
         {
             if (AllowsTerminalArea(p) && (p.Phase == 0 || p.Profile.ContactAreaOnReturn)
-                && p.Profile.ContactArea is { } area) Area(p, area);
+                && p.Profile.ContactArea is { RequiresEnemyHit: false } area) Area(p, area);
             if (p.Profile.SplitOnTerrain && !p.Profile.CannotSplit && p.Split > 0)
             {
                 p.Position += c.Normal * .001; // Children start on the incident side of the blocking surface.
@@ -577,14 +596,15 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     static ProjectileHitRule DirectHitRule(ProjectileEntity p) =>
         p.Phase > 0 ? p.Profile.ReturnHitRule ?? p.Profile.HitRule : p.Profile.HitRule;
 
-    bool Continue(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors, int splitBonus, bool targetPierces)
+    bool Continue(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors, int splitBonus, bool targetPierces, ProjectileActorKey victim)
     {
         var profile = p.Profile;
         if (profile.StopOnEnemy) return false;
         // Explicit contact budgets limit actor attempts, never the remaining flight.
         if (p.Phase == 0 && profile.OutboundHitLimit is not null) return true;
         int split = p.Split + Math.Min(splitBonus, Math.Max(0, 256 - p.Split));
-        if (split > 0 && !profile.CannotSplit && Split(p, actors, split, profile.SplitWithoutTargets || splitBonus > 0)) return true;
+        if (split > 0 && !profile.CannotSplit
+            && Split(p, actors, split, profile.SplitWithoutTargets || splitBonus > 0, victim: victim)) return true;
         if (p.Phase == 0 && p.Legs is { TurnsOnEnemy: true } legs && legs.NextTurn(p.Position, blocked: false) is { } turn)
         {
             ApplyLegTurn(p, turn);
@@ -626,7 +646,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             && (a.Position(Now) - p.Position).Length <= (range ?? p.Profile.ChainRange))
         .OrderBy(a => (a.Position(Now) - p.Position).Length).ThenBy(a => a.Key.Id).ThenBy(a => a.Key.Generation);
 
-    bool Split(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors, int count, bool fill, ProjectileVector? terrainNormal = null)
+    bool Split(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors, int count, bool fill,
+        ProjectileVector? terrainNormal = null, ProjectileActorKey? victim = null)
     {
         var targets = Nearby(p, actors, p.Profile.SplitRange)
             .Where(a => terrainNormal is null || world.TraceTerrain(p.Position, a.Position(Now)) is null)
@@ -642,6 +663,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 Spawn(p.Use, p.UseId, p.EmissionId, p.Id, p.Position,
                     terrainNormal is { } normal ? normal.Unit.Rotate((p.Random.NextDouble() - .5) * Math.PI)
                         : p.Direction.Rotate(p.Random.NextDouble() * Math.Tau), continuing: p, split: true);
+        if (p.Profile.EndAreaReasons?.Contains(ProjectileEndReason.Split) == true
+            && p.Profile.EndArea is { } area && AllowsEndArea(p, ProjectileEndReason.Split))
+            Area(p, area, victim);
         End(p, ProjectileEndReason.Split, allowReturn: false);
         return true;
     }
@@ -678,6 +702,11 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         {
             p.GroundChains--;
             p.GroundBounces++;
+            if (p.Profile.RandomGroundBounceDirection)
+            {
+                double angle = p.Random.NextDouble() * Math.Tau;
+                p.Direction = new(Math.Cos(angle), Math.Sin(angle));
+            }
             p.Remaining = Math.Max(.001, p.Profile.GroundBounceKeepsRange ? p.Profile.Range : p.Profile.GroundBounceDistance);
             Publish(ProjectileEventKind.Redirect, p);
             return;

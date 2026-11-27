@@ -90,7 +90,8 @@ public static partial class Game
                     return;
                 }
                 var aim = m?.Walk.Position(AreaTime(player)) ?? here;
-                player.LockstepSkill.Press(aim, target, skill, flags, target != player.Id && LockstepRepeats(player, skill));
+                player.LockstepSkill.Press(aim, target, skill, flags,
+                    (target != player.Id || SelfCastRepeats(player, skill)) && LockstepRepeats(player, skill));
             }
             else
             {
@@ -108,6 +109,12 @@ public static partial class Game
 
     // A channelled skill starts once and runs until the release; anything else repeats while the button stays down.
     // A native channelled totem skill (Holy Flame Totem) is placed with a single cast by its owner, not channelled.
+    // A skill cast on the player itself does not repeat while held (a buff or an aura would toggle again), except
+    // Blade Vortex: a held key keeps adding blades at the cast rate, as in the original.
+    static bool SelfCastRepeats(Player player, ushort skill) =>
+        GemSkillEffects(player).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem
+        && IsBladeVortex(SkillsFor(player).EffectId(gem.Effect));
+
     static bool LockstepRepeats(Player player, ushort skill) =>
         !(GemSkillEffects(player).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem
             && SkillsFor(player).IsChannelled(gem.Effect) && !IsTotemSkill(player, skill));
@@ -544,7 +551,7 @@ public static partial class Game
         if (skill == SkillCatalog.FirstSkillId) return true;
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skill);
         return gem.Name is not null && !IsTotemSkill(player, skill) && !SkillsFor(player).IsChannelled(gem.Effect)
-            && SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).IsMovement(gem.Effect)
+            && SkillsFor(player).IsAttack(gem.Effect) && AttackUsesWalkUp(player, gem.Effect)
             && PlacedKind(SupportedSkill(player, skill)) is { Trap: false, Mine: false }
             && (!SkillsFor(player).IsProjectile(gem.Effect)
                 || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)));
@@ -670,7 +677,7 @@ public static partial class Game
         bool defersHold = monster
             ? requested == SkillCatalog.FirstSkillId
                 || gem.Name is not null && !thrown && !IsTotemSkill(player, requested)
-                    && SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).IsMovement(gem.Effect)
+                    && SkillsFor(player).IsAttack(gem.Effect) && AttackUsesWalkUp(player, gem.Effect)
                     && (player.LockstepSkill.Flags & 0x1) == 0
             : LockstepGroundMelee(player, requested, player.LockstepSkill.Flags);
         if (defersHold)

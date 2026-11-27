@@ -75,6 +75,9 @@ public static class ServerLevels
         /// <summary>Where the player arrives when a terrain plugin marks a start room (<see cref="AreaObjects.Start"/>);
         /// null for every other area.</summary>
         public (int X, int Y, float Angle)? Start { get; init; }
+        /// <summary>The first non-feature room's <c>default</c> point (<see cref="AreaObjects.Entrance"/>): the arrival after
+        /// <see cref="Start"/> and the room fit.</summary>
+        public (int X, int Y, float Angle)? Entrance { get; init; }
     }
 
     static readonly bool Enabled = Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") != "0";
@@ -468,7 +471,7 @@ public static class ServerLevels
                 TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds, Records = result.Records,
                 // One tile slot is 23 x 23 cells (the client's tile map, TileGrid).
                 TileAt = TileLookup(result.Grid),
-                Exits = exits.Exits, Entrances = exits.Entrances, Start = start,
+                Exits = exits.Exits, Entrances = exits.Entrances, Start = start, Entrance = AreaObjects.Entrance(result),
                 TileQuestObjects = AreaObjects.TileObjects(files, result, QuestObjectTypes.IsTileQuestObject),
                 TileLabyrinthObjects = AreaObjects.TileObjects(files, result, t => t.StartsWith("Metadata/Terrain/Labyrinth/", StringComparison.Ordinal)
                     || t.StartsWith(LabyrinthTrials.StatueFolder, StringComparison.Ordinal)),
@@ -561,6 +564,18 @@ public static class ServerLevels
     public static HashSet<(int X, int Y)> ModelWalkCells(string model, int x, int y, float angle, float scale = 1, bool mirrored = false) =>
         ModelHulls.GetOrAdd(model, m => DoodadHull.Load(Files().Text, m)) is { IsEmpty: false } hull
             ? Walkability.ClosedTo(Walkability.WalkCells(hull, new PlacedDoodad(model, x, y, angle, scale, mirrored))) : [];
+
+    /// <summary>Whether the model carries a non-empty Hull in its .ao (so walk-only vs projectile-blocking doors can be
+    /// distinguished from models that fall back to rectangular door hulls).</summary>
+    public static bool HasModelHull(string model) =>
+        !string.IsNullOrEmpty(model) && ModelHulls.GetOrAdd(model, m => DoodadHull.Load(Files().Text, m)) is { IsEmpty: false };
+
+    /// <summary>The cells a model's Hull closes on the client's projectile/sight layer (layer 1, <c>proj_tri</c> /
+    /// <c>proj_circle</c> only, matching <c>0x141d8ad70</c>). Walk-only grate doors return an empty set so blink/dash
+    /// travel skills can cross them while walking stays blocked.</summary>
+    public static HashSet<(int X, int Y)> ModelSightCells(string model, int x, int y, float angle, float scale = 1, bool mirrored = false) =>
+        ModelHulls.GetOrAdd(model, m => DoodadHull.Load(Files().Text, m)) is { IsEmpty: false } hull
+            ? Walkability.SightCells(hull, new PlacedDoodad(model, x, y, angle, scale, mirrored)) : [];
 
     static byte[]? Read(string path) => GamePack.Default.TryRead(path);
 

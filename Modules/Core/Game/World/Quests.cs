@@ -146,6 +146,12 @@ public static partial class Game
             : InstanceEntities.PlayerQuestFlagsUpdate(player.Id, PlayerQuestFlags(player));
     }
 
+    /// <summary>Sends the player's current effective quest flags (including transient <c>GameEvents.AreaQuestFlags</c>)
+    /// without mutating saved character flags.</summary>
+    public static Task SendPlayerQuestFlags(Player player, string log = "0x02bc player quest flags (current)") =>
+        player.Closed || !player.Connection.PlayerSent ? Task.CompletedTask
+            : SendWorldRecord(player, player.Id, [], log, atGate: () => QuestFlagPresentation(player));
+
     static OutputBatch? QuestTransitionRecords(Player player, WorldAdmission admission, uint id, AreaTransitionObject transition)
     {
         if (player.Closed || player.LeavingArea || !player.Layout.AreaTransitions.Any(e => e.Id == id && ReferenceEquals(e.Transition, transition))) return null;

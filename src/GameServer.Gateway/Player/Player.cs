@@ -32,6 +32,43 @@ public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool
 /// it (<c>action_should_face_away_from_target</c>: the Sand Spitter spits from its rear).</summary>
 public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? Point, bool FacesAway);
 
+/// <summary>How a combo child fires on the client when its parent clip event triggers (S3, 3.29.3c RE).</summary>
+public enum MonsterComboDispatch
+{
+    /// <summary>Send S→C 0x1ce (triggered=true) so the client draws Geometry/EffectDriven/Beam/GEAL/Melee visuals
+    /// without interrupting Actor+0x1b0, plus resolve server AoE/melee hit.</summary>
+    TriggeredAction,
+    /// <summary>Spawn authoritative server projectile/mortar via S→C 0x2bb without duplicate 0x1ce.</summary>
+    Projectile,
+    /// <summary>Spawn server summon/object/ground via S→C 0x2bb without 0x1ce.</summary>
+    ServerSpawn,
+}
+
+/// <summary>One scheduled child trigger bound to a named animation clip event on an <c>EmptyAction*</c> combo parent.</summary>
+public sealed record MonsterComboStep(
+    string EventName,
+    int Ms,
+    double Fraction,
+    int ChildEffect,
+    MonsterAttack ChildAttack,
+    MonsterComboDispatch Dispatch,
+    ContactPoint? Point = null);
+
+/// <summary>Engine facing/motion control event parsed from a parent combo clip (<c>StartFaceEventType</c>,
+/// <c>EndFaceEventType</c>, <c>MoveEventType</c>, or <c>face</c>).</summary>
+public sealed record MonsterComboControl(
+    string Kind,
+    int Ms,
+    int? EndMs = null,
+    ContactPoint? Point = null,
+    bool TerrainClamped = false)
+{
+    /// <summary>Start time as a fraction of the raw clip length, clamped to [0, 1].</summary>
+    public double Fraction { get; init; }
+    /// <summary>End time as a fraction of the raw clip length (when <see cref="EndMs"/> is set), clamped to [0, 1].</summary>
+    public double? EndFraction { get; init; }
+}
+
 /// <summary>One skill of a boss's kit (BossKits): the granted effect it is built from, its action, and how long the
 /// tables make it wait between two uses (0: the plain attack every monster has).</summary>
 public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double CooldownSeconds)
@@ -43,6 +80,11 @@ public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double Co
     public bool IsTeleport { get; init; }
     /// <summary>Whether one cast of this kit skill fires a barrage of shots (<c>BossMoves.BarrageOf</c>).</summary>
     public bool IsBarrage { get; init; }
+    /// <summary>Minimum distance in cells before this skill may be chosen (e.g. <c>projectile_minimum_range</c>,
+    /// <c>leap_slam_minimum_distance</c>; 0 means no extra minimum beyond <see cref="MonsterSkillUse.MinRange"/>).</summary>
+    public double MinRange { get; init; }
+    /// <summary>Shared cooldown group from <c>GrantedEffectsPerLevel.CooldownGroup</c> (0 = independent cooldown).</summary>
+    public int CooldownGroup { get; init; }
 }
 
 /// <summary>A delayed strike: how long its marker waits, the art it shows while it waits and as it strikes (null for
@@ -240,8 +282,15 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>A kit skill that is no plain hit (<see cref="MonsterSkillUse"/>): a travel, a buff on its user, a curse.</summary>
     public MonsterSkillUse? Use { get; init; }
 
+    /// <summary>Ordered child triggers fired at named clip events during an <c>EmptyAction*</c> combo parent (S3).</summary>
+    public IReadOnlyList<MonsterComboStep>? ComboSteps { get; init; }
+
+    /// <summary>Clip-driven facing/motion control events (<c>StartFace</c>/<c>EndFace</c>/<c>MoveEventType</c>) synchronized
+    /// with a combo parent.</summary>
+    public IReadOnlyList<MonsterComboControl>? ComboControls { get; init; }
+
     /// <summary>Plays where the actor stands. A plain melee attack instead walks the monster up (07 §5).</summary>
-    public bool InPlace => Ranged || Spell || Scripted || Use is not null;
+    public bool InPlace => Ranged || Spell || Scripted || Use is not null || ComboSteps is { Count: > 0 };
 
     /// <summary>The skill's stats. A melee attack keeps the client's pathing step: the action walks the monster up to its
     /// target and waits there until S→C 0x1ac starts the swing (07 §5). Anything else plays where it stands.</summary>
@@ -348,11 +397,21 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>The rest of a boss's skills (BossKits): the effect each one comes from, its action and its cooldown.
     /// Empty for every monster that swings one attack.</summary>
     public IReadOnlyList<MonsterKitSkill> Kit { get; init; } = [];
+    public IReadOnlyList<int>? OwnedSkillEffects { get; init; }
     /// <summary>The effect behind each id on the actor's skill list, so a mod's command can play any of the monster's own
     /// skills by the GrantedEffects Id the client shows. Empty when the spawn named none.</summary>
     public IReadOnlyList<(int Effect, ushort Id)> SkillIds { get; init; } = [];
     /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), in the area's frame.</summary>
     public readonly Dictionary<int, double> KitReadyAt = [];
+    /// <summary>Slot-indexed mirror of <see cref="KitReadyAt"/> aligned with <see cref="Kit"/> for O(1) zero-hash AI selection.</summary>
+    public double[]? KitReadyAtSlot;
+    /// <summary>Shared cooldown group expiry times (<see cref="MonsterKitSkill.CooldownGroup"/> → ready Clock seconds).</summary>
+    public Dictionary<int, double>? KitCooldownGroupReadyAt;
+    /// <summary>Most recent Clock time a cooldown skill (special) or zero-cooldown skill (plain) was consumed from <see cref="Kit"/>.</summary>
+    public double LastSpecialAt;
+    public double LastPlainAt;
+    /// <summary>True once per-monster kit state (teleport opener, ranged burst streak, or melee walk-up timer) is attached.</summary>
+    public bool HasKitState;
     /// <summary>The damage taken toward each kit trigger on damage taken since it was last cast, by granted effect.</summary>
     public readonly Dictionary<int, double> KitDamageTaken = [];
     bool originallyHostile = true;
@@ -719,6 +778,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public bool CorpseConsumed;
     public int HitFireExplosionPercent;
     public bool CursedAtDeath;
+    public bool TauntedAtDeath;
+    public int WitherStacksAtDeath;
     public double NonAuraHexUntilAtDeath;
     // Shared-instance sync shows these bodies to new viewers and removes each view on consumption or expiry.
     public bool CreatedAsCorpse;
@@ -1169,6 +1230,18 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public void SetBlocker(uint id, int x, int y, int size, double? collisionRadius = null) =>
         UpdateBlocker(id, x, y, size, collisionRadius, null);
 
+    public void SetRingBlocker(uint id, int x, int y, double ringRadius)
+    {
+        lock (_blockers)
+        {
+            actorOrChestBlockers.Remove(id);
+            _blockers[id] = new(x, y, 0) { RingRadius = ringRadius };
+            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
+            sceneryBlockers = null;
+        }
+        BlockersChanged?.Invoke();
+    }
+
     public void SetObjectBlocker(uint id, int x, int y, int size, bool actorOrChest, double? collisionRadius = null) =>
         UpdateBlocker(id, x, y, size, collisionRadius, actorOrChest);
 
@@ -1206,6 +1279,13 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     /// <summary>Replaces an area transition of this connection's layout (dev changes; the walk estimate keeps going).</summary>
     public void ReplaceAreaTransition(uint id, AreaTransitionObject transition) =>
         Layout = Layout with { AreaTransitions = [.. Layout.AreaTransitions.Select(e => e.Id == id ? (e.Id, transition) : e)] };
+
+    /// <summary>Publishes a dynamically added exit in this view without resetting the current walk.</summary>
+    public void AddAreaTransition(uint id, AreaTransitionObject transition)
+    {
+        if (Layout.AreaTransitions.Any(e => e.Id == id)) return;
+        Layout = Layout with { AreaTransitions = [.. Layout.AreaTransitions, (id, transition)] };
+    }
 
     // The quest walls (Barrier) are read on every path, so a wall that opens or closes counts from the next order on.
     private PlayerWalk NewPlayerWalk()
@@ -1261,6 +1341,9 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     // spike traps close, by id.
     public readonly Dictionary<uint, AreaPopulation.RoomObject> TrialObjects = [];
     public readonly Dictionary<uint, IReadOnlySet<(int X, int Y)>> DoorBarriers = [];
+    // Optional per-door sight/projectile layer overrides (layer 1: proj_tri/proj_circle only). Doors absent from this
+    // map default to blocking both walking and sight; walk-only grates register an empty set so blink/dash can cross.
+    public readonly Dictionary<uint, IReadOnlySet<(int X, int Y)>> SightDoorBarriers = [];
     // Cells server objects' Hull projectile shapes close to the server's projectiles, as the client stamps them into its
     // own projectile map (a trial's dart turrets). Changed and read in the area's frame.
     public readonly HashSet<(int X, int Y)> ProjectileWalls = [];
@@ -1268,10 +1351,28 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     // QuestRoomObjects' and DoorBarriers' cells.
     public volatile IReadOnlySet<(int X, int Y)> Barrier = new HashSet<(int X, int Y)>();
 
-    /// <summary>Recomputes <see cref="Barrier"/> from the standing quest walls and closed doors; the player's walk estimate
-    /// reads it on its next order (call in the area's frame).</summary>
-    public void UpdateBarrier() =>
-        Barrier = new HashSet<(int X, int Y)>(QuestRoomObjects.Values.SelectMany(o => o.Cells).Concat(DoorBarriers.Values.SelectMany(c => c)));
+    sealed class DoorLayers(IEnumerable<(int X, int Y)> walk, IReadOnlySet<(int X, int Y)> sight)
+        : HashSet<(int X, int Y)>(walk)
+    {
+        public IReadOnlySet<(int X, int Y)> Sight { get; } = sight;
+    }
+
+    public IReadOnlySet<(int X, int Y)> SightBarrier => Barrier switch { DoorLayers layers => layers.Sight, var walk => walk };
+
+    public void UpdateBarrier()
+    {
+        var quest = QuestRoomObjects.Values.SelectMany(o => o.Cells);
+        var walk = quest.Concat(DoorBarriers.Values.SelectMany(c => c));
+        if (SightDoorBarriers.Count == 0)
+        {
+            Barrier = walk.ToHashSet();
+            return;
+        }
+        var sight = quest.ToHashSet();
+        foreach (var (id, cells) in DoorBarriers)
+            sight.UnionWith(SightDoorBarriers.TryGetValue(id, out var custom) ? custom : cells);
+        Barrier = new DoorLayers(walk, sight);
+    }
     // The player's attacks: the next time one may start (Clock seconds). The client repeats 0x24 while the button is held.
     public double NextAttackAt;
     // Counts the player's actions; an attack's hit lands only if no other action started since (moving cancels it).
@@ -1282,7 +1383,6 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly WardState Ward = new();
     public readonly WardBreakState WardBreak = new();
     public double WitchbaneImmunityUntil;
-    public readonly TimedLifeRecovery EnduringCryRecovery = new();
     /// <summary>Petrified Blood's buff, reservation, deferred hit loss and life-cost rules (Combat/PetrifiedBlood.cs).</summary>
     public readonly PetrifiedBloodState PetrifiedBlood = new();
     /// <summary>Lifetap Support's life-paid costs, spent-Life counter and buff (Combat/Lifetap.cs).</summary>
@@ -1293,8 +1393,6 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly LeechDisplayState LeechDisplay = new();
     // Life Recoup of the hits the player took (Game.RecoupHitLocked), paid by the resource recovery loop.
     public readonly RecoupRecovery LifeRecoup = new();
-    public double SentEnduringCryUntil = double.NaN;
-    public ushort EnduringCryBuff;
     public bool AppliedAdrenaline;
     public (uint Maximum, bool Broken)? SentWard;
     public double SentAdrenalineUntil = double.NaN;

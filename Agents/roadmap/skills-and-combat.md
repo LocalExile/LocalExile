@@ -127,7 +127,10 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     reach the hits that read a monster's resistances or roll crits without a time: Rampage weapons, boss hazards
     (Doedre, Sirus, Kitava, arenas, Vaal Oversoul) and shrine novas.
   - Remaining weapon-scoped fire per Strength, lightning per Dexterity/Intelligence and spell per-Intelligence added damage.
-  - Monster skills beyond the first granted effect (ranged, spells).
+  - Monster skills beyond the first granted effect: ordinary multi-skill kits (up to 16 skills with `MinRange` and
+    `CooldownGroup`), `monster-contacts` v9 clip events, `EmptyAction*` combos (`MonsterCombos`), and `.ot`
+    `StateMachine` visibility/state plumbing (`MonsterStateMachine`, `object_type_state_meta`) are implemented with
+    automated coverage; live real-client verification and remaining unmapped projectile/combo families stay open.
   - Player stun: ES avoidance, substituted thresholds, conditional defences and monster-specific modifiers.
   - Criticals: other conditional more chance, guaranteed-critical effects, off-hand chance/multiplier publication and
     execution, Focus/curse lifecycles. The off-hand range/timing publication has no critical fields: do not infer
@@ -191,10 +194,12 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     native check of the continuation boundary; the action-speed/Tailwind contract (#246).
   - Combat body geometry: actor positions use integer walk estimates and Gateway actor radii are zero, so area
     coverage is centre-based; calibrate against `ObjectSize`.
-  - Monster weapon projectiles: `monster_projectile_weapon`, `monster_snipe` and `monster_puncture` (109 varieties'
-    first effect) take their projectile from the monster's weapon art (MonsterVarieties
-    `Weapon1_ItemVisualIdentityKeys`, e.g. `SkeletonArrow1`), which the server does not read, so they hit instantly
-    with no shot. Monster spell projectiles (`MonsterProjectileSpell`) need their own adapter.
+  - Monster weapon projectiles: weapon attacks with a `monster_projectile_variation` (and sibling `ActionType`s /
+    variation-0 `ScavengerThrow`) fly their `MonsterProjectileAttack` projectile in kit shaping (`BossKits.ArtShot`),
+    while the default attack (`MavenNucleus.Shot` → `MonsterProjectile` without weapon attacks) still has none.
+    `monster_snipe` and `monster_puncture` (109 varieties' first effect) take their projectile from the monster's weapon
+    art (MonsterVarieties `Weapon1_ItemVisualIdentityKeys`, e.g. `SkeletonArrow1`), which the server does not read, so
+    they hit instantly with no shot. Monster spell projectiles (`MonsterProjectileSpell`) need their own adapter.
   - Mortars: the splash radius is a development default and `projectile_spread_radius` (3) is not modelled; monster
     melee still lands at half the attack time although the pools carry `Melee` keyframes. Check live whether the
     client seeds a monster's clip choice from the 0xffff sequence (the Spitter's attack2 would spit 75 ms earlier and

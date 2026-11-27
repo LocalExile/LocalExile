@@ -304,14 +304,14 @@ public static partial class Game
         SpawnedMonster? victim, (int X, int Y) aim, double now)
     {
         var m = g.Monster;
-        if (ability.Effect == 306)
+        if (ability.Effect == ElementalHitCloneShot)
         {
             var last = g.LastPrismaticElement;
             int roll = AreaRng(player).Next(last is null ? 3 : 2) + (int)DamageType.Lightning;
             if (last is { } previous && roll >= (int)previous) roll++;
             var element = (DamageType)roll;
             ability = GolemAbilities(player, m.Variety!, m.Level, g, g.Player, prismatic: element)
-                .Single(a => a.Effect == 306);
+                .Single(a => a.Effect == ElementalHitCloneShot);
             g.LastPrismaticElement = element;
         }
         int generation = ++m.ActionGeneration;
@@ -847,7 +847,7 @@ public static partial class Game
             || !supported.RequirementsMet || supported.Level <= 0 || supported.Quality < 0
             || supported.Effect != g.Definition.Effect) return false;
         if (g.Abilities.FirstOrDefault(current => current.Effect == a.Effect) is not { } current) return false;
-        if (a.Effect == 306)
+        if (a.Effect == ElementalHitCloneShot)
         {
             var element = new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning }
                 .First(type => GolemStat(a.Stats, Stat.Of($"elemental_hit_cannot_roll_{type.ToString().ToLowerInvariant()}_damage")) == 0);
@@ -928,6 +928,7 @@ public static partial class Game
         resistanceMods = ImpurityHitMods(target, now, resistanceMods);
         var strike = new HitResistances.Strike(Critical: critical, Attack: !a.Attack.Spell);
         var random = AreaRng(player);
+        if (projectile && MonsterAvoidsProjectile(target, random)) return false;
         int inversionChance = GolemStat(supported.Stats, Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance)
             + GolemStat(a.Stats, Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance);
         bool invert = inversionChance > 0 && rolled.Components.Any(component =>
@@ -1013,11 +1014,7 @@ public static partial class Game
         target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
             n => target.Effects[n], AreaRng(player), ailmentArea);
         CommitMinionHitLocked(player, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}", stun, g.Monster, g.Own, g);
-        if (critical && RandomRolls.Chance(GolemStat(supported.Stats, Stat.AddPowerChargeOnCriticalStrikePct), 100, random))
-            GrantMinionChargeLocked(player, g, ChargeType.Power, 1, now);
-        if (hit.Life == 0 && target.Ailments.FrozenAtDeath(now)
-            && RandomRolls.Chance(GolemStat(supported.Stats, Stat.ChanceToGainFrenzyChargeOnKillingFrozenEnemyPct), 100, random))
-            GrantMinionChargeLocked(player, g, ChargeType.Frenzy, 1, now);
+        MinionHitChargesLocked(player, g, target, supported.Stats, critical, hit.Life == 0, now, random);
         if (g.Definition.Kind == "Spectre" && damage > 0) SpectreRoleOnHitLocked(player, g, a, id, target, now);
         SpectreShockExplosionLocked(player, g, a, target, to, now);
         if (!target.Dead)
@@ -1089,6 +1086,31 @@ public static partial class Game
             || RandomRolls.Chance(ActorScale.Saturate((long)effects[chance] + (skill?.GetValueOrDefault(chance) ?? 0)), 100, random);
     }
 
+    internal static void MinionHitChargesLocked(Player owner, GolemState.Golem fighter, SpawnedMonster target,
+        IReadOnlyDictionary<uint, int> skillStats, bool critical, bool killed, double now, Random random)
+    {
+        if (critical && RandomRolls.Chance(GolemStat(skillStats, Stat.AddPowerChargeOnCriticalStrikePct), 100, random))
+            GrantMinionChargeLocked(owner, fighter, ChargeType.Power, 1, now);
+        if (!killed) return;
+        if (!ItemEffectRules.Enabled)
+        {
+            if (target.Ailments.FrozenAtDeath(now)
+                && RandomRolls.Chance(GolemStat(skillStats, Stat.ChanceToGainFrenzyChargeOnKillingFrozenEnemyPct), 100, random))
+                GrantMinionChargeLocked(owner, fighter, ChargeType.Frenzy, 1, now);
+            return;
+        }
+
+        ChargeEvent.Kill? kill = null;
+        foreach (var rule in ItemEffectRules.Current.MinionKillCharges)
+        {
+            int chance = GolemStat(skillStats, rule.Stat);
+            if (chance <= 0) continue;
+            kill ??= new(target.Rarity, target.Ailments.FrozenAtDeath(now), target.Poisons.StacksAtDeath(now));
+            if (rule.When(kill, default) && RandomRolls.Chance(chance, 100, random))
+                GrantMinionChargeLocked(owner, fighter, rule.Type!.Value, 1, now);
+        }
+    }
+
     public static int GolemCriticalChance(GolemState.Ability ability, MonsterModSet mods, int additionalIncrease = 0)
     {
         if (!ability.Attack.Spell && mods.Effects[Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance] != 0)
@@ -1141,6 +1163,7 @@ public static partial class Game
             SpreadRadians = nova ? Math.PI * 2 : p.SpreadRadians,
             DirectDamage = !p.Lobbed,
             Pierce = a.Effect == 2378 || GolemStat(a.Stats, Stat.AlwaysPierce) != 0 ? -1 : 0,
+            ContactArea = a.Effect == ElementalHitCloneShot ? ElementalHitBurst(a.Radius) : null,
             EndArea = p.Lobbed ? new("golem mortar", a.Radius) : null,
             EndAreaReasons = p.Lobbed ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
         };
@@ -1283,7 +1306,8 @@ public static partial class Game
                 double raw = (hazard.DamagePerSecond * elapsed + deltaDamagePerSecond * activeSeconds)
                     * MeatShieldDamage(player, g.Own, m, now);
                 double resisted = DamageModel.Mitigate(DamagePacket.Of(hazard.Type, raw, raw), t => MonsterHitResistance(m, t, default, now))[hazard.Type].Min;
-                double total = resisted * MonsterDamageTaken(m, spell: true, now, chaos: hazard.Type == DamageType.Chaos)
+                double total = resisted * MonsterDamageTaken(m, spell: true, now, elemental: DamageTypes.IsElemental(hazard.Type), hit: false,
+                    chaos: hazard.Type == DamageType.Chaos, overTime: true)
                     + hazard.DamageCarry.GetValueOrDefault(id);
                 int damage = (int)Math.Floor(total); hazard.DamageCarry[id] = total - damage;
                 if (damage <= 0 || ApplyTypedMonsterHitLocked(player, m, damage, hazard.Type == DamageType.Chaos ? damage : 0, allyAt: centre) is not { } hit) continue;

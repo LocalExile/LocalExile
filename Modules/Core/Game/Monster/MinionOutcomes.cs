@@ -92,6 +92,7 @@ public static partial class Game
         SpreadPestilentStrike(player, victimId, monster, now);
         RememberCursedCorpse(player, victimId, monster);
         QueueInfernalBlowDeath(monster, now);
+        QueueInfernalCryDeath(victimId, monster, now);
         TransferMarksOnDeathLocked(player, monster, now);
         HitSummonsOnDeathLocked(player, victimId, monster, now);
         QueueEssenceDeathSpawnLocked(player, victimId, monster);
@@ -117,6 +118,10 @@ public static partial class Game
                 Frozen: monster.Ailments.FrozenAtDeath(now));
             if (chargeBatch is not null) chargeBatch.Add(charge);
             else CommitAcceptedChargeBatchLocked(player, [charge], CharacterPlayerStats(player));
+            if (OnslaughtOnKill(player, now, monster.TauntedAtDeath))
+                ProjectilesFor(player).EnqueueLater(() => SendKillOnslaught(player));
+            if (RecoverOnKill(player, monster, tincture: null) is int deathEpoch)
+                ProjectilesFor(player).EnqueueLater(() => PlayerDiedAtEpoch(player, "death from life lost on kill", deathEpoch));
             var explosionEquipment = CaptureKillEquipment(player, monster, at, now);
             ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at, explosionEquipment));
         }
@@ -158,7 +163,8 @@ public static partial class Game
             int level = Progression.LevelFor(change.After, CharacterStats.LevelStarts);
             if (level != player.Pools.Level)
             {
-                CommitExperienceLevel(player, level);
+                int before = CommitExperienceLevel(player, level);
+                state.PendingLevelBefore ??= before;
                 player.PlayerLife = LifeCap(player); player.PlayerMana = (uint)UnreservedMana(player);
                 RefillPlayerEnergyShield(player); TrimLeechLocked(player);
                 state.StatRevision++; state.AccountRevision++;
@@ -386,7 +392,15 @@ public static partial class Game
         }
         await SendSentinelOwnership(player, Current);
         if (!Current() || account == state.PresentedAccountRevision) return;
-        if (!HardcoreProgressBlocked(player)) await BroadcastLevelChange(player, player.Pools.Level);
+        if (!HardcoreProgressBlocked(player))
+        {
+            await BroadcastLevelChange(player, player.Pools.Level);
+            if (state.PendingLevelBefore is int prev)
+            {
+                state.PendingLevelBefore = null;
+                await GameEvents.RunLevelUp(player, prev, player.Pools.Level);
+            }
+        }
         if (!Current()) return;
         await SynchronizeAccountLevel(player);
         if (Current() && !player.Closed && !player.LeavingArea) state.PresentedAccountRevision = Math.Max(state.PresentedAccountRevision, account);

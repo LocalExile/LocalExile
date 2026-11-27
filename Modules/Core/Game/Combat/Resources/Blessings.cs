@@ -2,6 +2,9 @@ public static partial class Game
 {
     static bool IsBlessingSkill(SupportedGem skill) => GolemStat(skill.Stats, Stat.SkillIsBlessingSkill) != 0;
 
+    static bool BlessingsDisabled(Player player) => StatSourceValues(player).GetValueOrDefault(
+        Stat.DisableBlessingSkillsAndDisplaySocketedAuraGemsReserveNoMana) != 0;
+
     static bool AuraHasStat(AuraCatalog.Aura aura, uint stat) => aura.SkillStats is { } own
         && own.Any(row => row.Key == stat && row.Value != 0);
 

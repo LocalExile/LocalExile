@@ -73,12 +73,15 @@ def room_points(doc):
 
 
 def object_types(doc):
-    types, states = [], []
+    types, states, state_meta = [], [], []
     for t, record in enumerate(doc["types"]):
         # positioned: whether the type has Positioned at all (897 have it with none of its fields set).
-        types.append({**flat(record, skip=("shared_states",)), "positioned": isinstance(record.get("positioned"), dict)})
+        types.append({**flat(record, skip=("shared_states", "state_meta")), "positioned": isinstance(record.get("positioned"), dict)})
         states += [{"type": t, "ord": i, "name": s[0], "value": s[1]} for i, s in enumerate(record["shared_states"])]
-    return {"object_types": types, "object_type_shared_states": states, **info("object_types_info", doc, ["generator"])}
+        state_meta += [{"type": t, "ord": i, "name": m[0], "flags": m[1], "enable_value": m[2]}
+                       for i, m in enumerate(record.get("state_meta") or [])]
+    return {"object_types": types, "object_type_shared_states": states, "object_type_state_meta": state_meta,
+            **info("object_types_info", doc, ["generator"])}
 
 
 def item_types(doc):
@@ -86,6 +89,27 @@ def item_types(doc):
 
 
 def monster_contacts(doc):
+    # v9 (Option B): profile-normalized {"version": 9, "profiles": [...], "varieties": {...}}
+    if isinstance(doc, dict) and "profiles" in doc and "varieties" in doc:
+        monsters, clips, frames, events, clocks = [], [], [], [], []
+        for p_idx, prof in enumerate(doc["profiles"]):
+            for pool, entries in prof["pools"].items():
+                for i, c in enumerate(entries):
+                    clip = len(clips)
+                    clips.append({"profile": p_idx, "pool": pool,
+                                  **child("profile", p_idx, i, c, skip=("contacts", "events"))})
+                    frames += [{"clip": clip, "ord": k, "ms": f[0], "position": f[1]}
+                               for k, f in enumerate(c.get("contacts") or [])]
+                    events += [{"clip": clip, "ord": k, "name": ev["name"], "ms": ev["ms"],
+                                "position": ev.get("position"), "args": ev.get("args")}
+                               for k, ev in enumerate(c.get("events") or [])]
+        for m, (variety, value) in enumerate(doc["varieties"].items()):
+            monsters.append({"variety": variety, **flat(value, skip=("melee_clocks",))})
+            clocks += [child("monster", m, i, clip) for i, clip in enumerate(value.get("melee_clocks") or [])]
+        return {"monster_contacts": monsters, "monster_contact_clips": clips,
+                "monster_contact_clip_frames": frames, "monster_contact_clip_events": events,
+                "monster_melee_clocks": clocks}
+
     monsters, clips, frames, clocks = [], [], [], []
     for m, (variety, value) in enumerate(doc.items()):
         monsters.append({"variety": variety, **flat(value, skip=("pools", "melee_clocks"))})
@@ -168,6 +192,8 @@ def animation_contacts(doc):
     result = {"animation_rigs": rigs, "animation_clips": clips, "animation_clip_contacts": frames,
               "animation_clip_events": events, "animation_default_attacks": attacks}
     if skill_clips:
+        # Preserve the existing ACT rows when adding the three actions used by Crushing Fist.
+        skill_clips.sort(key=lambda row: row["skill"] in {"GroundSlam", "GroundSlamOffhand", "SpellAreaOfEffect"})
         result["animation_skill_clips"] = skill_clips
     return result
 

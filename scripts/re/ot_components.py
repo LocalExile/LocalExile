@@ -284,6 +284,132 @@ def all_contacts(events):
 
 TOKEN = re.compile(r'"[^"]*"|\'[^\']*\'|[{}=]|[^\s{}=]+')
 
+# Bit flags for object_type_state_meta.flags (verified against Client/Game.exe 3.29.3c StateMachineType 0x141e3e820):
+STATE_FLAG_CLIENT_LISTENER = 1             # Any common/client StateMachine event handler (on_state_*, create_state_*, etc.)
+STATE_FLAG_CLIENT_WRITER = 2               # Mutated by common/client GEAL SetState*/UnsetStateFlag/ModifyState/CopyState
+STATE_FLAG_DISABLES_RENDERING_DEFAULT = 4  # Top-level unconditional DisableRendering() in create_state/on_or_create_state at default value
+
+_STATE_WRITE_FNS = frozenset({
+    "SetStateTo", "SetStateToState", "SetStateToRandomRange",
+    "SetStateFlag", "UnsetStateFlag", "ModifyState", "ModifyStateRandomRange", "CopyState",
+})
+_SM_EVENT_PREFIXES = (
+    ("on_or_create_state_", "on_or_create_state"),
+    ("on_increase_state_", "on_increase_state"),
+    ("on_decrease_state_", "on_decrease_state"),
+    ("on_change_state_", "on_change_state"),
+    ("on_exit_state_", "on_exit_state"),
+    ("create_state_", "create_state"),
+    ("on_state_", "on_state"),
+)
+_OT_META_TOK = re.compile(
+    r'(?P<ws>\s+|//[^\r\n]*|/\*.*?\*/)|(?P<str>"[^"]*"|\'[^\']*\')|(?P<op>[{}=])|(?P<word>[^\s{}="\']+)',
+    re.S,
+)
+_GEAL_META_TOK = re.compile(
+    r'//[^\r\n]*|/\*.*?\*/|"[^"]*"|\'[^\']*\'|[A-Za-z_][A-Za-z0-9_]*|[{}();,.]',
+    re.S,
+)
+
+
+def scan_state_meta(text):
+    """Scan an .ot file's common and client {} blocks (skipping server {}) for StateMachine event listeners,
+    self-entity GEAL state writers, top-level create-time DisableRendering(), and EnableRendering() values.
+
+    Preserves quoted strings verbatim and skips block comments outside quotes. Does not touch state_machine()'s
+    shared_states parsing (which preserves the client's 0x141e4d930 comment-in-string quirk).
+    """
+    listeners, writers, create_disable, enable_vals = set(), set(), set(), {}
+    if not any(k in text for k in ("StateMachine", "SetState", "UnsetStateFlag", "ModifyState", "CopyState")):
+        return {"listeners": listeners, "writers": writers, "create_disable": create_disable, "enable_vals": enable_vals}
+
+    raw_toks = [
+        (m.lastgroup, m.group(), m.start(), m.end())
+        for m in _OT_META_TOK.finditer(text)
+        if m.lastgroup != "ws"
+    ]
+
+    def find_close(idx):
+        depth, j = 1, idx + 1
+        while j < len(raw_toks) and depth:
+            if raw_toks[j][0] == "op":
+                if raw_toks[j][1] == "{":
+                    depth += 1
+                elif raw_toks[j][1] == "}":
+                    depth -= 1
+            j += 1
+        return j
+
+    def scan_script(src, sm_event=None):
+        gtoks = [m.group() for m in _GEAL_META_TOK.finditer(src)
+                 if not m.group().startswith("//") and not m.group().startswith("/*")]
+        depth = 0
+        has_uncond_disable = False
+        has_enable = False
+        n = len(gtoks)
+        for i, t in enumerate(gtoks):
+            if t in ("{", "("):
+                depth += 1
+            elif t in ("}", ")"):
+                depth = max(0, depth - 1)
+            elif t in _STATE_WRITE_FNS and (i == 0 or gtoks[i - 1] != ".") and i + 2 < n and gtoks[i + 1] == "(":
+                arg0 = gtoks[i + 2].strip("\"'")
+                if arg0 and arg0 not in ("(", ")", "{", "}", ",", ";"):
+                    writers.add(arg0)
+            elif t == "DisableRendering" and i + 1 < n and gtoks[i + 1] == "(":
+                if depth == 0:
+                    has_uncond_disable = True
+            elif t == "EnableRendering" and i + 1 < n and gtoks[i + 1] == "(":
+                has_enable = True
+        if sm_event is not None:
+            kind, st, val_int = sm_event
+            if val_int is not None:
+                if has_uncond_disable and kind in ("create_state", "on_or_create_state"):
+                    create_disable.add((st, val_int))
+                if has_enable and kind in ("on_state", "create_state", "on_or_create_state"):
+                    enable_vals.setdefault(st, set()).add(val_int)
+
+    def walk(start, end, sec):
+        i = start
+        while i < end:
+            k, v, _, _ = raw_toks[i]
+            if k == "word" and i + 1 < end and raw_toks[i + 1][0] == "op" and raw_toks[i + 1][1] == "{":
+                close = find_close(i + 1)
+                if v == "server":
+                    pass  # client mode-0/mode-1 loader (0x14247d050) skips server {} blocks
+                elif v == "client":
+                    walk(i + 2, close - 1, sec)
+                else:
+                    walk(i + 2, close - 1, v)
+                i = close
+            elif k == "word" and i + 2 < end and raw_toks[i + 1][1] == "=" and raw_toks[i + 2][1] == "{":
+                close = find_close(i + 2)
+                sm_ev = None
+                if sec == "StateMachine":
+                    for pref, kind in _SM_EVENT_PREFIXES:
+                        if v.startswith(pref):
+                            rest = v[len(pref):]
+                            if kind in ("on_state", "create_state", "on_or_create_state", "on_exit_state"):
+                                st, _, val_s = rest.rpartition("_")
+                                listeners.add(st)
+                                try:
+                                    vi = int(val_s)
+                                except ValueError:
+                                    vi = None
+                                sm_ev = (kind, st, vi)
+                            else:
+                                listeners.add(rest)
+                                sm_ev = (kind, rest, None)
+                            break
+                src = text[raw_toks[i + 2][3]:raw_toks[close - 1][2]]
+                scan_script(src, sm_ev)
+                i = close
+            else:
+                i += 1
+
+    walk(0, len(raw_toks), "ROOT")
+    return {"listeners": listeners, "writers": writers, "create_disable": create_disable, "enable_vals": enable_vals}
+
 
 _QUEST_FLAGS = None
 
@@ -312,7 +438,8 @@ def parse(text):
     """-> {extends: [...], abstract, sections: [names], client: [names], server: [names]}"""
     toks = TOKEN.findall(re.sub(r"//[^\n]*", "", text))
     r = {"extends": [], "abstract": False, "sections": [], "client": [], "server": [], "version": None,
-         "shared_states": [], "shared_timers": [], "transitionable": {}, "tags": [], "basic_actions": [],
+         "shared_states": [], "shared_timers": [], "state_meta_raw": scan_state_meta(text),
+         "transitionable": {}, "tags": [], "basic_actions": [],
          "client_transitionable": {}, "client_targetable": None, "life": {}, "positioned": {}, "animated": {}, "quest": {},
          "stats": {}, "pathfinding": {}, "actor": {}}
     i = 0
@@ -478,12 +605,36 @@ def merge(type_path, files, otc, first=("Positioned",)):
     # Shared states/timers in definition order, parents first; a redefinition keeps the first position and takes the
     # later default.
     states, timers = {}, []
+    sm_listeners, sm_writers, sm_create_disable, sm_enable_vals = set(), set(), set(), {}
     for _, f in ch:
         for name, v in (f or {}).get("shared_states", []):
             states[name] = v
         for name in (f or {}).get("shared_timers", []):
             if name not in timers:
                 timers.append(name)
+        raw_meta = (f or {}).get("state_meta_raw")
+        if raw_meta:
+            sm_listeners.update(raw_meta["listeners"])
+            sm_writers.update(raw_meta["writers"])
+            sm_create_disable.update(raw_meta["create_disable"])
+            for st_name, vals in raw_meta["enable_vals"].items():
+                sm_enable_vals.setdefault(st_name, set()).update(vals)
+    state_meta = []
+    for name, dv in states.items():
+        fl = 0
+        if name in sm_listeners:
+            fl |= STATE_FLAG_CLIENT_LISTENER
+        if name in sm_writers:
+            fl |= STATE_FLAG_CLIENT_WRITER
+        en_val = None
+        if (name, dv) in sm_create_disable:
+            fl |= STATE_FLAG_DISABLES_RENDERING_DEFAULT
+            cands = sorted(v for v in sm_enable_vals.get(name, ()) if v != dv)
+            if cands:
+                # Prefer 1 if available (standard boolean toggle), else lowest non-default enable value.
+                en_val = 1 if 1 in cands else cands[0]
+        if fl != 0:
+            state_meta.append([name, fl, en_val])
     # Transitionable (type +0xb0 = num_states; states run 1..num_states, num_states = fully transitioned): later files
     # in the chain override. Without the key the type's constructor (0x141e46340) sets 2, and the key itself only takes
     # 2..127 (0x141e46070), so 1 below means "not given": state 1 is then the untransitioned state, 2 the transitioned.
@@ -499,7 +650,7 @@ def merge(type_path, files, otc, first=("Positioned",)):
             "positioned": {k: v for _, f in ch for k, v in (f or {}).get("positioned", {}).items()},
             "animated_object": next((f["animated"]["animated_object"] for _, f in reversed(ch)
                                      if f and "animated_object" in f.get("animated", {})), None),
-            "shared_states": [[k, v] for k, v in states.items()], "shared_timers": timers,
+            "shared_states": [[k, v] for k, v in states.items()], "shared_timers": timers, "state_meta": state_meta,
             # The Actor's basic actions (ClientActor ctor 0x1421991d0 adds one skill per name, id = HASH16 & 0x3fff),
             # parents first: e.g. Monster.ot's Move, and "Emerge" for monsters that rise from the ground.
             "basic_actions": list(dict.fromkeys(a for _, f in ch for a in (f or {}).get("basic_actions", []))),
@@ -774,7 +925,7 @@ def merge_items(fetch_missing=True):
         quest = {k: v for p in r["chain"] for k, v in files.get(p, {}).get("quest", {}).items()}
         if quest:
             r["quest"] = quest
-        for k in ("shared_states", "shared_timers", "transitionable", "positioned", "animated_object", "basic_actions",
+        for k in ("shared_states", "shared_timers", "state_meta", "transitionable", "positioned", "animated_object", "basic_actions",
                   "client_transitionable", "client_targetable", "actor"):
             r.pop(k, None)
         out[tid] = r

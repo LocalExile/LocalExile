@@ -236,6 +236,7 @@ public static class CosmeticsFeature
         // the new art variation / hide flag so the pick applies immediately.
         await RefreshReservationCosmetics(player, slot.GemHash);
         global::Game.RefreshSpectreCosmetics(player, slot.GemHash);
+        await GameEvents.RunCosmeticChanged(new(player, slot.SlotType, pick.RecordId, record?.MtxTypeHash ?? 0, GemHash: slot.GemHash));
     }
 
     // C→S 0x1f9: a pick in the Cosmetics tab's slot flyout (record 0 empties the slot). Saved per character, then the
@@ -292,6 +293,7 @@ public static class CosmeticsFeature
             var told = await InstanceControl.CallAsync(new ControlRequest { Op = "set_portrait_frame", Ticket = player.Ticket, PortraitFrame = frame });
             if (!told.Ok) Console.WriteLine($"[gateway] {player.Connection.Remote} set_portrait_frame {frame}: {told.Error}");
         }
+        await GameEvents.RunCosmeticChanged(new(player, pick.Slot, pick.RecordId, record?.MtxTypeHash ?? 0, pick.Option));
     }
 
     internal static Task SetDisplayFlag(Player player, byte bitMask, bool enabled)
