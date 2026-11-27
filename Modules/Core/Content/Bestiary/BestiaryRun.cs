@@ -12,9 +12,10 @@ public sealed class BestiaryRun
     public sealed class Beast(uint id, object body, bool red)
     {
         public uint Id { get; } = id;
-        public object Body { get; } = body;
+        public object Body { get; internal set; } = body;
         public bool Red { get; } = red;
         public bool Captured { get; internal set; }
+        public ushort Variety { get; internal set; } = body is SpawnedMonster { Variety: { } type } ? (ushort)type.Row : (ushort)0;
     }
 
     /// <summary>What one capture changes: the beast, whether it is the first (Einhar arrives) and whether it is the last.</summary>
@@ -25,6 +26,7 @@ public sealed class BestiaryRun
     bool einharCame, completed;
 
     public string MissionId { get; init; } = "";
+    public string Key { get; init; } = Guid.NewGuid().ToString("N");
     public byte Level { get; init; }
 
     /// <summary>The mission's beasts, placed first, captured as they are killed.</summary>
@@ -44,6 +46,25 @@ public sealed class BestiaryRun
         var beast = new Beast(id, body, red);
         lock (gate) beasts.Add(beast);
         return beast;
+    }
+
+    internal void Bind(uint id, SpawnedMonster body)
+    {
+        lock (gate)
+            if (beasts.FirstOrDefault(b => b.Id == id && !b.Captured) is { } beast)
+            {
+                beast.Body = body;
+                if (body.Variety is { } type) beast.Variety = (ushort)type.Row;
+            }
+    }
+
+    internal void RestoreProgress(bool received, bool complete)
+    {
+        lock (gate)
+        {
+            einharCame = received;
+            completed = complete && beasts.All(b => b.Captured);
+        }
     }
 
     /// <summary>A kill of <paramref name="body"/>: the capture it makes, or null when it is not a mission beast still to take.</summary>
