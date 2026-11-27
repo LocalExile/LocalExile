@@ -409,7 +409,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Bloodscent applies its Rage grant to the weapon that landed the hit (checked offline).
 - Blood Rage: attack speed, physical attack life leech, Frenzy Charge chance on kill and its physical degeneration;
   a kill refreshes it (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
-- Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) Â§13.
+- Auras, reservation, Pride, heralds (Herald of Thunder's bolts drawn in the worn skin; walls block them) and
+  permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) Â§13.
 - Animated equipment, including Self Reflection. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Animated Guardian keeps its equipment on death and is unavailable in that non-hideout instance.
 - Summons: quality, source recovery, spell repeats, and enemy-seeking undamageable Skitterbots; mines and traps
@@ -438,7 +439,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Damage and stun triggers aim at the hit source when known. Arc of Surging keeps an eligible target through its
   delayed split.
 - Shock Nova releases a ring and a larger nova, including when cast by a totem, trap or mine. The ring applies the
-  skill's shock chance, and the maximum shock modifier applies to both contacts.
+  skill's shock chance, and the maximum shock modifier applies to both contacts. Triggered, it draws both in the
+  worn skin.
 - Flame Surge hits forward and uses an existing ignite for burning ground. Combusting uses the ignite it inflicts,
   with its own creation interval.
 - Glacial Cascade uses the same burst pattern for hand casts, spell totems, traps and mines. Its normal and Royale

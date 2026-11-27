@@ -4524,6 +4524,8 @@ public static partial class Game
             && SpendDischargedCharges(player, gem.Name, gem.Gem, discharge, Stat(global::Stat.DischargeChanceNotToConsumeChargesPct), targets.Count)
             && immediate && spell)
             await ShowTriggeredDischarge(player, gem.Gem, discharge, centre, radius);
+        if (immediate && spell && SkillsFor(player).EffectId(gem.Effect) is "ShockNova" or "NewShockNova")
+            await ShowTriggeredShockNova(player, gem.Gem, centre, radius);
         // Holy Sweep's hammers fall on enemies this sweep struck; Hammerfalls' waves fall around the player's cell, as
         // the client centres them (its controller's +0x35c is the owner's cell).
         if (hammer is null && !spell && HolySweepHammers.For(Stat) is { } hammers)
