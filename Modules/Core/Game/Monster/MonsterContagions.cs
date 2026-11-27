@@ -260,7 +260,7 @@ static partial class Game
     internal static async Task TickContagions(Player player)
     {
         if (!MonsterContagion.AnyApplied && !HasPestilentDamage(player.Area) && !HasSoulrendDamage(player.Area)
-            && !HasFleshrendDamage(player.Area) && !HasBlightDamage(player.Area)) return;
+            && !HasFleshrendDamage(player.Area) && !HasBlightDamage(player.Area) && !HasScorchingRayDamage(player.Area)) return;
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, Player? Owner, string Effect)>();
         using (ProjectileMutation(player))
         {
@@ -331,6 +331,35 @@ static partial class Game
                     blighted.Remove(id);
                     // A killing application must remain available for Contagion's death callback.
                     if (living || m.Contagion.Idle) BlightDebuffs.Remove(m);
+                }
+                pending.Clear();
+            }
+
+            if (ScorchingRayAreas.TryGetValue(player.Area, out var rays) && rays.Targets.Count > 0)
+            {
+                var pending = rays.Pending;
+                pending.Clear();
+                pending.AddRange(rays.Targets);
+                foreach (var (id, m) in pending)
+                {
+                    if (!ScorchingRayBurns.TryGetValue(m, out var burn) || player.Area.Monsters.GetValueOrDefault(id) != m)
+                    {
+                        rays.Targets.Remove(id);
+                        ScorchingRayBurns.Remove(m);
+                        continue;
+                    }
+                    if (!m.Dead && m.Life > 0)
+                    {
+                        burn.Accrue(m, now);
+                        int damage = (int)Math.Clamp(burn.Carry, 0, int.MaxValue);
+                        burn.Carry -= damage;
+                        Commit(id, m, damage, DotOwner(player, burn.DamageOwner), "Scorching Ray", chaos: false);
+                    }
+                    bool living = !m.Dead && m.Life > 0;
+                    PresentScorchingRay(player.Area, id, burn, now, living);
+                    if (living && burn.ShownStages != 0) continue;
+                    rays.Targets.Remove(id);
+                    ScorchingRayBurns.Remove(m);
                 }
                 pending.Clear();
             }

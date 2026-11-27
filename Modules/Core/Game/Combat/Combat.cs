@@ -2607,7 +2607,9 @@ public static partial class Game
             && flame.Skill == skillId && flame.Generation == generation && flame.Action == action ? flame : null;
         var aimedPulse = ActiveAimedPulseChannel(player);
         bool blight = aimedPulse is not null && IsBlightChannel(SkillsFor(player).EffectId(gem.Effect));
-        bool firstStagePaid = snipe || flameblast is not null && initialCostPaid;
+        bool scorchingRay = aimedPulse is not null && IsScorchingRay(SkillsFor(player).EffectId(gem.Effect));
+        int rayInterruption = player.ActionInterruptionGeneration;
+        bool firstStagePaid = snipe || initialCostPaid && (flameblast is not null || scorchingRay);
         ChargedDashChannel? dash;
         lock (LevelUpdatesFor(player).Gate) dash = CurrentChargedDash(player);
         bool OwnsChannel() => player.ChannelGeneration == generation && player.ChannelSkill == skillId && player.ActionCount == action;
@@ -2639,7 +2641,7 @@ public static partial class Game
 
         try
         {
-            if (initialCostPaid && aimedPulse is not null)
+            if (initialCostPaid && aimedPulse is not null && !scorchingRay)
                 await AimedPulse(aimedPulse, 0);
             if (dash is not null) StartChargedDashWave(player, dash, channelStarted);
             if (IsWinterOrb(gem.Effect))
@@ -2687,7 +2689,8 @@ public static partial class Game
                     await EndPaidDash(now);
                     return;
                 }
-                if (flameblast is not null && (blocked || flameblast.Interruption != player.ActionInterruptionGeneration))
+                if (flameblast is not null && (blocked || flameblast.Interruption != player.ActionInterruptionGeneration)
+                    || scorchingRay && (blocked || rayInterruption != player.ActionInterruptionGeneration))
                 {
                     AbortStartedChannel(player, generation);
                     return;
@@ -2791,7 +2794,10 @@ public static partial class Game
                 }
                 if (aimedPulse is not null)
                 {
-                    await AimedPulse(aimedPulse, now - channelStarted);
+                    if (scorchingRay)
+                        PayScorchingRayPulse(player, aimedPulse, gem.Effect, action, interval, now - channelStarted,
+                            lycia?.Pact.DamageMore ?? 1);
+                    else await AimedPulse(aimedPulse, now - channelStarted);
                     continue;
                 }
                 double focusedMore = FocusedChannelMore(now - channelStarted,

@@ -555,6 +555,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Player-cast Lightning Tendrils follows the channel aim, with gem-specific strong pulses and Escalation radius growth.
 - Player-cast Blight applies independently expiring damage layers and Hinder in front of the player.
   Atrophy reduces life regeneration during Hinder, and Contagion carries active Blight of Contagion layers.
+- Player-cast Scorching Ray steers while held and refreshes burn stages on targets it touches. The ordinary ray applies
+  Fire Exposure at its stage limit.
 - Wither pulses follow the channel aim. Players and spell totems apply Hinder and separately expiring Withered stacks.
 - Channel-dependent item modifiers follow the player's active channel through release, interruption and skill removal.
   The normal gem moves to a legal landing; the Projection variant stays in place.

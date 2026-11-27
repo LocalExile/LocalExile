@@ -466,6 +466,7 @@ public static partial class Game
                 RetimePestilentStrike(player, id, m, now, oldRate, rate);
                 RetimeSoulrendDamage(player.Area, id, m, now, oldRate, rate);
                 RetimeBlight(m, now, oldRate, rate);
+                RetimeScorchingRay(m, now, oldRate, rate);
                 RetimeFleshrendDamage(m, now, oldRate, rate);
                 m.Ruptures.SetExpiryRate(now, rate);
                 m.Bleeds.SetExpiryRate(now, BleedingExpiryRate(m, now));

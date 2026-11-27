@@ -24,7 +24,7 @@ public static partial class Game
     static bool IsLightningTendrils(string? effect) => effect is
         "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale";
 
-    static bool IsAimedPulseEffect(string? effect) => IsLightningTendrils(effect) || IsBlightChannel(effect);
+    static bool IsAimedPulseEffect(string? effect) => IsLightningTendrils(effect) || IsBlightChannel(effect) || IsScorchingRay(effect);
 
     static AimedPulseChannel? ActiveAimedPulseChannel(Player player) =>
         AimedPulseChannels.TryGetValue(player, out var channel) && channel.Skill == player.ChannelSkill
