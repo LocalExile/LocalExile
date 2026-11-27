@@ -78,13 +78,18 @@ public sealed class InstanceVillageTests
         var takeSlot = Assert.IsType<InstanceVillage.TakeRewardToSlotCommand>(takeSlotCmd);
         Assert.Equal((1u, 42u, 1u, 3u, 4u, 9u), (takeSlot.U8Param, takeSlot.ItemId, takeSlot.DstInventoryId, takeSlot.X, takeSlot.Y, takeSlot.Extra));
 
-        // Recombinator codecs: C→S 0x028f, S→C 0x0293, S→C 0x0291 (u16le!), C→S 0x010b
-        byte[] recBytes = new LoginWriter().U16(0x028f).U8(0).U8(2).U8(1).U8(3).U8(1).U8(0).U8(1).U8(1).ToArray();
+        // Recombinator codecs: C→S 0x028f (mode 0 = Predictable, mode 1 = Unpredictable), S→C 0x0293, S→C 0x0291 (u16le!), C→S 0x010b
+        byte[] recBytes = new LoginWriter().U16(0x028f).U8(0).U8(2).U8(1).U8(3).U8(1).U8(0).U8(0).U8(1).ToArray();
         var rec = InstanceVillage.ReadRecombinate(recBytes);
         Assert.Equal([1, 3], rec.Slot0SelectedModIndices);
         Assert.Equal([0], rec.Slot1SelectedModIndices);
         Assert.True(rec.PredictableMode);
         Assert.True(rec.Execute);
+
+        byte[] recUnpredBytes = new LoginWriter().U16(0x028f).U8(0).U8(0).U8(0).U8(1).U8(0).ToArray();
+        var recUnpred = InstanceVillage.ReadRecombinate(recUnpredBytes);
+        Assert.False(recUnpred.PredictableMode);
+        Assert.False(recUnpred.Execute);
 
         byte[] chance = InstanceVillage.RecombinationChance(4275, mode: 1);
         Assert.Equal([0x02, 0x93, 0x01, 0x00, 0x00, 0x10, 0xb3], chance);

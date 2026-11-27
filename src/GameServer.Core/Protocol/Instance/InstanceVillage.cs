@@ -447,7 +447,8 @@ public static class InstanceVillage
         int tailAt = n1At + 1 + n1;
         if (m.Length < tailAt + 2) throw new InvalidDataException("0x028f recombinate message is cut off");
         byte[] slot1 = m.Slice(n1At + 1, n1).ToArray();
-        bool predictable = m[tailAt] != 0;
+        // Client 0x141d6c8f0 / 0x141d6d700: mode == 0 is Predictable (selected mods required), mode != 0 is Unpredictable.
+        bool predictable = m[tailAt] == 0;
         bool execute = m[tailAt + 1] != 0;
         return new RecombinateRequest(reserved, slot0, slot1, predictable, execute);
     }
