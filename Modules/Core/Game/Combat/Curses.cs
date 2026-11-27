@@ -27,6 +27,13 @@ public static partial class Game
 
     static readonly RuleTable<SkillCatalog, IReadOnlyDictionary<uint, int>> TemporalChainsOnHitStats = new();
 
+    static int ProjectileCurseStat(SpawnedMonster target, uint stat, double now)
+    {
+        if (!target.HasCurses || target.Curses[stat] == 0) return 0;
+        target.Curses.Expire(now);
+        return target.Curses[stat];
+    }
+
     static bool ExternalTemporalChains(Player player, string effect) => effect == "TemporalChains"
         && GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, effect));
 

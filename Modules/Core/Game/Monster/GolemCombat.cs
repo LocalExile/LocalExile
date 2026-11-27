@@ -946,7 +946,7 @@ public static partial class Game
             return range.Scale(Math.Max(0, 1 - effective / 100));
         });
         bool ignorePhysical = MinionIgnoresPhysicalReduction(mitigated, effects, target, random, a.Stats);
-        int projectileTaken = projectile ? MinionProjectileCurseStat(target, Stat.ProjectileDamageTakenPlusPct, now) : 0;
+        int projectileTaken = projectile ? ProjectileCurseStat(target, Stat.ProjectileDamageTakenPlusPct, now) : 0;
         int damage = MonsterTakesMitigatedCore(target, mitigated, a.Attack.Spell, now, projectileTaken, ignorePhysical, random);
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
@@ -1234,7 +1234,7 @@ public static partial class Game
                     {
                         Payload = offense, ReturnAnchor = canReturn ? owner : null, ProjectileTargets = landings,
                         TargetSplit = (target, at) => player.Area.Monsters.GetValueOrDefault(target.Id) is { Hostile: true } victim
-                            ? MinionProjectileCurseStat(victim, Stat.ProjectilesHittingSelfSplitIntoX,
+                            ? ProjectileCurseStat(victim, Stat.ProjectilesHittingSelfSplitIntoX,
                                 at / (double)ProjectileRuntime.QuantaPerSecond) : 0
                     });
             }
@@ -1245,16 +1245,9 @@ public static partial class Game
             {
                 Payload = offense, ReturnAnchor = canReturn ? owner : null, ProjectileTargets = landings,
                 TargetSplit = (target, at) => player.Area.Monsters.GetValueOrDefault(target.Id) is { Hostile: true } victim
-                    ? MinionProjectileCurseStat(victim, Stat.ProjectilesHittingSelfSplitIntoX,
+                    ? ProjectileCurseStat(victim, Stat.ProjectilesHittingSelfSplitIntoX,
                         at / (double)ProjectileRuntime.QuantaPerSecond) : 0
             });
-    }
-
-    static int MinionProjectileCurseStat(SpawnedMonster target, uint stat, double now)
-    {
-        if (!target.HasCurses || target.Curses[stat] == 0) return 0;
-        target.Curses.Expire(now);
-        return target.Curses[stat];
     }
 
     static void GolemMeteorLocked(Player player, GolemState.Golem g, double now)

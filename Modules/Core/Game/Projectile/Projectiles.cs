@@ -89,6 +89,7 @@ public static partial class Game
         readonly Dictionary<long, Visual> visuals = [];
         readonly Dictionary<long, ProjectileAimHeight.Ray> flightRays = [];
         readonly Dictionary<SpawnedMonster, int> generations = new(ReferenceEqualityComparer.Instance);
+        Func<ProjectileActorKey, long, int>? curseTargetSplit;
         int generation, seed;
         bool invalid;
         readonly IDisposable? lifetime;
@@ -328,7 +329,10 @@ public static partial class Game
 
         long ReleaseFlight(ProjectileUse use, bool notifyWisps)
         {
-            var seeded = use with { Seed = ++seed };
+            var targetSplit = use.TargetSplit;
+            if (targetSplit is null && use.Payload is ProjectileOffense)
+                targetSplit = curseTargetSplit ??= SplitFromCurse;
+            var seeded = use with { Seed = ++seed, TargetSplit = targetSplit };
             long useId = Runtime.Release(seeded);
             if (seeded.Payload is ProjectileOffense { ForbiddenRite: { } rite } shot)
                 ReleaseForbiddenRite(seeded, shot, rite);
@@ -342,6 +346,13 @@ public static partial class Game
                     + $"origin={seeded.Origin} aim={seeded.Aim} speed={seeded.Profile.Speed:0.###}");
             return useId;
         }
+
+        int SplitFromCurse(ProjectileActorKey key, long at)
+            => Player.Area.Monsters.GetValueOrDefault(key.Id) is { Hostile: true, HasCurses: true } target
+                && Key(key.Id, target) == key
+                ? ProjectileCurseStat(target, Stat.ProjectilesHittingSelfSplitIntoX,
+                    at / (double)ProjectileRuntime.QuantaPerSecond)
+                : 0;
 
         public double NowTicks => Runtime.Now;
         public long Release(ProjectileUse use) => ReleaseNow(use);
@@ -1033,6 +1044,9 @@ public static partial class Game
             bool projectileAttack = !shot.Spell
                 && (shot.ProjectileAttack ?? (shot.Effect < 0 || SkillsFor(Player).IsProjectile(shot.Effect)));
             int additionalTaken = projectileAttack ? EnsnaredProjectileAttackTaken(target, at) : 0;
+            if (shot.Spell || projectileAttack)
+                additionalTaken = ActorScale.Saturate((long)additionalTaken
+                    + ProjectileCurseStat(target, Stat.ProjectileDamageTakenPlusPct, at));
             bool ownHit = shot is { ActualCaster: null, FromTrapOrMine: false, FromTotem: false, Mirage: false }
                 && contact.Projectile.Use.Emitter.Id == Player.Id;
             int witheredElemental = ownHit ? WitheredElementalHitTaken(target, Player.Id, at, player) : 0;
