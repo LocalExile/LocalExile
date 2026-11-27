@@ -13,7 +13,7 @@ public static partial class Game
     static readonly RuleTable<GameArea, HashSet<uint>> TrarthusBurnTargets = new();
     static readonly RuleTable<SpawnedMonster, MonsterIgnites> TrarthusBurns = new();
 
-    static readonly uint[] TrarthusBurnMore =
+    static readonly uint[] BowRainBurnMore =
     [
         Stat.SupportBurningDamagePlusPctFinal, Stat.SupportGemElementalDamagePlusPctFinal,
         Stat.SupportEfficacyDamageOverTimePlusPctFinal, Stat.SupportRapidDecayDamageOverTimePlusPctFinal,
@@ -29,21 +29,19 @@ public static partial class Game
         Stat.SupportRainProjectileDamagePlusPctFinal,
     ];
 
-    static DamageOverTime TrarthusBurnDamage(ProjectileOffense shot, IReadOnlyDictionary<uint, int> own,
-        IReadOnlyDictionary<uint, int> caster, bool trap, bool mine, bool recentMine, double damageFactor)
+    static DamageOverTime BowRainBurnDamage(ProjectileOffense shot, IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> caster, double seconds, bool trap, bool mine, bool recentMine, double damageFactor)
     {
         var merged = MergeSkillStats(caster, own);
         int Get(uint key) => merged.GetValueOrDefault(key);
-        double seconds = SkillDurationModifiers.Seconds(own.GetValueOrDefault(Stat.BaseSkillEffectDuration),
-            caster.GetValueOrDefault, own.GetValueOrDefault);
-        // The burn uses projectile damage modifiers, but the fire wave's area only controls which targets it reaches.
+        // The debuff uses projectile damage modifiers. Its application area only determines which targets receive it.
         double increased = (double)Get(Stat.DamagePlusPct) + Get(Stat.FireDamagePlusPct) + Get(Stat.ElementalDamagePlusPct)
             + Get(Stat.DamageOverTimePlusPct) + Get(Stat.FireDamageOverTimePlusPct) + Get(Stat.BurnDamagePlusPct)
             + Get(Stat.ProjectileDamagePlusPct) + (shot.FromTotem ? Get(Stat.TotemDamagePlusPct) : 0)
             + (trap || mine ? (double)Get(mine ? Stat.MineDamagePlusPct : Stat.TrapDamagePlusPct)
                 + Get(Stat.TrapOrMineDamagePlusPct) + (recentMine ? Get(Stat.MineAreaDamagePlusPctIfDetonatedMineRecently) : 0) : 0);
         double more = DamageStats.ElementalMore(Get(Stat.CombinedElementalDamagePlusPctFinal)) * ChargeDamageMore(caster);
-        foreach (uint stat in TrarthusBurnMore) more *= Math.Max(0, 1 + Get(stat) / 100d);
+        foreach (uint stat in BowRainBurnMore) more *= Math.Max(0, 1 + Get(stat) / 100d);
         if (trap || mine)
         {
             more *= Math.Max(0, 1 + Get(Stat.SkitterbotsTrapMineDamagePlusPctFinal) / 100d);
@@ -86,7 +84,10 @@ public static partial class Game
     {
         var player = session.Player;
         var shot = (ProjectileOffense)use.Payload!;
-        var burn = TrarthusBurnDamage(shot, own, shot.ActualCaster ?? playerStats, trap, mine,
+        var caster = shot.ActualCaster ?? playerStats;
+        double seconds = SkillDurationModifiers.Seconds(own.GetValueOrDefault(Stat.BaseSkillEffectDuration),
+            caster.GetValueOrDefault, own.GetValueOrDefault);
+        var burn = BowRainBurnDamage(shot, own, caster, seconds, trap, mine,
             mine && player.RecentEvents.Happened(StatConditions.DetonatedMine, AreaTime(player)), damageFactor);
         var at = use.Aim;
         var direction = (at - use.Origin).Unit;

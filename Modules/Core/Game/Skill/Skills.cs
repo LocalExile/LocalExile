@@ -831,8 +831,10 @@ public static partial class Game
                 stats[Stat.ProjectileSpeedPlusPct] = OrbitingBallLightningSpeedPercent(playerStats.GetValueOrDefault, OwnPanel);
             ApplyProjectilePanelStats(effect, stats);
             // Network skill records need the final fall speed used by the expanding and linear rain actions.
-            if (IsRainOfArrowsVariant(effectId) || effectId == TrarthusBlastRain || IsStormRain(effectId))
+            if (IsRainOfArrowsVariant(effectId) || effectId is TrarthusBlastRain or ConflagrationEffect || IsStormRain(effectId))
                 stats[Stat.ArrowRainFallSpeedPlusPct] = RainOfArrowsFallSpeed(player, id, characterInputs, supported.Stats);
+            if (effectId == ConflagrationEffect)
+                stats[Stat.TotalNumberOfArrowsToFire] = ConflagrationArrowCount(stats.GetValueOrDefault);
             if (IsStormRain(effectId))
             {
                 int count = GroundArrow.Parameters.Resolve(stats.GetValueOrDefault, 1, true).Count;

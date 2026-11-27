@@ -48,6 +48,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public MonsterEssenceDrain.Cast? EssenceDrain { get; init; }
 
     public DamageOverTime? TrarthusBurn { get; init; }
+    internal DamageOverTime? ConflagrationBurn { get; init; }
     internal MonsterContagion.Cast? Soulrend { get; init; }
     internal Game.FleshrendCast? Fleshrend { get; init; }
     internal double GhorrDotMore { get; init; } = 1;

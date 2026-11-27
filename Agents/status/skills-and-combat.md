@@ -313,6 +313,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Rain of Arrows of Artillery lands along the shot direction; Saturation lands in expanding pairs around the aim.
 - Blast Rain of Trarthus applies a burn on the single arrow's landing hit and on targets its forward fire wave reaches.
 - Storm Rain and its transfigured gems leave arrows that fire periodic area hits between their endpoints.
+- Conflagration leaves arrows that detonate near the caster, setting off adjacent arrows and applying a burning debuff.
 - Kinetic Rain variants land delayed area hits. See [projectile skills](../docs/game/projectile-skills.md).
 - Scourge Arrow variants plant pods and fire thorn volleys. See [projectile skills](../docs/game/projectile-skills.md).
 - Somatic Shell absorbs damage and transfers on depletion. See [projectile skills](../docs/game/projectile-skills.md).

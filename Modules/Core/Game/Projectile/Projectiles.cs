@@ -347,6 +347,7 @@ public static partial class Game
             ClearCremationGeysers();
             ClearEnsnares();
             ClearStormRain();
+            ClearConflagration();
             ClearExplosiveFuses();
             RetireBannerLocked(Player);
             ClearDivineBlastOrbs();
@@ -1096,8 +1097,13 @@ public static partial class Game
             }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
-            if (!immune && hit.Value.Life > 0 && shot.TrarthusBurn is { } burn)
-                ApplyTrarthusBurn(Player, contact.Target.Id, target, burn, at);
+            if (!immune && hit.Value.Life > 0)
+            {
+                if (shot.TrarthusBurn is { } burn)
+                    ApplyTrarthusBurn(Player, contact.Target.Id, target, burn, at);
+                if (shot.ConflagrationBurn is { } conflagration)
+                    ApplyConflagrationBurn(Player, contact.Target.Id, target, conflagration, at);
+            }
             if (!immune && hit.Value.Life > 0 && !shot.Spell && shot.MaimChance > 0)
                 TryMaimOnHitLocked(target, shot.MaimChance, 0, at, contact.Projectile.ReactionRandomSource);
             if (!immune && hit.Value.Life > 0 && shot.Ignite.CanIgnite(rolled))
