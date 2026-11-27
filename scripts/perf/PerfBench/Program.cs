@@ -44,6 +44,7 @@ static class PerfBenchMain
                 case "area": await PerfBench.Area_instance_creation(); break;
                 case "busy": await PerfBench.Busy_instance_ticks(); break;
                 case "planner": await PerfBench.Monster_planner(); break;
+                case "kits": await PerfBench.Multi_skill_kits(); break;
                 case "single": await PerfBench.Single_player_memory(); break;
                 case "idle": await PerfBench.Idle_player_cpu(); break;
                 case "sweep": await PerfBench.Area_sweep(); break;
@@ -51,7 +52,7 @@ static class PerfBenchMain
                 case "statflips": PerfBench.Statflips_stat_builds(); break;
                 case "pause": await PerfBench.Pause_and_resume(); break;
                 case "rf": await PerfBench.Righteous_fire_toggles(); break;
-                default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner|single|idle|sweep|stats|statflips|pause|rf"); return 2;
+                default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner|kits|single|idle|sweep|stats|statflips|pause|rf"); return 2;
             }
         }
         // The run's save database (EnsureSaves), deleted here: a ProcessExit handler ran too late to let go of it.
@@ -763,6 +764,92 @@ static class PerfBench
             (player.Connection.Performance.Read(LatencyPhase.Surround).TotalMilliseconds - surroundBefore.TotalMilliseconds) * 1000 / Steps, "Ã‚Âµs");
         Record("planner", "blocker frame Ã‚Âµs per step",
             (player.Connection.Performance.Read(LatencyPhase.BlockerBuild).TotalMilliseconds - blockersBefore.TotalMilliseconds) * 1000 / Steps, "Ã‚Âµs");
+        player.Closed = true;
+    }
+
+    // S4 multi-skill kit benchmark: 60 chasing + 140 idle ordinary >5-skill varieties, measuring both spawn cost
+    // (H4 cached GrantedSkill templates) and PlanMonsterAi hot-path CPU/allocations (H1-H3).
+    public static async Task Multi_skill_kits()
+    {
+        _ = ConsoleLog.Value;
+        using var wire = new Wire();
+        const string id = "1_1_2";
+        const int Crowd = 60, Idle = 140, Steps = 2000;
+        ushort hash = AreaTransitionCatalog.HashOf(id)!.Value;
+        var layout = AreaLayouts.For(hash, 1);
+        var player = Player(layout, 1, wire);
+
+        // Deterministically pick up to 16 supported non-boss, non-emerge ordinary varieties whose uncapped kit has > 5 skills.
+        var kinds = new List<MonsterCatalog.Variety>();
+        foreach (var v in Game.Monsters.All)
+        {
+            if (!v.Supported || v.BossHealthBar || BossKits.IsCampaignBoss(v) || Game.IsBossControllerVariety(v)) continue;
+            if (v.GrantedEffects is not { Count: > 5 }) continue;
+            if (Game.Emerges.Kind(v, MonsterRarity.Normal) != EmergeKind.None) continue;
+            var tpl = MonsterKits.TemplateFor(player, v, 70);
+            if (tpl.BaseKit.Count <= 5) continue;
+            kinds.Add(v);
+            if (kinds.Count >= 16) break;
+        }
+        if (kinds.Count == 0) throw new InvalidOperationException("no >5-skill ordinary monster kinds found for kits bench");
+
+        var random = new Random(7);
+        var (px, py) = (layout.SpawnX, layout.SpawnY);
+        var spawnPoints = new List<(int X, int Y)>(Crowd + Idle);
+        for (int attempt = 0; spawnPoints.Count < Crowd + Idle && attempt < (Crowd + Idle) * 50; attempt++)
+        {
+            int spread = spawnPoints.Count < Crowd ? 40 : 400;
+            int x = px + random.Next(-spread, spread + 1), y = py + random.Next(-spread, spread + 1);
+            if (spawnPoints.Count >= Crowd && Math.Max(Math.Abs(x - px), Math.Abs(y - py)) < 150) continue;
+            if (!layout.WalkableFor(x, y, 2)) continue;
+            spawnPoints.Add((x, y));
+        }
+
+        // Measure spawning 200 uncapped multi-skill monsters (templates already warmed above).
+        long spawnAllocBefore = Allocated();
+        var spawnClock = Stopwatch.StartNew();
+        for (int i = 0; i < spawnPoints.Count; i++)
+        {
+            var (x, y) = spawnPoints[i];
+            await Game.SpawnMonster(player, kinds[i % kinds.Count], 70, MonsterRarity.Normal, x, y, log: false);
+        }
+        double spawnMs = spawnClock.Elapsed.TotalMilliseconds;
+        double spawnMb = (Allocated() - spawnAllocBefore) / 1048576.0;
+
+        int totalKitSkills = 0, maxKitSkills = 0;
+        foreach (var m in player.Area.Monsters.Values)
+        {
+            totalKitSkills += m.Kit.Count;
+            if (m.Kit.Count > maxKitSkills) maxKitSkills = m.Kit.Count;
+        }
+        Record("kits", "monsters", player.Area.Monsters.Count, "");
+        Record("kits", "kinds", kinds.Count, "");
+        Record("kits", "avg kit skills", player.Area.Monsters.Count > 0 ? totalKitSkills / (double)player.Area.Monsters.Count : 0, "");
+        Record("kits", "max kit skills", maxKitSkills, "");
+        Record("kits", "spawn 200 monsters ms", spawnMs, "ms");
+        Record("kits", "spawn 200 monsters MB", spawnMb, "MB");
+
+        var path = new[] { (px + 12, py), (px, py + 12), (px - 12, py), (px, py - 12) }
+            .Where(p => layout.WalkableFor(p.Item1, p.Item2, 0)).DefaultIfEmpty((px, py)).ToArray();
+
+        var cadence = new MonsterAiCadence();
+        double now = player.Clock.Elapsed.TotalSeconds;
+        for (int i = 0; i < 50; i++) Game.PlanMonsterAi(player, cadence, now += 0.05);
+        long planAllocated = GC.GetAllocatedBytesForCurrentThread();
+        using var self = Process.GetCurrentProcess();
+        var cpuBefore = self.TotalProcessorTime;
+        var clock = Stopwatch.StartNew();
+        for (int i = 0; i < Steps; i++)
+        {
+            if (i % 14 == 0) { var (x, y) = path[i / 14 % path.Length]; player.Walk.Order(x, y, now); }
+            var plan = Game.PlanMonsterAi(player, cadence, now += 0.05);
+            foreach (var (_, m, action) in plan.Swings) cadence.CompleteSwing(m, action);
+        }
+        Record("kits", "PlanMonsterAi us per step", clock.Elapsed.TotalMilliseconds * 1000 / Steps, "us");
+        self.Refresh();
+        Record("kits", "PlanMonsterAi process CPU us per step", (self.TotalProcessorTime - cpuBefore).TotalMilliseconds * 1000 / Steps, "us");
+        Record("kits", "PlanMonsterAi allocated KB per step", (GC.GetAllocatedBytesForCurrentThread() - planAllocated) / 1024.0 / Steps, "KB");
+        Record("kits", "aggro monsters", player.Area.Monsters.Values.Count(m => m.Aggro), "");
         player.Closed = true;
     }
 
