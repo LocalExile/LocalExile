@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 using PlayerWalk = GameServer.Core.World.PlayerWalk;
@@ -30,6 +31,7 @@ namespace GameServer.Modules.Expedition;
 public sealed class ExpeditionEncounter : IDisposable
 {
     public enum Stage { Hidden, Placing, Chain, Fight, Over }
+    public sealed record Reward(bool Runic, int Remnants);
 
     public sealed record Marker((int X, int Y) Cell, ExpeditionTables.MarkerKind Kind, ExpeditionTables.ChestTier Tier,
         string ChestType, uint Id, double Rotation = 0, string Ao = "");
@@ -40,7 +42,10 @@ public sealed class ExpeditionEncounter : IDisposable
     public sealed record Remnant((int X, int Y) Cell, IReadOnlyList<ExpeditionTables.RelicMod> Mods, uint Id, double Rotation = 0);
     public sealed record Plan((int X, int Y) Detonator, float Rotation, string FactionId, int Explosives,
         List<Marker> Markers, List<Remnant> Remnants, (int MinX, int MinY, int MaxX, int MaxY) Box,
-        List<(int X, int Y, byte Size)> Dirt);
+        List<(int X, int Y, byte Size)> Dirt)
+    {
+        public byte Radius { get; init; } = (byte)ExpeditionTables.BlastRadius;
+    }
 
     sealed class Chest
     {
@@ -88,11 +93,79 @@ public sealed class ExpeditionEncounter : IDisposable
         public int Blasts;
         public readonly System.Collections.Concurrent.ConcurrentDictionary<uint, SpawnedMonster> Monsters = [];
         /// <summary>The faction leader spawned as a monster in this area: 0 when not spawned.</summary>
+        public readonly System.Collections.Concurrent.ConcurrentDictionary<uint, Reward> Rewards = [];
         public uint LeaderId;
         /// <summary>Where the leader stands, and the talk entry its monster body is registered under.</summary>
         public (int X, int Y) LeaderCell;
         public NpcCatalog.Npc? LeaderNpc;
         public int LeaderBodySize;
+    }
+
+    const string SaveKey = "Expedition.encounter.v1";
+    static readonly JsonSerializerOptions Json = new() { IncludeFields = true };
+    sealed record SavedPiece(uint Id, string Type, string Note, byte[] Blob);
+    sealed record SavedBody(uint Id, int Variety, int X, int Y, Reward Reward);
+    sealed record Saved(string Owner, Plan? Plan, Stage Stage, bool Revealed, uint Detonator,
+        SavedPiece[] Pieces, (int X, int Y)[] Explosives, uint[] ExplosiveIds, List<uint>[] Chains,
+        int Left, double Clock, (double At, string Action, int Index)[] Queue, int[] Dug, int[] Broken,
+        Dictionary<uint, Chest> Chests, int Blasts, SavedBody[] Bodies);
+
+    static void Persist(Player player, State state)
+    {
+        if (state.Plan is null) return;
+        var bodies = new List<SavedBody>();
+        foreach (var (id, reward) in state.Rewards)
+            if (player.Area.Monsters.TryGetValue(id, out var body) && !body.Dead && body.Life > 0 && body.Variety is { } variety)
+            {
+                var at = body.Walk.Position(AreaTime(player));
+                bodies.Add(new(id, variety.Row, at.X, at.Y, reward));
+            }
+        player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(new Saved(state.Owner, state.Plan, state.Stage,
+            state.Revealed, state.DetonatorId,
+            [.. state.Pieces.Values.Select(p => (Piece: p, Blob: p.Blob())).Where(p => p.Blob is not null)
+                .Select(p => new SavedPiece(p.Piece.Id, p.Piece.Type, p.Piece.Note, p.Blob!))],
+            [.. state.Explosives], [.. state.ExplosiveIds], [.. state.Chains], state.Left, state.Clock, [.. state.Queue],
+            [.. state.Dug], [.. state.Broken], state.Chests, state.Blasts, [.. bodies]), Json);
+    }
+
+    static State Restore(Player player, string text)
+    {
+        var saved = JsonSerializer.Deserialize<Saved>(text, Json)!;
+        var state = new State
+        {
+            Checked = true, Placed = true, Made = true, Owner = saved.Owner, Plan = saved.Plan,
+            Stage = saved.Stage, Revealed = saved.Revealed, DetonatorId = saved.Detonator,
+            Left = saved.Left, Clock = saved.Clock, Blasts = saved.Blasts,
+        };
+        state.Explosives.AddRange(saved.Explosives); state.ExplosiveIds.AddRange(saved.ExplosiveIds);
+        state.Chains.AddRange(saved.Chains); state.Queue.AddRange(saved.Queue);
+        state.Dug.UnionWith(saved.Dug); state.Broken.UnionWith(saved.Broken);
+        foreach (var (id, chest) in saved.Chests) state.Chests[id] = chest;
+        foreach (var piece in saved.Pieces)
+        {
+            Func<byte[]?> blob = () => piece.Blob;
+            if (piece.Type == DetonatorType && state.Plan is { } plan)
+                blob = () => ExpeditionWire.Object(DetonatorType, plan.Detonator, plan.Rotation, animated: 0x40,
+                    interaction: (byte)(state.Stage < Stage.Chain ? 1 : 0), stateValues: DetonatorStates(state));
+            else if (state.Chests.TryGetValue(piece.Id, out var chest))
+                blob = () => ExpeditionWire.Object(chest.Type, chest.Cell, 0, AreaLevel(player),
+                    interaction: (byte)(chest.Ready && !chest.Opened ? 1 : 0), stateValues: [chest.Opened ? 3 : chest.Ready ? 2 : 1]);
+            else if (piece.Type == RelicType && state.Plan?.Remnants.FirstOrDefault(r => r.Id == piece.Id) is { } remnant)
+                blob = () => ExpeditionWire.Object(RelicType, remnant.Cell, remnant.Rotation, ao: ExpeditionTables.RelicAo,
+                    mods: [.. remnant.Mods.Select(m => new ItemMod(ModSection.Explicit, m.Hash, m.Values))],
+                    stateValues: state.Broken.Contains(state.Plan.Remnants.IndexOf(remnant)) ? BrokenRemnant : null);
+            state.Pieces[piece.Id] = new(piece.Id, piece.Type, piece.Note, blob);
+        }
+        var used = new HashSet<uint>();
+        foreach (var body in saved.Bodies)
+        {
+            var match = player.Area.Monsters.FirstOrDefault(p => !used.Contains(p.Key) && !p.Value.Dead
+                && p.Value.Variety?.Row == body.Variety && (p.Key == body.Id
+                    || Distance(p.Value.Walk.Position(AreaTime(player)), (body.X, body.Y)) <= 4));
+            if (match.Value is null) continue;
+            used.Add(match.Key); state.Monsters[match.Key] = match.Value; state.Rewards[match.Key] = body.Reward;
+        }
+        return state;
     }
 
     /// <summary>The detonator's type. It is not in the client's static object register: the one file that names it is the
@@ -125,7 +198,9 @@ public sealed class ExpeditionEncounter : IDisposable
     {
         if (player.Instance is not { } instance) return null;
         if (_states.TryGetValue(instance, out var state)) return state;
-        return DeclaredFaction(player) < 0 ? null : _states.GetValue(instance, _ => new State());
+        if (DeclaredFaction(player) < 0) return null;
+        return _states.GetValue(instance, _ => instance.ContentState.TryGetValue(SaveKey, out var text)
+            ? Restore(player, text) : new State());
     }
 
     /// <summary>
@@ -255,7 +330,7 @@ public sealed class ExpeditionEncounter : IDisposable
         if (StateOf(player) is not { } state || !Placed(player, state)) return;
         await state.Gate.WaitAsync();
         try { await Ensure(log, player, state); }
-        finally { state.Gate.Release(); }
+        finally { Persist(player, state); state.Gate.Release(); }
     }
 
     /// <summary>A player entered: the monster types the markers can raise, and the ruleset's messages as the encounter stands.
@@ -278,7 +353,7 @@ public sealed class ExpeditionEncounter : IDisposable
             RegisterLeader(player, state);
             foreach (var (what, message) in Replay(state, plan)) await Send(player, message, what);
         }
-        finally { state.Gate.Release(); }
+        finally { Persist(player, state); state.Gate.Release(); }
     }
 
     /// <summary>A player is about to leave the area or the game: the leader stops being theirs to talk to at once,
@@ -304,7 +379,12 @@ public sealed class ExpeditionEncounter : IDisposable
             state.LeaderNpc = null;
             log($"{player.Layout.Id}: expedition leader 0x{leader:x} goes: {why}");
         }
-        finally { state.Gate.Release(); }
+        finally
+        {
+            Persist(player, state);
+            if (!Clients(player).Any(c => !ReferenceEquals(c, player))) _states.Remove(player.Instance);
+            state.Gate.Release();
+        }
     }
 
     async Task Ensure(Action<string> log, Player player, State state)
@@ -326,16 +406,11 @@ public sealed class ExpeditionEncounter : IDisposable
         // A new area of the instance (every one of its clients left and it was generated again) has none of the objects.
         if (state.Made && !ReferenceEquals(state.Area, player.Area))
         {
-            bool again = state.Area is not null;
             state.Area = player.Area;
-            if (again)
-            {
-                // The monsters of the old area are gone with it: the dug ones no longer count.
-                state.Monsters.Clear();
-                state.LeaderId = 0;
-                state.LeaderNpc = null;
-                foreach (var piece in state.Pieces.Values.ToList()) await Show(player, piece);
-            }
+            state.LeaderId = 0;
+            state.LeaderNpc = null;
+            foreach (var piece in state.Pieces.Values.ToList())
+                if (!player.Area.Objects.Has(piece.Id)) await Show(player, piece);
         }
     }
 
@@ -438,7 +513,7 @@ public sealed class ExpeditionEncounter : IDisposable
     }
 
     static List<Remnant> Covered(Plan plan, IReadOnlyList<(int X, int Y)> explosives) =>
-        [.. plan.Remnants.Where(r => explosives.Any(e => Distance(r.Cell, e) < ExpeditionTables.BlastRadius))];
+        [.. plan.Remnants.Where(r => explosives.Any(e => Distance(r.Cell, e) < plan.Radius))];
 
     // ---- The area's objects ----------------------------------------------------------------------------------------------
 
@@ -557,6 +632,7 @@ public sealed class ExpeditionEncounter : IDisposable
         if (!_states.TryGetValue(player.Instance, out var state) || state.Plan is not { } plan || state.Stage == Stage.Over) return;
         if (!Drives(player)) return;
         await state.Gate.WaitAsync();
+        var before = (state.Stage, state.Queue.Count, state.Blasts);
         try
         {
             if (state.Stage == Stage.Over) return;
@@ -590,7 +666,29 @@ public sealed class ExpeditionEncounter : IDisposable
                 await UpdateDetonator(player, state);
             }
         }
-        finally { state.Gate.Release(); }
+        finally
+        {
+            if (before != (state.Stage, state.Queue.Count, state.Blasts)) Persist(player, state);
+            state.Gate.Release();
+        }
+    }
+
+    // The client data exposes the Infusion switch, not its scaling curve. These values are server calibration.
+    public static IReadOnlyList<(uint Stat, int Value)> Enhancement(int remnants) =>
+        remnants <= 0 ? [] : [(Stat.MaximumLifePlusPct, remnants * 20), (Stat.DamagePlusPct, remnants * 10),
+            (Stat.BaseItemFoundQuantityPlusPct, remnants * 20), (Stat.BaseItemFoundRarityPlusPct, remnants * 20)];
+
+    public void Drops(DropRoll roll)
+    {
+        if (StateOf(roll.Player) is not { } state || !state.Rewards.TryGetValue(roll.Monster.ObjectId, out var reward)
+            || !reward.Runic) return;
+        var rng = AreaRng(roll.Player);
+        // Baseline runic logbook chance is a server calibration; remnant quantity and Infusion scale the same roll.
+        int quantity = roll.Player.Area.Monsters.GetValueOrDefault(roll.Monster.ObjectId)?.Effects[Stat.ExpeditionMonstersLogbookChancePlusPct] ?? 0;
+        double chance = 0.02 * Math.Max(0, 1 + quantity / 100d) * Math.Max(0, 1 + reward.Remnants * 0.2);
+        if (rng.NextDouble() >= chance) return;
+        bool four = rng.Next(100) < Math.Clamp(MapModsOf(roll.Player)?.Get(Stat.MapExpeditionPctChanceLogbooksDropWithFourImplicits) ?? 0, 0, 100);
+        if (ExpeditionLogbooks.Create(roll.Monster.Level, rng, four) is { } book) roll.Made.Add(book);
     }
 
     /// <summary>GameEvents.Kill: a dug monster that died, by anyone's hand (a minion's too), is out of the count at once.</summary>
@@ -619,7 +717,7 @@ public sealed class ExpeditionEncounter : IDisposable
         if (!Current(player) || player.PlayerLife == 0 || !ClientHasQuestFlag(player, MapOwnerFlag) || !IsOwner(player, state)) return true;
         await state.Gate.WaitAsync();
         try { await Place(player, state, cell); }
-        finally { state.Gate.Release(); }
+        finally { Persist(player, state); state.Gate.Release(); }
         return true;
     }
 
@@ -721,13 +819,13 @@ public sealed class ExpeditionEncounter : IDisposable
         if (state.Plan is not { } plan || index >= state.Explosives.Count) return;
         var cell = state.Explosives[index];
         state.Blasts++;
-        await Broadcast(player, ExpeditionWire.Blast(cell, (byte)ExpeditionTables.BlastRadius), "0x2c9 Expedition 07 blast");
+        await Broadcast(player, ExpeditionWire.Blast(cell, plan.Radius), "0x2c9 Expedition 07 blast");
         await Effect(player, state, ExpeditionTables.BlastAo, cell, "blast", baseData: true, BlastFrames);
         var rng = Rng(player, 0x100 + index);
         // The remnants this blast destroys join the ones whose modifiers apply from here on, to what this blast digs up
         // too ("the explosive that destroys the Remnant and all subsequent Explosives").
         for (int i = 0; i < plan.Remnants.Count; i++)
-            if (Distance(plan.Remnants[i].Cell, cell) < ExpeditionTables.BlastRadius && state.Broken.Add(i))
+            if (Distance(plan.Remnants[i].Cell, cell) < plan.Radius && state.Broken.Add(i))
             {
                 var remnant = plan.Remnants[i];
                 await Effect(player, state, ExpeditionTables.ShockwaveAo, remnant.Cell, "shockwave", baseData: true, ShockwaveFrames);
@@ -743,7 +841,7 @@ public sealed class ExpeditionEncounter : IDisposable
         for (int i = 0; i < plan.Markers.Count; i++)
         {
             var marker = plan.Markers[i];
-            if (state.Dug.Contains(i) || Distance(marker.Cell, cell) >= ExpeditionTables.BlastRadius) continue;
+            if (state.Dug.Contains(i) || Distance(marker.Cell, cell) >= plan.Radius) continue;
             state.Dug.Add(i);
             if (marker.Id != 0) gone.Add(Drop(player, state, marker.Id));
             if (marker.Kind == ExpeditionTables.MarkerKind.Chest)
@@ -784,6 +882,8 @@ public sealed class ExpeditionEncounter : IDisposable
         // The remnants' stats on the monsters (category 0), and on the elites (category 1) as well.
         var effects = ExpeditionTables.SumStats(broken.Where(m => m.Category == 0 || elite && m.Category == 1))
             .ToDictionary(s => s.Stat, s => s.Value);
+        int enhanced = MapModsOf(player)?.Get(Stat.MapExpeditionRemenantsEnhanceMonsters) > 0 ? state.Broken.Count : 0;
+        foreach (var (stat, value) in Enhancement(enhanced)) effects[stat] = effects.GetValueOrDefault(stat) + value;
         var extraMods = effects.Count == 0 ? null : new MonsterModSet([], [], new MonsterModEffects(effects));
         double magic = ExpeditionTables.MagicChance * (100.0 + StatOf(sums, Stat.MapNumberOfMagicPacksPlusPct)) / 100.0;
         double rare = ExpeditionTables.RareChance * (100.0 + StatOf(sums, Stat.MapNumberOfRarePacksPlusPct)) / 100.0;
@@ -798,7 +898,7 @@ public sealed class ExpeditionEncounter : IDisposable
             double r = rng.NextDouble();
             var rarity = elite ? MonsterRarity.Rare : r < rare ? MonsterRarity.Rare : r < rare + magic ? MonsterRarity.Magic : MonsterRarity.Normal;
             uint id = await SpawnMonster(player, found, level, rarity, at.X, at.Y, unrisen: false, alone: false, extraMods: extraMods,
-                owned: (spawned, body) => { body.Aggro = true; state.Monsters[spawned] = body; });
+                owned: (spawned, body) => { body.Aggro = true; state.Monsters[spawned] = body; state.Rewards[spawned] = new(elite, enhanced); });
             if (id == 0) continue;
         }
     }
@@ -882,6 +982,7 @@ public sealed class ExpeditionEncounter : IDisposable
         }
         finally
         {
+            Persist(player, state);
             state.Gate.Release();
             await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null, still: () => PlayerActionCurrent(player, action));
         }
@@ -902,12 +1003,18 @@ public sealed class ExpeditionEncounter : IDisposable
         if (faction < 0 || RoomDetonator(layout) is not { } room) return null;
         var (chests, explosives, remnantCount) = ExpeditionTables.Balance(level);
         var rng = Rng(player, 0);
+        var mods = MapModsOf(player);
+        int S(uint stat) => mods?.Get(stat) ?? 0;
+        explosives = ScaleCount(explosives, S(Stat.MapExpeditionExplosivesPlusPct));
+        int radius = Math.Clamp((int)Math.Floor(ExpeditionTables.BlastRadius * Math.Max(0, 100L + S(Stat.MapExpeditionExplosionRadiusPlusPct)) / 100), 1, 255);
         var site = room.Cell;
         string factionId = ExpeditionTables.FactionIds[faction];
         var markers = new List<Marker>();
         var remnants = new List<Remnant>();
-        int elites = rng.Next(ExpeditionTables.ElitesMin, ExpeditionTables.ElitesMax + 1);
-        for (int i = 0; i < ExpeditionTables.Markers; i++)
+        int baseElites = rng.Next(ExpeditionTables.ElitesMin, ExpeditionTables.ElitesMax + 1);
+        int elites = ScaleCount(baseElites, S(Stat.MapExpeditionEliteMarkerCountPlusPct));
+        int regular = ScaleCount(ExpeditionTables.Markers - chests - baseElites, S(Stat.MapExpeditionNumberOfMonsterMarkersPlusPct));
+        for (int i = 0; i < chests + elites + regular; i++)
         {
             var kind = i < chests ? ExpeditionTables.MarkerKind.Chest
                 : i < chests + elites ? ExpeditionTables.MarkerKind.Elite
@@ -927,7 +1034,7 @@ public sealed class ExpeditionEncounter : IDisposable
             var cell = Scatter(layout, rng, site, (ExpeditionTables.RemnantDistMin, ExpeditionTables.RemnantDistMax),
                 remnants.Select(r => r.Cell), ExpeditionTables.RemnantSepMin);
             if (cell is null) continue;
-            remnants.Add(new Remnant(cell.Value, ExpeditionTables.RollRelicMods(rng), 0, rng.NextDouble() * Math.Tau));
+            remnants.Add(new Remnant(cell.Value, ExpeditionTables.RollRelicMods(rng, S(Stat.MapExpeditionXExtraRelicPrefixes), S(Stat.MapExpeditionXExtraRelicSuffixes)), 0, rng.NextDouble() * Math.Tau));
         }
         var all = markers.Select(m => m.Cell).Concat(remnants.Select(r => r.Cell)).ToList();
         if (all.Count == 0) return null;
@@ -946,12 +1053,14 @@ public sealed class ExpeditionEncounter : IDisposable
             if (!dirt.Any(d => d.X == lattice.Item1 && d.Y == lattice.Item2)) dirt.Add((lattice.Item1, lattice.Item2, size));
         }
         dirt.Sort((a, b) => b.Size.CompareTo(a.Size));
-        return new Plan(site, room.Rotation, factionId, explosives, markers, remnants, box, dirt);
+        return new Plan(site, room.Rotation, factionId, explosives, markers, remnants, box, dirt) { Radius = (byte)radius };
     }
 
     /// <summary>A cell at a distance in <paramref name="range"/> from the detonator, inside the map, on floor and at least
     /// <paramref name="sep"/> from every cell already placed; null after 8 tries (a create outside the map closes the
     /// client).</summary>
+    public static int ScaleCount(int count, int percent) => (int)Math.Clamp((long)count * Math.Max(0L, 100L + percent) / 100, 0, ushort.MaxValue);
+
     static (int X, int Y)? Scatter(AreaLayout layout, Random rng, (int X, int Y) site, (double Min, double Max) range,
         IEnumerable<(int X, int Y)> placed, double sep)
     {

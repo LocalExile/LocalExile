@@ -150,7 +150,11 @@ public static class ExpeditionTables
     /// stats.
     /// </summary>
     public sealed record RelicMod(string Id, ushort Hash, int Category, IReadOnlyList<int> Values,
-        IReadOnlyList<(uint Stat, int Value)> Stats);
+        IReadOnlyList<(uint Stat, int Value)> Stats)
+    {
+        public int GenerationType { get; init; }
+        public IReadOnlyList<int> Families { get; init; } = [];
+    }
 
     /// <summary>The modifiers a remnant can roll [data: <c>ExpeditionRelicMods</c>, 141 rows, each naming a <c>Mods</c>
     /// row]. Every one of those mods has a single value (Min = Max), so a remnant's values are the row's own.</summary>
@@ -161,16 +165,23 @@ public static class ExpeditionTables
     /// exactly two explicit mods, and each pair has at least one category-0 mod; the other is category 2 five times, 1
     /// five times, 0 twice and 3 once]. [estimate] the pool is drawn uniformly.
     /// </summary>
-    public static IReadOnlyList<RelicMod> RollRelicMods(Random rng)
+    public static IReadOnlyList<RelicMod> RollRelicMods(Random rng) => RollRelicMods(rng, 0, 0);
+
+    public static IReadOnlyList<RelicMod> RollRelicMods(Random rng, int extraPrefixes, int extraSuffixes)
     {
-        var pool = RelicModPool;
-        if (pool.Count == 0) return [];
-        var monster = pool.Where(m => m.Category == 0).ToList();
-        IReadOnlyList<RelicMod> firstPool = monster.Count > 0 ? monster : pool;
-        var first = firstPool[rng.Next(firstPool.Count)];
-        // A second, different one: a duplicate draw is drawn again (every remnant carries two).
-        var others = pool.Where(m => m.Hash != first.Hash).ToList();
-        return others.Count == 0 ? [first] : [first, others[rng.Next(others.Count)]];
+        var chosen = new List<RelicMod>();
+        var families = new HashSet<int>();
+        foreach (var (generation, count) in new[] { (1, 1 + Math.Max(0, extraPrefixes)), (2, 1 + Math.Max(0, extraSuffixes)) })
+            for (int i = 0; i < count; i++)
+            {
+                var available = RelicModPool.Where(m => m.GenerationType == generation && !chosen.Any(c => c.Hash == m.Hash)
+                    && !m.Families.Any(families.Contains)).ToArray();
+                if (available.Length == 0) break;
+                var mod = available[rng.Next(available.Length)];
+                chosen.Add(mod);
+                families.UnionWith(mod.Families);
+            }
+        return chosen;
     }
 
     /// <summary>The stat pairs of these mods, summed by stat: what the <c>0x74 03</c> summary carries for the covered
@@ -323,7 +334,7 @@ public static class ExpeditionTables
             var values = mod.Stats.Select(s => s.Min).ToList();
             var stats = new List<(uint, int)>();
             for (int i = 0; i < mod.Stats.Count; i++) stats.Add((mod.Stats[i].Id, values[i]));
-            pool.Add(new RelicMod(mod.Id, mod.Hash, categories.Length > 0 ? categories[0] : 0, values, stats));
+            pool.Add(new RelicMod(mod.Id, mod.Hash, categories.Length > 0 ? categories[0] : 0, values, stats) { GenerationType = mod.GenerationType, Families = mod.Families });
         }
         return pool;
     }

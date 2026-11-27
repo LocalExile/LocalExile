@@ -14,7 +14,7 @@ public sealed record IncursionTempleData(uint AreaLevel, IReadOnlyList<ushort> R
     }
 }
 
-/// <summary>One ExpeditionSaga location: ExpeditionAreas HASH16, faction in bits 0..1, retained variant in bits 2..4,
+/// <summary>One ExpeditionSaga location: WorldAreas HASH16, faction in bits 0..1, retained variant in bits 2..4,
 /// implicit count in bits 5..7, then ordinary Mods HASH16/compact-value entries (0x1424bf610).</summary>
 public sealed record ExpeditionSagaArea(ushort AreaHash, byte Faction, byte Variant, IReadOnlyList<ItemMod> Implicits)
 {
