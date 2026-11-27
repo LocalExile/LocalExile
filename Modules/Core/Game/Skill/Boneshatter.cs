@@ -26,7 +26,7 @@ static partial class Game
     static Task ScheduleBoneshatter(Player player, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, int recoveryGeneration,
-        CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted, int ancestralTargets)
+        CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted, int ancestralTargets, int? rallyingDamage)
     {
         var session = ProjectilesFor(player);
         session.Advance();
@@ -49,7 +49,7 @@ static partial class Game
                     || !SameTriggerSource(source, SupportedSkill(player, skillId))
                     || GemSkillInstanceDisabled(player, gem.Effect, skillId) is not null) return;
                 gainedTrauma |= ReleaseBoneshatter(player, session, skillId, gem, from, aim, targetId,
-                    criticalRoll, sequence, index, cryExerted, ruthless, !gainedTrauma, ancestralTargets);
+                    criticalRoll, sequence, index, cryExerted, ruthless, !gainedTrauma, ancestralTargets, rallyingDamage);
             });
         }
         return Task.CompletedTask;
@@ -58,7 +58,7 @@ static partial class Game
     static bool ReleaseBoneshatter(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll, ushort sequence,
-        int repeat, bool cryExerted, double ruthless, bool canGainTrauma, int ancestralTargets)
+        int repeat, bool cryExerted, double ruthless, bool canGainTrauma, int ancestralTargets, int? rallyingDamage)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         var source = SupportedSkill(player, skillId);
@@ -77,7 +77,7 @@ static partial class Game
         var main = AreaSkillHitForUse(ruthless, player, skillId, gem, from, centre, immediate: true, sequence: sequence,
             damageMore: repeatMore, criticalRoll: criticalRoll, targetId: primary, repeat: repeat,
             scheduledSession: session, cryExerted: cryExerted, targetFilter: (id, _) => id == primary, boneshatter: strike,
-            ancestralTargets: ancestralTargets);
+            ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage);
         if (!main.IsCompleted) throw new InvalidOperationException("Scheduled Boneshatter contact must not yield.");
         main.GetAwaiter().GetResult();
 
@@ -96,7 +96,7 @@ static partial class Game
                 session.BoneshatterPulse(at, radius, SkillArtVariation(player, gem.Gem));
                 var splash = AreaSkillHitForUse(ruthless, player, skillId, gem, at, at, immediate: true, sequence: sequence,
                     damageMore: repeatMore, criticalRoll: criticalRoll, repeat: repeat, radiusOverride: radius, once: alreadyHit,
-                    scheduledSession: session, cryExerted: cryExerted, boneshatter: pulse, ancestralTargets: ancestralTargets);
+                    scheduledSession: session, cryExerted: cryExerted, boneshatter: pulse, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage);
                 if (!splash.IsCompleted) throw new InvalidOperationException("Scheduled Boneshatter pulse must not yield.");
                 splash.GetAwaiter().GetResult();
             }

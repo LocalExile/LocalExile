@@ -21,11 +21,19 @@ public static partial class Game
         {
             double now = ProjectileWorldTime(player);
             from = player.Walk.Position(now);
+            bool chainHookRest = false;
+            if (player.ProjectileRuntimeState is ProjectileSession { ChainHookRest: { } landing } session)
+            {
+                if (from != landing || !player.Layout.WalkableFor(from.X, from.Y, 0)) session.ChainHookRest = null;
+                else chainHookRest = true;
+            }
             // A wall that rose round the player (a closed door, risen spikes) leaves them where they stand: the client
             // stamps it under them and never moves its player out of it (its search, from a closed cell, steps only to
             // open neighbours; 0x141e50f90), so moving the estimate put a lockstep player elsewhere on its next order.
-            if (player.Barrier.Contains(from) && player.Layout.Walkable?.Invoke(from.X, from.Y) != false) return;
-            bool Walkable(int x, int y) => player.Layout.Walkable?.Invoke(x, y) != false && !player.Barrier.Contains((x, y));
+            if (player.Barrier.Contains(from) && (chainHookRest || player.Layout.Walkable?.Invoke(from.X, from.Y) != false)) return;
+            // Chain Hook admits a nonzero terrain cell. Preserve its landing until the player leaves that cell.
+            bool Walkable(int x, int y) => (player.Layout.Walkable?.Invoke(x, y) != false || chainHookRest && (x, y) == from)
+                && !player.Barrier.Contains((x, y));
             if (CollisionEscape.Find(from, player.Layout.GridW, player.Layout.GridH, Walkable,
                 living ? player.CorrectionBlockers()
                     : player.StationaryBlockers) is not { } free) return;

@@ -21,11 +21,12 @@ public sealed class ExpeditionModule : IModule
         LoadData();
         var encounter = new ExpeditionEncounter();
         module.Lifetime.Own(encounter);
+        module.Lifetime.Own(RegisterDeliriumPauseSource(encounter.IsActivePause));
         string id = module.Manifest.Id;
         GameEvents.MapOpening.Add(id, Opening);
         // The roll, once per instance and before its seed: the plugin state is a generation input of both sides.
         InstanceEvents.TerrainPluginStates.Add(id, PlanTerrain);
-        // ExpeditionRules must exist before the 0x21 area initialization.
+        // ExpeditionRules, before 0x21 so the client builds its placement HUD attachment on area entry.
         GameEvents.BeforeEnterMessages.Add(id, encounter.RulesetMessages);
         // The client places explosives only with IsMapOwner: the owner of the instance has it in this area.
         GameEvents.AreaQuestFlags.Add(id, encounter.QuestFlags);

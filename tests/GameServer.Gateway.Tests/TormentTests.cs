@@ -198,6 +198,8 @@ public sealed class TormentTests
             uint boss = await Game.SpawnMonster(owner.Player, bossVariety, 70, MonsterRarity.Unique,
                 far.X, far.Y + 20, unrisen: false);
             owner.Player.Walk.Teleport(spirit.X, spirit.Y, 0);
+            // An active spirit walks: a monster's order waits for a client that is not paused.
+            owner.Player.Clock.Start();
             await MapTorment.Tick(owner.Player, 0.25);
             Assert.True(TormentCatalog.Has(owner.Player.Area.Monsters[rare].Mods, grip: true));
             Assert.True(owner.Player.Area.Monsters[rare].Effects[Stat.BaseDamageTakenPlusPct] >= 20);
@@ -220,7 +222,7 @@ public sealed class TormentTests
             var possessed = owner.Player.Area.Monsters[rare];
             possessed.Dead = true;
             MapTorment.Kill(new(owner.Player, possessed, possessed.Variety!.Id, (far.X, far.Y)));
-            // The test client also runs while any additional natural spirit steers before this release.
+            // The test client is already running so the freed spirit can walk without waiting on a paused clock.
             await MapTorment.Tick(owner.Player, 0.25);
             Assert.Equal(spirits + 1, JsonSerializer.Deserialize<MapTorment.Spirit[]>(instance.ContentState["Torment/spirits"])!.Length);
             Assert.Contains(owner.Player.Area.Monsters, p => p.Key > boss && !p.Value.Dead && p.Value.Rarity == MonsterRarity.Rare

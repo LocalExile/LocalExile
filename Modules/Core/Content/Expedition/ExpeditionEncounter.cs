@@ -225,6 +225,9 @@ public sealed class ExpeditionEncounter : IDisposable
             ? Restore(player, text) : new State());
     }
 
+    public bool IsActivePause(Player player) =>
+        player.Instance is { } instance && _states.TryGetValue(instance, out var state) && state.Stage is Stage.Chain or Stage.Fight;
+
     /// <summary>
     /// The terrain plugin state a new instance of <paramref name="areaId"/> is played with: ExpeditionPlugin's, for one of
     /// the four factions, when the area's chance (its WorldAreaLeagueChances column for CoreLeagues row 21: 8 in a map, 12

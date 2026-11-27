@@ -213,6 +213,14 @@ public class DeliriumHeistTests
         Assert.True(state.RewardCounts[0] >= 3);
         Assert.True(state.Rewards.Length >= 2);
         Assert.True(state.Splinters > 0);
+
+        // Tile 25 (Delirium) includes Cluster Jewels plus active Kalguuran (Perandus) and Challenging (Metamorphosis)
+        // Delirium Orbs, and excludes retired Harbinger/Prophecies/HardMode orbs.
+        var noGems = new HashSet<int>();
+        Assert.Contains(Program.Items.All, t => t.Cluster is not null && DeliriumModule.Eligible(25, t, noGems));
+        Assert.True(DeliriumModule.Eligible(25, Program.Items.Find("Metadata/Items/Currency/CurrencyAfflictionOrbPerandus")!, noGems));
+        Assert.True(DeliriumModule.Eligible(25, Program.Items.Find("Metadata/Items/Currency/CurrencyAfflictionOrbMetamorphosis")!, noGems));
+        Assert.False(DeliriumModule.Eligible(25, Program.Items.Find("Metadata/Items/Currency/CurrencyAfflictionOrbHarbinger")!, noGems));
     }
 
     [Fact]
@@ -385,6 +393,20 @@ public class DeliriumHeistTests
             Assert.Equal(2, resumedEncounter.For(peer2.Player).RewardedBosses.Count);
             Assert.Equal(2, resumedEncounter.For(peer2.Player).RewardedBossVarieties.Count);
             Assert.Equal(2, resumedEncounter.For(peer2.Player).SpawnedBosses.Count);
+
+            // An active league encounter pauses the fog timer and marks FogPaused while engaged.
+            bool pausedLeague = true;
+            using (Game.RegisterDeliriumPauseSource(_ => pausedLeague))
+            {
+                float pausedElapsed = state.OuterElapsed;
+                await encounter.OnTick(peer1.Player, 2.0);
+                Assert.Equal(pausedElapsed, state.OuterElapsed);
+                Assert.True(state.FogPaused);
+                pausedLeague = false;
+                await encounter.OnTick(peer1.Player, 1.0);
+                Assert.True(state.OuterElapsed > pausedElapsed);
+                Assert.False(state.FogPaused);
+            }
 
             // Dirty reward tiles past 3 and push OuterElapsed past trailing clear so both peers leave fog and receive 0x02c9 + 0x0163.
             for (int i = 0; i < 80; i++) state.RecordKill(MonsterRarity.Unique, progressBonusPct: 0);

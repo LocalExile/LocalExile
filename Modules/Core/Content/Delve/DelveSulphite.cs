@@ -12,6 +12,7 @@ public sealed partial class DelveModule
     // Dedicated IDs make a module reload replace its own presentation rather than leave duplicate deposits/Nikos.
     const uint MineralFirstId = 0x0d100000, WildNikoId = MineralFirstId + 3;
     sealed record Deposit(uint Id, int Index, int X, int Y, string Type);
+    sealed record NikoPlacement(int Index, int X, int Y);
     sealed class SulphiteEncounter
     {
         public required int AreaLevel;
@@ -22,6 +23,7 @@ public sealed partial class DelveModule
         public readonly ConcurrentDictionary<uint, byte> Depleted = new();
         public readonly ConcurrentDictionary<uint, byte> Enraged = new();
         public int NikoAt = -1;
+        public NikoPlacement? Niko;
     }
     sealed class SulphiteState
     {
@@ -166,14 +168,15 @@ public sealed partial class DelveModule
                 var world = WorldOf(modPlayer);
                 foreach (var deposit in existing.Deposits)
                     world.SetBlocker(deposit.Id, deposit.X, deposit.Y, 4);
-                int nikoAt = Volatile.Read(ref existing.NikoAt);
+                var niko = Volatile.Read(ref existing.Niko);
+                int nikoAt = niko?.Index ?? Volatile.Read(ref existing.NikoAt);
                 if (nikoAt >= 0 && nikoAt < existing.Deposits.Length)
                 {
                     var dep = existing.Deposits[nikoAt];
                     string type = "Metadata/NPC/League/Delve/DelveMinerWild" + (dep.Type == MapSulphite.Chest ? "Chest" : "Vein");
                     if (Npcs.Find(type) is { Supported: true } npc)
                     {
-                        var at = player.Layout.Near((dep.X + 9, dep.Y));
+                        var at = niko is not null ? (niko.X, niko.Y) : NikoCell(player, dep);
                         lock (player.Npcs) player.Npcs[WildNikoId] = new SpawnedNpc(npc, at.X, at.Y);
                         world.SetBlocker(WildNikoId, at.X, at.Y, 2);
                     }
@@ -197,6 +200,37 @@ public sealed partial class DelveModule
         player.SetObjectBlocker(deposit.Id, deposit.X, deposit.Y, 4, QuestObjectTypes.Find(deposit.Type)?.ActorOrChest == true);
     }
 
+    // Keep Wild Niko (blocker size 2) clear of the deposit's blocker (size 4), terrain walls, and nearby players so
+    // his stationary blocker never seals a player into a 1-cell pocket next to the deposit.
+    static (int X, int Y) NikoCell(Player player, Deposit deposit)
+    {
+        var layout = player.Layout;
+        var walkable = layout.Walkable;
+        if (walkable is not null)
+        {
+            var playerPositions = (player.Instance?.PlayersExcept(player.Id) ?? []).Prepend(player)
+                .Where(p => !p.Closed && !p.LeavingArea)
+                .Select(p => p.Walk.Position(AreaTime(p)))
+                .ToList();
+            bool OpenNeighbor((int X, int Y) c) =>
+                c.X > 0 && c.Y > 0 && c.X + 1 < layout.GridW && c.Y + 1 < layout.GridH
+                && walkable(c.X, c.Y)
+                && walkable(c.X + 1, c.Y) && walkable(c.X - 1, c.Y) && walkable(c.X, c.Y + 1) && walkable(c.X, c.Y - 1);
+            bool Clear((int X, int Y) c) =>
+                OpenNeighbor(c)
+                && Math.Max(Math.Abs(c.X - deposit.X), Math.Abs(c.Y - deposit.Y)) >= 8
+                && playerPositions.All(p => Math.Max(Math.Abs(c.X - p.X), Math.Abs(c.Y - p.Y)) >= 5);
+            for (int radius = 8; radius <= 16; radius += 2)
+                for (int step = 0; step < 16; step++)
+                {
+                    double a = step * (Math.PI * 2 / 16);
+                    var cand = ((int)Math.Round(deposit.X + Math.Cos(a) * radius), (int)Math.Round(deposit.Y + Math.Sin(a) * radius));
+                    if (Clear(cand)) return cand;
+                }
+        }
+        return layout.Near((deposit.X + 9, deposit.Y));
+    }
+
     static async Task MoveNiko(IModuleContext module, IPlayer modPlayer, SulphiteEncounter encounter, Deposit deposit)
     {
         if (Volatile.Read(ref encounter.NikoAt) == deposit.Index) return;
@@ -204,7 +238,8 @@ public sealed partial class DelveModule
         string type = "Metadata/NPC/League/Delve/DelveMinerWild" + (deposit.Type == MapSulphite.Chest ? "Chest" : "Vein");
         if (Npcs.Find(type) is not { Supported: true } npc) return;
         if (Interlocked.Exchange(ref encounter.NikoAt, deposit.Index) == deposit.Index) return;
-        var at = player.Layout.Near((deposit.X + 9, deposit.Y));
+        var at = NikoCell(player, deposit);
+        Volatile.Write(ref encounter.Niko, new NikoPlacement(deposit.Index, at.X, at.Y));
         float rotation = MathF.Atan2(deposit.X - at.X, -(deposit.Y - at.Y));
         await RemoveSceneObject(modPlayer, WildNikoId);
         world.RemoveBlocker(WildNikoId);

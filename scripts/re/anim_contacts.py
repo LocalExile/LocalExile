@@ -227,8 +227,12 @@ def default_attack_pools(text, animations, views):
 
 
 def single_skill_clips(text, animations):
-    """Only unambiguous, single-clip ACT actions with their relevant event. Chained actions need their own selector."""
-    tracked = {"HeavyStrike": "contact", "ShieldBash": "wave"}
+    """Unambiguous ACT clips with a relevant event, including the first slam of a dual-wield chain."""
+    tracked = {"HeavyStrike": "contact", "ShieldBash": "wave", "SpellAreaOfEffect": "contact",
+               "GroundSlam": "contact", "GroundSlamOffhand": "contact"}
+    one_hand = ("Claw", "Dagger", "OneHandSword", "OneHandSwordThrusting")
+    melee_stances = {"Unarmed", "Shield", "Staff", "TwoHandSword", "TwoHandMace"}
+    melee_stances.update(main + off for main in one_hand for off in ("", "Shield", *one_hand))
 
     def resolve(body, inherited):
         current = dict(inherited)
@@ -240,9 +244,12 @@ def single_skill_clips(text, animations):
             if body[i] in tracked and body[i + 1:i + 2] == ["="]:
                 end = body.index(";", i + 2)
                 value = body[i + 2:end]
-                # A chain may follow a semicolon. An override with no exact clip masks an inherited mapping.
-                current[body[i]] = value[0][1:-1] if len(value) == 1 and value[0].startswith('"') \
-                    and body[end + 1:end + 2] != ["then"] else None
+                skill = body[i]
+                # RetaliationHandOfJustice consumes only the first contact of GroundSlam. The dual-wield
+                # ACT chains its off-hand swing after that contact. Other tracked actions need a single clip.
+                first_slam = skill == "GroundSlam" and value[1:] == ["with_main_hand"]
+                single = len(value) == 1 and body[end + 1:end + 2] != ["then"]
+                current[skill] = value[0][1:-1] if (single or first_slam) and value[0].startswith('"') else None
                 i = end
             i += 1
         return current
@@ -252,9 +259,17 @@ def single_skill_clips(text, animations):
     root = tokens[start + 1:closing_brace(tokens, start)]
     base = resolve(root, {})
     events = {clip["name"]: {name for name, _, _ in clip["events"]} for clip in animations}
-    return [{"stance": stance, "skill": skill, "animation": clip}
-            for stance, actions in stances(root, base, {"Unarmed": base}, resolve).items()
-            for skill, clip in actions.items() if tracked[skill] in events.get(clip, ())]
+    result = []
+    for stance, actions in stances(root, base, {"Unarmed": base}, resolve).items():
+        for skill, clip in actions.items():
+            if skill in {"SpellAreaOfEffect", "GroundSlam", "GroundSlamOffhand"} and stance not in melee_stances:
+                continue
+            # The off-hand action normally aliases GroundSlam in the same stance. Store only distinct clips.
+            if skill == "GroundSlamOffhand" and (clip == "@GroundSlam" or clip == actions.get("GroundSlam")):
+                continue
+            if tracked[skill] in events.get(clip, ()):
+                result.append({"stance": stance, "skill": skill, "animation": clip})
+    return result
 
 
 def main():

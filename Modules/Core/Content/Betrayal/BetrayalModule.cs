@@ -24,6 +24,7 @@ public sealed class BetrayalModule : IModule
         string id = module.Manifest.Id;
         GameEvents.MapOpening.Add(id, Opening);
         module.Lifetime.Own(new Cleanup(encounter.Clear));
+        module.Lifetime.Own(RegisterDeliriumPauseSource(encounter.IsActivePause));
         GameEvents.AreaPopulated.Add(id, encounter.Place);
         GameEvents.EnterMessages.Add(id, encounter.EnterMessages);
         GameEvents.PlayerEntered.Add(id, encounter.Entered);
