@@ -183,7 +183,8 @@ public sealed partial class MercenaryModule
         var sharedAuras = new List<PlayerMinions.Aura>();
         var combatEffects = new List<int>();
         comp.EffectToSkillRow.Clear();
-        int gearAuraPct = comp.Monster.Mods.Effects[Stat.AuraEffectPlusPct];
+        int gearAuraPct = comp.Monster.Mods.Effects[Stat.AuraEffectPlusPct]
+            + comp.Monster.Mods.Effects[Stat.NonCurseAuraEffectPlusPct];
 
         foreach (var rolled in comp.Mercenary.Skills)
         {
@@ -204,14 +205,14 @@ public sealed partial class MercenaryModule
                 var own = skills.EffectStats(effect, effectLevel).ToDictionary(s => s.Item1, s => s.Item2);
                 int radius = SkillArea.Radius(AuraCatalog.BaseRadius, k => own.GetValueOrDefault(k), spell: false);
 
+                // Keep base stats unscaled and carry ownAuraBonus so SyncCompanionSharedAuras adds Bestowed Knighthood linearly.
+                int ownAuraBonus = gearAuraPct + generosityBonus;
                 var aura = new PlayerMinions.Aura(family, buffRow, Math.Max(40, radius), baseStats)
                 {
                     SharesWithAllies = true,
                     AffectsSource = !noSelf,
+                    OwnAuraEffectPct = ownAuraBonus,
                 };
-                int ownAuraBonus = gearAuraPct + generosityBonus;
-                if (ownAuraBonus != 0)
-                    aura = ScaleCompanionNonCurseAura(aura, ownAuraBonus);
                 sharedAuras.Add(aura);
             }
             else

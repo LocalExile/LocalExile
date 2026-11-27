@@ -309,4 +309,55 @@ public sealed class LuminaryAscendancyTests
             Assert.Equal(0u, player.PlayerLife);
         });
     }
+
+    [Fact]
+    public async Task Bestowed_Knighthood_adds_linearly_with_companion_own_aura_effect_and_Generosity()
+    {
+        await WithLuminaryTestPlayer(player =>
+        {
+            player.Walk.Teleport(100, 100, 0);
+            player.Frames.World(player);
+
+            // Allocate Noble Blood + Bestowed Knighthood (+50% permanent mercenary non-curse aura effect).
+            AllocateLuminary(player, "AscendancyLuminary5", "AscendancyLuminary9_",
+                "AscendancyLuminary1", "AscendancyLuminary13");
+            Assert.Equal(50, Game.LuminaryBonusesOf(player).NonCurseAuraEffectPct);
+
+            // Place an allied recipient entity (0x20000001 = player-range ID) and companion in the area spatial grid.
+            const uint allyPlayerId = 0x20000001u;
+            player.Area.Zones.Grid.Set(new(allyPlayerId), (100, 100));
+
+            // Permanent companion emitting Grace (1000 base evasion) with +40% own aura effect (e.g. Generosity):
+            // Must add linearly: +40% + +50% = +90% -> 1900 (NOT multiplicative 1.4 * 1.5 = 2.1 -> 2100!).
+            MakeCompanion(player, 0x80000301u, life: 3000, maxLife: 3000, isPermanent: true, out var permComp);
+            player.Area.Zones.Grid.Set(new(permComp.EntityId), (105, 100));
+            ushort graceRow = AuraCatalog.BuffRow("Grace");
+            var generosityGrace = new PlayerMinions.Aura("Grace", graceRow, 60, [(Stat.BaseEvasionRating, 1000)])
+            {
+                SharesWithAllies = true,
+                AffectsSource = false,
+                OwnAuraEffectPct = 40,
+            };
+            Game.SyncCompanionSharedAuras(player, permComp, [generosityGrace], now: 1.0, scaleByLuminary: true);
+            player.Area.Zones.Update(moved: true);
+
+            var permBuff = player.Area.Buffs.Get(allyPlayerId, graceRow, permComp.EntityId);
+            Assert.NotNull(permBuff);
+            Assert.NotNull(permBuff!.Values);
+            Assert.Equal(1900u, permBuff.Values![0]);
+
+            // Temporary companion with +40% own aura effect gets ONLY its own +40% (1400), NOT Bestowed Knighthood.
+            Game.ClearCompanionSharedAuras(player, permComp.EntityId);
+            MakeCompanion(player, 0x80000302u, life: 3000, maxLife: 3000, isPermanent: false, out var tempComp);
+            player.Area.Zones.Grid.Set(new(tempComp.EntityId), (105, 100));
+            Game.SyncCompanionSharedAuras(player, tempComp, [generosityGrace], now: 2.0, scaleByLuminary: true);
+            player.Area.Zones.Update(moved: true);
+
+            var tempBuff = player.Area.Buffs.Get(allyPlayerId, graceRow, tempComp.EntityId);
+            Assert.NotNull(tempBuff);
+            Assert.NotNull(tempBuff!.Values);
+            Assert.Equal(1400u, tempBuff.Values![0]);
+            return Task.CompletedTask;
+        });
+    }
 }

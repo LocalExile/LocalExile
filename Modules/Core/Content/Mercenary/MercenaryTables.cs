@@ -373,8 +373,31 @@ public static class MercenaryTables
     public static Build? BuildOf(int row) => Builds.FirstOrDefault(b => b.Row == row);
     public static Build? BuildByHash(ushort hash16) => Builds.FirstOrDefault(b => b.Hash16 == hash16);
     public static SkillRow? SkillOf(int row) => SkillRowsData.GetValueOrDefault(row);
+    public static SkillRow? SkillByHash(ushort hash16) => hash16 == 0 ? null : SkillRowsData.Values.FirstOrDefault(s => s.Hash16 == hash16);
     public static SupportRow? SupportOf(int row) => SupportRowsData.GetValueOrDefault(row);
+    public static SupportRow? SupportByHash(ushort hash16) => hash16 == 0 ? null : SupportRowsData.Values.FirstOrDefault(s => s.Hash16 == hash16);
     public static FlavourRow? FlavourByHash(ushort hash16) => FlavoursData.FirstOrDefault(f => f.Hash16 == hash16);
+
+    /// <summary>Reconstructs <see cref="RolledSkill"/> entries from wire <see cref="GameServer.Core.Protocol.Instance.InstanceMercenaries.MercenarySkillWire"/>
+    /// records (e.g. from a persisted <see cref="GameServer.Core.Protocol.Instance.MercenaryContractData"/> warrant).</summary>
+    public static List<RolledSkill> RolledSkillsFromWire(IReadOnlyList<GameServer.Core.Protocol.Instance.InstanceMercenaries.MercenarySkillWire> wire)
+    {
+        List<RolledSkill> result = [];
+        foreach (var entry in wire)
+        {
+            if (SkillByHash(entry.SkillHash16) is not { } skill) continue;
+            List<int> suppRows = [];
+            List<ushort> suppHashes = [];
+            foreach (ushort sh in entry.SupportHashes16)
+            {
+                if (SupportByHash(sh) is not { } supp) continue;
+                suppRows.Add(supp.Row);
+                suppHashes.Add(supp.Hash16);
+            }
+            result.Add(new(skill.Row, skill.Hash16, suppRows, suppHashes));
+        }
+        return result;
+    }
 
     /// <summary>Collects the GrantedEffects rows from a mercenary's rolled skills (falling back to build skills if empty).</summary>
     public static IReadOnlyList<int> EffectsFromRolled(IReadOnlyList<RolledSkill> rolled, bool encounter)

@@ -90,6 +90,7 @@ public static class ItemMoves
             if (items.RowOf(itemId) is not byte from || items.Items(from).FirstOrDefault(i => i.Id == itemId) is not { } item)
             { reason = "the item is not in the inventories"; return null; }
             if (from == PlayerInventories.MercenaryTemporary) { reason = "temporary mercenary gear is locked"; return null; }
+            if (item.Item.MercenaryLocked) { reason = "locked mercenary gear cannot be removed"; return null; }
             if (shapeOf(item.Item) is not { } shape) { reason = "unknown item type"; return null; }
             tab = stash.UniqueDestination(tab, item.Item);
             if (tab < 0) { reason = "the item has no collection slot"; return null; }
@@ -134,6 +135,7 @@ public static class ItemMoves
             if (items.RowOf(itemId) != sourceRow || items.Items(sourceRow).FirstOrDefault(i => i.Id == itemId) is not { } item)
             { reason = "not in the inventory"; return null; }
             if (sourceRow == PlayerInventories.MercenaryTemporary) { reason = "temporary mercenary gear is locked"; return null; }
+            if (item.Item.MercenaryLocked) { reason = "locked mercenary gear cannot be removed"; return null; }
             if (shapeOf(item.Item) is not { } shape) { reason = "unknown item type"; return null; }
             if (!stash.Holds(tab, item.Item)) { reason = $"the {stash.TypeOf(tab)} tab doesn't hold that item"; return null; }
             var listed = item.Item with { Note = normalized };
@@ -235,10 +237,10 @@ public static class ItemMoves
     });
 
     /// <summary>Result of a mercenary Ctrl+click quick-move (C→S 0x010c): <see cref="Placed"/> moved from
-    /// <see cref="From"/> to <see cref="To"/>, and if a slot item was swapped out it moved to <see cref="SwappedToRow"/>
-    /// as <see cref="SwappedOut"/>.</summary>
+    /// <see cref="From"/> to <see cref="To"/>, and if an unlocked slot item was swapped out it moved to <see cref="SwappedToRow"/>
+    /// as <see cref="SwappedOut"/>. If a locked rolled item was replaced in-place, it was discarded and its id is <see cref="DestroyedId"/>.</summary>
     public sealed record MercenaryMove(byte From, byte To, InventoryItem Placed, InventoryItem? SwappedOut = null,
-        byte SwappedToRow = 0);
+        byte SwappedToRow = 0, uint? DestroyedId = null);
 
     /// <summary>Quick-moves an equipment item between carried inventory (main/expanded) and a permanent mercenary row
     /// (rows 95..97, C→S 0x010c). <paramref name="target"/> accepts either roster key 0..3 or <c>Inventories._row</c>
@@ -252,8 +254,8 @@ public static class ItemMoves
         if (toMercenary)
         {
             return items.QuickMoveToMercenary(mercRow, itemId, fromExpanded, expandedAllowed, shapeOf, canEquip)
-                is var (fromRow, placed, swapped, swappedToRow)
-                ? new MercenaryMove(fromRow, mercRow, placed, swapped, swappedToRow)
+                is var (fromRow, placed, swapped, swappedToRow, destroyedId)
+                ? new MercenaryMove(fromRow, mercRow, placed, swapped, swappedToRow, destroyedId)
                 : null;
         }
         return items.QuickMoveFromMercenary(mercRow, itemId, expandedAllowed, shapeOf) is var (toRow, moved)

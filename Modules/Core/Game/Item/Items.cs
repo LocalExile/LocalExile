@@ -1588,6 +1588,11 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use item {use}: no such item: {hex}");
             return false;
         }
+        if (item.Item.MercenaryLocked || r == PlayerInventories.MercenaryTemporary)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use item {use}: refused, locked mercenary gear");
+            return false;
+        }
         if (ItemsFor(player).ByHash(item.Item.TypeHash) is not { } type)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use item {use}: unknown type 0x{item.Item.TypeHash:x8}: {hex}");
@@ -1961,6 +1966,11 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use item on item {use}: refused, currency is in public stash tab {pubTab}");
             return;
         }
+        if (target.Item.MercenaryLocked || (targetTab is null && targetRow == PlayerInventories.MercenaryTemporary))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use item on item {use}: refused, target is locked mercenary gear");
+            return;
+        }
         var type = ItemsFor(player).ByHash(used.Item.TypeHash);
         // A worn item (equipment, the flask bar, jewels in the passive tree) takes only quality and flask enchant
         // currency: the others' client validators refuse it with ItemErrorItemEquipped, and the client still sends 0x71
@@ -2205,9 +2215,10 @@ public static partial class Game
         if (done.Row == PlayerInventories.Flask && done.FromRow != PlayerInventories.Flask)
             done = done with { Placed = EmptyIfEquippedInHostileArea(player, items, done.Placed) };
         var d = done.Displaced;
+        uint[] removedIds = d is not null ? [d.Id] : done.DestroyedId is uint gone ? [gone] : [];
         uint target = PlayerInventories.InventoryId(done.Row);
-        await Send(player, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), d is null ? [] : [d.Id], [done.Placed]),
-            $"0x00bf inventory {target}: add item {done.Placed.Id} at ({done.Placed.X}, {done.Placed.Y})" + (d is null ? "" : $", remove item {d.Id}"));
+        await Send(player, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), removedIds, [done.Placed]),
+            $"0x00bf inventory {target}: add item {done.Placed.Id} at ({done.Placed.X}, {done.Placed.Y})" + (removedIds.Length == 0 ? "" : $", remove item {removedIds[0]}"));
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [done.Held.Id], d is null ? [] : [d]),
             $"0x00bf cursor: remove item {done.Held.Id}" + (d is null ? "" : $", hold item {d.Id}"));
@@ -2324,6 +2335,7 @@ public static partial class Game
         if (done.Row == PlayerInventories.Flask && done.FromRow != PlayerInventories.Flask)
             done = done with { Placed = EmptyIfEquippedInHostileArea(player, items, done.Placed) };
         var d = done.Displaced;
+        uint[] removedIds = d is not null ? [d.Id] : done.DestroyedId is uint gone ? [gone] : [];
         uint target = PlayerInventories.InventoryId(done.Row);   // may differ from the clicked one (off hand → main hand)
         if (done.Merged || done.Rest is not null)
         {
@@ -2331,8 +2343,8 @@ public static partial class Game
             await GameEvents.RunInventoryChanged(player, done.Row);
             return;
         }
-        await Send(player, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), d is null ? [] : [d.Id], [done.Placed]),
-            $"0x00bf inventory {target}: add item {done.Placed.Id} at ({done.Placed.X}, {done.Placed.Y})" + (d is null ? "" : $", remove item {d.Id}"));
+        await Send(player, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), removedIds, [done.Placed]),
+            $"0x00bf inventory {target}: add item {done.Placed.Id} at ({done.Placed.X}, {done.Placed.Y})" + (removedIds.Length == 0 ? "" : $", remove item {removedIds[0]}"));
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [done.Held.Id], d is null ? [] : [d]),
             $"0x00bf cursor: remove item {done.Held.Id}" + (d is null ? "" : $", hold item {d.Id}"));

@@ -53,8 +53,9 @@ public static partial class Game
     }
 
     /// <summary>Publishes (or updates) an active companion's shared non-curse auras into <c>SharedMinionAuraEmitters</c>.
-    /// When <paramref name="scaleByLuminary"/> is true and the companion is permanent, scales each aura's stat values by
-    /// Bestowed Knighthood's <c>permanenet_mercenary_non_curse_aura_effect_+%</c>.</summary>
+    /// Each aura's own increased aura effect (<see cref="PlayerMinions.Aura.OwnAuraEffectPct"/>, e.g. Generosity + gear)
+    /// adds linearly with Bestowed Knighthood's <c>permanenet_mercenary_non_curse_aura_effect_+%</c> when
+    /// <paramref name="scaleByLuminary"/> is true and the companion is permanent.</summary>
     public static void SyncCompanionSharedAuras(Player owner, ActiveCompanion companion, PlayerMinions.Aura[] auras,
         double now, bool scaleByLuminary = true)
     {
@@ -63,9 +64,14 @@ public static partial class Game
             ClearSharedMinionAuras(owner, companion.EntityId);
             return;
         }
-        int bonusPct = scaleByLuminary && companion.IsPermanent ? LuminaryBonusesOf(owner).NonCurseAuraEffectPct : 0;
-        var effective = bonusPct == 0 ? auras
-            : auras.Select(a => ScaleCompanionNonCurseAura(a, bonusPct) with { SharesWithAllies = true }).ToArray();
+        int luminaryPct = scaleByLuminary && companion.IsPermanent ? LuminaryBonusesOf(owner).NonCurseAuraEffectPct : 0;
+        var effective = new PlayerMinions.Aura[auras.Length];
+        for (int i = 0; i < auras.Length; i++)
+        {
+            int totalPct = auras[i].OwnAuraEffectPct + luminaryPct;
+            var scaled = totalPct == 0 ? auras[i] : ScaleCompanionNonCurseAura(auras[i], totalPct);
+            effective[i] = scaled with { SharesWithAllies = true, OwnAuraEffectPct = 0 };
+        }
         var source = new PlayerMinions.Minion(companion.EntityId, companion.Monster, "Mercenary", "Mercenary")
         {
             Until = double.PositiveInfinity,

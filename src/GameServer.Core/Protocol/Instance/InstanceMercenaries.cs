@@ -229,7 +229,7 @@ public static class InstanceMercenaries
         }
     }
 
-    public enum AreaActionKind : byte { Invite, Reserve, Revive, Dismiss }
+    public enum AreaActionKind : byte { Invite, Reserve, Revive, Dismiss, ShowCurrent, ShowTemporary }
 
     public readonly record struct AreaAction(AreaActionKind Kind, byte Key = 0);
 
@@ -251,6 +251,12 @@ public static class InstanceMercenaries
                 return true;
             case 3 when payload.Length >= 2:
                 action = new(AreaActionKind.Dismiss, payload[1]);
+                return true;
+            case 4:
+                action = new(AreaActionKind.ShowCurrent);
+                return true;
+            case 5:
+                action = new(AreaActionKind.ShowTemporary);
                 return true;
             default:
                 return false;

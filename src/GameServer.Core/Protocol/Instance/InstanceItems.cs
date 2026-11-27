@@ -139,6 +139,18 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public IncursionTempleData? IncursionTemple { get; init; }
     public ExpeditionSagaData? ExpeditionSaga { get; init; }
 
+    /// <summary>MercenaryContract component 173 (Mercenary Warrant rematch blueprint, 0x1424ac0f0): serialized directly
+    /// on the item wire payload and persisted independently of <see cref="Note"/>.</summary>
+    public MercenaryContractData? MercenaryContract { get; init; }
+
+    /// <summary>Item header flag bit 6 (0x0040, reader 0x1421f2d00 → item +0x2c): marks a hired mercenary's rolled gear
+    /// as locked in place ("This Mercenary item cannot be removed, only replaced." / 0x1edc, or 0x20cb in row 107).</summary>
+    public const ushort MercenaryLockedHeaderFlag = 0x0040;
+
+    /// <summary>Persisted lock for a hired mercenary's rolled gear: emits <see cref="MercenaryLockedHeaderFlag"/> on the
+    /// wire and forbids removing, splitting, socketing or crafting the item (only in-place replacement is allowed).</summary>
+    public bool MercenaryLocked { get; init; }
+
     /// <summary>The u16 after the type hash (reader 0x1421f2d00): bit 0 → item +0x28; bit 1 → +0x29, which keeps the item
     /// out of every inventory but InventoryIdKey 0 and 0x41 and is required for 0x41 (0x141d65f80); bit 2 → +0x2a, with
     /// bit 1 the tooltip's second marker icon (0x140c998a0); bit 3 → +0x2b, refused in every inventory; bit 4 the
@@ -183,7 +195,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter", "IncursionTemple", "ExpeditionSaga"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter", "IncursionTemple", "ExpeditionSaga", "MercenaryContract"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -212,7 +224,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public byte[] Payload()
     {
         if (!CanSerialize(Components)) throw new ArgumentException($"unsupported item components: {string.Join(", ", Components.Where(c => !Supported.Contains(c)))}");
-        var w = new BlobWriter().U32(TypeHash).U16((ushort)(HeaderFlags & 0x01ff));
+        ushort headerFlags = (ushort)((HeaderFlags | (MercenaryLocked ? MercenaryLockedHeaderFlag : 0)) & 0x01ff);
+        var w = new BlobWriter().U32(TypeHash).U16(headerFlags);
         foreach (string c in Components)
         {
             switch (c)
@@ -298,6 +311,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     break;
                 case "ExpeditionSaga":
                     (ExpeditionSaga ?? new ExpeditionSagaData(0, [])).Write(w);
+                    break;
+                case "MercenaryContract":
+                    (MercenaryContract ?? new MercenaryContractData(new(0, 0, 0, 0, 0, []))).Write(w);
                     break;
                 // 0x1424755d0: i32 experience (-1: one level over the cap), u32 +0x3c the variant (the copy 0x142476520
                 // checks it against the GemVariants count and sets +0x10 bit 5 when it is not 0), u8 +0x10, u16 +0x40 an

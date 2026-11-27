@@ -26,35 +26,33 @@ public sealed partial class MercenaryModule
     static bool AcceptsMapDeviceItem(Player? player, uint typeHash, string itemClass) =>
         MercenaryTables.WarrantTypeHash != 0 && typeHash == MercenaryTables.WarrantTypeHash;
 
-    static Item? CreateWarrantItem(Run run, MercenaryTables.Build build)
+    public static Item? CreateWarrantItem(Run run, MercenaryTables.Build build)
     {
         if (Program.Items.Find("Metadata/Items/MapFragments/MercenaryWarrant") is not { Supported: true } bt)
             return null;
-        string note = $"merc:{run.Class}:{run.Build}:{run.Level}:{run.FirstNameHash32:x}:{run.SecondNameHash32:x}:{run.FlavourHash16:x}";
+        var baseRec = MercenaryWire.BaseRecord(build.Hash16, run.Level, run.FirstNameHash32, run.SecondNameHash32,
+            run.FlavourHash16, run.Skills);
         return ItemCatalog.Create(bt) with
         {
             ItemLevel = run.Level,
             Identified = true,
-            CustomName = $"{build.Name} (Lv {run.Level})",
-            Note = note,
+            MercenaryContract = new MercenaryContractData(baseRec),
         };
     }
 
-    static WarrantBlueprint? TryParseWarrant(Item item)
+    public static WarrantBlueprint? TryParseWarrant(Item item)
     {
-        if (item.TypeHash != MercenaryTables.WarrantTypeHash || string.IsNullOrEmpty(item.Note)) return null;
-        var parts = item.Note.Split(':');
-        if (parts.Length < 7 || parts[0] != "merc") return null;
-        if (!int.TryParse(parts[1], out int cls) || !int.TryParse(parts[2], out int bld)
-            || !byte.TryParse(parts[3], out byte lvl)
-            || !uint.TryParse(parts[4], System.Globalization.NumberStyles.HexNumber, null, out uint w1)
-            || !uint.TryParse(parts[5], System.Globalization.NumberStyles.HexNumber, null, out uint w2)
-            || !ushort.TryParse(parts[6], System.Globalization.NumberStyles.HexNumber, null, out ushort flv))
+        if (item.TypeHash != MercenaryTables.WarrantTypeHash
+            || item.MercenaryContract is not { Mercenary: { Level: > 0 } rec })
             return null;
-        var skills = MercenaryTables.BuildOf(bld) is { } build
-            ? MercenaryTables.RollSkills(build, lvl, new Random(unchecked((int)(w1 ^ w2 ^ flv))))
-            : [];
-        return new WarrantBlueprint(cls, bld, lvl, w1, w2, flv, skills);
+        if (MercenaryTables.BuildByHash(rec.BuildHash16) is not { } build)
+            return null;
+        var skills = MercenaryTables.RolledSkillsFromWire(rec.Skills);
+        if (skills.Count == 0)
+            skills = MercenaryTables.RollSkills(build, rec.Level,
+                new Random(unchecked((int)(rec.FirstNameHash32 ^ rec.SecondNameHash32 ^ rec.FlavourHash16))));
+        return new WarrantBlueprint(build.ClassRow, build.Row, rec.Level,
+            rec.FirstNameHash32, rec.SecondNameHash32, rec.FlavourHash16, skills);
     }
 
     static WarrantBlueprint? ConsumePendingWarrant(Player player) =>

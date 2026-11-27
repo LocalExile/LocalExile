@@ -157,11 +157,52 @@ public class InstanceMercenariesTests
         Assert.True(InstanceMercenaries.TryReadAreaAction([3, 0], out var dismiss));
         Assert.Equal(new InstanceMercenaries.AreaAction(InstanceMercenaries.AreaActionKind.Dismiss, 0), dismiss);
 
+        Assert.True(InstanceMercenaries.TryReadAreaAction([4], out var showCurrent));
+        Assert.Equal(new InstanceMercenaries.AreaAction(InstanceMercenaries.AreaActionKind.ShowCurrent), showCurrent);
+
+        Assert.True(InstanceMercenaries.TryReadAreaAction([5], out var showTemp));
+        Assert.Equal(new InstanceMercenaries.AreaAction(InstanceMercenaries.AreaActionKind.ShowTemporary), showTemp);
+
         Assert.False(InstanceMercenaries.TryReadAreaAction([], out _));
         Assert.False(InstanceMercenaries.TryReadAreaAction([0], out _));
         Assert.False(InstanceMercenaries.TryReadAreaAction([2], out _));
         Assert.False(InstanceMercenaries.TryReadAreaAction([3], out _));
-        Assert.False(InstanceMercenaries.TryReadAreaAction([4, 0], out _));
+        Assert.False(InstanceMercenaries.TryReadAreaAction([6, 0], out _));
+    }
+
+    [Fact]
+    public void Item_MercenaryLocked_header_bit_and_MercenaryContract_component_match_wire_spec()
+    {
+        Assert.Contains("MercenaryContract", Item.Supported);
+
+        // MercenaryLocked ORs bit 6 (0x0040) into the u16 LE item header flags without altering HeaderFlags.
+        var unlocked = new Item(0x11223344u, ["RenderItem"], 0) { HeaderFlags = 0x0001 };
+        var locked = unlocked with { MercenaryLocked = true };
+        Assert.Equal((ushort)0x0001, BinaryPrimitives.ReadUInt16LittleEndian(unlocked.Payload().AsSpan(4, 2)));
+        Assert.Equal((ushort)(0x0001 | Item.MercenaryLockedHeaderFlag),
+            BinaryPrimitives.ReadUInt16LittleEndian(locked.Payload().AsSpan(4, 2)));
+
+        // MercenaryContract writes u8 Flag + MercenaryBaseRecord (matching InstanceMercenaries.TryReadBaseRecord).
+        var baseRec = SampleBase(79);
+        var warrant = new Item(0x55667788u, ["Usable", "MercenaryContract", "RenderItem"], 0)
+        {
+            MercenaryContract = new MercenaryContractData(baseRec, Flag: 0),
+        };
+        byte[] payload = warrant.Payload();
+        Assert.Equal(0x55667788u, BinaryPrimitives.ReadUInt32LittleEndian(payload.AsSpan(0, 4)));
+        Assert.Equal((ushort)0, BinaryPrimitives.ReadUInt16LittleEndian(payload.AsSpan(4, 2)));
+        Assert.Equal((byte)0, payload[6]);
+        int off = 7;
+        Assert.True(InstanceMercenaries.TryReadBaseRecord(payload, ref off, out var decoded));
+        Assert.Equal(payload.Length, off);
+        Assert.Equal(baseRec.BuildHash16, decoded.BuildHash16);
+        Assert.Equal(baseRec.Level, decoded.Level);
+        Assert.Equal(baseRec.FirstNameHash32, decoded.FirstNameHash32);
+        Assert.Equal(baseRec.SecondNameHash32, decoded.SecondNameHash32);
+        Assert.Equal(baseRec.FlavourHash16, decoded.FlavourHash16);
+        Assert.Equal(2, decoded.Skills.Count);
+        Assert.Equal((ushort)0x0102, decoded.Skills[0].SkillHash16);
+        Assert.Equal([0x0304, 0x0506], decoded.Skills[0].SupportHashes16);
     }
 
     [Fact]

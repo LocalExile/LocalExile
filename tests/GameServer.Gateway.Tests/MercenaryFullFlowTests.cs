@@ -1,4 +1,8 @@
+using System.Buffers.Binary;
+using System.Net;
+using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
@@ -218,7 +222,14 @@ public sealed class MercenaryFullFlowTests
             Assert.True(roster.Slots.ContainsKey(0));
             Assert.Equal((byte)0, roster.InvitedKey);
             Assert.False(roster.Slots[0].Dead);
-            Assert.NotEmpty(Game.ItemsOf(player).Items(PlayerInventories.Mercenary1));
+            var hiredGear = Game.ItemsOf(player).Items(PlayerInventories.Mercenary1);
+            Assert.NotEmpty(hiredGear);
+            Assert.All(hiredGear, gear =>
+            {
+                Assert.True(gear.Item.MercenaryLocked);
+                ushort flags = BinaryPrimitives.ReadUInt16LittleEndian(gear.Item.Payload().AsSpan(4, 2));
+                Assert.True((flags & Item.MercenaryLockedHeaderFlag) != 0);
+            });
             Assert.NotNull(player.Companion);
             Assert.True(player.Companion!.IsPermanent);
 
@@ -226,6 +237,10 @@ public sealed class MercenaryFullFlowTests
             uint compId = player.Companion.EntityId;
             Assert.True(player.Npcs.ContainsKey(compId));
             Assert.True(await GameEvents.AnyNpcTalk(player, compId, player.Npcs[compId]));
+
+            // C->S 0x2ca ruleset 0xa2 sub 4 (ShowCurrentMercenary) & sub 5 (ShowTemporaryMercenary) decode and emit 0x7b 0x60 cleanly.
+            Assert.True(await GameEvents.AnyPacket(player, InstanceRulesets.ActionId, [0x02, 0xca, areaRow, 0x01, 0x04]));
+            Assert.True(await GameEvents.AnyPacket(player, InstanceRulesets.ActionId, [0x02, 0xca, areaRow, 0x01, 0x05]));
 
             // Companion takes lethal damage -> dies, marked Dead in persisted roster, Player.Companion cleared!
             int lethal = (int)player.Companion.Monster.MaxLife + 100_000;
@@ -253,6 +268,97 @@ public sealed class MercenaryFullFlowTests
         }
         finally
         {
+            PlayerInventories.Forget(player.Character.Name!);
+            module.Stop(ex => throw ex);
+            GameEventOwners.Release("Mercenary", GameEventOwners.ModuleRank);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
+    [Fact]
+    public async Task ShowCurrentMercenary_0xa2_subs_4_and_5_emit_0x7b_0x60_and_MercenaryWire_has_no_dead_encoders()
+    {
+        // Dead encoders removed per review must not exist on MercenaryWire.
+        Assert.Null(typeof(MercenaryWire).GetField("AreaRulesBody1"));
+        Assert.Null(typeof(MercenaryWire).GetField("AreaRulesBody2"));
+        Assert.Null(typeof(MercenaryWire).GetMethod("EncounterRulesBody"));
+
+        MercenaryModule.LoadData();
+        TestEnvironment.OpenOwnSaves("merc-show-current");
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameLogic(lifetime));
+        var module = new ModuleLifetime("Mercenary");
+        new MercenaryModule().Load(Context(module));
+
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var accepting = listener.AcceptTcpClientAsync();
+        using var writer = new TcpClient();
+        await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+        using var reader = await accepting;
+        using var captured = new MemoryStream();
+        var drain = reader.GetStream().CopyToAsync(captured);
+
+        var instance = new InstanceState();
+        var layout = new AreaLayout(1, "1_3_town", 200, 200, 50, 50, null, []);
+        var cipher = new ConnectionCiphers(new byte[64], false);
+        var player = new Player(layout, 1, 1)
+        {
+            Connection = { LockstepClient = false, PlayerSent = true, Session = new("merc-show", writer.GetStream(), cipher) },
+            Character = { Name = "ShowMerc" + Guid.NewGuid().ToString("N")[..8], ClassRow = 2, League = "Standard", Experience = CharacterStats.LevelStarts[80] },
+            Instance = instance,
+            PlayerLife = 2000,
+            PlayerMana = 1000,
+            Pools = new(80, 2000, 1000, 500, 0, Strength: 200, Dexterity: 200, Intelligence: 200),
+            LeagueModule = new(new League("Standard", "Standard", false, false), new HashSet<string>(["Game", "Mercenary"])),
+        };
+        player.Clock.Stop();
+        player.Character.Passives.Add(Program.Passives.FindById("AscendancyLuminaryStart")!.GraphId);
+        player.Character.Passives.Add(Program.Passives.FindById("AscendancyLuminary5")!.GraphId);
+        player.Character.Passives.Add(Program.Passives.FindById("AscendancyLuminary9_")!.GraphId);
+        player.Character.StatsChanged?.Invoke(StatInput.Passives);
+
+        try
+        {
+            // Seed a roster with permanent slot 0 (invited) and temporary slot 3.
+            var cls = MercenaryTables.Classes.First(c => MercenaryTables.BuildsOf(c.Row).Count > 0);
+            var bld = MercenaryTables.BuildsOf(cls.Row)[0];
+            var seedJson = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                InvitedKey = (byte?)0,
+                Slots = new Dictionary<byte, object>
+                {
+                    [0] = new { Key = (byte)0, IsPermanent = true, ClassRow = cls.Row, BuildRow = bld.Row, Level = (byte)75, FirstNameHash32 = 1u, SecondNameHash32 = 2u, FlavourHash16 = (ushort)3, Skills = Array.Empty<object>(), Dead = false, ReviveCost = 0u, DisplayName = "Perm" },
+                    [3] = new { Key = (byte)3, IsPermanent = false, ClassRow = cls.Row, BuildRow = bld.Row, Level = (byte)75, FirstNameHash32 = 4u, SecondNameHash32 = 5u, FlavourHash16 = (ushort)6, Skills = Array.Empty<object>(), Dead = false, ReviveCost = 0u, DisplayName = "Temp" },
+                },
+                ExiledPairs = Array.Empty<byte[]>(),
+            });
+            Assert.True(CharacterSaves.ChangeModuleData(player.Character.Name!, "mercenary.roster", _ => seedJson));
+
+            byte areaRow = MercenaryTables.AreaRulesRow!.Value;
+            Assert.True(await GameEvents.AnyPacket(player, InstanceRulesets.ActionId, [0x02, 0xca, areaRow, 0x01, 0x04]));
+            Assert.True(await GameEvents.AnyPacket(player, InstanceRulesets.ActionId, [0x02, 0xca, areaRow, 0x01, 0x05]));
+
+            writer.Dispose();
+            await drain;
+
+            byte[] expectedCurrent = InstanceWaypoints.OpenUi(InstanceWaypoints.MercenaryLoadoutUi, 0u, 0u);
+            byte[] expectedTemp = InstanceWaypoints.OpenUi(InstanceWaypoints.MercenaryLoadoutUi, 0u, 3u);
+            byte[] wireBytes = captured.ToArray();
+            var decrypt = new ConnectionCiphers(new byte[64], isClient: true);
+            decrypt.Receive.Process(wireBytes);
+
+            Assert.True(wireBytes.AsSpan().IndexOf(expectedCurrent) >= 0, "Expected S->C 0x7b 0x60 for invited permanent key 0");
+            Assert.True(wireBytes.AsSpan().IndexOf(expectedTemp) >= 0, "Expected S->C 0x7b 0x60 for temporary key 3");
+        }
+        finally
+        {
+            player.Closed = true;
             PlayerInventories.Forget(player.Character.Name!);
             module.Stop(ex => throw ex);
             GameEventOwners.Release("Mercenary", GameEventOwners.ModuleRank);

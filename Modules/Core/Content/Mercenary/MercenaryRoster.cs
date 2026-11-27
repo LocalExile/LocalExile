@@ -314,9 +314,43 @@ public sealed partial class MercenaryModule
                 return await HandleRevive(player, action.Key);
             case InstanceMercenaries.AreaActionKind.Dismiss:
                 return await HandleDismiss(player, action.Key);
+            case InstanceMercenaries.AreaActionKind.ShowCurrent:
+                return await HandleShowMercenary(player, temporary: false);
+            case InstanceMercenaries.AreaActionKind.ShowTemporary:
+                return await HandleShowMercenary(player, temporary: true);
             default:
                 return false;
         }
+    }
+
+    async Task<bool> HandleShowMercenary(Player player, bool temporary)
+    {
+        var roster = LoadRoster(player);
+        byte? key = temporary
+            ? (roster.Slots.ContainsKey(3) ? (byte)3 : null)
+            : EffectiveInvitedKey(player, roster);
+        if (key is not byte slotKey) return true;
+
+        uint entityId = FindSpawnedEntityForKey(player, slotKey);
+        await Send(player, InstanceWaypoints.OpenUi(MercenaryWire.LoadoutPanelKind, entityId, slotKey),
+            $"0x007b show {(temporary ? "temporary" : "current")} mercenary loadout 0x{entityId:x} key {slotKey}");
+        return true;
+    }
+
+    uint FindSpawnedEntityForKey(Player player, byte key)
+    {
+        if (companions.TryGetValue(player, out var comp) && comp.Mercenary.Key == key
+            && player.Area.Monsters.ContainsKey(comp.EntityId))
+            return comp.EntityId;
+        if (loadoutNpcs.TryGetValue(player, out var map))
+        {
+            lock (map)
+            {
+                foreach (var (id, k) in map)
+                    if (k == key && player.Area.Monsters.ContainsKey(id)) return id;
+            }
+        }
+        return 0;
     }
 
     async Task<bool> HandleInvite(Player player, byte key)
@@ -458,13 +492,15 @@ public sealed partial class MercenaryModule
         var placed = items.Place(row, target.X, target.Y, shapeOf, out _, player: player);
         if (placed is null) return true;
 
+        uint[] mercRemoved = placed.Displaced is { } swapped ? [swapped.Id]
+            : placed.DestroyedId is uint destroyed ? [destroyed] : [];
         await Send(player, InstanceItems.InventoryChange(action.InventoryId, items.NextRevision(row),
-            placed.Displaced is { } swapped ? [swapped.Id] : [], [placed.Placed]),
-            $"0x0041 mercenary slot swap in row {row}");
+            mercRemoved, [placed.Placed]),
+            $"0x00bf mercenary slot {(placed.DestroyedId is not null ? "replace" : "swap")} in row {row}");
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [held.Id],
             placed.Displaced is { } outItem ? [outItem with { X = 0, Y = 0 }] : []),
-            "0x0041 cursor after mercenary swap");
+            "0x00bf cursor after mercenary swap");
         await GameEvents.RunInventoryChanged(player, row);
         return true;
     }
@@ -520,12 +556,13 @@ public sealed partial class MercenaryModule
         }
         else
         {
+            uint[] toRemoved = moved.DestroyedId is uint destroyed ? [destroyed] : [];
             await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(moved.From),
                 items.NextRevision(moved.From), [req.ItemId], []),
-                $"0x0041 mercenary quick-move remove from row {moved.From}");
+                $"0x00bf mercenary quick-move remove from row {moved.From}");
             await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(moved.To),
-                items.NextRevision(moved.To), [], [moved.Placed]),
-                $"0x0041 mercenary quick-move place in row {moved.To}");
+                items.NextRevision(moved.To), toRemoved, [moved.Placed]),
+                $"0x00bf mercenary quick-move place in row {moved.To}");
         }
 
         await GameEvents.RunInventoryChanged(player, mercRow);

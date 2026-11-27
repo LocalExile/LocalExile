@@ -678,7 +678,7 @@ public sealed partial class MercenaryModule
         {
             case DuelOfferKind.TakeGearItem:
                 if (run.GearItems.FirstOrDefault(i => i.Id == run.ChosenItemId) is { } chosen)
-                    await DropOrGiveReward(player, chosen.Item with { Identified = true }, at, rng, "Mercenary Take Item reward");
+                    await DropOrGiveReward(player, chosen.Item with { Identified = true, MercenaryLocked = false }, at, rng, "Mercenary Take Item reward");
                 break;
 
             case DuelOfferKind.TakeRucksack:
@@ -742,7 +742,8 @@ public sealed partial class MercenaryModule
             if (assignedKey is byte k && PlayerInventories.MercenaryRowForKey(k) is byte row)
             {
                 var toPlace = run.GearItems.Count > 0 ? run.GearItems : MercenaryEquipment.ToInventoryItems(run.Equipment);
-                (oldIds, placedItems) = inv.ReplaceRow(row, [.. toPlace.Select(i => (i.X, i.Y, i.Item))]);
+                // Mark initial rolled equipment locked in place (header bit 0x0040): cannot be removed, only replaced.
+                (oldIds, placedItems) = inv.ReplaceRow(row, [.. toPlace.Select(i => (i.X, i.Y, i.Item with { MercenaryLocked = true }))]);
             }
         });
 
@@ -810,7 +811,8 @@ public sealed partial class MercenaryModule
             });
 
             var toPlace = run.GearItems.Count > 0 ? run.GearItems : MercenaryEquipment.ToInventoryItems(run.Equipment);
-            (oldIds, placedItems) = inv.ReplaceRow(PlayerInventories.MercenaryTemporary, [.. toPlace.Select(i => (i.X, i.Y, i.Item))]);
+            (oldIds, placedItems) = inv.ReplaceRow(PlayerInventories.MercenaryTemporary,
+                [.. toPlace.Select(i => (i.X, i.Y, i.Item with { MercenaryLocked = true }))]);
         });
 
         await Send(player, InstanceItems.InventoryChange(

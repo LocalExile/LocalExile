@@ -1,15 +1,18 @@
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modules.Game;
+using GameServer.Modules.Mercenary;
 
 namespace GameServer.Gateway.Tests;
 
 public sealed class MercenaryInventoryTests : IDisposable
 {
     readonly List<string> _characters = [];
+    readonly List<string> _accounts = [];
 
     public void Dispose()
     {
         foreach (string c in _characters) PlayerInventories.Forget(c);
+        foreach (string a in _accounts) AccountStash.Forget(a);
         TestEnvironment.ReleaseOwnSaves();
     }
 
@@ -207,5 +210,167 @@ public sealed class MercenaryInventoryTests : IDisposable
             expandedAllowed: false, ShapeOf));
         Assert.Null(ItemMoves.MoveMercenaryEquipment(inv, target: PlayerInventories.MercenaryTemporary, tempItems[0].Id,
             toMercenary: false, fromExpanded: false, expandedAllowed: false, ShapeOf));
+    }
+
+    [Fact]
+    public void Locked_permanent_mercenary_gear_forbids_removal_and_discards_on_replace()
+    {
+        TestEnvironment.OpenOwnSaves("merc-locked-gear");
+        string ch = "MercLock" + Guid.NewGuid().ToString("N")[..8];
+        string acct = "MercLockAcct" + Guid.NewGuid().ToString("N")[..8];
+        _characters.Add(ch);
+        _accounts.Add(acct);
+        var inv = PlayerInventories.For(ch, Program.Items);
+        var stash = AccountStash.For(acct, Program.Items);
+        inv.ClearRow(PlayerInventories.MainInventory);
+
+        var gem = Make("Metadata/Items/Gems/SkillGemFireball");
+        var lockedPlate = Make("Metadata/Items/Armours/BodyArmours/BodyStr1") with
+        {
+            MercenaryLocked = true,
+            Sockets = [new ItemSocket(SocketColour.Blue, gem)],
+        };
+        var lockedRing1 = Make("Metadata/Items/Rings/Ring1") with { MercenaryLocked = true };
+        var lockedRing2 = Make("Metadata/Items/Rings/Ring2") with { MercenaryLocked = true };
+        var (_, added) = inv.ReplaceRow(PlayerInventories.Mercenary1, [
+            (0, 0, lockedPlate),
+            (9, 0, lockedRing1),
+            (10, 0, lockedRing2),
+        ]);
+        uint plateId = added[0].Id;
+        uint ring1Id = added[1].Id;
+
+        // Locked gear cannot be picked up, quick-moved out, split, socketed, unsocketed, offered, or moved to stash.
+        Assert.Null(inv.PickUp(PlayerInventories.Mercenary1, plateId));
+        Assert.Null(inv.QuickMoveFromMercenary(PlayerInventories.Mercenary1, plateId, expandedAllowed: false, ShapeOf));
+        Assert.Null(ItemMoves.MoveMercenaryEquipment(inv, target: PlayerInventories.Mercenary1, plateId,
+            toMercenary: false, fromExpanded: false, expandedAllowed: false, ShapeOf));
+        Assert.Null(inv.Split(PlayerInventories.Mercenary1, plateId, 1, out string why));
+        Assert.Contains("locked", why, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(inv.Unsocket(PlayerInventories.Mercenary1, plateId, 0, inv.NewItemId, out why));
+        Assert.Contains("locked", why, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(inv.Offer(PlayerInventories.Mercenary1, plateId, 0, 0, ShapeOf));
+        Assert.Null(ItemMoves.InventoryToStash(stash, inv, 0, plateId, ShapeOf, out why));
+        Assert.Contains("locked", why, StringComparison.OrdinalIgnoreCase);
+
+        var heldGem = inv.Add(PlayerInventories.MainInventory, 0, 0, gem);
+        Assert.NotNull(inv.PickUp(PlayerInventories.MainInventory, heldGem.Id));
+        Assert.Null(inv.Socket(PlayerInventories.Mercenary1, plateId, 0, ShapeOf, inv.NewItemId, out why));
+        Assert.Contains("locked", why, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(inv.Place(PlayerInventories.MainInventory, 0, 0, ShapeOf, out _));
+
+        // Persistence across Forget + reload preserves MercenaryLocked.
+        PlayerInventories.Forget(ch);
+        inv = PlayerInventories.For(ch, Program.Items);
+        Assert.True(inv.Items(PlayerInventories.Mercenary1).Single(i => i.Id == plateId).Item.MercenaryLocked);
+
+        // Replacing in-place by dropping a player-owned body armour discards the locked item (never returns it to cursor/bag)
+        // and equips the new player item unlocked and removable.
+        var playerPlate = inv.Add(PlayerInventories.MainInventory, 2, 0, Make("Metadata/Items/Armours/BodyArmours/BodyStr2"));
+        Assert.NotNull(inv.PickUp(PlayerInventories.MainInventory, playerPlate.Id));
+        var replaced = inv.Place(PlayerInventories.Mercenary1, 0, 0, ShapeOf, out _);
+        Assert.NotNull(replaced);
+        Assert.Null(replaced!.Displaced);
+        Assert.Equal(plateId, replaced.DestroyedId);
+        Assert.Empty(inv.Items(PlayerInventories.Cursor));
+        Assert.DoesNotContain(inv.Items(PlayerInventories.Mercenary1), i => i.Id == plateId);
+        Assert.DoesNotContain(inv.Items(PlayerInventories.MainInventory), i => i.Id == plateId);
+        Assert.False(replaced.Placed.Item.MercenaryLocked);
+        Assert.NotNull(inv.PickUp(PlayerInventories.Mercenary1, replaced.Placed.Id));
+        Assert.NotNull(inv.Place(PlayerInventories.MainInventory, 2, 0, ShapeOf, out _));
+
+        // Quick-moving a player ring onto a mercenary whose both ring slots are locked discards Ring1 in-place
+        // and leaves the newly equipped player ring unlocked & quick-movable back out.
+        var playerRing = inv.Add(PlayerInventories.MainInventory, 5, 0, Make("Metadata/Items/Rings/Ring3"));
+        var qmReplace = ItemMoves.MoveMercenaryEquipment(inv, target: 0, playerRing.Id, toMercenary: true,
+            fromExpanded: false, expandedAllowed: false, ShapeOf);
+        Assert.NotNull(qmReplace);
+        Assert.Null(qmReplace!.SwappedOut);
+        Assert.Equal(ring1Id, qmReplace.DestroyedId);
+        Assert.False(qmReplace.Placed.Item.MercenaryLocked);
+        Assert.DoesNotContain(inv.Items(PlayerInventories.MainInventory), i => i.Id == ring1Id);
+
+        var qmOut = ItemMoves.MoveMercenaryEquipment(inv, target: PlayerInventories.Mercenary1, qmReplace.Placed.Id,
+            toMercenary: false, fromExpanded: false, expandedAllowed: false, ShapeOf);
+        Assert.NotNull(qmOut);
+        Assert.Equal(PlayerInventories.MainInventory, qmOut!.To);
+    }
+
+    [Fact]
+    public void Warrant_MercenaryContract_persists_across_stash_note_clearing_and_ignores_Item_Note()
+    {
+        TestEnvironment.OpenOwnSaves("merc-warrant-contract");
+        string ch = "MercWar" + Guid.NewGuid().ToString("N")[..8];
+        string acct = "MercWarAcct" + Guid.NewGuid().ToString("N")[..8];
+        _characters.Add(ch);
+        _accounts.Add(acct);
+
+        MercenaryModule.LoadData();
+        var cls = MercenaryTables.Classes.First(c => MercenaryTables.BuildsOf(c.Row).Count > 0);
+        var build = MercenaryTables.BuildsOf(cls.Row)[0];
+        var rolledSkills = MercenaryTables.RollSkills(build, 78, new Random(12345));
+        var run = new MercenaryModule.Run
+        {
+            Class = cls.Row,
+            Build = build.Row,
+            Level = 78,
+            FirstNameHash32 = 0x11223344u,
+            SecondNameHash32 = 0x55667788u,
+            FlavourHash16 = 0x1a2b,
+            Skills = rolledSkills,
+        };
+
+        var warrant = MercenaryModule.CreateWarrantItem(run, build);
+        Assert.NotNull(warrant);
+        Assert.Null(warrant!.Note);
+        Assert.Null(warrant.CustomName);
+        Assert.NotNull(warrant.MercenaryContract);
+        Assert.NotEmpty(warrant.Payload());
+
+        var parsed = MercenaryModule.TryParseWarrant(warrant);
+        Assert.NotNull(parsed);
+        Assert.Equal((cls.Row, build.Row, (byte)78, 0x11223344u, 0x55667788u, (ushort)0x1a2b),
+            (parsed!.ClassRow, parsed.BuildRow, parsed.Level, parsed.FirstNameHash32, parsed.SecondNameHash32, parsed.FlavourHash16));
+        Assert.Equal(rolledSkills.Select(s => s.SkillHash16), parsed.Skills.Select(s => s.SkillHash16));
+
+        // Move through a private stash tab (which clears Item.Note!) and reload from SQLite: MercenaryContract survives intact.
+        var stash = AccountStash.For(acct, Program.Items);
+        var inv = PlayerInventories.For(ch, Program.Items);
+        var notedWarrant = warrant with { Note = "~b/o 1 chaos" };
+        var invEntry = inv.Add(PlayerInventories.MainInventory, 0, 0, notedWarrant);
+        var placedInStash = stash.Place(0, 0, 0, invEntry, ShapeOf, out _);
+        Assert.NotNull(placedInStash);
+        Assert.Null(placedInStash!.Value.Placed.Item.Note);
+        Assert.NotNull(placedInStash.Value.Placed.Item.MercenaryContract);
+
+        AccountStash.Forget(acct);
+        var reloadedStash = AccountStash.For(acct, Program.Items);
+        var savedWarrant = reloadedStash.Inventory(0).Items.Single(i => i.Id == placedInStash.Value.Placed.Id).Item;
+        Assert.Null(savedWarrant.Note);
+        var parsedAfterStash = MercenaryModule.TryParseWarrant(savedWarrant);
+        Assert.NotNull(parsedAfterStash);
+        Assert.Equal(parsed.BuildRow, parsedAfterStash!.BuildRow);
+        Assert.Equal(parsed.Level, parsedAfterStash.Level);
+        Assert.Equal(parsed.FirstNameHash32, parsedAfterStash.FirstNameHash32);
+        Assert.Equal(parsed.Skills.Select(s => s.SkillHash16), parsedAfterStash.Skills.Select(s => s.SkillHash16));
+
+        // Forging via Item.Note without MercenaryContract fails, and editing Note on a real warrant does not alter its blueprint.
+        var warrantBase = Program.Items.Find("Metadata/Items/MapFragments/MercenaryWarrant")!;
+        var forged = ItemCatalog.Create(warrantBase) with { Note = $"merc:{cls.Row}:{build.Row}:99:1:2:3" };
+        Assert.Null(MercenaryModule.TryParseWarrant(forged));
+        var tamperedNote = savedWarrant with { Note = "merc:99:99:1:0:0:0" };
+        Assert.Equal(parsed.BuildRow, MercenaryModule.TryParseWarrant(tamperedNote)!.BuildRow);
+        Assert.Equal((byte)78, MercenaryModule.TryParseWarrant(tamperedNote)!.Level);
+
+        // Two contract warrants must not stack-merge in PlayerInventories or AccountStash.
+        var secondWarrant = MercenaryModule.CreateWarrantItem(run, build)!;
+        var stackedInv = inv.AddStacked(PlayerInventories.MainInventory, secondWarrant, ShapeOf);
+        Assert.Empty(stackedInv.Changed);
+        Assert.Single(stackedInv.Added);
+        Assert.Null(reloadedStash.Merge(0, 0, 0, stackedInv.Added[0], ShapeOf));
+        var stackedStash = reloadedStash.AddStacked(0, secondWarrant, ShapeOf, out _);
+        Assert.NotNull(stackedStash);
+        Assert.Empty(stackedStash!.Changed);
+        Assert.Single(stackedStash.Added);
     }
 }

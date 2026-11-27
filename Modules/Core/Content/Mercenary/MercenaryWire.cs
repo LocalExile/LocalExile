@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
@@ -33,20 +32,6 @@ public static class MercenaryWire
 
     /// <summary>Rematch with Should Recruit = 1, C→S 0x2ca payload for ruleset 0xa1.</summary>
     public static readonly byte[] DuelChoice = [0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00];
-
-    /// <summary>Empty MercenaryAreaRules snapshot ([0,0,0]) and no-invited ([6,0]) bodies.</summary>
-    public static readonly byte[] AreaRulesBody1 = [0x00, 0x00, 0x00], AreaRulesBody2 = [0x06, 0x00];
-
-    /// <summary>MercenaryEncounterRules sub 0 body: attributes mask, item count, then 7 bytes per visual entry.</summary>
-    public static byte[] EncounterRulesBody(byte attributes, IReadOnlyList<ushort> items)
-    {
-        byte[] body = new byte[3 + items.Count * 7];
-        body[1] = attributes;
-        body[2] = (byte)items.Count;
-        for (int i = 0; i < items.Count; i++)
-            BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(3 + i * 7), items[i]);
-        return body;
-    }
 
     /// <summary>Builds a wire <see cref="InstanceMercenaries.MercenaryBaseRecord"/> using verified HASH16/HASH32 lookups.</summary>
     public static InstanceMercenaries.MercenaryBaseRecord BaseRecord(
