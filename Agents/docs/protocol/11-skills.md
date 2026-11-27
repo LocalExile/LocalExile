@@ -2927,6 +2927,10 @@ It aims at the nearest enemy within 60 cells, or with none any way (seen on the 
 A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) comes down around that enemy, or on the object.
 An attack thrown as a trap or mine is paced by the throw, not by the weapon's attack time.
 A trap goes off when its duration ends (a Conversion Trap that was never set off only leaves); a mine is removed.
+Stormblast Mine's aura applies from arming to retirement. Its base range is 35 grid cells, and the increased
+damage taken from overlapping mines caps at 150% before combining with other damage-taken modifiers.
+[GGG mine aura range](https://www.pathofexile.com/forum/view-thread/3324396/page/2#p24823327) ·
+[GGG Stormblast Mine behaviour](https://www.pathofexile.com/forum/view-thread/2627574).
 A trap or mine removed in the packet that starts its action vanishes without showing it, and one removed in the packet
 that creates another was shown moving to the new one's place (live 2026-11-17), so both removals are sent apart.
 One Detonate Mines use queues every mine: the first goes off at once, each later one `base_mine_detonation_time_ms`

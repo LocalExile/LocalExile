@@ -872,7 +872,8 @@ public static partial class Game
                 var raw = shot.Hit.Scale(contact.Multiplier).Roll(random);
                 bool crit = random.Next(10000) < shot.CriticalChance
                     + BrittleCriticalChance(target, contact.At / (double)ProjectileRuntime.QuantaPerSecond);
-                var (ownedDamage, _) = MonsterDamage(target, raw, crit, !shot.Spell, default);
+                int ownedDamage = RampageOwnedDamage(target, raw, crit, !shot.Spell,
+                    contact.At / (double)ProjectileRuntime.QuantaPerSecond);
                 if (crit) ownedDamage = DamageModel.CriticalDamage(ownedDamage, CriticalMultiplierOn(target,
                     shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage));
                 var ownedHit = ApplyMonsterHitLocked(Player, target, ownedDamage, rampageSource: true);

@@ -513,6 +513,8 @@ public static partial class Game
                         else RemovePlacedLocked(player, trim, bytes);
                     }
                     if (!player.Placed.All.ContainsKey(id)) continue;
+                    // Register the zone during flight so the movement phase finds targets before the mine arms.
+                    if (admission.Mine && IsStormblastMine(effectId)) KeepEnemyMineAura(player, placement, pyroclast: false);
                     if (spectralTrap)
                     {
                         ushort roll = spectralHands is (true, true) ? (ushort)AreaRng(player).Next(2) : (ushort)0;
@@ -551,7 +553,7 @@ public static partial class Game
     static void RemovePlacedLocked(Player player, PlacedSkills.Placed placed, WorldRecordBuilder bytes)
     {
         if (!player.Placed.All.Remove(placed.Id)) return;
-        RemovePyroclastAura(player.Area, placed.Id);
+        RemoveEnemyMineAura(player.Area, placed.Id);
         player.Area.Buffs.Clear(placed.Id, TrarthanRuin, placed.Id);
         if (!player.Placed.Grounds.Any(g => g.Object == placed.Id))
             bytes.Remove(placed.Id);
@@ -564,7 +566,7 @@ public static partial class Game
     static void RetirePlacedLocked(Player player, PlacedSkills.Placed placed, double now)
     {
         if (!player.Placed.All.Remove(placed.Id)) return;
-        RemovePyroclastAura(player.Area, placed.Id);
+        RemoveEnemyMineAura(player.Area, placed.Id);
         player.Area.Buffs.Clear(placed.Id, TrarthanRuin, placed.Id);
         if (!player.Placed.Grounds.Any(g => g.Object == placed.Id)) player.Placed.Leaving.Add((placed.Id, now + .6));
         player.Placed.Dirty = true;
@@ -1281,8 +1283,8 @@ public static partial class Game
                     { RemovePlacedLocked(player, placed, bytes); continue; }
                     LandPlacedRecordsLocked(player, placed, now, bytes);
                     if (now < placed.Armed) continue;
-                    if (placed.Mine && IsPyroclastMine(SkillsFor(player).EffectId(placed.Effect)))
-                        KeepPyroclastAura(player, placed);
+                    string? effect = SkillsFor(player).EffectId(placed.Effect);
+                    if (placed.Mine && IsPyroclastMine(effect)) KeepEnemyMineAura(player, placed, pyroclast: true);
                     if (placed.Mine && !MineCanDetonateFrom(placed, playerAt))
                     {
                         if (now >= placed.DetonateAt) placed.DetonateAt = double.PositiveInfinity;
@@ -1306,7 +1308,6 @@ public static partial class Game
                             else { skitter = true; bot.NextOrb = now + 3; }
                         }
                     }
-                    string? effect = SkillsFor(player).EffectId(placed.Effect);
                     bool conversion = !placed.Mine && effect == "ConversionTrap";
                     bool targetedTrap = !placed.Mine && (ArcProxyEffect(effect) || IsHexblastEffect(effect)
                         || LightningTrapEffect(effect) || effect == "ShockNovaAltX" || GlacialCascadeEffect(effect)
@@ -1347,14 +1348,16 @@ public static partial class Game
                     Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : expired ? "duration" : "chain")} trigger; rearm={rearm}");
                     if (rearm)
                     {
-                        RemovePyroclastAura(player.Area, placed.Id);
-                        player.Placed.All[placed.Id] = placed with
+                        RemoveEnemyMineAura(player.Area, placed.Id);
+                        var rearming = placed with
                         {
                             Armed = now + PlacedArmSeconds,
                             SkitterTriggered = true,
                             DetonateAt = double.PositiveInfinity,
                             Landed = false,
                         };
+                        player.Placed.All[placed.Id] = rearming;
+                        if (IsStormblastMine(effect)) KeepEnemyMineAura(player, rearming, pyroclast: false);
                     }
                     else RetirePlacedLocked(player, placed, now);
                 }

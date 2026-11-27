@@ -344,15 +344,16 @@ public static partial class Game
     static (double Common, double Elemental, double Chaos) HitTakenFactors(SpawnedMonster m, bool spell, double now,
         int additionalTakenPct, int additionalElementalTakenPct, bool hasChaos)
     {
+        int mineAuraTaken = StormblastDamageTaken(m, now);
         double common = MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false,
-            increasedPct: additionalTakenPct);
+            increasedPct: additionalTakenPct, mineAuraTaken: mineAuraTaken);
         double elemental = m.TakenFromPlayer.Elemental == 0 && m.Effects[Stat.ElementalDamageTakenPlusPct] == 0
             && additionalElementalTakenPct == 0 ? common
             : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false,
-                increasedPct: (double)additionalTakenPct + additionalElementalTakenPct);
+                increasedPct: (double)additionalTakenPct + additionalElementalTakenPct, mineAuraTaken: mineAuraTaken);
         double withered = hasChaos ? WitheredTaken(m, now) : 0;
         double chaos = withered == 0 ? common : MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false,
-            increasedPct: additionalTakenPct + withered);
+            increasedPct: additionalTakenPct + withered, mineAuraTaken: mineAuraTaken);
         return (common, elemental, chaos);
     }
 

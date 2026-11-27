@@ -35,11 +35,11 @@ public static partial class Game
         bool chaos, bool overTime) => MonsterDamageTaken(m, spell, now, elemental, hit, chaos, 0, overTime);
 
     static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental, bool hit,
-        bool chaos, double increasedPct, bool overTime = false, int? maimTaken = null) =>
+        bool chaos, double increasedPct, bool overTime = false, int? maimTaken = null, int? mineAuraTaken = null) =>
         m.Effects.DamageTaken(spell, increasedPct + m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental + m.Effects[Stat.ElementalDamageTakenPlusPct] : 0)
             + (overTime ? m.Effects[Stat.DegenEffectPlusPct] : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
-            + GlacialCageTakenPct(m, now)
+            + GlacialCageTakenPct(m, now) + (mineAuraTaken ?? StormblastDamageTaken(m, now))
             + (overTime ? maimTaken ?? (MaimDotTaken.TryGetValue(m, out var maim) ? maim.Strongest(now) : 0) : 0)
             + m.SpiderWebs.Taken(now)
             + (chaos ? WitheredTaken(m, now) : 0)

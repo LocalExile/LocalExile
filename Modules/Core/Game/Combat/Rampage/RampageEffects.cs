@@ -178,7 +178,7 @@ public static partial class Game
             if (MonsterBlocks(target, AreaRng(player), !attack)) return false;
             bool critical = AreaRng(player).Next(10000) < (attack ? 500 : own?.SpellCriticalChance ?? 0)
                 + BrittleCriticalChance(target, ProjectileWorldTime(player));
-            (damage, _) = MonsterDamage(target, packet.Roll(AreaRng(player)), critical, attack, default);
+            damage = RampageOwnedDamage(target, packet.Roll(AreaRng(player)), critical, attack, ProjectileWorldTime(player));
             if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(target, 150, CharacterPlayerStats(player)));
             hit = ApplyMonsterHitLocked(player, target, damage, rampageSource: true); // Proven by this contact's effect guard.
             if (hit is null) return false;
@@ -198,6 +198,11 @@ public static partial class Game
             await SendRampageStun(player, stun);
         return hit.Value.Life == 0;
     }
+
+    // Rampage's existing damage path does not take a general debuff timestamp. The mine aura still uses this contact.
+    static int RampageOwnedDamage(SpawnedMonster target, DamagePacket rolled, bool critical, bool attack, double now) =>
+        ResolveMonsterHit(target, rolled, critical, attack, double.NaN, default,
+            additionalTakenPct: StormblastDamageTaken(target, now)).Damage;
 
     public static bool RampageAttackHits(Player player, uint id, SpawnedMonster target, int accuracy, double now, Random random,
         IReadOnlyDictionary<uint, int>? playerStats = null)
