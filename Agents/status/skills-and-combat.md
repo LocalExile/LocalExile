@@ -523,10 +523,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 
+- Frozen Legion and Rallying spend stored uses per placed statue. Each statue steps inward and attacks once with Frozen Sweep.
+
 ## Not working yet
 
-- Frozen Legion still needs a statue executor.
-  The player is prevented from using Frozen Sweep directly in both gem variants.
 - Projectile spawn height on platforms and doodads: the server has no surface-height model (#182).
   Docs: [11](../docs/protocol/11-skills.md) Â§10.
 - Spirit of Utula's Leadership and Rakiata's Mark trigger need their own chieftain executors.

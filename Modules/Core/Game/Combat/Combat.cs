@@ -1792,6 +1792,9 @@ public static partial class Game
         if (spellCastMs is int pactCast && IsPactSkill(player, gem.Effect))
             return CompleteSupportedUse(SchedulePact(player, skillId, to == from ? null : to, pactCast,
                 recoveryGeneration, swingAt, Current));
+        if (spellCastMs is int frozenCast && IsFrozenLegionEffect(SkillsFor(player).EffectId(gem.Effect)))
+            return CompleteSupportedUse(ScheduleFrozenLegion(player, gem, from, to, sequence, frozenCast,
+                recoveryGeneration, swingAt, cooldownUse, Current));
         // The self buffs a player casts by hand: the guards, Phase Run, Blood Rage.
         if (gem.Name is not null && await CastSelfBuff(player, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
@@ -3016,9 +3019,10 @@ public static partial class Game
         var currentGem = SupportedSkill(player, skillId);
         var admittedGem = lacerate?.Source ?? flurryRelease?.Source ?? infernalBlast?.Source ?? retainedAttack?.Gem
             ?? triggeredSpellSource ?? currentGem;
-        bool linkedSource = retainedAttack is null && infernalBlast is null && flurryRelease is null && lacerate is null
+        bool ownerContact = retainedAttack?.ProxyActor is null;
+        bool linkedSource = ownerContact && (retainedAttack is null && infernalBlast is null && flurryRelease is null && lacerate is null
             || currentGem.Effect == admittedGem.Effect
-            && currentGem.Host == admittedGem.Host && ReferenceEquals(currentGem.SourceGem, admittedGem.SourceGem);
+            && currentGem.Host == admittedGem.Host && ReferenceEquals(currentGem.SourceGem, admittedGem.SourceGem));
         var criticalTrigger = spell || !linkedSource ? null : CaptureCriticalTriggerSource(player, skillId);
         var meleeKillTrigger = spell || !linkedSource ? null : CaptureMeleeKillTriggerSource(player, skillId);
         if (retainedAttack is null && infernalBlast is null)
@@ -3092,7 +3096,7 @@ public static partial class Game
             lacerate = StartLacerate(player, admittedGem, skillId, from, to, swingHands,
                 (swingAt ?? AreaTime(player)) + repeatDelay, radiusMore);
         var hand = lacerate?.Hand ?? swingHands;
-        var itemCriticalTrigger = spell ? null : CaptureItemCriticalTriggerSource(player, skillId, hand);
+        var itemCriticalTrigger = spell || !ownerContact ? null : CaptureItemCriticalTriggerSource(player, skillId, hand);
         var weapon = retainedAttack?.Weapon ?? HandWeapon(player, hand);
         // Read once per use: the per-victim hit log and the target-conditional critical chances reuse them.
         string handNote = spell ? "" : HandNote(player, hand);
@@ -3777,7 +3781,8 @@ public static partial class Game
             {
                 var (deadId, dead) = deaths[settledDeaths++];
                 if (scheduledSession is { } scheduled)
-                    CommitProjectileKill(scheduled, deadId, dead, scheduled.Runtime.Now, AreaRng(player), skillStats: skillStats);
+                    CommitProjectileKill(scheduled, deadId, dead, scheduled.Runtime.Now, AreaRng(player),
+                        playerKill: ownerContact, skillStats: skillStats);
                 else await MonsterKilled(player, deadId, dead, skillStats: skillStats);
             }
         }
@@ -4184,7 +4189,7 @@ public static partial class Game
                     if (splashMore.TryGetValue(id, out double splashScale)) more *= splashScale;
                     if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
                     int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, at, damage, takenRules);
-                    LeechOnHitTargetLocked(player, m, taken, damage, leech!, id);
+                    if (ownerContact) LeechOnHitTargetLocked(player, m, taken, damage, leech!, id);
                     damage = WithImpaleHitLocked(player, m, damage, rolled, critical,
                         sourceMultiplier + FullLifeCriticalMultiplier(m, playerStats, skillStats),
                         critical ? criticalImpale : impale, more).Damage;
@@ -4213,7 +4218,7 @@ public static partial class Game
                     // Only the first victim has a freshly built player snapshot. After notification awaits, resolve the
                     // current raw source so a refund between victims cannot keep granting from the sweep's old snapshot.
                     var rampagePlayer = freshPlayer ? playerStats : null;
-                    var rampageSource = RampageOnMeleeHitLocked(player, m, !spell && SkillsFor(player).IsMelee(gem.Effect), rampagePlayer);
+                    var rampageSource = RampageOnMeleeHitLocked(player, m, ownerContact && !spell && SkillsFor(player).IsMelee(gem.Effect), rampagePlayer);
                     uint lifeBefore = m.Life;
                     var cull = Cull.Of(playerStats, skillStats, critical, spell).WithWeapon(weaponLocal);
                     if (shatterFrozen && !splashMore.ContainsKey(id)) cull = cull with { ShatterFrozen = true };
@@ -4228,9 +4233,9 @@ public static partial class Game
                             AddElementalHitNearby(player, m.Walk.Position(at), at, splashRadius, elementalHitSplash,
                                 targets, elementalHitStruck, splashMore, once);
                         }
-                        if (applied.Value.Life < lifeBefore)
+                        if (ownerContact && applied.Value.Life < lifeBefore)
                             RecordResonanceHitLocked(player, m, skillStats, rolled, at);
-                        CrueltyOnHitLocked(player, skillId, damage, lifeBefore, m.MaxLife, skillStats, at);
+                        if (ownerContact) CrueltyOnHitLocked(player, skillId, damage, lifeBefore, m.MaxLife, skillStats, at);
                         if (!spell)
                         {
                             ReleaseCriticalTrigger(player, ProjectilesFor(player),
@@ -4244,8 +4249,8 @@ public static partial class Game
                                 global::Stat.SupportCrystalfallChanceToTriggerCrystalfallOnHitPct, "TriggeredSupportCrystalfall");
                         if (!spell && applied.Value.Life == 0) ReleaseMeleeKillTrigger(player,
                             ProjectilesFor(player), meleeKillTrigger, true, m.Hostile, m.Walk.Position(at), at);
-                        player.RecentEvents.RecordCriticalOutcome(at, critical, attack: hitPlan.Kind == SkillHitKind.Attack);
-                        if (ElementalOverloadCritLocked(player, skillId, SkillsFor(player).EffectId(gem.Effect), playerStats, critical)
+                        if (ownerContact) player.RecentEvents.RecordCriticalOutcome(at, critical, attack: hitPlan.Kind == SkillHitKind.Attack);
+                        if (ownerContact && ElementalOverloadCritLocked(player, skillId, SkillsFor(player).EffectId(gem.Effect), playerStats, critical)
                             is { } eoBuff)
                             ProjectilesFor(player).Packet(eoBuff, $"elemental overload on skill 0x{skillId:x4}");
                         landed++;
@@ -4270,8 +4275,8 @@ public static partial class Game
                             m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
                         if (global::Stat.BaseKilledMonsterDroppedItemRarityPlusPct is var rarityKey)
                             m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
-                        SoulEaterHit(player, m);
-                        if (weaponAttack)
+                        if (ownerContact) SoulEaterHit(player, m);
+                        if (ownerContact && weaponAttack)
                         {
                             RecordWeaponContactLocked(player, at, weaponContactSource, secondWeaponContactSource);
                             if (critical)
@@ -4281,26 +4286,28 @@ public static partial class Game
                                     ItemMinionsOnWeaponCriticalLocked(player, secondWeaponContactSource, m, at);
                             }
                         }
-                        if (applied.Value.Life == 0)
+                        if (ownerContact && applied.Value.Life == 0)
                         {
                             RecordTinctureKill(m, tinctureKill);
                             ReflectKillingBlowImpalesLocked(player, m,
                                 skillStats.GetValueOrDefault(global::Stat.ApplyEnemyImpaleDamageToNearbyEnemiesOnKillingBlowPctChance),
                                 at, playerStats, playerKill: true);
                         }
-                        if (!spell && player.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(player, playerStats, m, lifeBefore, at, AreaRng(player));
+                        if (ownerContact && !spell && player.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(player, playerStats, m, lifeBefore, at, AreaRng(player));
                         // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).
-                        if (applied.Value.Life == 0)
+                        if (ownerContact && applied.Value.Life == 0)
                         {
                             DevourOnKill(player, m, skillStats);
                             if (!spell && SkillsFor(player).IsAttack(gem.Effect)) CaptureAttackKillExplosionLocked(m, playerStats);
                         }
                         AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, multiplier, playerStats, ailmentSkillStats!, at,
-                            AreaRng(player), sourceEffect: gem.Effect, reflected: reflected, poison: profile.Poison, sourceSkill: skillId,
+                            AreaRng(player), sourceEffect: gem.Effect, reflected: ownerContact ? reflected : null,
+                            poison: profile.Poison, sourceSkill: skillId,
                             blind: BlindHitInput.Capture(playerStats, skillStats),
-                            hitOrigin: cascadePush == default ? (IsLeapSlam(player, gem.Effect) ? centre : null)
+                            hitOrigin: cascadePush == default ? retainedAttack?.ProxyActor?.At ?? (IsLeapSlam(player, gem.Effect) ? centre : null)
                                 : CascadeKnockbackOrigin(m.Walk.Position(at), cascadePush),
-                            attackGains: AttackAilmentGains.Capture(playerStats, SkillsFor(player).IsAttack(gem.Effect)),
+                            attackGains: AttackAilmentGains.Capture(playerStats, ownerContact && SkillsFor(player).IsAttack(gem.Effect)),
+                            playerHit: ownerContact, attackerSize: ownerContact ? LivingCollision.PlayerSize : 1, ownHit: ownerContact,
                             projectileDamage: false, projectileFreezeChance: 0, glacialFreezeMore: glacialFreezeMore,
                             extraShockChance: extraShockChance, cascadeBurst: cascadeBurst);
                         if (GolemStat(skillStats, global::Stat.RemoveChillOnEnemyWhenYouHit) != 0)
@@ -4314,7 +4321,8 @@ public static partial class Game
                         // physical damage bleed it.
                         if (m.Life > 0 && (critical ? profile.Ignite.CriticalMax : profile.Ignite.Max) > 0
                             && IgniteOnHitLocked(player, id, m, profile.Ignite, critical, at,
-                                AttackAilmentGains.Capture(playerStats, SkillsFor(player).IsAttack(gem.Effect)), out double igniteDps) is { } packets)
+                                AttackAilmentGains.Capture(playerStats, ownerContact && SkillsFor(player).IsAttack(gem.Effect)),
+                                out double igniteDps, playerIgnite: ownerContact) is { } packets)
                         {
                             (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, at));
                             if (flameSurgeNewIgnite > 0)
@@ -4338,7 +4346,7 @@ public static partial class Game
                         CommitBossStage(player, id, m, ProjectileWorldTime(player));
                         applied = staged with { StageStarts = false };
                     }
-                    if (applied is not null)
+                    if (ownerContact && applied is not null)
                     {
                         if (sunder is not null && !sunderShockwave) sunder.RecordEmitter(id, m.Walk.Position(at));
                         var fortificationDamage = RawFortificationDamage(rolled, critical, multiplier);
@@ -4385,7 +4393,8 @@ public static partial class Game
                 {
                     using (ProjectileMutation(player, advance: false))
                     {
-                        ChargesOnHit(player, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: victim == 0, skillStats: skillStats);
+                        if (ownerContact)
+                            ChargesOnHit(player, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: victim == 0, skillStats: skillStats);
                         if (reflected.Count > 0 && playerStats is not null)
                             ReflectPendingAilmentsLocked(player, reflected, ProjectileWorldTime(player), playerStats, AreaRng(player));
                         if (singleStrikeTarget is not null && hit.Life == 0) SetAcceptedKillSkill(player, skillStats);
@@ -4395,7 +4404,7 @@ public static partial class Game
                                 infernalBlast is not null ? $"{gem.Name} charge explosion"
                                     : retainedAttack is null ? gem.Name : $"{gem.Name} ({retainedAttack.Phase})",
                                 settleKill: singleStrikeTarget is not null, hitCode: hitCode, knockback: nativeKnockback,
-                                actionHit: infernalBlast is null);
+                                actionHit: infernalBlast is null, proxyActor: retainedAttack?.ProxyActor);
                         }
                         finally { if (singleStrikeTarget is not null && hit.Life == 0) ClearAcceptedKillSkill(player); }
                         if (singleStrikeTarget is null && hit.Life == 0) deaths.Add((id, m));

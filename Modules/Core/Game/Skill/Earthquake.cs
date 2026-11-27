@@ -6,7 +6,10 @@ public static partial class Game
     // Delayed area hits keep the source gem and weapon when the player moves or unsockets the gem.
     internal sealed record RetainedAreaAttack(SupportedGem Gem, AttackHand Hand, SkillCatalog.Unarmed Weapon,
         AttackAccuracyProfile Accuracy, int CriticalChance, int CriticalMultiplier, int? CriticalVsBlind,
-        GroundCritical CriticalVsGround, double HitMore, double AilmentMore, string Phase);
+        GroundCritical CriticalVsGround, double HitMore, double AilmentMore, string Phase)
+    {
+        internal (uint Id, (int X, int Y) At)? ProxyActor { get; init; }
+    }
 
     static RetainedAreaAttack CaptureAreaAttack(Player player, ushort skillId, SupportedGem gem, AttackHand hand,
         SkillCatalog.Unarmed weapon, int? offCritical, double hitMore, double ailmentMore, string phase)

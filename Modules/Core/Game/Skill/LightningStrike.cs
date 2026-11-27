@@ -205,7 +205,8 @@ static partial class Game
     // not postpone gameplay, and the ordinary area-hit path must not recursively advance this runtime.
     public static void CommitScheduledMeleeHit(ProjectileSession session, uint id, SpawnedMonster monster,
         MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool settleKill = true,
-        byte hitCode = 0, SpawnedMonster.NativeKnockback? knockback = null, bool actionHit = true)
+        byte hitCode = 0, SpawnedMonster.NativeKnockback? knockback = null, bool actionHit = true,
+        (uint Id, (int X, int Y) At)? proxyActor = null)
     {
         var player = session.Player;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
@@ -218,14 +219,14 @@ static partial class Game
         var target = monster.Walk.Position(now);
         if (actionHit)
         {
-            var playerAt = player.Walk.Position(now);
-            var order = HitOrder(player, player.Id);
+            var actor = proxyActor ?? (player.Id, player.Walk.Position(now));
+            var order = HitOrder(player, actor.Id);
             ushort flags = (ushort)(0x4201 | (critical ? 0x20 : 0));
-            byte kind = 3, angle = HitAngle(target.X - playerAt.X, target.Y - playerAt.Y);
+            byte kind = 3, angle = HitAngle(target.X - actor.At.X, target.Y - actor.At.Y);
             ApplyNativeKnockback(knockback ?? TakeNativeKnockbackLocked(monster), ref flags, ref kind, ref angle,
                 out ushort u3c, out ushort u3e);
             // World records, as a projectile's hit: the copy for a party member gets its key renamed only on a declared record.
-            session.World(player.Id, InstanceProtocol.ActionHit(player.Id, sequence, id, flags: flags,
+            session.World(actor.Id, InstanceProtocol.ActionHit(actor.Id, sequence, id, flags: flags,
                 kind: kind, code: hitCode, angle: angle, u3c: u3c, u3e: u3e,
                 orderKey: order.Key, checkpoint: order.Hit));
             session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life, orderKey: order.Key, checkpoint: order.Life),
@@ -234,7 +235,7 @@ static partial class Game
         else
             session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life),
                 $"{label} t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
-        if (critical)
+        if (critical && proxyActor is null)
         {
             CommitProjectileCritFlasks(session, now, AreaRng(player));
             session.Enqueue(() => MaybeCreateProfaneGround(player, target));
