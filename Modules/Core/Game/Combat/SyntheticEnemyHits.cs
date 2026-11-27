@@ -79,6 +79,7 @@ public static partial class Game
             RecordIncomingHitLocked(player, now, spell, blocked, suppressed, lifeDamage, dealt > 0, attack: !spell);
             RecentHitLifeLossOnHitLocked(player, now);
             UnhingedHitRecoveryLocked(player, now, stats);
+            RageWhenHitLocked(player);
             if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
             RecordHardcoreDeath(player);
             hit = new(dealt, mitigation, player.PlayerLife, player.PlayerMana, manaBefore,

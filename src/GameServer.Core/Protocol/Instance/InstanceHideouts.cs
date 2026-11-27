@@ -53,11 +53,11 @@ public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOn
 public static class InstanceMapDevice
 {
     public const ushort ActivateId = 0x00d8, SelectMapId = 0x00e7, MoveId = 0x00e8, SocketId = 0x00f6,
-        ActivateMemoryLineId = 0x0297, ActivateMavenInvitationId = 0x0298,
+        ActivateMemoryLineId = 0x0297, ActivateMavenInvitationId = 0x0298, SelectEldritchAltarId = 0x028e,
         UseItemOnAtlasNodeId = 0x0075, UseItemTypeOnAtlasNodeId = 0x0076, AtlasScryId = 0x01a7,
         AtlasVoidstoneDeltaId = 0x01a5, AtlasVaultPassId = 0x012a;
     public const int ActivateLength = 5, SelectMapLength = 5, MoveLength = 11, SocketLength = 8,
-        ActivateMemoryLineLength = 3, ActivateMavenInvitationLength = 3,
+        ActivateMemoryLineLength = 3, ActivateMavenInvitationLength = 3, SelectEldritchAltarLength = 7,
         UseItemOnAtlasNodeLength = 12, UseItemTypeOnAtlasNodeLength = 17, AtlasScryLength = 10;
 
     public static (ushort Target, byte Index) ReadActivate(ReadOnlySpan<byte> m) => ((ushort)(m[2] << 8 | m[3]), m[4]);
@@ -67,6 +67,13 @@ public static class InstanceMapDevice
 
     /// <summary>C→S 0x0298 (3 bytes, 0x140c2866c mode 0x56 MavenInvitations): u8 invitation slot index (0..10).</summary>
     public static byte ReadActivateMavenInvitation(ReadOnlySpan<byte> m) => m[2];
+
+    /// <summary>C→S 0x028e (7 bytes, writer 0x141f96e50, AltarUI 0x140c93470): select an Eldritch Altar option.
+    /// <c>u32 BE altarEntityId</c>, <c>u8 choice</c> (<c>1</c> = top option, <c>2</c> = bottom option).</summary>
+    public readonly record struct SelectEldritchAltar(uint AltarEntityId, byte Choice);
+
+    public static SelectEldritchAltar ReadSelectEldritchAltar(ReadOnlySpan<byte> m) =>
+        new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6]);
 
     /// <summary>C→S 0x00e7: an Atlas map node picked in the hideout map device. u16 BE WorldAreas HASH16, u8 0x0d.</summary>
     public static (ushort Area, byte Mode) ReadSelectMap(ReadOnlySpan<byte> m) => ((ushort)(m[2] << 8 | m[3]), m[4]);

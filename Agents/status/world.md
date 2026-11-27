@@ -62,7 +62,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Arrival points: entering through an exit (or `/goto`) puts the player next to the exit back;
   The Twilight Strand → Lioneye's Watch arrives at the town's `entrance1`; in a generated layout a one-way entrance
   arrives at its "entranceNdisabled" point (The Flooded Depths → The Submerged Passage's Depths return);
-  Resurrect at Checkpoint revives there, or next to the area's waypoint once the character has activated it; in a map
+  Resurrect at Checkpoint revives outside the last entered intra-area boss room/arena (or at the last exterior gate
+  arrival), else next to the area's waypoint once the character has activated it, else at the area arrival point; in a map
   it leaves the map for the map device's area it was entered from, as the official servers do (3.30.0b; #1002).
   `/tp` (dev) teleports the player to a cell or next to a named monster, NPC, transition, waypoint or captured object.
   Code: `AreaLayout.Arrival`, Gateway; `/tp` is the `gm-commands` mod's (`Rules.TeleportTargets.cs`, LocalExile-Mods).

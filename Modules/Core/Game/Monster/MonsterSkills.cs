@@ -162,16 +162,24 @@ public static partial class MonsterSkills
     /// <summary>The corpse a monster uses the skill on, in the area's frame: for a travel, the one nearest the player
     /// that is within its reach and brings it nearer; for a spell, the one nearest the player whose hits reach the player.
     /// Null when there is none.</summary>
-    public static (uint Id, SpawnedMonster Corpse, (int X, int Y) At)? CorpseFor(Player player, SpawnedMonster m, MonsterAttack a, double now)
+    public static (uint Id, SpawnedMonster Corpse, (int X, int Y) At)? CorpseFor(Player player, SpawnedMonster m, MonsterAttack a, double now) =>
+        CorpseFor(player, m, a, now, cachedAreaLists: false);
+
+    internal static (uint Id, SpawnedMonster Corpse, (int X, int Y) At)? CorpseFor(Player player, SpawnedMonster m, MonsterAttack a, double now, bool cachedAreaLists)
     {
         if (a.Use is not { OnCorpse: true } use) return null;
+        if (!cachedAreaLists) player.Area.SyncLivingMonsters();
+        if (!player.Area.HasDeadMonsters) return null;
+        var dead = player.Area.SyncDeadMonsters(livingAlreadySynced: true);
+        if (dead.Count == 0) return null;
         var here = m.Walk.Position(now);
         var playerAt = player.Walk.Position(now);
         double near = Dist(here, playerAt);
         (uint, SpawnedMonster, (int, int))? best = null;
         double bestDistance = double.MaxValue;
-        foreach (var (id, corpse) in player.Area.Monsters)
+        for (int i = 0; i < dead.Count; i++)
         {
+            var (id, corpse) = dead[i];
             if (!IsCorpse(corpse)) continue;
             var at = corpse.Walk.Position(now);
             double fromMonster = Dist(here, at), fromPlayer = Dist(at, playerAt);
@@ -188,11 +196,14 @@ public static partial class MonsterSkills
     /// summon only while its summoner has fewer of its monsters than the skill's limit (a totem is placed when there is
     /// none, not again over the one that stands). In the area's frame.</summary>
     public static bool Usable(Player player, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
+        Usable(player, id, m, a, now, cachedAreaLists: false);
+
+    internal static bool Usable(Player player, uint id, SpawnedMonster m, MonsterAttack a, double now, bool cachedAreaLists) =>
         (!a.IsDischarge || HasAnyMonsterCharge(m))
-        && (a.Use is not { OnCorpse: true } || CorpseFor(player, m, a, now) is not null)
-        && (a.Summon is not { Limit: > 0 } summon || Game.LivingSummonsLocked(player, id, summon) < summon.Limit)
+        && (a.Use is not { OnCorpse: true } || CorpseFor(player, m, a, now, cachedAreaLists) is not null)
+        && (a.Summon is not { Limit: > 0 } summon || Game.LivingSummonsLocked(player, id, summon, cachedAreaLists) < summon.Limit)
         // A summon on its cooldown or at the cap of living summons waits too: chosen, the boss stood until it could.
-        && Game.SummonReadyLocked(player, id, m, a, now);
+        && Game.SummonReadyLocked(player, id, m, a, now, cachedAreaLists);
 
     static bool HasAnyMonsterCharge(SpawnedMonster m)
     {
@@ -325,7 +336,7 @@ public static partial class MonsterSkills
     {
         foreach (ushort row in rows)
         {
-            player.Area.Buffs.Set(id, new(row, id, AuraSource: true));
+            player.Area.Buffs.Set(id, global::BuffRows.Spec(row, id, null) with { AuraSource = true });
         }
     }
 
@@ -595,9 +606,9 @@ public static partial class MonsterSkills
         until = AreaTime(player) + use.Seconds;
         buffs.Active.Add((buff, use.Stats, until));
         m.BuffStats = Sum(buffs.Active.Select(b => b.Stats));
-        // Each use is a buff of its own (its tag), with its countdown.
+        // Each use is a buff of its own (its tag), with its countdown and any definition-required tail/behaviour data.
         if (use.BuffRow > 0)
-            player.Area.Buffs.Set(id, new(use.BuffRow, id, U68: Buff.Seconds(use.Seconds), Tag: buff));
+            player.Area.Buffs.Set(id, global::BuffRows.Spec(use.BuffRow, id, use.Stats, use.Seconds, tag: buff));
         _ = EndBuff(player, id, m, use, buffs, buff, player.Layout);
     }
 

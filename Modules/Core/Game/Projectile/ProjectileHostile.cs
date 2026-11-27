@@ -204,13 +204,13 @@ public static partial class Game
     public static void LaunchMonsterProjectile(Player player,
         uint id, SpawnedMonster m, MonsterAttack a, SkillCatalog.MonsterProjectileInfo projectile, int action,
         (int X, int Y)? orderedAim = null, double? releaseAt = null, ushort sequence = MonsterActionSequence,
-        bool turn = false)
+        bool turn = false, (int X, int Y)? releasedFrom = null)
     {
         var session = ProjectilesFor(player);
         session.Advance();
         session.Schedule(releaseAt is { } at ? ProjectileRuntime.Time(at) : session.Runtime.Now,
             () => MonsterActionCurrent(player, id, m, action) && !InGracePeriod(player),
-            () => MonsterProjectileUse(session, id, m, a, projectile, action, orderedAim: orderedAim, sequence: sequence, turn: turn));
+            () => MonsterProjectileUse(session, id, m, a, projectile, action, orderedAim: orderedAim, sequence: sequence, turn: turn, releasedFrom: releasedFrom));
     }
 
     // Called under the XP -> Monsters lock by the runtime. Only the player takes a monster's projectile; a friendly monster in

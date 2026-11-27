@@ -268,6 +268,13 @@ sealed class SirusFight(uint id, SpawnedMonster boss, Player player) : AtlasBoss
         busyUntil = now + 1.4;
     }
 
+    protected override Task OnIntermissionAborted(Player player)
+    {
+        intermission = false;
+        waves = 0;
+        return Task.CompletedTask;
+    }
+
     // A hit's geometry: a circle when From == To, otherwise the corridor between them.
     static bool InReach((int X, int Y) at, (int X, int Y) from, (int X, int Y) to, double radius) =>
         from == to ? Distance(at, from) <= radius : DistanceToSegment(at, from, to) <= radius;

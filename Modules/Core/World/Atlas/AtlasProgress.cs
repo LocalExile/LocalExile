@@ -24,6 +24,12 @@ public static class AtlasProgress
         IReadOnlySet<string> FinalBosses, IReadOnlySet<ushort> AreaHashes)
     {
         public bool IsNormalMap { get; init; }
+        public bool IsUniqueMap { get; init; }
+        public bool RequiresSpecificItem { get; init; }
+        public bool IsNightmareMap { get; init; }
+        /// <summary>True when Maven can witness this Atlas node for Atlas1..5 invitations (<c>AtlasNode.__col28</c>).</summary>
+        public bool IsWitnessable { get; init; }
+        public int Region { get; init; } = -1;
     }
 
     const string CompletedKey = "completed", BonusKey = "atlas.bonusCompleted", ScryKeyPrefix = "atlas.scry.";
@@ -100,6 +106,11 @@ public static class AtlasProgress
             _ => false,
         };
     }
+
+    /// <summary>Node-aware bonus objective check: Tier 17 Nightmare maps grant their Atlas point on completion without
+    /// requiring corruption (they are always uncorrupted rare Nightmare maps).</summary>
+    public static bool MeetsBonusObjective(MapDevice.Run map, Node? node) =>
+        node?.IsNightmareMap == true || MeetsBonusObjective(map);
 
     /// <summary>Saves the nodes as completed; false when they all were.</summary>
     public static bool Complete(ISavedData data, IEnumerable<Node> nodes)
@@ -207,6 +218,17 @@ public static class AtlasProgress
     /// slot-as-bit only raised the Elder / top-right quadrant.</summary>
     public static int RegionBit(int slot) => slot switch { 0 => 2, 1 => 1, 2 => 3, 3 => 0, _ => slot };
 
+    /// <summary>True when <paramref name="region"/> (AtlasNode.Region 0..3) is elevated to Tier 16 by a socketed Voidstone
+    /// (or all four Voidstones are socketed).</summary>
+    public static bool IsRegionElevated(int region, IReadOnlySet<int> socketedSlots)
+    {
+        if (socketedSlots.Count >= 4) return true;
+        if ((uint)region >= 4) return false;
+        foreach (int slot in socketedSlots)
+            if (RegionBit(slot) == region) return true;
+        return false;
+    }
+
     /// <summary>S→C 0x1a3 +0x70 (instance +0xd0f8). Bits 0–3 are the four Atlas regions: a stone in that region's
     /// socket raises those maps' minimum tier to 16. Bit 4 is the same for every regular map (VoidstoneSlot none →
     /// drawer index 4). Only occupied sockets are set, so an empty socket still accepts C→S 0xf6.</summary>
@@ -224,27 +246,48 @@ public static class AtlasProgress
 
     /// <summary>S→C 0x1a3 with empty masks. The client rebuilds its instance per area and treats a filled 0x1a3 as a
     /// burst of completions (chat / notifications); this only clears the two AtlasNode sets. Completed maps then go
-    /// out as 0x1a4. <paramref name="voidstones"/> is the +0x70 T16 mask and is kept across a progress reset.
-    /// <paramref name="awakening"/> is +0x71 (socketed count, 0–4).</summary>
-    public static byte[] EmptyMessage(byte voidstones = 0, byte awakening = 0) =>
-        [0x01, 0xa3, awakening, 0, voidstones, 0x03, 0, .. new byte[MaskBytes], .. new byte[MaskBytes]];
+    /// out as 0x1a4. <paramref name="voidstones"/> is the +0xd0f8 T16 region mask and is kept across a progress reset.
+    /// <paramref name="tangleCount"/> (+0xc408) and <paramref name="cleansingCount"/> (+0xc409) are the Eater of Worlds
+    /// and Searing Exarch 28-map tracker counts (0..28).</summary>
+    public static byte[] EmptyMessage(byte voidstones = 0, byte tangleCount = 0, byte cleansingCount = 0, bool clearWitnessed = false) =>
+        clearWitnessed
+            ? [0x01, 0xa3, tangleCount, cleansingCount, voidstones, 0x07, 0, .. new byte[MaskBytes], .. new byte[MaskBytes], 0]
+            : [0x01, 0xa3, tangleCount, cleansingCount, voidstones, 0x03, 0, .. new byte[MaskBytes], .. new byte[MaskBytes]];
 
     static void SetBit(byte[] mask, int row)
     {
         if ((uint)row < MaskRows) mask[row >> 3] |= (byte)(1 << (row & 7));
     }
 
-    /// <summary>S→C 0x1a3: u8 → +0x71 (socketed count), u8 → +0x72, u8 → +0x70 (Voidstone T16 bits), u8 sections
-    /// (bit 0: first mask, bit 1: second mask), then always 0x141faaa80 (u8 count of scrying map pairs) and the
-    /// selected 22-byte masks (bit r of byte r / 8 = AtlasNode row r). The first mask carries saved completed maps
-    /// (+0xd030: clears fog and opens connected maps, +0x9ca), and the second carries bonus-completed maps (+0xd070:
-    /// draws the bonus completion frame +0x9cb/+0x9ce and drives the bonus counter). Uncompleted maps stay fogged
-    /// and uncounted.</summary>
-    public static byte[] FullMessage(IReadOnlySet<string> completed, byte voidstones = 0, byte awakening = 0) =>
-        FullMessage(completed, completed, voidstones, awakening);
+    /// <summary>One active Memory Line entry for S→C 0x01a3 section 0x08 (all fields big-endian).</summary>
+    public readonly record struct MemoryLineWire(
+        uint LineId, ushort StartNodeHash16, ushort MemoryLineTypeHash16, byte CurrentStepIndex, byte TotalSteps);
+
+    /// <summary>One mod on a Shaped Region Atlas node for S→C 0x01a3 section 0x10 (Mods.HASH16 BE + CompactInt stats).</summary>
+    public readonly record struct ShapedNodeModWire(ushort ModHash16, IReadOnlyList<int> StatValues);
+
+    /// <summary>One Atlas node inside a Shaped Region for S→C 0x01a3 section 0x10 (AtlasNode.HASH16 BE + mods).</summary>
+    public readonly record struct ShapedNodeWire(ushort AtlasNodeHash16, IReadOnlyList<ShapedNodeModWire> Mods);
+
+    /// <summary>One Astrolabe Shaped Region for S→C 0x01a3 section 0x10 (quadrant 0..3, AtlasMissionTypes row 0..10, nodes).</summary>
+    public readonly record struct ShapedRegionWire(byte QuadrantId, byte AtlasMissionTypeRow, IReadOnlyList<ShapedNodeWire> Nodes);
+
+    /// <summary>S→C 0x1a3: u8 → +0xc408 (Tangle/Eater 28-map count), u8 → +0xc409 (Cleansing Fire/Exarch 28-map count),
+    /// u8 → +0xd0f8 (Voidstone T16 quadrant mask), u8 sections (bit 0: first mask, bit 1: second mask, bit 2: Maven
+    /// witnessed WorldAreas.HASH16 u16 LE, bit 3: Memory Lines, bit 4: Astrolabe Shaped Regions), then always 0x141faaa80
+    /// (u8 count of scrying map pairs) and the selected sections in bit order. The first mask carries saved completed maps
+    /// (+0xd030: clears fog and opens connected maps), the second carries bonus-completed maps (+0xd070: draws the bonus
+    /// completion frame and drives the bonus counter), section 0x04 carries Maven witnessed areas (+0xcff0), section 0x08
+    /// carries Memory Lines, and section 0x10 carries Astrolabe Shaped Regions.</summary>
+    public static byte[] FullMessage(IReadOnlySet<string> completed, byte voidstones = 0, byte tangleCount = 0, byte cleansingCount = 0) =>
+        FullMessage(completed, completed, voidstones, tangleCount, cleansingCount);
 
     public static byte[] FullMessage(IReadOnlySet<string> completed, IReadOnlySet<string> bonusCompleted,
-        byte voidstones = 0, byte awakening = 0, IReadOnlyList<(ushort From, ushort To)>? scryPairs = null)
+        byte voidstones = 0, byte tangleCount = 0, byte cleansingCount = 0,
+        IReadOnlyList<(ushort From, ushort To)>? scryPairs = null,
+        IReadOnlyCollection<ushort>? witnessedAreas = null,
+        IReadOnlyList<MemoryLineWire>? memoryLines = null,
+        IReadOnlyList<ShapedRegionWire>? shapedRegions = null)
     {
         var revealed = new byte[MaskBytes];
         var done = new byte[MaskBytes];
@@ -253,33 +296,130 @@ public static class AtlasProgress
             if (completed.Contains(node.Id)) SetBit(revealed, node.Row);
             if (bonusCompleted.Contains(node.Id)) SetBit(done, node.Row);
         }
-        return AtlasState(awakening, voidstones, 3, scryPairs ?? []).Bytes(revealed).Bytes(done).ToArray();
+        byte sections = 0x03;
+        if (witnessedAreas is not null) sections |= 0x04;
+        if (memoryLines is not null) sections |= 0x08;
+        if (shapedRegions is not null) sections |= 0x10;
+        var w = AtlasState(tangleCount, cleansingCount, voidstones, sections, scryPairs ?? [])
+            .Bytes(revealed)
+            .Bytes(done);
+        if (witnessedAreas is not null) WriteWitnessedAreas(w, witnessedAreas);
+        if (memoryLines is not null) WriteMemoryLines(w, memoryLines);
+        if (shapedRegions is not null) WriteShapedRegions(w, shapedRegions);
+        return w.ToArray();
+    }
+
+    /// <summary>S→C 0x1a3 replacing only section 0x04 (Maven witnessed WorldAreas.HASH16, little-endian).</summary>
+    public static byte[] WitnessedMessage(IReadOnlyCollection<ushort> witnessedAreas,
+        byte voidstones = 0, byte tangleCount = 0, byte cleansingCount = 0, IReadOnlyList<(ushort From, ushort To)>? scryPairs = null)
+    {
+        var w = AtlasState(tangleCount, cleansingCount, voidstones, 0x04, scryPairs ?? []);
+        WriteWitnessedAreas(w, witnessedAreas);
+        return w.ToArray();
+    }
+
+    /// <summary>S→C 0x01a3 carrying only section 0x08 (active Memory Lines) without touching map completion masks.</summary>
+    public static byte[] MemoryLinesMessage(IReadOnlyList<MemoryLineWire> memoryLines,
+        byte voidstones = 0, byte tangleCount = 0, byte cleansingCount = 0,
+        IReadOnlyList<(ushort From, ushort To)>? scryPairs = null)
+    {
+        var w = AtlasState(tangleCount, cleansingCount, voidstones, 0x08, scryPairs ?? []);
+        WriteMemoryLines(w, memoryLines);
+        return w.ToArray();
+    }
+
+    /// <summary>S→C 0x01a3 carrying only section 0x10 (Astrolabe Shaped Regions) without touching map completion masks.</summary>
+    public static byte[] ShapedRegionsMessage(IReadOnlyList<ShapedRegionWire> shapedRegions,
+        byte voidstones = 0, byte tangleCount = 0, byte cleansingCount = 0,
+        IReadOnlyList<(ushort From, ushort To)>? scryPairs = null)
+    {
+        var w = AtlasState(tangleCount, cleansingCount, voidstones, 0x10, scryPairs ?? []);
+        WriteShapedRegions(w, shapedRegions);
+        return w.ToArray();
+    }
+
+    // Section 0x04 (0x141fab1b0 → 0x14215c880): u8 count, count × u16 LE WorldAreas.HASH16.
+    static void WriteWitnessedAreas(GameServer.Core.Protocol.Login.LoginWriter w, IReadOnlyCollection<ushort> witnessedAreas)
+    {
+        int count = Math.Min(witnessedAreas.Count, byte.MaxValue);
+        w.U8((byte)count);
+        int written = 0;
+        foreach (ushort areaHash in witnessedAreas)
+        {
+            if (written++ >= count) break;
+            w.U8((byte)(areaHash & 0xff)).U8((byte)(areaHash >> 8));
+        }
+    }
+
+    static void WriteMemoryLines(GameServer.Core.Protocol.Login.LoginWriter w, IReadOnlyList<MemoryLineWire> lines)
+    {
+        int count = Math.Min(lines.Count, byte.MaxValue);
+        w.U8((byte)count);
+        for (int i = 0; i < count; i++)
+        {
+            var line = lines[i];
+            w.U32(line.LineId)
+             .U16(line.StartNodeHash16)
+             .U16(line.MemoryLineTypeHash16)
+             .U8(line.CurrentStepIndex)
+             .U8(line.TotalSteps);
+        }
+    }
+
+    static void WriteShapedRegions(GameServer.Core.Protocol.Login.LoginWriter w, IReadOnlyList<ShapedRegionWire> regions)
+    {
+        int regionCount = Math.Min(regions.Count, byte.MaxValue);
+        w.U8((byte)regionCount);
+        for (int r = 0; r < regionCount; r++)
+        {
+            var region = regions[r];
+            int nodeCount = Math.Min(region.Nodes.Count, byte.MaxValue);
+            w.U8(region.QuadrantId)
+             .U8(region.AtlasMissionTypeRow)
+             .U8((byte)nodeCount);
+            for (int n = 0; n < nodeCount; n++)
+            {
+                var node = region.Nodes[n];
+                int modCount = Math.Min(node.Mods.Count, byte.MaxValue);
+                w.U16(node.AtlasNodeHash16).U8((byte)modCount);
+                for (int m = 0; m < modCount; m++)
+                {
+                    var mod = node.Mods[m];
+                    w.U16(mod.ModHash16);
+                    foreach (int value in mod.StatValues)
+                        InstanceProtocol.CompactInt(w, value);
+                }
+            }
+        }
     }
 
     // The pair list is always present, including when no completion-mask section is being replaced.
-    internal static GameServer.Core.Protocol.Login.LoginWriter AtlasState(byte awakening, byte voidstones, byte sections,
+    internal static GameServer.Core.Protocol.Login.LoginWriter AtlasState(byte tangleCount, byte cleansingCount, byte voidstones, byte sections,
         IReadOnlyList<(ushort From, ushort To)> pairs)
     {
-        var w = new GameServer.Core.Protocol.Login.LoginWriter().U16(0x01a3).U8(awakening).U8(0).U8(voidstones)
+        var w = new GameServer.Core.Protocol.Login.LoginWriter().U16(0x01a3).U8(tangleCount).U8(cleansingCount).U8(voidstones)
             .U8(sections).U8(checked((byte)pairs.Count));
         foreach (var (from, to) in pairs) w.U16(from).U16(to);
         return w;
     }
 
-    /// <summary>S→C 0x1a4: u16 BE AtlasNode HASH16, u8 ×2 (unknown, 0), u8 flags (bit 1: also the second set, bonus).</summary>
-    public static byte[] NodeMessage(Node node, bool bonus = true) =>
-        [0x01, 0xa4, (byte)(node.Hash16 >> 8), (byte)node.Hash16, 0, 0, bonus ? (byte)0x02 : (byte)0x00];
+    /// <summary>S→C 0x1a4: u16 BE AtlasNode HASH16, u8 tangleCount (+0xc408), u8 cleansingCount (+0xc409),
+    /// u8 flags (bit 1: bonus completed, bit 2: Maven witnessed).</summary>
+    public static byte[] NodeMessage(Node node, bool bonus = true, bool witnessed = false, byte tangleCount = 0, byte cleansingCount = 0) =>
+        [0x01, 0xa4, (byte)(node.Hash16 >> 8), (byte)node.Hash16, tangleCount, cleansingCount,
+            (byte)((bonus ? 0x02 : 0) | (witnessed ? 0x04 : 0))];
 
     static (IReadOnlyList<Node> Maps, IReadOnlySet<int> OnAtlas, IReadOnlyDictionary<string, Node> ByArea) Load(string folder)
     {
         if (!ClientTables.Has("AtlasNode") || !ClientTables.Has("WorldAreas"))
             return ([], new HashSet<int>(), new Dictionary<string, Node>(StringComparer.Ordinal));
-        var areaRows = new List<(string Id, string Name, ushort Hash16, int[] Bosses)>();
+        var areaRows = new List<(string Id, string Name, ushort Hash16, int[] Bosses, int AreaLevel)>();
         var a = ClientTables.Table("WorldAreas");
         foreach (var row in a)
             areaRows.Add((row.Text("Id") ?? "", row.Text("Name") ?? "",
                 (ushort)(row.IntOrNull("HASH16") ?? 0),
-                [.. row.Ints("Bosses_MonsterVarietiesKeys")]));
+                [.. row.Ints("Bosses_MonsterVarietiesKeys")],
+                row.IntOrNull("AreaLevel") ?? 0));
         var byRow = new Dictionary<int, (string Id, ushort Hash16, string Name, HashSet<int> Areas)>();
         void Add(int r, string id, ushort hash, string name, IEnumerable<int> areaIndexes)
         {
@@ -354,11 +494,28 @@ public static class AtlasProgress
                 if (IsPhasedBossList(areaRows[i].Id, list)) finals.Add(list[^1].Id);
                 else foreach (var b in list) finals.Add(b.Id);
             }
+            var atlasRow = nTable[kv.Key];
+            bool isNormal = atlasRow.Bool("IsNormalMap");
+            bool isUnique = atlasRow.Bool("IsUniqueMap");
+            bool requiresSpecific = atlasRow.Bool("RequiresSpecificItem");
+            int maxAreaLevel = n.Areas.Count > 0 ? n.Areas.Max(i => areaRows[i].AreaLevel) : 0;
+            bool isNormalBonus = atlasRow.Has("__col29") ? atlasRow.Bool("__col29") : isNormal && !requiresSpecific;
+            bool isNightmare = atlasRow.Has("__col36")
+                ? atlasRow.Bool("__col36") && !isNormalBonus
+                : isNormal && requiresSpecific && maxAreaLevel >= 84;
+            bool isWitnessable = atlasRow.Has("__col28") ? atlasRow.Bool("__col28") : isNormal && !requiresSpecific;
             return new Node(kv.Key, n.Id, n.Hash16, n.Name,
                 n.Areas.Select(i => areaRows[i].Id).ToHashSet(StringComparer.Ordinal),
                 bosses, finals.Count > 0 ? finals : bosses,
                 n.Areas.Select(i => areaRows[i].Hash16).Where(h => h != 0).ToHashSet())
-                { IsNormalMap = nTable[kv.Key].Bool("IsNormalMap") };
+            {
+                IsNormalMap = isNormal,
+                IsUniqueMap = isUnique,
+                RequiresSpecificItem = requiresSpecific,
+                IsNightmareMap = isNightmare,
+                IsWitnessable = isWitnessable,
+                Region = atlasRow.IntOrNull("Region") ?? -1,
+            };
         })];
         var byArea = new Dictionary<string, Node>(StringComparer.Ordinal);
         foreach (var node in maps)

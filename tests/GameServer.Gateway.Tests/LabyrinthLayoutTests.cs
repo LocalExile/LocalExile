@@ -26,7 +26,16 @@ public sealed class LabyrinthLayoutTests
         Assert.NotNull(Game.LabyrinthAdmissionFailure(player, 2));
         player.Character.LeagueQuestFlags.Add(trials[2].LeagueFlag);
         Assert.Null(Game.LabyrinthAdmissionFailure(player, 2));
+        // Tier 3 (Merciless): requires level 50+, Cruel complete, and Act 8–10 trials (Bath House, Tunnel, Ossuary).
         Assert.NotNull(Game.LabyrinthAdmissionFailure(player, 3));
+        var mercTrials = LabyrinthTrials.Trials.Where(t => LabyrinthTrials.Tier(t) == 3)
+            .OrderBy(t => t.Area, StringComparer.Ordinal).ToArray();
+        Assert.Equal(["2_10_9", "2_8_5", "2_9_7"], mercTrials.Select(t => t.Area));
+        player.Pools = CharacterStats.For(Program.Skills.ClassFor(0), 50);
+        player.Character.QuestFlags.Add("LabyrinthComplete2");
+        Assert.NotNull(Game.LabyrinthAdmissionFailure(player, 3));
+        player.Character.QuestFlags.UnionWith(mercTrials.Select(t => t.Flag));
+        Assert.Null(Game.LabyrinthAdmissionFailure(player, 3));
     }
 
     [GameFilesFact]

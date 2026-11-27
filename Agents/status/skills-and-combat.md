@@ -22,7 +22,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Antiquarian's nodes. Docs: [Antiquarian](../docs/game/antiquarian.md).
 - Conditional critical policy (#242): signed clamp, luck, unarmed multiplier and one roll per gem use.
   Docs: [11](../docs/protocol/11-skills.md), conditional critical policy.
-- Generic Rage (#281). Docs: [26](../docs/protocol/26-rage.md).
+- Generic Rage (#281), including effective-Rage scaling (`rage_effect_+%`) for per-Rage attack speed (Crave the Slaughter), armour, movement speed and stun threshold. Docs: [26](../docs/protocol/26-rage.md).
 - Mana per final Strength (#287). Docs: [11](../docs/protocol/11-skills.md) Â§4.
 - Player Actor scale (#299). Docs: [04](../docs/protocol/04-player-entity.md#41a-player-actor-scale-299).
 - Armour against chaos hits (#288). Docs: [20](../docs/protocol/20-damage.md) Â§2e.
@@ -88,9 +88,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Cursed and ignited kill effects use the accepted hit and corpse state. Retained hexes support Asenath's corpse effects.
   Witchbane grants its timed immunity on player kills, and minion curse explosions use the killing minion's damage.
+- Hit-kill corpse destruction (`enemies_explode_on_kill` from Axe Mastery / Kitava's Feast, Unhinged, and ignited corpse
+  destruction from Pyre / Cremator) removes corpses on lethal hits before death skills or corpse consumers run.
 - Hex Master and Defiled Forces govern curse duration and ailment refresh. Firestorm schedules timed hits.
-- Monster Temporal Chains uses the curse's buff row and action-speed cap. The strongest timed or held source supplies the
-  curse's effects, and walk speed follows stat publication on application and removal.
+- Player curses (monster, strongbox, Harbinger, Doedre pillar, and map hexes) deduplicate per curse type so only the
+  strongest active source applies; Temporal Chains enforces the -75% action-speed cap and unaffected-by-Temporal-Chains
+  protections, and walk speed follows stat publication on application and removal.
 - Linked spells resolve offline. See [linked spells](../docs/protocol/25-gem-supports.md#native-linked-spell-payloads).
 - Mark Mastery blinds around the live marked enemy in offline tests, using the server's 35-cell nearby blind reach.
 - Weapon-local Bloodseeker instant Life leech, Elder life gained against blinded enemies and culling against bleeding
@@ -123,8 +126,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   runs data-driven periodic chained beam hits (`Modules/Core/Game/Skill/StaticStrike.cs`, live-verified).
   Gathering Lightning gains a timed stack on melee contact and emits a beam from that contact. Its chain allowance
   and hit and ailment damage grow with the stacks already held. Docs [11](../docs/protocol/11-skills.md).
-- Boneshatter and its Complex Trauma and Carnage variants resolve stun pulses at contact. Regular and Complex Trauma
-  track independent stack lifetimes and physical self-hits. Docs: [11](../docs/protocol/11-skills.md#boneshatter).
+- Boneshatter (Regular, Complex Trauma, Carnage) and Trauma Support resolve stun pulses, independent Trauma stack
+  lifetimes, added physical attack damage and stun duration per Trauma, and physical self-hits. Docs: [11](../docs/protocol/11-skills.md#boneshatter).
 - Eternal Blessing suspends other skills' mana reservations while its aura is active and preserves life reservations.
 - Guardian's Blessing needs a living minion that shares its support link. The minion takes physical damage over time,
   and the aura ends when the last qualifying minion is gone.
@@ -261,6 +264,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   to the attack's melee and projectile hits for Overexertion. Docs: [11](../docs/protocol/11-skills.md) Â§10i.
 - Seismic Cry gives six melee slams more area after release, independently of the timed armour buff (predictive and lockstep).
 - Ancestral Cry gives eight melee strikes two additional targets after release, independently of the resistance buff (predictive and lockstep).
+- Exerted attacks publish the client's `display_num_empowered_attacks` counter per warcry and apply passive/item exerted-attack modifiers across slams and strikes; Automation and Autoexertion publish linked counts, active toggle buffs, reservations, area carry, and cooldown triggers.
 - Strike targeting: spirit strikes and the previous location. Frost Blades and Lightning Strike resolve their extra
   melee contacts and projectile volleys. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
 - Passive enemy auras. Docs: [11](../docs/protocol/11-skills.md) Â§10e.

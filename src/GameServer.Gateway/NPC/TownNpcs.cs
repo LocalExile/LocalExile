@@ -212,9 +212,10 @@ public static class TownNpcs
             new(Npc + "Epilogue/Lilly", 186, 366, 0.499106f, Model: "Metadata/NPC/Act5/Lilly.ao", Z: -202.5f),
             new(Npc + "Epilogue/Weylam", 701, 784, -0.879269f, Model: "Metadata/NPC/Act6/RotTooth.ao"),
             new(Npc + "Epilogue/Lani", 712, 778, -0.355253f),
-            // Her .ot's create_untransitioned is DisableRendering(): Transitionable state 1 left her invisible live, 2 shows her.
+            // Epilogue/Helena.ot create_untransitioned is DisableRendering() (state 2 shows her);
+            // Epilogue/HelenaIntro.ot is the opposite: create_transitioned disables rendering/targeting, so state 1 shows her.
             new(Npc + "Epilogue/Helena", 771, 696, 0.564095f, Model: "Metadata/NPC/Missions/Helena.ao", State: 2),
-            new(Npc + "Epilogue/HelenaIntro", 510, 173, 0.903148f, Model: "Metadata/NPC/Missions/Helena.ao", State: 2),
+            new(Npc + "Epilogue/HelenaIntro", 510, 173, 0.903148f, Model: "Metadata/NPC/Missions/Helena.ao", State: 1),
             new(Npc + "Epilogue/Kirac", 786, 675, -2.32129f, Model: "Metadata/Monsters/Masters/Kirac.ao"),
         ]),
         // The Rogue Harbour (HeistHub). Not a campaign town, but its hub room names its NPCs the same way. hub.dgr places
