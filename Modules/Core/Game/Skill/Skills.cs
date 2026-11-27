@@ -1326,6 +1326,8 @@ public static partial class Game
             return WeaponIn(player, main) is { Melee: true } && WeaponIn(player, off) is { Melee: true }
                 && Fits(main, null) && Fits(off, null) ? null : "Swordstorm requires dual wielding melee weapons";
         }
+        if (skills.EffectId(effect) == "Eviscerate" && ActiveOffHand(player)?.Type?.Class != "Shield")
+            return "Eviscerate requires a shield";
         if (Fits(ActiveMainHand(player), UnarmedClassRow))
         {
             // An empty main hand fits Doryani's Touch only if the off hand also holds no weapon.
