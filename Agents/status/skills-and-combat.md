@@ -38,7 +38,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [20](../docs/protocol/20-damage.md) Â§2c.
 - Behemoth Steel Willed: attack damage per 450 final armour. Docs: [20](../docs/protocol/20-damage.md) Â§2d.
 - Steel Willed incoming-hit armour. Docs: [Steel Willed armour](../docs/game/steel-willed-armour.md).
-- Lancing and Shattering Steel use their projectile releases. Call of Steel removes Impales and reloads Steel Shards, and the Shattering Steel of Ammunition ward expires on the area clock.
+- Shattering Steel erupts on impact or after a 140 ms flight. Call of Steel removes Impales and reloads Steel Shards, and the Shattering Steel of Ammunition ward expires on the area clock.
 - Splitting Steel bursts at the aim, a target or terrain, then its shards burst at their own endpoints. The Ammunition variant consumes up to two Steel Shards and fires an already-split shard when empty.
 - Shrapnel Ballista of Steel consumes an owner Steel Shard at each volley and fires a single native shrapnel projectile when empty.
 - Accuracy, the Accuracy Mastery's target conditions, Deadeye's Avidity and attack evasion.

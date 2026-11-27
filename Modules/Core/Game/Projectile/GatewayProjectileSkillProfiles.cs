@@ -23,6 +23,8 @@ public static class GatewayProjectileSkillProfiles
     };
     static readonly IReadOnlySet<ProjectileEndReason> TerminalStops = new HashSet<ProjectileEndReason>
         { ProjectileEndReason.Enemy, ProjectileEndReason.Terrain, ProjectileEndReason.Distance, ProjectileEndReason.Returned };
+    static readonly IReadOnlySet<ProjectileEndReason> ShatteringSteelStops =
+        new HashSet<ProjectileEndReason>(TerminalStops) { ProjectileEndReason.Lifetime };
     static readonly IReadOnlySet<ProjectileEndReason> NonContactStops = new HashSet<ProjectileEndReason>
         { ProjectileEndReason.Distance, ProjectileEndReason.Returned };
 
@@ -213,13 +215,16 @@ public static class GatewayProjectileSkillProfiles
         else if (IsShatteringSteel(effect))
             p = p with
             {
+                // 3.29.3c 0x141481630 starts the 140 ms flight timer at projectile launch.
+                // Each projectile keeps that timer while its resolved speed changes how far it travels.
+                Lifetime = ProjectileRuntime.Time(.14),
                 EndArea = new("shattering-steel-cone", 0)
                 {
                     ConeHalfAngle = Math.PI / 2,
                     ReplacesDirectContact = false,
                     ExcludeContactTarget = true,
                 },
-                EndAreaReasons = TerminalStops,
+                EndAreaReasons = ShatteringSteelStops,
             };
         else if (effect is "LancingSteel" or "LancingSteelAltX")
             p = p with
