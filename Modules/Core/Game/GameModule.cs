@@ -91,6 +91,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadPassiveGrantedSkillsRulesData();
         // Combat, skills and projectiles.
         Rules.LoadOwnAurasData();
+        global::SkillPoisonStats.LoadData();
         global::StationaryCollision.LoadStationaryCollisionData();
         Rules.LoadProjectilesData();
         Rules.LoadPlacedSkillsData();

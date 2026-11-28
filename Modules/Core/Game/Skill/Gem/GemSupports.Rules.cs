@@ -829,7 +829,7 @@ public static partial class Game
     public sealed record SupportedHitInputs(GameServer.Core.World.DamagePacket Raw, Func<uint, int> Get,
         GameServer.Core.World.DamageConversion Conversion, bool Attack, bool Melee, bool Area, bool Projectile,
         List<(uint Id, int Value)> Modifiers, HashSet<int> Types, SkillHitPlan Plan, Dictionary<uint, int> Caster,
-        bool WieldingWand = false, bool WieldingBow = false, bool Secondary = false)
+        bool WieldingWand = false, bool WieldingBow = false, bool Secondary = false, string? ActiveSkill = null)
     {
         public IReadOnlyDictionary<uint, int> FrozenStats { get; init; } = new Dictionary<uint, int>();
         public int WeaponIncreased { get; init; }
@@ -1101,7 +1101,7 @@ public static partial class Game
             Melee: attack && types.Contains(19), Area: attack ? (iceShot && area is bool iceArea ? iceArea : types.Contains(7))
                 : Get(Stat.IsAreaDamage) != 0,
             Projectile: attack ? types.Contains(2) : Get(Stat.BaseIsProjectile) != 0, modifiers, types, plan, caster,
-            WieldingWand: attackWeapon?.WieldingWand == true, WieldingBow: attackWeapon?.Bow == true, Secondary: secondary)
+            WieldingWand: attackWeapon?.WieldingWand == true, WieldingBow: attackWeapon?.Bow == true, Secondary: secondary, ActiveSkill: SkillPoisonStats.ActiveSkillId(gem.Effect))
         {
             FrozenStats = new Dictionary<uint, int>(stats),
             WeaponIncreased = attackWeapon is not null && !secondary ? SupportedAttackDamage.WeaponIncrease(attackWeapon, Get,
@@ -1172,9 +1172,8 @@ public static partial class Game
     }
 
     static AilmentPanelStats.Context AilmentContext(SupportedHitInputs inputs, string hand) =>
-        new(inputs.Secondary ? "secondary" : hand, Spell: !inputs.Attack && !inputs.Secondary, inputs.Melee)
+        new(inputs.Secondary ? "secondary" : hand, Spell: !inputs.Attack && !inputs.Secondary, inputs.Melee, inputs.ActiveSkill)
         { WeaponStats = inputs.WeaponStats };
-
     public static AttackAccuracyProfile SupportedAccuracy(Player player, ushort skillId) =>
         SupportedAccuracy(player, skillId, extraIncreased: 0);
 
@@ -1229,6 +1228,19 @@ public static partial class Game
         }
         else if (placed.Trap)
             extraIncrease += (long)Player(Stat.TrapCriticalStrikeChancePlusPct) + Own(Stat.TrapCriticalStrikeChancePlusPct);
+        // The per-type critical chance families join the same extraIncrease, before the attack branch so attacks
+        // take them too (the sigil line below sits on the spell path only). "with elemental skills" counts once
+        // whenever Fire, Cold or Lightning is present, matching SupportedCriticalMultiplier.
+        bool fire = skills.HasType(gem.Effect, "Fire");
+        bool cold = skills.HasType(gem.Effect, "Cold");
+        bool lightning = skills.HasType(gem.Effect, "Lightning");
+        if (fire) extraIncrease += (long)Player(Stat.FireCriticalStrikeChancePlusPct) + Own(Stat.FireCriticalStrikeChancePlusPct);
+        if (cold) extraIncrease += (long)Player(Stat.ColdCriticalStrikeChancePlusPct) + Own(Stat.ColdCriticalStrikeChancePlusPct);
+        if (lightning) extraIncrease += (long)Player(Stat.LightningCriticalStrikeChancePlusPct) + Own(Stat.LightningCriticalStrikeChancePlusPct);
+        if (skills.HasType(gem.Effect, "Chaos"))
+            extraIncrease += (long)Player(Stat.ChaosCriticalStrikeChancePlusPct) + Own(Stat.ChaosCriticalStrikeChancePlusPct);
+        if (fire || cold || lightning)
+            extraIncrease += (long)Player(Stat.ElementalCriticalStrikeChancePlusPct) + Own(Stat.ElementalCriticalStrikeChancePlusPct);
         if (skills.IsAttack(gem.Effect))
         {
             if (new[] { Stat.GlobalCannotCrit, Stat.VirtualGlobalCannotCrit, Stat.CannotCriticalStrikeWithAttacks }

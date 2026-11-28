@@ -1135,7 +1135,7 @@ public static partial class Game
                 AilmentsOnHitLocked(Player, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
                     WithWeaponAilmentStats(shot.SkillStats, weaponLocal, offHand: shot.OffHandWeapon),
                     at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
-                    sourceSkill: shot.SourceSkill, blind: shot.Blind, playerHit: !shot.FromTotem,
+                    sourceSkill: shot.SourceSkill, poisonSkill: shot.PoisonSkill, blind: shot.Blind, playerHit: !shot.FromTotem,
                     attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell),
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
