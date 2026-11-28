@@ -40,4 +40,49 @@ public class CampaignBossPlacementTests
         Assert.Single(spawns, spawn => spawn.Variety == 1);
         Assert.Single(spawns, spawn => spawn.Variety == 2);
     }
+
+    [Fact]
+    public void Map_boss_fallback_points_and_disconnected_arena_keep_bosses_off_arrival()
+    {
+        // MapWorldsPort-style: mapboss1 places boss 1, leaving bosses 3..5; they stay at mapboss1, not arrival.
+        var portSpawns = AreaPopulation.Plan(Area(1, 3, 4, 5), 100, 100, Walk, (10, 10), [],
+            [new("mapboss1", 80, 80)], 11, _ => true, []);
+        Assert.Equal(4, portSpawns.Count);
+        Assert.All(portSpawns, s => Assert.True(Math.Abs(s.X - 80) <= 12 && Math.Abs(s.Y - 80) <= 12,
+            $"remaining boss spawned at ({s.X}, {s.Y}) instead of mapboss1 (80, 80)"));
+
+        // MapWorldsGraveTrough-style: ritual_boss_spawn_override places the boss when no mapboss* exists.
+        var ritualSpawns = AreaPopulation.Plan(Area(1), 100, 100, Walk, (10, 10), [],
+            [new("ritual_boss_spawn_override", 75, 75)], 11, _ => true, []);
+        var ritualBoss = Assert.Single(ritualSpawns);
+        Assert.Equal((75, 75), (ritualBoss.X, ritualBoss.Y));
+
+        // Warband points act as fallback only when no mapboss* point exists.
+        var warbandSpawns = AreaPopulation.Plan(Area(1, 2), 100, 100, Walk, (10, 10), [],
+            [new("mapbosswarband1", 70, 70), new("mapbosswarband2", 85, 85)], 11, _ => true, []);
+        Assert.Equal(2, warbandSpawns.Count);
+        Assert.Contains(warbandSpawns, s => s.Variety == 1 && (s.X, s.Y) == (70, 70));
+        Assert.Contains(warbandSpawns, s => s.Variety == 2 && (s.X, s.Y) == (85, 85));
+
+        var withMapBoss = AreaPopulation.Plan(Area(1), 100, 100, Walk, (10, 10), [],
+            [new("mapboss", 60, 60), new("mapbosswarband1", 85, 85)], 11, _ => true, []);
+        Assert.Equal((60, 60), (Assert.Single(withMapBoss).X, Assert.Single(withMapBoss).Y));
+
+        // Main map (x < 120) walled off from a separate boss arena (x >= 140) reached via a local transition.
+        bool ArenaWalk(int x, int y) => x is >= 0 and < 200 && y is >= 0 and < 200 && (x < 120 || x >= 140);
+        var arenaSpawns = AreaPopulation.Plan(Area(1), 200, 200, ArenaWalk, (15, 15), [(155, 100)], [],
+            42, _ => true, [], unassignedAtArrival: false,
+            localTransitions: [((105, 100), (150, 100))]);
+        var arenaBoss = Assert.Single(arenaSpawns);
+        Assert.True(arenaBoss.X >= 140, $"expected boss inside arena (x >= 140), got ({arenaBoss.X}, {arenaBoss.Y})");
+        Assert.True(ArenaWalk(arenaBoss.X, arenaBoss.Y));
+
+        // Disconnected feature sub-area excluded by scatterable must not pull an unassigned map boss inside.
+        var featureGuarded = AreaPopulation.Plan(Area(1), 200, 200, ArenaWalk, (15, 15), [(155, 100)], [],
+            42, _ => true, [], unassignedAtArrival: false,
+            scatterable: (x, _) => x < 140,
+            localTransitions: [((105, 100), (150, 100))]);
+        var mainBoss = Assert.Single(featureGuarded);
+        Assert.True(mainBoss.X < 120, $"expected boss to stay out of feature area (x < 120), got ({mainBoss.X}, {mainBoss.Y})");
+    }
 }

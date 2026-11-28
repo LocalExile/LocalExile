@@ -260,7 +260,7 @@ public static partial class Game
                 ? Math.Max(0, GolemStat(playerStats, attribute)) / step : 0;
             value += (long)PerAttribute(Stat.Strength, Stat.NumberOfZombiesAllowedPlus1PerXStrength)
                 + PerAttribute(Stat.Intelligence, Stat.NumberOfZombiesAllowedPlus1PerXIntelligenceFromFoulbornBaron);
-            value = (long)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.NumberOfZombiesAllowedPlusPct) / 100d), 0, 200);
+            value = (long)Math.Clamp(value * Math.Max(0, 100L + GolemStat(playerStats, Stat.NumberOfZombiesAllowedPlusPct)) / 100, 0, 200);
         }
         if (definition.Family == "Skeleton")
             value += GolemStat(playerStats, Stat.NumberOfSkeletonsAllowedPer2Old) / 2;

@@ -6,7 +6,7 @@ public static partial class Game
     static bool TriggerAreaSpell(Player player, SupportedGem gem)
     {
         string? effect = SkillsFor(player).EffectId(gem.Effect);
-        return effect is "IceNova" or "IceNovaAltY" or "BladeBlastAltY"
+        return effect is "IceNova" or "IceNovaAltX" or "IceNovaAltY" or "BladeBlastAltY"
             || IsHexblastEffect(effect) || IsDischarge(effect) || IsAbsolutionHitSpell(player, gem.Effect);
     }
 

@@ -5425,7 +5425,8 @@ public static partial class Game
         Trace($"accepted ({seconds:0.###} s, {Get(WardBreakEffects.StunRecoverySource)}% Life over one second)");
         player.LastStunnedOrBlockedStunAt = now;
         player.RecentEvents.Record(StatConditions.BeenStunned, now);
-        player.WardBreak.Stunned(now, player.PlayerMaxLife, Get(WardBreakEffects.StunRecoverySource));
+        player.WardBreak.Stunned(now, PanelStats.ZealotsOath(Get) ? player.Pools.EnergyShield : player.PlayerMaxLife,
+            Get(WardBreakEffects.StunRecoverySource));
         CancelMeleeRepeats(player, now);
         int action = Interlocked.Increment(ref player.ActionCount);
         bool wasCharging = IsShieldChargeActive(player);

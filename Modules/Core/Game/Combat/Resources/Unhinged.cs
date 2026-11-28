@@ -79,8 +79,12 @@ public static partial class Game
         int Get(uint key) => stats.GetValueOrDefault(key);
         int percent = Get(SaneHitRecovery);
         if (percent <= 0) return;
-        double perSecond = player.PlayerMaxLife * (double)percent / 100
-            * PanelStats.LifeRegenerationMultiplier(Get);
+        bool oath = PanelStats.ZealotsOath(Get);
+        uint pool = oath ? player.Pools.EnergyShield : player.PlayerMaxLife;
+        double multiplier = oath
+            ? (PanelStats.LifeRegenerationBlocked(Get) || !EnergyShield.ConversionAllowed(Get) ? 0 : EnergyShield.RegenerationMultiplier(Get))
+            : PanelStats.LifeRegenerationMultiplier(Get);
+        double perSecond = pool * (double)percent / 100 * multiplier;
         if (perSecond > 0) state.HitRecovery.Begin(now, 1, perSecond);
     }
 

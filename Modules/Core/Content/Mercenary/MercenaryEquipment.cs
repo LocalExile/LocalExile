@@ -69,6 +69,65 @@ public static class MercenaryEquipment
         return result;
     }
 
+    /// <summary>Each Infamous Mercenary's own Infamous modifiers (Mods domain 41, item level 68), by its build name without
+    /// "Infamous ". The data gives each modifier only its item slot (its spawn tag); which Mercenary wears it is the wiki's
+    /// "Infamous modifiers by mercenary class" table. A name missing here (Cardinal, Warpriest of the Ruckus) has none.</summary>
+    static readonly Dictionary<string, string[]> InfamousModifiers = new(StringComparer.Ordinal)
+    {
+        ["Ripper"] = ["MercenaryModRageDecaySpeed"], ["Eruptor"] = ["MercenaryModAshWarcries"],
+        ["Earthshaker"] = ["MercenaryModAddCritPerExert"], ["Striker"] = ["MercenaryModDebilitate"],
+        ["Bastion"] = ["MercenaryModFortificationDamageAura"], ["Swiftblade"] = ["MercenaryModUnaffectedShock"],
+        ["Bloodletter"] = ["MercenaryModLifeCostOnLowLife"], ["Combatant"] = ["MercenaryModProjSpeedVariance"],
+        ["Manyshot"] = ["MercenaryModClonesInheritGloves"], ["Toxicologist"] = ["MercenaryModSingleProjAOE"],
+        ["Sniper"] = ["MercenaryModImpaleEffectFromDistance"], ["Flamequiver"] = ["MercenaryModLGOHIgnitedEnemies"],
+        ["Blade Ambusher"] = ["MercenaryModTrapMineChain"], ["Bladecaster"] = ["MercenaryModMaxBlades"],
+        ["Bladebitter"] = ["MercenaryModMaimDOT"], ["Shock Ambusher"] = ["MercenaryModMineLifeReserve"],
+        ["Frosthand"] = ["MercenaryModCurseChillingAreas"], ["Withertouch"] = ["MercenaryModCurseEffect"],
+        ["Reanimator"] = ["MercenaryModMinionFireConvertToChaos"], ["Stormhand"] = ["MercenaryModLightningSkillManaCostWhileShocked"],
+        ["Cruel Mistress"] = ["MercenaryModSkipSacrifice"], ["Storming Zealot"] = ["MercenaryModConsecratedChaosRes"],
+        ["Fallen Reverend"] = ["MercenaryModRecentMinionCrit", "MercenaryModRecoupWhileFrozen"],
+        ["Warpriest"] = ["MercenaryModMinionCDR"], ["Kineticist"] = ["MercenaryModSpellslingerReservation"],
+        ["Sanguimancer"] = ["MercenaryModTravelSkillCrit"], ["Mysterious Diver"] = ["MercenaryModReverseChillEffectChilledGround"],
+    };
+
+    /// <summary>[ESTIMATE] The wiki says an Infamous Mercenary "almost always" has an item with its Infamous modifier.</summary>
+    const int InfamousModifierChancePct = 90;
+
+    /// <summary>Adds an Infamous Mercenary's Infamous modifier, from item level 68, to the non-unique item it wears in that
+    /// modifier's slot; equipment is returned as it is otherwise.</summary>
+    public static List<Worn> WithInfamousModifier(List<Worn> equipment, MercenaryTables.Build build, int level, Random rng)
+    {
+        if (!build.Infamous || level < 68 || rng.Next(100) >= InfamousModifierChancePct
+            || !InfamousModifiers.TryGetValue(build.Name.StartsWith("Infamous ", StringComparison.Ordinal) ? build.Name[9..] : build.Name,
+                out var ids)) return equipment;
+        var mod = Program.Items.Mods.ById(ids[rng.Next(ids.Length)]);
+        if (mod is null || mod.SpawnWeights.FirstOrDefault(w => w.Weight > 0).Tag is not { } slotTag) return equipment;
+        int at = equipment.FindIndex(w => w.Item.Rarity != ItemRarity.Unique
+            && Program.Items.ByHash(w.Item.TypeHash)?.Tags.Contains(slotTag) == true);
+        if (at < 0) return equipment;
+        var values = mod.Stats.Select((_, i) => mod.RangeAt(i)).Select(r => rng.Next(r.Min, r.Max + 1)).ToArray();
+        var worn = equipment[at];
+        int cap = worn.Item.Rarity switch { ItemRarity.Rare => 3, ItemRarity.Magic => 1, _ => int.MaxValue };
+        var added = new ItemMod(ModSection.Explicit, mod.Hash, values);
+        var mods = new List<ItemMod>(worn.Item.Mods);
+        if (mod.GenerationType is 1 or 2)
+        {
+            List<int> sameGen = [];
+            for (int i = 0; i < mods.Count; i++)
+            {
+                if (mods[i].Section == ModSection.Explicit
+                    && Program.Items.Mods.ByHash(mods[i].Hash) is { } existing
+                    && existing.GenerationType == mod.GenerationType)
+                    sameGen.Add(i);
+            }
+            if (sameGen.Count >= cap) mods[sameGen[rng.Next(sameGen.Count)]] = added;
+            else mods.Add(added);
+        }
+        else mods.Add(added);
+        equipment[at] = worn with { Item = worn.Item with { Mods = mods } };
+        return equipment;
+    }
+
     public static IReadOnlyList<VisibleItem> Looks(IReadOnlyList<Worn> equipment, IReadOnlyList<VisibleItem> fallback) =>
         [.. fallback.Select(l => equipment.FirstOrDefault(e => e.Slot == l.Slot)?.Look ?? l)];
 
