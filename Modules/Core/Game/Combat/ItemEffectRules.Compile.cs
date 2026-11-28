@@ -15,24 +15,19 @@ sealed partial class ItemEffectRules
             var (action, args, target, targetArgs, value, timers) = row.Do[0];
             if (!Matches(targetArgs, "{}") || !Matches(value, "{}"))
                 throw new FormatException("unsupported target or value arguments");
-            bool player = false, minion = false;
-            long? playerHitOrder = null, monsterHitOrder = null;
-            foreach (var (eventName, eventArgs, order) in row.When)
+            bool player = false, minion = false, monster = false;
+            foreach (var (eventName, eventArgs) in row.When)
             {
                 if (eventName != trigger) throw new FormatException("expected one event kind per rule");
-                if ((trigger, action, target) == ("hit", "charge", "self"))
-                {
-                    if (order is null or <= 0) throw new FormatException("expected a positive hit charge roll_order");
-                    if (playerHitOrder is null && Matches(eventArgs, "{}")) playerHitOrder = order;
-                    else if (monsterHitOrder is null && Matches(eventArgs, """{"who":"monster"}""")) monsterHitOrder = order;
-                    else throw new FormatException($"unsupported or duplicate hit charge trigger with args {eventArgs}");
-                }
-                else if (order is not null) throw new FormatException($"unsupported roll_order for {trigger} with {action}");
-                else if (!player && Matches(eventArgs, "{}")) player = true;
+                if (!player && Matches(eventArgs, "{}")) player = true;
                 else if (!minion && (trigger, action, target) == ("kill", "charge", "self")
                     && Matches(eventArgs, """{"who":"minion"}""")) minion = true;
+                else if (!monster && (trigger, action, target) == ("hit", "charge", "self")
+                    && Matches(eventArgs, """{"who":"monster"}""")) monster = true;
                 else throw new FormatException($"unsupported or duplicate {trigger} trigger with args {eventArgs}");
             }
+            bool chargeRule = (action, target) == ("charge", "self");
+            if (row.Position is not null && !chargeRule) throw new FormatException($"unsupported position for {trigger} with {action}");
             var conditions = row.If.ToDictionary(c => c.Condition, StringComparer.Ordinal);
             bool Take(string name, string expected, bool negate = false)
             {
@@ -59,15 +54,16 @@ sealed partial class ItemEffectRules
                         charge["charge"]?.GetValue<string>() is not string name || Charges.Parse(name) is not { } type ||
                         !Take("chance", """{"percent":{"from":"roll"}}"""))
                         throw new FormatException("expected a named charge and chance from its source stat");
+                    if (row.Position is not long position || position == 0)
+                        throw new FormatException("expected a nonzero position");
                     if (trigger == "hit")
                     {
+                        if (position < 0) throw new FormatException("expected a positive hit charge position");
                         var hitRules = Sources("stat").Select(stat => (stat, type)).ToArray();
-                        if (playerHitOrder is long playerOrder) charges.PlayerHits.Add(playerOrder, hitRules);
-                        if (monsterHitOrder is long monsterOrder) charges.MonsterHits.Add(monsterOrder, hitRules);
+                        if (player) AddAt(charges.PlayerHits, position, hitRules);
+                        if (monster) AddAt(charges.MonsterHits, position, hitRules);
                         break;
                     }
-                    if (row.KillChargeOrder is null or 0)
-                        throw new FormatException("expected a nonzero kill_charge_order");
                     bool frozen = Take("enemy_frozen_at_death", "{}");
                     bool shield = false, dualWield = false;
                     if (conditions.Remove("equipment", out var equipment))
@@ -89,13 +85,9 @@ sealed partial class ItemEffectRules
                     bool Applies(ChargeEvent e, WeaponProfile w) => e is ChargeEvent.Kill kill
                         && kill.Poisons >= minPoisons && kill.Poisons <= maxPoisons
                         && (!frozen || kill.Frozen) && (!shield || w.Shield) && (!dualWield || w.DualWield);
-                    var destination = row.KillChargeOrder < 0 ? charges.BeforeAdditional : charges.AfterAdditional;
-                    foreach (uint stat in Sources("stat"))
-                    {
-                        var rule = new ChargeGains.Rule(stat, type, Applies);
-                        if (player) destination.Add(rule);
-                        if (minion) charges.MinionKills.Add(rule);
-                    }
+                    ChargeGains.Rule[] killRules = [.. Sources("stat").Select(stat => new ChargeGains.Rule(stat, type, Applies))];
+                    if (player) AddAt(charges.PlayerKills, position, killRules);
+                    if (minion) AddAt(charges.MinionKills, position, killRules);
                     break;
                 case ("hit", "skill", "enemy") when Matches(args, """{"skill":"granted"}""") && Matches(timers, "[]"):
                     bool rare = Take("enemy_rarity", """{"is":"rare_or_unique"}""");
@@ -117,6 +109,11 @@ sealed partial class ItemEffectRules
         {
             throw new InvalidDataException($"Invalid fx rule '{row.Id}': {ex.Message}", ex);
         }
+    }
+
+    static void AddAt<T>(SortedDictionary<long, T> rules, long position, T value)
+    {
+        if (!rules.TryAdd(position, value)) throw new FormatException($"position {position} is already taken for this event");
     }
 
     static bool Matches(string json, string expected) => JsonNode.DeepEquals(JsonNode.Parse(json), JsonNode.Parse(expected));

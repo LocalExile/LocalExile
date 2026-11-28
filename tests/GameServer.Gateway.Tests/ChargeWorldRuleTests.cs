@@ -288,7 +288,7 @@ public sealed class ChargeWorldRuleTests
             edit("UPDATE fx_rules SET enabled = 0 WHERE id = 'frenzy_on_skill_hit';");
             Check(!ItemEffectRules.Enabled);
 
-            edit("UPDATE fx_rule_when SET roll_order = 40 WHERE rule = 'power_on_hit';");
+            edit("UPDATE fx_rules SET position = 40 WHERE id = 'power_on_hit';");
             var hit = new ChargeEvent.Hit(false, false, true, MonsterRarity.Normal);
             var power = ChargeGains.Roll(hit, stat => stat is Stat.AddPowerChargeOnHitPct
                 or Stat.AddPowerChargeOnSkillHitPct ? 100 : 0, default, new Random(2));

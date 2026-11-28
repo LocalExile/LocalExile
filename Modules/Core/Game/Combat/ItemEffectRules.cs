@@ -18,7 +18,7 @@ sealed partial class ItemEffectRules
 
     sealed class ChargeRuleLists
     {
-        internal readonly List<ChargeGains.Rule> BeforeAdditional = [], AfterAdditional = [], MinionKills = [];
+        internal readonly SortedDictionary<long, ChargeGains.Rule[]> PlayerKills = [], MinionKills = [];
         internal readonly SortedDictionary<long, (uint Stat, ChargeType Type)[]> PlayerHits = [], MonsterHits = [];
     }
 
@@ -31,13 +31,14 @@ sealed partial class ItemEffectRules
     {
         var charges = new ChargeRuleLists();
         foreach (var row in snapshot.FxRules) Compile(row, charges);
-        MinionKillCharges = charges.MinionKills;
+        MinionKillCharges = [.. charges.MinionKills.Values.SelectMany(rules => rules)];
         var playerHits = charges.PlayerHits.Values.SelectMany(rules => rules)
             .Select(hit => new ChargeGains.Rule(hit.Stat, hit.Type, static (e, _) => e is ChargeEvent.Hit));
         HitChargeRules = [.. playerHits, .. ChargeGains.OtherRules];
         MonsterHitCharges = [.. charges.MonsterHits.Values.SelectMany(rules => rules)];
         // Keep the original roll order, including the random charge type drawn between the two sets.
-        ChargeRules = [.. charges.BeforeAdditional, .. ChargeGains.AdditionalKillRules, .. charges.AfterAdditional, .. ChargeGains.OtherRules];
+        ChargeRules = [.. charges.PlayerKills.Where(r => r.Key < 0).SelectMany(r => r.Value), .. ChargeGains.AdditionalKillRules,
+            .. charges.PlayerKills.Where(r => r.Key > 0).SelectMany(r => r.Value), .. ChargeGains.OtherRules];
         NeedsRareHit = onHit.All(rule => rule.RareOrUnique);
     }
 
