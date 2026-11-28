@@ -318,6 +318,20 @@ public static partial class Game
         return removeCorpse;
     }
 
+    static void QueueExplosionEffect(Player player, (int X, int Y) at, string ao, string log)
+    {
+        uint effect = player.TakeObjectId();
+        var art = new EffectObject(at.X, at.Y, ao);
+        player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(effect,
+            InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob()), log,
+            WorldId: effect, CreatesObject: true));
+        player.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(effect), null, WorldId: effect));
+        SendAfter(player, ArtMs(ao) / 1000d, async () =>
+        {
+            if (!player.Closed && !player.LeavingArea) await SendWorldRemoval(player, effect, null);
+        });
+    }
+
     // A curse explosion uses the killing minion's damage and area. Chain kills follow the same minion outcome path.
     static void ResolveCursedMinionKillLocked(Player player, uint corpseId, SpawnedMonster corpse,
         SpawnedMonster source, IReadOnlyDictionary<uint, int>? skill, double now)
@@ -340,17 +354,7 @@ public static partial class Game
             player.Area.Monsters.Remove(id);
             player.Minions.OutputQueue.Add(new([], "minion kill explosion removes corpse", WorldId: id, RemovesObject: true));
             if (player.Connection.Connected && TakeExplosionArt(player, now))
-            {
-                uint effect = player.TakeObjectId();
-                var art = new EffectObject(at.X, at.Y, ChaosExplosionAo);
-                player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(effect,
-                    InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob()), "minion chaos kill explosion",
-                    WorldId: effect, CreatesObject: true));
-                SendAfter(player, ArtMs(ChaosExplosionAo) / 1000d, async () =>
-                {
-                    if (!player.Closed && !player.LeavingArea) await SendWorldRemoval(player, effect, null);
-                });
-            }
+                QueueExplosionEffect(player, at, ChaosExplosionAo, "minion chaos kill explosion");
             if (factor <= 0) continue;
             double raw = dead.MaxLife * .25 * factor;
             var packet = DamagePacket.Of(DamageType.Chaos, raw, raw);
@@ -388,17 +392,7 @@ public static partial class Game
             player.Area.Monsters.Remove(corpseId);
             player.Minions.OutputQueue.Add(new([], "zombie kill explosion removes corpse", WorldId: corpseId, RemovesObject: true));
             if (player.Connection.Connected && TakeExplosionArt(player, now))
-            {
-                uint effect = player.TakeObjectId();
-                var art = new EffectObject(at.X, at.Y, KillExplosionAo);
-                player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(effect,
-                    InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob()), "zombie fire kill explosion",
-                    WorldId: effect, CreatesObject: true));
-                SendAfter(player, ArtMs(KillExplosionAo) / 1000d, async () =>
-                {
-                    if (!player.Closed && !player.LeavingArea) await SendWorldRemoval(player, effect, null);
-                });
-            }
+                QueueExplosionEffect(player, at, KillExplosionAo, "zombie fire kill explosion");
         }
         double factor = MinionAreaDamageFactor(zombie.Monster, DamageType.Fire, zombie.Own)
             * MinionNecromancerCorpseDamage(zombie.Monster.Effects)

@@ -196,8 +196,11 @@ public sealed class MontregulZombieTests
         Assert.DoesNotContain(targetId, player.Area.Monsters.Keys);
         Assert.Contains(player.Minions.OutputQueue,
             o => o.RemovesObject && o.WorldId == targetId && o.Log == "zombie kill explosion removes corpse");
-        Assert.Contains(player.Minions.OutputQueue,
+        var explosionArt = Assert.Single(player.Minions.OutputQueue,
             o => o.CreatesObject && o.Log == "zombie fire kill explosion");
+        Assert.Contains(player.Minions.OutputQueue,
+            o => !o.CreatesObject && !o.RemovesObject && o.WorldId == explosionArt.WorldId
+                && o.Packet.AsSpan().SequenceEqual(InstanceProtocol.EnterWakeZone(explosionArt.WorldId!.Value)));
         Assert.Equal(1500u, bystander.Life);
         Assert.Equal(0u, chainVictim.Life);
         Assert.False(chainVictim.CorpseConsumed);
