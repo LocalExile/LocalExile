@@ -10,6 +10,9 @@ sealed partial class VendorRecipes
     readonly ItemRolls _rolls;
     readonly Dictionary<ushort, int[]> _sellTypes = [];
     readonly Dictionary<ushort, string> _sellFamilies = [];
+    // Sell types >= 9 (other than 34) that no table settles: the item sells without a special reward, and each such
+    // type is logged once per gateway process (the vendor table is one shared instance), instead of refusing the sale.
+    readonly HashSet<int> _loggedUnpricedTypes = [];
     readonly Dictionary<uint, int> _upgradeCosts = [];
     readonly Dictionary<uint, uint> _upgrades = [];
     readonly List<ItemCatalog.BaseType> _types;
@@ -134,8 +137,10 @@ sealed partial class VendorRecipes
         }
         var rng = random;
         var pool = ordered.Select(i => new Ingredient(i, Type(i.Item))).ToList();
-        if (pool.Any(i => i.Item.Mods.Any(m => (_sellTypes.GetValueOrDefault(m.Hash) ?? []).Any(t => t >= 9 && t != 34))))
-            throw new NotSupportedException("This item's special vendor recipe is not implemented yet. Nothing has been sold.");
+        // An item with a special sell type no table settles takes part in no recipe: it is only sold, at its
+        // ordinary price, by the final pass below (before, the whole sale was refused).
+        var unpriced = pool.Where(i => UnpricedSpecialTypes(i.Item).Count > 0).ToList();
+        pool.RemoveAll(unpriced.Contains);
         var rewards = customRewards ?? new List<Item>();
         var recipes = customRecipes ?? new List<string>();
         var currency = new Dictionary<uint, int>();
@@ -367,8 +372,10 @@ sealed partial class VendorRecipes
         foreach (var remainder in pool.Where(i => i.Left > 0 && usedCurrency.Contains(i.Item.TypeHash)))
         { rewards.Add(remainder.Item with { StackSize = (ushort)remainder.Left }); remainder.Left = 0; }
 
+        pool.AddRange(unpriced);
         foreach (var i in pool.Where(i => i.Left > 0))
         {
+            foreach (int type in UnpricedSpecialTypes(i.Item).Order()) LogUnpricedOnce(type);
             int amount = i.Left;
             i.Left = 0;
             if (i.Item.Sockets.Count == 6 && i.Item.Links?.Contains((byte)6) == true)
@@ -381,15 +388,17 @@ sealed partial class VendorRecipes
             else if (i.Type.Name is "Portal Scroll" or "Armourer's Scrap" or "Blacksmith's Whetstone" or "Orb of Transmutation" or "Orb of Alteration")
                 Money("Scroll of Wisdom", amount * (i.Type.Name == "Portal Scroll" ? 1 : i.Type.Name == "Armourer's Scrap" ? 2 : 4));
             else if (!i.Item.Identified && i.Item.Rarity != ItemRarity.Normal)
+            {
                 Money("Transmutation Shard", amount * (i.Item.Rarity == ItemRarity.Magic ? 2 : 5));
+            }
             else if (i.Item.Rarity == ItemRarity.Rare && i.Item.Mods.Count(m => m.Section == ModSection.Explicit) is var affixes && affixes is 2 or 6)
                 Money(affixes == 2 ? "Orb of Scouring" : "Orb of Augmentation", amount);
             else
             {
                 var special = i.Item.Mods.SelectMany(m => _sellTypes.GetValueOrDefault(m.Hash) ?? []).Where(t => t >= 9).ToHashSet();
                 if (special.Contains(34)) { Money("Scroll Fragment", amount); continue; }
-                if (special.Count > 0)
-                    throw new NotSupportedException("This item's special vendor recipe is not implemented yet. Nothing has been sold.");
+                // No table settles these types, so the item sells at its ordinary price (ModPrice below)
+                // instead of refusing the whole sale; each type is logged once.
                 var price = ModPrice(i.Item);
                 if (price.Alteration == 0 && price.Alchemy == 0) Money("Scroll Fragment", amount);
                 else { if (price.Alteration > 0) Money("Alteration Shard", price.Alteration * amount); if (price.Alchemy > 0) Money("Alchemy Shard", price.Alchemy * amount); }
@@ -419,23 +428,35 @@ sealed partial class VendorRecipes
         var placements = offered.ToArray();
         if (placements.Select(i => i.Id).Distinct().Count() != placements.Length)
             throw new ArgumentException("Duplicate vendor ingredient id");
+        var returned = new List<Item>();
         foreach (var placement in placements)
         {
             var item = placement.Item;
             var type = Type(item);
             int count = item.StackSize;
+            foreach (int sellType in UnpricedSpecialTypes(item).Order()) LogUnpricedOnce(sellType);
             if (type.Class == "StackableCurrency")
             {
-                int wisdoms = type.Name switch
+                // No client table prices any other currency's basic sale (CurrencyItems carries no price
+                // column), so refuse just this stack -- return it in the offer and log it -- instead of
+                // throwing and refusing the whole trade.
+                int? wisdoms = type.Name switch
                 {
                     "Portal Scroll" => 1, "Armourer's Scrap" => 2,
                     "Blacksmith's Whetstone" or "Orb of Transmutation" or "Orb of Alteration" => 4,
-                    _ => throw new NotSupportedException("This currency's basic sale is not implemented. Nothing has been sold."),
+                    _ => null,
                 };
-                Add("Scroll of Wisdom", (long)wisdoms * count);
+                if (wisdoms is null)
+                {
+                    returned.Add(item);
+                    System.Console.WriteLine($"[gateway] vendor: basic sale refused {type.Name} x{count}: no table price; item returned");
+                }
+                else Add("Scroll of Wisdom", (long)wisdoms.Value * count);
             }
             else if (!item.Identified && item.Rarity != ItemRarity.Normal)
+            {
                 Add("Transmutation Shard", (item.Rarity == ItemRarity.Magic ? 2L : 5L) * count);
+            }
             else
             {
                 var modPrice = ModPrice(item);
@@ -469,6 +490,7 @@ sealed partial class VendorRecipes
                 rewards.Add(ItemCatalog.Create(type) with { StackSize = (ushort)amount });
                 left -= amount;
             }
+        rewards.AddRange(returned);
         return new(rewards, placements.Length == 0 ? [] : ["basic sale"]);
     }
 
@@ -532,6 +554,20 @@ sealed partial class VendorRecipes
                         1 + (set.All(i => !i.Item.Identified) ? 1 : 0) + (set.All(Quality) ? 1 : 0));
                     use("full rare set", set.ToArray());
                 }
+    }
+
+    // The sell types >= 9 (other than 34) no table settles, for one item. These sell at the item's
+    // ordinary price (ModPrice) instead of refusing the whole sale; each type is logged once per gateway process.
+    HashSet<int> UnpricedSpecialTypes(Item item) => item.Mods
+        .SelectMany(m => _sellTypes.GetValueOrDefault(m.Hash) ?? [])
+        .Where(t => t >= 9 && t != 34).ToHashSet();
+
+    void LogUnpricedOnce(int type)
+    {
+        // Quotes run on several players' connections at once; the set is shared by the one vendor table.
+        lock (_loggedUnpricedTypes)
+            if (!_loggedUnpricedTypes.Add(type)) return;
+        System.Console.WriteLine($"[gateway] vendor: special sell type {type} has no table price; the item sells without a special reward");
     }
 
     public (int Alteration, int Alchemy) ModPrice(Item item)
