@@ -105,7 +105,7 @@ public static class ChargeGains
 
     internal static readonly IReadOnlyList<Rule> OtherRules =
     [
-        new(Stat.GainFrenzyChargeOnHitWhileBleeding, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit, Flag: true),
+        new(Stat.GainFrenzyChargeOnHitWhileBleeding, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit { SelfBleeding: true }, Flag: true),
         new(Stat.GainFrenzyChargeOnHittingRareOrUniqueEnemyPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit h && RareOrUnique(h.Rarity)),
         new(Stat.ChanceToGainPowerChargeOnRareOrUniqueEnemyHitPct, ChargeType.Power, (e, _) => e is ChargeEvent.Hit h && RareOrUnique(h.Rarity)),
         // On critical strike

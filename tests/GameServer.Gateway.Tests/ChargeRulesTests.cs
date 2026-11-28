@@ -28,6 +28,27 @@ public sealed class ChargeRulesTests
     }
 
     [Fact]
+    public void ChargesOnHitWhileBleedingNeedTheCharacterToBleed()
+    {
+        // "Gain a Frenzy Charge on Hit while Bleeding" and its Power twin.
+        int Actor(uint stat) => stat is Stat.GainFrenzyChargeOnHitWhileBleeding or Stat.GainPowerChargeOnHitWhileBleeding ? 1 : 0;
+        var session = new ChargeSession();
+        session.Observe(Actor);
+        var rng = new Random(1);
+        void Hit(int tick, bool selfBleeding, int charges)
+        {
+            session.Admit(tick, [new ChargeEvent.Hit(false, false, true, MonsterRarity.Normal, SelfBleeding: selfBleeding)],
+                Actor, () => default, alive: true, rng);
+            Assert.Equal(charges, session.Effective(ChargeType.Frenzy));
+            Assert.Equal(charges, session.Effective(ChargeType.Power));
+        }
+
+        Hit(1, selfBleeding: false, 0);
+        Hit(2, selfBleeding: true, 1);
+        Hit(3, selfBleeding: false, 1);
+    }
+
+    [Fact]
     public void KillChanceRulesCombineActorAndSkillStatsOnceAndRespectCaps()
     {
         var session = new ChargeSession();
