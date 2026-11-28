@@ -1734,6 +1734,9 @@ public static partial class Game
     {
         int Get(uint k) => stats.GetValueOrDefault(k);
         int allRes = Get(Stat.BaseResistAllElementsPct);
+        // "X% increased maximum Life, Mana and Global Energy Shield" is one increase on each of the three pools
+        // (PoB ModParser.lua:427 lists Life, Mana and EnergyShield for that one phrase).
+        int allPoolsPct = Get(Stat.MaximumLifeManaAndEnergyShieldPlusPct);
         // The item tables also spell resistances without the base_ prefix (The Annihilating Light's -70% elemental,
         // the Cowl uniques' reduced single resistances); both spellings are the same character stat.
         int elementalRes = Get(Stat.ElementalDamageResistancePlusPct);
@@ -1851,7 +1854,7 @@ public static partial class Game
             lifeMorePct = (100m + lifeMorePct) * (100m + BloodMagic.LifeMorePct) / 100m - 100m;
         return new CharacterStats.Bonus(
             Attributes: attributes, Ward: Get(Stat.BaseWard), WardPct: Get(Stat.WardPlusPct) + Get(Stat.GlobalDefencesPlusPct) + Get(Stat.CombinedGlobalDefencesPlusPct),
-            Life: Get(Stat.BaseMaximumLife), LifePct: Get(Stat.MaximumLifePlusPct), Mana: Get(Stat.BaseMaximumMana), ManaPct: Get(Stat.MaximumManaPlusPct),
+            Life: Get(Stat.BaseMaximumLife), LifePct: Get(Stat.MaximumLifePlusPct) + allPoolsPct, Mana: Get(Stat.BaseMaximumMana), ManaPct: Get(Stat.MaximumManaPlusPct) + allPoolsPct,
             LifeMorePct: lifeMorePct,
             ManaPerFourStrength: Get(StrengthMana.PerFourStrength),
             LifePerLevel: Get(LifeManaPoolSources.LifePerLevel), ManaPerLevel: Get(LifeManaPoolSources.ManaPerLevel),
@@ -1883,7 +1886,8 @@ public static partial class Game
             ArmourAppliesToChaosDamage: Get(PlayerHitMitigation.ArmourAppliesToChaos) != 0,
             EnergyShield: Get(Stat.BaseMaximumEnergyShield),
             EnergyShieldPctPerTenStrength: Get(AttributeDefenceSources.EnergyShieldPerTenStrength),
-            EnergyShieldPct: Get(Stat.MaximumEnergyShieldPlusPct) + Get(Stat.GlobalDefencesPlusPct) + Get(Stat.CombinedGlobalDefencesPlusPct),
+            EnergyShieldPct: Get(Stat.MaximumEnergyShieldPlusPct) + Get(Stat.GlobalDefencesPlusPct) + Get(Stat.CombinedGlobalDefencesPlusPct)
+                + allPoolsPct,
             ShieldArmourPct: Get(Stat.ShieldPhysicalDamageReductionRatingPlusPct),
             ShieldEvasionPct: Get(Stat.ShieldEvasionRatingPlusPct),
             ShieldEnergyShieldPct: Get(Stat.ShieldMaximumEnergyShieldPlusPct),
