@@ -158,7 +158,7 @@ public static class BreachHub
             await SetLeagueQuestFlags(player, [LqfGraftLockerUnlocked]);
 
         if (await WorldOf(PlayerOf(player)).SpawnHideoutStation(
-                HideoutSlot.Small, BreachLocker.HideoutLockerType, "breach-locker", "Wombgift Locker") is { } lockerId)
+                HideoutSlot.Small2, BreachLocker.HideoutLockerType, "breach-locker", "Wombgift Locker") is { } lockerId)
         {
             HideoutLockers.GetOrCreateValue(player.Area).LockerId = lockerId;
             module.Log($"{PlayerOf(player).Character}: spawned hideout Wombgift Locker 0x{lockerId:x}");

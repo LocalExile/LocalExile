@@ -182,6 +182,8 @@ public enum HideoutSlot
     Large,
     /// <summary>For something about 4 cells around.</summary>
     Small,
+    /// <summary>A second reserved spot for something about 4 cells around, separate from <see cref="Small"/>.</summary>
+    Small2,
 }
 
 /// <summary>What a craft makes and what it costs: currency type hash and amount.</summary>
