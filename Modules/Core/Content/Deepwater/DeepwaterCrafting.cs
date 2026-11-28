@@ -39,11 +39,6 @@ public static class DeepwaterCrafting
         ["Metadata/Items/Currency/CurrencyAddModToRareElder"] = ItemInfluence.Elder,
     };
 
-    // 3 Foulborn Orbs (BaseItemTypes Id).
-    const string FoulbornAug = "Metadata/Items/Currency/CurrencyMutatedAddModToMagic";
-    const string FoulbornRegal = "Metadata/Items/Currency/CurrencyMutatedUpgradeMagicToRare";
-    const string FoulbornExalt = "Metadata/Items/Currency/CurrencyMutatedAddModToRare";
-
     /// <summary>One row of <c>DeepwaterCraftingCurrencies</c> joined via <c>CurrencyItems.BaseItemTypesKey</c>.</summary>
     public sealed record CurrencyRow(uint CurrencyHash, int Tier, int MinCopies, int MaxCopies, int Cost,
         int RequiredLeagueFlag, int IntangMin, int IntangMax, int HardModeCost, bool DisabledInRuthless);
@@ -633,9 +628,9 @@ public static class DeepwaterCrafting
                 CurrencyEffects.EldritchExaltedOrb => CurrencyEffects.EldritchExalted(effective, rolls, random),
                 CurrencyEffects.EldritchAnnulmentOrb => CurrencyEffects.EldritchAnnulment(effective, rolls, random),
                 CurrencyEffects.FracturingOrb => CurrencyEffects.Fracture(effective, rolls, random),
-                FoulbornAug => ApplyFoulborn(catalog, rolls, effective, targetType, FoulbornKind.Augment, random),
-                FoulbornRegal => ApplyFoulborn(catalog, rolls, effective, targetType, FoulbornKind.Regal, random),
-                FoulbornExalt => ApplyFoulborn(catalog, rolls, effective, targetType, FoulbornKind.Exalt, random),
+                CurrencyEffects.FoulbornOrbOfAugmentation => CurrencyEffects.FoulbornAugmentation(effective, rolls, random),
+                CurrencyEffects.FoulbornRegalOrb => CurrencyEffects.FoulbornRegal(effective, rolls, random),
+                CurrencyEffects.FoulbornExaltedOrb => CurrencyEffects.FoulbornExalted(effective, rolls, random),
                 // Deferred niche currencies (Resonators, Veiled, Conflict/Dominance, Tempering/Tailoring, Memory): refuse cleanly.
                 _ => null,
             };
@@ -665,43 +660,6 @@ public static class DeepwaterCrafting
 
         var chosen = DeepwaterDucats.WeightedPick(eligible, random);
         return DeepwaterDucats.InsertExplicitMod(influenced, catalog.Mods, chosen, random);
-    }
-
-    enum FoulbornKind { Augment, Regal, Exalt }
-
-    // G: Foulborn orbs bias eligible affixes toward higher-level tiers via weight * (1 + mod.Level / 20).
-    static Item? ApplyFoulborn(ItemCatalog catalog, ItemRolls rolls, Item target, ItemCatalog.BaseType targetType,
-        FoulbornKind kind, Random random)
-    {
-        if (!rolls.Modifiable(target)) return null;
-        if (kind is FoulbornKind.Augment or FoulbornKind.Regal && target.Rarity != ItemRarity.Magic) return null;
-        if (kind == FoulbornKind.Exalt && target.Rarity != ItemRarity.Rare) return null;
-        if (kind is FoulbornKind.Regal or FoulbornKind.Exalt && target.Components.Contains("Flask")) return null;
-
-        var max = kind == FoulbornKind.Augment ? (1, 1) : rolls.RareMaxAffixes(target);
-        var affixes = rolls.AffixesToAdd(target, max);
-        if (affixes.Count == 0) return null;
-
-        long total = 0;
-        var weighted = new (ModCatalog.Mod Mod, long Weight)[affixes.Count];
-        for (int i = 0; i < affixes.Count; i++)
-        {
-            long w = Math.Max(1L, (long)affixes[i].Weight * (1 + affixes[i].Mod.Level / 20));
-            weighted[i] = (affixes[i].Mod, w);
-            total += w;
-        }
-        long roll = random.NextInt64(Math.Max(1, total));
-        var chosen = weighted[^1].Mod;
-        foreach (var (mod, weight) in weighted)
-        {
-            if (roll < weight) { chosen = mod; break; }
-            roll -= weight;
-        }
-
-        var result = DeepwaterDucats.InsertExplicitMod(target, catalog.Mods, chosen, random);
-        return kind == FoulbornKind.Regal
-            ? result with { Rarity = ItemRarity.Rare, Identified = true, NameWords = rolls.RareName(targetType, random) }
-            : result;
     }
 
     // ---- 4 GhostflameCraftingOutput display cases & relog reconstruction ----

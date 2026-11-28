@@ -204,7 +204,7 @@ public sealed class ItemRolls
         item.Rarity == ItemRarity.Magic && TryModifiable(item, out _) ? AddAffix(item, 1, random) : null;
 
     /// <summary>Foulborn Orb of Augmentation (<c>mutated_add_mod_to_magic</c>): augments a magic item with a new random
-    /// modifier with higher-level modifiers being more likely (drops the lower half of eligible tiers per family).</summary>
+    /// modifier with higher-level modifiers being more likely (weight × (1 + level / 20)).</summary>
     public Item? FoulbornAugment(Item item, Random random) =>
         item.Rarity == ItemRarity.Magic && TryModifiable(item, out _) ? AddAffixCore(item, (1, 1), random, respectMetamods: true, requiredTag: null, favorHigherTiers: true) : null;
 
@@ -221,7 +221,7 @@ public sealed class ItemRolls
     }
 
     /// <summary>Foulborn Regal Orb (<c>mutated_upgrade_magic_to_rare</c>): upgrades a magic item to rare while favoring
-    /// higher-level modifiers (drops the lower half of eligible tiers per family).</summary>
+    /// higher-level modifiers (weight × (1 + level / 20)).</summary>
     public Item? FoulbornRegal(Item item, Random random)
     {
         if (item.Rarity != ItemRarity.Magic || IsMagicOnly(item) || !TryModifiable(item, out var type))
@@ -259,7 +259,7 @@ public sealed class ItemRolls
     }
 
     /// <summary>Foulborn Exalted Orb (<c>mutated_add_mod_to_rare</c>): augments a rare item with a new random modifier
-    /// while favoring higher-level modifiers (drops the lower half of eligible tiers per family).</summary>
+    /// while favoring higher-level modifiers (weight × (1 + level / 20)).</summary>
     public Item? FoulbornExalted(Item item, Random random)
     {
         if (item.Rarity != ItemRarity.Rare || IsMagicOnly(item) || !TryModifiable(item, out var type))
@@ -719,29 +719,17 @@ public sealed class ItemRolls
             !have.Any(h => h.Families.Intersect(p.Mod.Families).Any()) && (requiredTag is null || p.Mod.Tags.Contains(requiredTag)))];
     }
 
-    /// <summary>Drops the lower half of eligible modifier tiers within each multi-tier family (by <c>Mods.Level</c>),
-    /// matching Foulborn currency orbs' "higher level modifiers being more likely" pool pruning.</summary>
-    public static IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> FilterHigherTiers(
-        IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> pool)
-    {
-        if (pool.Count <= 1) return pool;
-        var filtered = new List<(ModCatalog.Mod Mod, int Weight)>(pool.Count);
-        foreach (var group in pool.GroupBy(p => p.Mod.Families.Count > 0 ? p.Mod.Families[0] : -p.Mod.Row - 1))
-        {
-            var ordered = group.OrderBy(p => p.Mod.Level).ThenBy(p => p.Mod.Row).ToArray();
-            int drop = ordered.Length / 2;
-            for (int i = drop; i < ordered.Length; i++)
-                filtered.Add(ordered[i]);
-        }
-        return filtered.Count > 0 ? filtered : pool;
-    }
+    /// <summary>The Foulborn orbs' "higher level modifiers being more likely" (their CurrencyItems text): each eligible
+    /// affix weighs <c>weight × (1 + Mods.Level / 20)</c>, the rule Deepwater's vat used, so low tiers can still roll.</summary>
+    static IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> FavorHigherTiers(IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> pool) =>
+        [.. pool.Select(p => (p.Mod, Math.Max(1, p.Weight * (1 + p.Mod.Level / 20))))];
 
     Item? AddAffixCore(Item item, (int Prefix, int Suffix) max, Random rng, bool respectMetamods, string? requiredTag,
         bool favorHigherTiers = false)
     {
         var allowed = AffixesToAdd(item, max, respectMetamods, requiredTag);
         if (allowed.Count == 0) return null;
-        if (favorHigherTiers) allowed = FilterHigherTiers(allowed);
+        if (favorHigherTiers) allowed = FavorHigherTiers(allowed);
         var added = Pick(allowed, rng);
         // Prefixes before suffixes, as Roll orders them.
         var mods = item.Mods.ToList();
