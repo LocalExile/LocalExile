@@ -25,6 +25,8 @@
     <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsRewards\SurvivorsRewards.csproj" />
     <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsSkills\SurvivorsSkills.csproj" />
     <ProjectReference Include="..\..\Modules\Legacy\PhreciaAscendancies\PhreciaAscendancies.csproj" />
+    <!-- The Crucible tree's node pool, generation and allocation rules (CrucibleTreeRuleTests). -->
+    <ProjectReference Include="..\..\Modules\Legacy\Crucible\Crucible.csproj" />
     <!-- The QuestObjects module's rules and acts (Act6EncounterTests, QuestEncounterRestoreTests). -->
     <ProjectReference Include="..\..\Modules\Core\World\QuestObjects\QuestObjects.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Item\Cosmetics\Cosmetics.csproj" />

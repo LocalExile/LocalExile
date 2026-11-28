@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Crucible (3.21) weapon trees as a legacy module (Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. -->
+
+</Project>

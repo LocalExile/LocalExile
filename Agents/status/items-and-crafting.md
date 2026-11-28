@@ -36,6 +36,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Crucible weapon trees: the record inside the Mods component (layout, allocation, connections, node mods), its save
+  round trip, allocated nodes counting as hidden mods in the item's stats, and the rules that generate and allocate a
+  tree (`Modules/Legacy/Crucible`). Nothing hands a dropped weapon a tree yet: the Crucible encounter and its forge
+  screen are the follow-up, so a mod or another module generates one with `CrucibleTrees.Generate`.
+  Docs: [13](../docs/protocol/13-items.md), "Crucible weapon trees".
+
 - Read-only inventories emit `0x00c2` permissions; Heist NPC equipment handles `0x00fd` and controller `0x002d` moves.
 - Soul Ripper spends charges for Vaal souls when allowed, and Forbidden Taste applies its recovery and chaos damage.
 - The Wise Oak, Taste of Hate and Soul Catcher apply their qualified damage modifiers during the flask effect.
