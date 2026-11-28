@@ -44,8 +44,7 @@ public static partial class Game
     static bool ActivePlayerLink(Player source, Player peer, LinkSkills.Link link, double now) =>
         source.PlayerLife > 0 && !source.Closed && !source.LeavingArea && source.PendingTransfer is null
         && peer.PlayerLife > 0 && LinkPeerPresent(source, peer)
-        && ReferenceEquals(peer.Links.Incoming?.Link, link) && now < link.Until
-        && (link.AwaySince is not double away || now - away < LinkSkills.BreakSeconds);
+        && ReferenceEquals(peer.Links.Incoming?.Link, link) && now < LinkEndAt(link);
 
     static Dictionary<uint, int> WithPlayerLinkSources(Player peer, Dictionary<uint, int> sources)
     {

@@ -53,7 +53,11 @@ public sealed class MonsterTable(GameArea area) : SortedDictionary<uint, Spawned
     {
         if (!monster.Dead) area.Grid.Set(new(id), monster.Walk.Position(area.Time), monster.StopRange);
         monster.StatsMarked = marked;
-        monster.LifeChanged = () => area.Life.Changed(id);
+        monster.LifeChanged = () =>
+        {
+            if (monster.Life == 0) monster.LastLifeEndedAt = area.Time;
+            area.Life.Changed(id);
+        };
         marked.TryAdd(monster, 0);
     }
 

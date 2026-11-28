@@ -12,8 +12,7 @@ public static partial class Game
     static readonly RuleTable<GolemState.Golem, LeechRecoveryState> MinionShieldLeeches = new();
 
     static SpawnedMonster? VampiricMinionAt(Player player, LinkSkills.Link link, double now) =>
-        link.EffectId == "VampiricLink" && now < link.Until && player.PlayerLife > 0 && !player.Closed && !player.LeavingArea
-        && (link.AwaySince is not double away || now - away < LinkSkills.BreakSeconds)
+        link.EffectId == "VampiricLink" && now < LinkEndAt(link) && player.PlayerLife > 0 && !player.Closed && !player.LeavingArea
         && player.Area.Monsters.GetValueOrDefault(link.Target) is { Dead: false, Life: > 0 } monster
         && (player.Minions.Owns(link.Target, monster)
             || (player.Companion is { } comp && comp.EntityId == link.Target && ReferenceEquals(comp.Monster, monster)))

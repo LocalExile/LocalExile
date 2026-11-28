@@ -757,6 +757,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>Its life; a change goes to every client at the frame's end (AreaLife).</summary>
     public uint Life { get; set { if (field == value) return; field = value; LifeChanged?.Invoke(); } } = maxLife;
     internal Action? LifeChanged;
+    public double? LastLifeEndedAt { get; internal set; }
     // Until when its last flinch plays (Clock seconds; HitReaction): no new action or flinch before.
     // Owned by the area's frame.
     public double FlinchUntil = double.NegativeInfinity;
@@ -1612,6 +1613,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     /// <summary>Life the client predicted was not written (AreaLife.LifePredicted): the last written value is behind.</summary>
     public bool LifeAheadOfWire;
     uint playerLife;
+    public double? LastLifeEndedAt { get; private set; }
     public uint PlayerLife
     {
         get => playerLife;
@@ -1620,6 +1622,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
             // Resource loss belongs to the actual death transition, never a delayed death notification.
             if (playerLife > 0 && value == 0)
             {
+                LastLifeEndedAt = Frames.Now(this);
                 VaalSouls.ClearBalance(); VaalPreventionUntil = 0; VaalUseState = null;
                 MoltenStrikeAttackCounts.Clear(); MoltenStrikeFifthBuffs.Clear();
                 Rage.Clear(); Rampage.Clear(); RetireOwnedCombat(); RetireResourceEffects();

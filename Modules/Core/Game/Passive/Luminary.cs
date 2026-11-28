@@ -486,8 +486,7 @@ public static partial class Game
 
     /// <summary>Active link currently bound to the player's companion entity, or null.</summary>
     public static LinkSkills.Link? ActiveCompanionLink(Player player, uint companionId, double now) =>
-        player.PlayerLife > 0 && player.Links.On(companionId) is { } link && now < link.Until
-        && (link.AwaySince is not double away || now - away < LinkSkills.BreakSeconds) ? link : null;
+        player.PlayerLife > 0 && player.Links.On(companionId) is { } link && now < LinkEndAt(link) ? link : null;
 
     /// <summary>Total Link Skill Buff Effect % for a companion target, including Golden Glory's additive Light Radius
     /// modifiers when targeting the player's permanent mercenary.</summary>

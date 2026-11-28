@@ -304,7 +304,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Holy Relic nova reaches allies ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Phantasmal Might follows active Phantasms ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Equipped summons use active sources ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
-- Link skills affect allied players in the same instance. Live-tested in predictive and lockstep. See [protocol](../docs/protocol/11-skills.md) and [Paladin](../docs/game/paladin.md#link-skills).
+- Link skills affect allied players in the same instance. Their ongoing costs and death penalty stop at the duration or range deadline. Live-tested in predictive and lockstep. See [protocol](../docs/protocol/11-skills.md) and [Paladin](../docs/game/paladin.md#link-skills).
   Docs: [11](../docs/protocol/11-skills.md) Â§13, [Paladin](../docs/game/paladin.md).
 - Owned minions: relics, chieftains and the 17 golems. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Link skills. Docs: [11](../docs/protocol/11-skills.md) Â§13, [Paladin](../docs/game/paladin.md#link-skills).

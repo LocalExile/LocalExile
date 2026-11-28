@@ -25,10 +25,11 @@ public static partial class Game
         return current() && await StartLink(player, skillId, targetId);
     }
 
-    sealed class LinkTargetTag(bool isCompanion, bool isPermanent, SpawnedMonster? monster = null)
+    sealed class LinkTargetTag(bool isCompanion, bool isPermanent, SpawnedMonster monster, PlayerMinions.Minion? minion = null)
     {
         public readonly bool IsCompanion = isCompanion, IsPermanent = isPermanent;
-        public readonly SpawnedMonster? Monster = monster;
+        public readonly SpawnedMonster Monster = monster;
+        public readonly PlayerMinions.Minion? Minion = minion;
     }
 
     // Keeps the original recipient across death, despawn, and area exit, including Oath of Fealty's permanent mercenary.
@@ -94,6 +95,7 @@ public static partial class Game
         {
             SkillStats = gem.Stats,
             PlayerTarget = recipient.Peer,
+            StartedAt = now,
             Until = infinite ? double.PositiveInfinity : now + seconds,
             ManaPerMinute = paysLife ? 0 : costPerMinute,
             LifePerMinute = paysLife ? costPerMinute : 0, LifePaidAt = now,
@@ -106,6 +108,8 @@ public static partial class Game
         }
         else if (player.Companion is { } comp && comp.EntityId == target)
             LinkTargetTags.Add(link, new(isCompanion: true, isPermanent: comp.IsPermanent, comp.Monster));
+        else if (recipient.Minion is { } minion)
+            LinkTargetTags.Add(link, new(isCompanion: false, isPermanent: false, minion.Monster, minion));
         player.Links.Add(link);
         if (effectId == "IntuitiveLink") CaptureIntuitiveLink(player, link, gem);
         uint? buffDuration = infinite ? null : Buff.Seconds(seconds);
@@ -120,7 +124,7 @@ public static partial class Game
         return true;
     }
 
-    readonly record struct LinkCandidate(uint Id, (int X, int Y) Position, Player? Peer = null);
+    readonly record struct LinkCandidate(uint Id, (int X, int Y) Position, Player? Peer = null, PlayerMinions.Minion? Minion = null);
 
     static bool LinkPeerPresent(Player caster, Player peer) =>
         ReferenceEquals(caster.Frames, peer.Frames) && !peer.Closed && !peer.LeavingArea
@@ -162,7 +166,7 @@ public static partial class Game
                     || m.Monster.Invulnerable || m.Monster.Effects[Stat.BaseCannotBeDamaged] != 0
                     || (OwnedFighter(player, m.Id) is { } fighter && GolemIgnoresDots(fighter))) continue;
                 var pos = m.Monster.Walk.Position(now);
-                if (Reachable(pos)) valid.Add(new(m.Id, pos));
+                if (Reachable(pos)) valid.Add(new(m.Id, pos, Minion: m));
             }
         }
         if (valid.Count == 0) return null;
@@ -199,9 +203,19 @@ public static partial class Game
         player.Area.Monsters.TryGetValue(minion.Id, out var held)
         && ReferenceEquals(held, minion.Monster) && !held.Dead && held.Life > 0;
 
+    static double LinkEndAt(LinkSkills.Link link) => link.AwaySince is double away
+        ? Math.Min(link.Until, away + LinkSkills.BreakSeconds) : link.Until;
+
+    static double LinkTargetDeathAt(LinkSkills.Link link, double now)
+    {
+        if (link.PlayerTarget is { } peer) return peer.LastLifeEndedAt ?? now;
+        if (!LinkTargetTags.TryGetValue(link, out var tag)) return now;
+        double diedAt = tag.Monster.LastLifeEndedAt ?? now;
+        return tag.Minion is { Until: > 0 } minion ? Math.Min(diedAt, minion.Until) : diedAt;
+    }
+
     static LinkSkills.Link? ActiveMinionLink(Player player, GolemState.Golem fighter, double now) =>
-        player.PlayerLife > 0 && player.Links.On(fighter.Id) is { } link && now < link.Until
-        && (link.AwaySince is not double away || now - away < LinkSkills.BreakSeconds) ? link : null;
+        player.PlayerLife > 0 && player.Links.On(fighter.Id) is { } link && now < LinkEndAt(link) ? link : null;
 
     public static void GrantLinkedMinionRareModifiers(KillContext kill)
     {
@@ -317,11 +331,9 @@ public static partial class Game
 
     /// <summary>
     /// One step of the player's links at game time <paramref name="now"/> (StartPlayerMinions, after the minions' step).
-    /// The player's death ends them all. A linked target that died or ended (a minion's duration running out counts, wiki
-    /// Link skill) kills the player through the normal death path, which in Hardcore is a real death. Otherwise the cost
-    /// since the last step is paid from mana (every link's <c>mana_cost_per_minute</c>); when it cannot be, all links
-    /// break. Then a link ends with its duration, or after 4 s with its target out of range. Field Medicine's flask buffs on
-    /// the targets end with their duration.
+    /// A target dying while linked kills the caster through the normal death path, including a minion reaching its
+    /// lifetime. Each link accrues its mana or life cost only while active. Its duration and an existing out-of-range
+    /// deadline still apply when one frame spans both the deadline and a target update.
     /// </summary>
     public static async Task LinkSkillsTick(Player player, double now)
     {
@@ -347,48 +359,67 @@ public static partial class Game
         bool canTargetMinions = Stat.LinkSkillsCanTargetMinions is var can && playerStats.GetValueOrDefault(can) != 0;
         bool oathProtectsMerc = playerStats.GetValueOrDefault(Stat.ObjectsLinkedToYourPermanenetMercenariesDoNotDieWhenTheyDie) != 0;
         string? all = player.PlayerLife == 0 ? "the player died" : null;
+        var active = links.All.ToArray();
+        var here = player.Walk.Position(now);
+        int range = LinkSkills.Range(playerStats.GetValueOrDefault(Stat.LinkSkillRangePlusPct));
+        bool paysMana = playerStats.GetValueOrDefault(Stat.NoManaCost) == 0;
+        double due = links.ManaCarry;
         if (all is null)
         {
-            foreach (var link in links.All)
+            foreach (var link in active)
             {
                 if (!canTargetMinions && RequiresMinionLinkPermission(link)) continue;
-                if (LinkTargetAliveLocked(player, link)) continue;
-                if (link.PlayerTarget is { } peer && !LinkPeerPresent(player, peer)) continue;
-                if (IsDespawnedCompanionLink(link)) continue;
-                if (oathProtectsMerc && IsPermanentMercenaryLink(link))
-                    continue; // Oath of Fealty: linked permanent mercenary died — link ends without killing the player.
-                all = $"its target 0x{link.Target:x} died";
-                died = true;
-                break;
+                double end = LinkEndAt(link);
+                if (!LinkTargetAliveLocked(player, link))
+                {
+                    if ((link.PlayerTarget is { } peer && !LinkPeerPresent(player, peer)) || IsDespawnedCompanionLink(link))
+                        continue;
+                    double deathAt = LinkTargetDeathAt(link, now);
+                    if (deathAt < end && !(oathProtectsMerc && IsPermanentMercenaryLink(link)))
+                    {
+                        all = $"its target 0x{link.Target:x} died";
+                        died = true;
+                        break;
+                    }
+                    end = Math.Min(end, deathAt);
+                }
+                if (paysMana && link.ManaPerMinute > 0)
+                {
+                    double from = Math.Max(links.PaidAt, link.StartedAt);
+                    due += link.ManaPerMinute * Math.Max(0, Math.Min(now, end) - from) / 60;
+                }
             }
         }
-        double elapsed = Math.Max(0, now - links.PaidAt);
         bool outOfMana = false;
-        if (all is null && links.Count > 0 && playerStats.GetValueOrDefault(Stat.NoManaCost) == 0)
+        if (all is null && active.Length > 0 && paysMana)
         {
-            double due = links.ManaCarry + links.All
-                .Where(l => (canTargetMinions || !RequiresMinionLinkPermission(l)) && LinkTargetAliveLocked(player, l))
-                .Sum(l => l.ManaPerMinute) / 60 * elapsed;
             uint whole = (uint)Math.Min(uint.MaxValue, Math.Floor(due));
             if (player.PlayerMana < whole) outOfMana = true;
             else (player.PlayerMana, links.ManaCarry, paid) = (player.PlayerMana - whole, due - whole, whole > 0);
         }
         links.PaidAt = now;
-        var here = player.Walk.Position(now);
-        int range = LinkSkills.Range(Stat.LinkSkillRangePlusPct is var r ? playerStats.GetValueOrDefault(r) : 0);
-        foreach (var link in links.All.ToArray())
+        foreach (var link in active)
         {
-            string? why = all;
+            string? why = all, expiryReason = null;
+            double end = LinkEndAt(link);
             if (why is null && !canTargetMinions && RequiresMinionLinkPermission(link))
                 why = "link_skills_can_target_minions is gone";
-            if (why is null && !LinkTargetAliveLocked(player, link))
-                why = link.PlayerTarget is not null ? "its player target left the area"
-                    : IsDespawnedCompanionLink(link) ? "its companion left" : "its linked permanent mercenary died (Oath of Fealty)";
             if (why is null && outOfMana && link.ManaPerMinute > 0)
                 why = "not enough mana";
+            if (why is null && !LinkTargetAliveLocked(player, link))
+            {
+                if (link.PlayerTarget is { } peer && !LinkPeerPresent(player, peer))
+                    why = "its player target left the area";
+                else if (IsDespawnedCompanionLink(link)) why = "its companion left";
+                else if (LinkTargetDeathAt(link, now) is var deathAt && deathAt < end)
+                {
+                    end = deathAt;
+                    expiryReason = "its linked permanent mercenary died (Oath of Fealty)";
+                }
+            }
             if (why is null && link.LifePerMinute > 0)
             {
-                double seconds = Math.Max(0, Math.Min(now, link.Until) - link.LifePaidAt);
+                double seconds = Math.Max(0, Math.Min(now, end) - link.LifePaidAt);
                 uint payment = Lifetap.PayOngoingLife(player.PlayerLife, link.LifePerMinute * seconds / 60,
                     ref link.LifeCarry, out bool exhausted);
                 player.PlayerLife -= payment;
@@ -396,14 +427,15 @@ public static partial class Game
                 link.LifePaidAt = now;
                 if (exhausted) why = "not enough life";
             }
+            if (why is null && now >= end)
+                why = expiryReason ?? (end == link.Until ? "its duration ended"
+                    : $"out of range ({range} cells) or line of sight for 4 s");
             var position = why is null ? LinkTargetPosition(player, link, now) : null;
-            if (why is null && now >= link.Until) why = "its duration ended";
-            else if (why is null)
+            if (why is null)
             {
                 bool away = position is not { } target || Dist(target, here) > range
                     || !MinionHasClearShot(player, here, target, targetRadius: 0);
                 link.AwaySince = away ? link.AwaySince ?? now : null;
-                if (away && now - link.AwaySince >= LinkSkills.BreakSeconds) why = $"out of range ({range} cells) or line of sight for 4 s";
             }
             if (why is null)
             {
