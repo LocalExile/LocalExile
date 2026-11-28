@@ -19,14 +19,14 @@ static class LegionRules
     /// <summary>S->C 0x1f: adds the ruleset to the client's world; null without the row.</summary>
     public static byte[]? Add() => Row is { } r ? InstanceProtocol.AddRuleset(r) : null;
 
-    /// <summary>0x2c9 mode 0 (0x141731020): the encounter at (<paramref name="x"/>, <paramref name="y"/>) in grid cells, its area level, not endless, then
-    /// its blob (0x141eb4750): alert mode 0, the monolith's id, active/stage, state/step, seconds elapsed, gauge 0, angle (f32) and the timer's length.</summary>
+    /// <summary>0x2c9 mode 0 (0x141731020): the encounter at (<paramref name="x"/>, <paramref name="y"/>) in grid cells, its area level, endless flag, then
+    /// its blob (0x141eb4750): alert mode, the monolith's id, active/stage, state/step, seconds elapsed, alert gauge, angle (f32) and the timer's length.</summary>
     public static byte[]? Begin(int x, int y, uint level, uint monolith, float elapsed, float timerSeconds,
-        byte stage = Running, byte step = Timer, float angle = 0)
+        byte stage = Running, byte step = Timer, float angle = 0, bool endless = false, bool alertMode = false, float gauge = 0)
     {
         if (Row is not { } r) return null;
-        var w = new BlobWriter().U8(0).I32(x).I32(y).U32(level).U8(0)
-            .U8(0).U32(monolith).U8(stage).U8(step).F32(elapsed).F32(0).F32(angle).F32(timerSeconds);
+        var w = new BlobWriter().U8(0).I32(x).I32(y).U32(level).U8((byte)(endless ? 1 : 0))
+            .U8((byte)(alertMode ? 1 : 0)).U32(monolith).U8(stage).U8(step).F32(elapsed).F32(gauge).F32(angle).F32(timerSeconds);
         return InstanceRulesets.Data(r, w.ToArray());
     }
 

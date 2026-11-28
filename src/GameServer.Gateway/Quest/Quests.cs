@@ -126,6 +126,10 @@ public static partial class Quests
         /// <summary>Another room or tile object whose place the NPC takes, for an NPC no room line places (Lady Dialla on
         /// the tower top appears at Dominus' DeathPortalLocator).</summary>
         public string? AtObject { get; init; }
+        /// <summary>League quest flag id whose presence hides this NPC (optional, checked alongside <see cref="GoneWith"/>).</summary>
+        public int? GoneWithLeagueFlag { get; init; }
+        /// <summary>League quest flag id required for this NPC to appear (optional, checked alongside <see cref="ShownBy"/>).</summary>
+        public int? ShownByLeagueFlag { get; init; }
     }
     /// <summary>An object type that exists only from <see cref="From"/> and/or until <see cref="Until"/> is set: its .ot
     /// BaseEvents <c>serialisation_start_flag</c> / <c>serialisation_stop_flag</c> (Lilly on the Cathedral Rooftop after
@@ -248,8 +252,13 @@ public static partial class Quests
         public static Rule SpawnsNear(string area, string objectType, string variety, string? until = null) => new NearSpawnRule(area, objectType, variety, until);
         public static Rule Drops(string area, string variety, string item) => new DropRule(area, variety, item);
         public static Rule Npc(string area, string npcType, string? goneWith, string? transitionedBy = null, string? shownBy = null,
-            string? freedBy = null, string? atObject = null, byte? transitionedTo = null) =>
-            new NpcRule(area, npcType, goneWith, transitionedBy, shownBy) { FreedBy = freedBy, AtObject = atObject, TransitionedTo = transitionedTo };
+            string? freedBy = null, string? atObject = null, byte? transitionedTo = null,
+            int? goneWithLeagueFlag = null, int? shownByLeagueFlag = null) =>
+            new NpcRule(area, npcType, goneWith, transitionedBy, shownBy)
+            {
+                FreedBy = freedBy, AtObject = atObject, TransitionedTo = transitionedTo,
+                GoneWithLeagueFlag = goneWithLeagueFlag, ShownByLeagueFlag = shownByLeagueFlag,
+            };
         public static Rule Exists(string objectType, string? from = null, string? until = null, string? to = null) =>
             new ExistsRule(objectType, from, until) { To = to };
         public static Rule Appears(string area, string variety, string npcType, string? goneWith = null, bool stayAfterReward = false,
@@ -538,9 +547,11 @@ public static partial class Quests
                 .Concat(Of<ExistsRule>().Select(r => r.ObjectType).Where(t => t.StartsWith("Metadata/NPC/", StringComparison.Ordinal))).Distinct();
 
         /// <summary>Whether a room or town NPC of the type stands in the area for a character with these flags.</summary>
-        public bool NpcPresent(string areaId, string npcType, Func<string, bool> has) =>
+        public bool NpcPresent(string areaId, string npcType, Func<string, bool> has, Func<int, bool>? hasLeague = null) =>
             Exists(npcType, has) && In<NpcRule>(areaId).Where(r => r.NpcType == npcType)
-                .All(r => (r.ShownBy is null || has(r.ShownBy)) && (r.GoneWith is null || !has(r.GoneWith)));
+                .All(r => (r.ShownBy is null || has(r.ShownBy)) && (r.GoneWith is null || !has(r.GoneWith))
+                    && (r.ShownByLeagueFlag is not int reqLqf || hasLeague?.Invoke(reqLqf) == true)
+                    && (r.GoneWithLeagueFlag is not int goneLqf || hasLeague?.Invoke(goneLqf) != true));
 
         /// <summary>Whether the NPC stands in its last Transitionable state (<see cref="NpcRule.TransitionedBy"/>).</summary>
         public bool NpcTransitioned(string areaId, string npcType, Func<string, bool> has) =>
@@ -631,7 +642,8 @@ public static partial class Quests
     public static IEnumerable<(string Type, string To)> ExitDestinations() => Everything.ExitDestinations();
     public static bool ManagesNpc(string areaId, string npcType) => Everything.ManagesNpc(areaId, npcType);
     public static IEnumerable<string> PlacedNpcTypes(string areaId) => Everything.PlacedNpcTypes(areaId);
-    public static bool NpcPresent(string areaId, string npcType, Func<string, bool> has) => Everything.NpcPresent(areaId, npcType, has);
+    public static bool NpcPresent(string areaId, string npcType, Func<string, bool> has, Func<int, bool>? hasLeague = null) =>
+        Everything.NpcPresent(areaId, npcType, has, hasLeague);
     public static bool NpcTransitioned(string areaId, string npcType, Func<string, bool> has) => Everything.NpcTransitioned(areaId, npcType, has);
     public static bool Frees(string areaId, string varietyId) => Everything.Frees(areaId, varietyId);
     public static bool NpcFreed(string areaId, string npcType, IReadOnlySet<string> killed) => Everything.NpcFreed(areaId, npcType, killed);
@@ -647,13 +659,13 @@ public static partial class Quests
     /// <summary>Flags every character has from the start (added on login, not a quest's), all for the hideout
     /// (21-hideouts.md §1): HideoutUnlocked; HASH32 0x2f1b9c25 (row 718, the schema's "HideoutJukeboxEnabled"), which the
     /// HUD's hideout panel checks (0x1421731f0); CanEditHideout, tested before the Edit button shows (live trace
-    /// 2026-10-20); MapDeviceActive, the map device's per-player "active" state (its .ot:
-    /// per_player_quest_flag_state_active_1). ThisIsMyHideout (row 717): hideout NPCs' own options need it in NPCTalk
-    /// QuestFlag1 (Niko's View Subterranean Chart and Visit Mine Encampment); without it the client lists their
-    /// "not my hideout" rows (717 in QuestFlag2). Every hideout here is the player's own. EndGameAvailable is the
-    /// epilogue flag the client requires before an Atlas map can be activated: until earned it is one of
-    /// <see cref="EndgameOnly"/>.</summary>
-    public static readonly string[] EveryCharacter = ["HideoutUnlocked", "HideoutJukeboxEnabled", "CanEditHideout", "MapDeviceActive",
+    /// 2026-10-20). ThisIsMyHideout (row 717): hideout NPCs' own options need it in NPCTalk QuestFlag1 (Niko's View
+    /// Subterranean Chart and Visit Mine Encampment); without it the client lists their "not my hideout" rows (717 in
+    /// QuestFlag2). Every hideout here is the player's own. EndGameAvailable is the epilogue flag the client requires
+    /// before an Atlas map can be activated: until earned it is one of <see cref="EndgameOnly"/>. MapDeviceActive is
+    /// granted transiently in hideouts (or on Map Device activation) rather than globally so Karui Shores' a11q1
+    /// progression and HelenaIntro stay intact.</summary>
+    public static readonly string[] EveryCharacter = ["HideoutUnlocked", "HideoutJukeboxEnabled", "CanEditHideout",
         ThisIsMyHideout, EndGameAvailable];
 
     /// <summary>

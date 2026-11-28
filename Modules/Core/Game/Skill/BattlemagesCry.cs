@@ -23,8 +23,10 @@ public static partial class Game
         var cry = CryOf(player);
         long count = (long)own.GetValueOrDefault(Stat.SkillEmpowersNextXMeleeAttacks)
             + stats.GetValueOrDefault(Stat.BattlemagesCryExertsXAdditionalAttacks);
-        cry.BattlemagesExerts = WarcryExertionCount(count, stats);
+        cry.BattlemagesExerts = WarcryExertionCount(count, stats, own, AreaRng(player));
+        cry.BattlemagesDisplay = ResolveWarcryDisplaySkill(player, skillId, "BattlemagesCry");
         cry.BattlemagesSource = null;
+        SyncExertedAttackBuffsLocked(player);
         if (cry.BattlemagesExerts == 0 || CurrentPlayerSkillSourceLocked(player, skillId) is not { Active: true } driver)
             return;
         var source = SupportedSkill(player, skillId);
@@ -39,14 +41,17 @@ public static partial class Game
                 CaptureGemSourceLifetimeLocked(player, driver));
     }
 
-    static MeleeWarcryTriggers? ConsumeMeleeWarcryTriggers(CryRuntime cry, SkillCriticalRoll attack)
+    static MeleeWarcryTriggers? ConsumeMeleeWarcryTriggers(CryRuntime cry, SkillCriticalRoll attack, bool consume = true)
     {
         bool infernal = cry.InfernalExerts > 0;
         bool battlemages = cry.BattlemagesExerts > 0;
         if (!infernal && !battlemages) return null;
         if (ExertedMeleeTriggers.TryGetValue(attack, out var previous)) return previous;
-        if (infernal) cry.InfernalExerts--;
-        if (battlemages) cry.BattlemagesExerts--;
+        if (consume)
+        {
+            if (infernal) cry.InfernalExerts--;
+            if (battlemages) cry.BattlemagesExerts--;
+        }
         var triggers = new MeleeWarcryTriggers((infernal ? 1 : 0) + (battlemages ? 1 : 0),
             infernal ? cry.Combust : null, battlemages ? cry.BattlemagesSource : null);
         ExertedMeleeTriggers.Add(attack, triggers);

@@ -30,7 +30,15 @@ static partial class Game
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, int recoveryGeneration,
         CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt,
-        bool cryExerted = false, int ancestralTargets = 0, int? rallyingDamage = null)
+        bool cryExerted = false, int ancestralTargets = 0, int? rallyingDamage = null) =>
+        ScheduleStaticStrike(player, skillId, gem, from, aim, targetId, recoveryGeneration, ticket, criticalRoll,
+            sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage, traumaUse: null);
+
+    internal static Task ScheduleStaticStrike(Player player,
+        ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+        (int X, int Y) from, (int X, int Y) aim, uint targetId, int recoveryGeneration,
+        CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt,
+        bool cryExerted, int ancestralTargets, int? rallyingDamage, TraumaUse? traumaUse)
     {
         var session = ProjectilesFor(player);
         session.Advance();
@@ -53,7 +61,7 @@ static partial class Game
                 {
                     if (Valid() && (index == 0 || player.ActionCount == action))
                         ReleaseStaticStrike(player, session, skillId, gem, from, aim, targetId,
-                            criticalRoll, sequence, index, cryExerted, ruthless, ancestralTargets, rallyingDamage);
+                            criticalRoll, sequence, index, cryExerted, ruthless, ancestralTargets, rallyingDamage, traumaUse);
                 });
         }
         return Task.CompletedTask;
@@ -62,12 +70,20 @@ static partial class Game
     public static void ReleaseStaticStrike(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll,
-        ushort sequence, int repeat = 0, bool cryExerted = false, double? ruthlessMore = null, int ancestralTargets = 0, int? rallyingDamage = null)
+        ushort sequence, int repeat = 0, bool cryExerted = false, double? ruthlessMore = null, int ancestralTargets = 0, int? rallyingDamage = null) =>
+        ReleaseStaticStrike(player, session, skillId, gem, from, aim, targetId, criticalRoll, sequence, repeat,
+            cryExerted, ruthlessMore, ancestralTargets, rallyingDamage, traumaUse: null);
+
+    internal static void ReleaseStaticStrike(Player player, ProjectileSession session, ushort skillId,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+        (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll,
+        ushort sequence, int repeat, bool cryExerted, double? ruthlessMore, int ancestralTargets, int? rallyingDamage,
+        TraumaUse? traumaUse)
     {
         if (IsGatheringLightning(gem.Effect))
         {
             ReleaseGatheringLightning(player, session, skillId, gem, from, aim, targetId, criticalRoll, sequence,
-                repeat, cryExerted, ruthlessMore, ancestralTargets, rallyingDamage);
+                repeat, cryExerted, ruthlessMore, ancestralTargets, rallyingDamage, traumaUse);
             return;
         }
         bool hit = false;
@@ -75,7 +91,7 @@ static partial class Game
         var melee = AreaSkillHitForUse(ruthlessMore, player, skillId, gem, from, aim,
             immediate: true, sequence: sequence, criticalRoll: criticalRoll, targetId: targetId,
             onHit: _ => hit = true, scheduledSession: session, cryExerted: cryExerted, repeat: repeat, ancestralTargets: ancestralTargets,
-            rallyingDamage: rallyingDamage);
+            rallyingDamage: rallyingDamage, traumaUse: traumaUse);
         if (!melee.IsCompleted) throw new InvalidOperationException("Scheduled Static Strike contact must not yield.");
         melee.GetAwaiter().GetResult();
         if (hit) StartStaticStrike(player, skillId, gem, sequence, source);

@@ -135,4 +135,54 @@ public sealed class AreaLifetimesTests
         area.Objects.Join(rejoiningViewer);
         Assert.Empty(area.Delta.Take());
     }
+
+    [Fact]
+    public void AreaDelta_normalizes_create_and_remove_wire_order_and_discards_stale_departure_delta()
+    {
+        var area = new GameArea(1);
+        var departing = new Player(new(1, "hideout-test", 100, 100, 0, 0, null, []), 1, 1);
+        var returning = new Player(new(1, "hideout-test", 100, 100, 0, 0, null, []), 2, 1);
+        const uint stashId = 0x04000010, npcId = 0x04000011, petId = 0x04000012;
+
+        // Caller creates with default headerU32=0: AreaDelta stamps 0xffffffff/0000 on its copy without mutating caller bytes.
+        var rawStashCreate = InstanceEntities.CreateObject(stashId, 100, [0, 0]);
+        area.Delta.Add(stashId, rawStashCreate, kind: AreaDelta.Kind.Create);
+        area.Delta.Add(stashId, InstanceProtocol.EnterWakeZone(stashId));
+        Assert.Equal(0u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(rawStashCreate.AsSpan(6)));
+
+        // Drain the two frames (create in frame 1, held wake in frame 2).
+        var frame1 = area.Delta.Take();
+        var stashCreate = Assert.Single(frame1);
+        Assert.Equal(WorldOrder.Last, stashCreate.Order);
+        Assert.Equal(uint.MaxValue, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(stashCreate.Bytes.AsSpan(6)));
+        Assert.Single(area.Delta.Take());
+
+        // Private NPC owned by departing player, plus shared pet.
+        area.Delta.Add(npcId, InstanceEntities.CreateObject(npcId, 101, [0, 0]), kind: AreaDelta.Kind.Create, only: departing);
+        area.Delta.Add(petId, InstanceEntities.CreateObject(petId, 102, [0, 0]), kind: AreaDelta.Kind.Create);
+        Assert.Same(departing, area.Delta.ViewerOf(npcId, departing));
+        area.Delta.Take();
+
+        // Departing solo player leaves: departure removals queue into Area.Delta (remove gets 0xffffffff key) and Area.Objects drops the pet.
+        area.Delta.Add(departing.Id, InstanceProtocol.RemoveObject(departing.Id), kind: AreaDelta.Kind.Remove, except: departing);
+        area.Delta.RemoveSharedObject(petId, InstanceProtocol.RemoveObject(petId));
+        Assert.False(area.Objects.Has(petId));
+        Assert.True(area.Objects.Has(stashId));
+
+        // When the last player leaves and the area driver stops, stale departure records are discarded and departed viewers pruned.
+        area.Delta.DiscardPending();
+        area.Delta.RemoveViewer(departing);
+        Assert.Null(area.Delta.ViewerOf(npcId, departing));
+        Assert.Empty(area.Delta.Take());
+
+        // Returning player joins the still-live hideout: receives only durable hideout objects (stash), no stale departure removes.
+        area.Objects.Join(returning);
+        var replay = area.Delta.Take().Concat(area.Delta.Take()).ToArray();
+        Assert.All(replay, r =>
+        {
+            Assert.Same(returning, r.Only);
+            Assert.Equal(stashId, r.Entity);
+        });
+        Assert.Contains(replay, r => r.Kind == AreaDelta.Kind.Create && r.Order == WorldOrder.Last);
+    }
 }

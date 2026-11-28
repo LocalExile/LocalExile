@@ -15,7 +15,7 @@ public static partial class Game
         // An NPC is the player's quest view: their quest state chose it, so it is theirs alone to see (AreaDelta's private entities).
         if (InAreaFrame(player))
         {
-            player.Area.Delta.Add(id, InstanceEntities.CreateObject(id, type, obj.Blob()), log, AreaDelta.Kind.Create, only: player);
+            player.Area.Delta.Add(id, InstanceEntities.CreateObject(id, type, obj.Blob(), headerU32: uint.MaxValue), log, AreaDelta.Kind.Create, only: player);
             player.Area.Delta.Add(id, InstanceProtocol.EnterWakeZone(id), null, only: player);
         }
         else
@@ -53,6 +53,7 @@ public static partial class Game
         {
             // A town NPC a quest stages (DiallaTown / DiallaTownWithered, Lilly shipside / sitting …) comes with the quest NPCs (World/Quest/QuestNpcs.cs).
             if (quests.ManagesNpc(player.Layout.Id, p.Id) || p.ShownBy is not null || p.GoneWith is not null) continue;
+            if (p.RequiredLeagueFlag is int reqLqf && !player.Character.LeagueQuestFlags.Contains(reqLqf)) continue;
             if (Npcs.Place(p) is not { Supported: true } npc) { Console.WriteLine($"[gateway] {player.Connection.Remote} npc {p.Id}: unknown or unsupported components"); continue; }
             var at = furniture is null ? TownNpcCell(player.Layout, p) : (p.X, p.Y);
             if (at != (p.X, p.Y))
@@ -78,6 +79,12 @@ public static partial class Game
         // Only a fresh click opens/reopens NPC dialogue; held-LMB repeats (~100 ms later, 0x0400 clear) must not wipe
         // an open quest reward offer and send 0x0084 over it.
         if (!use.InitialPress) return;
+        uint id;
+        lock (player.Npcs)
+        {
+            id = player.Npcs.FirstOrDefault(n => ReferenceEquals(n.Value, npc)).Key;
+            if (id == 0 && use.TargetId != 0 && player.Npcs.ContainsKey(use.TargetId)) id = use.TargetId;
+        }
         if (!TryBeginObjectWalk(player, requestedAt, npc.X, npc.Y, NpcInteractionSize(npc), out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 npc {npc.Npc} ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
@@ -93,8 +100,20 @@ public static partial class Game
             Note("vendor restores life");
             await SendPlayerMana(player, "vendor restores mana");
         }
-        uint id;
-        lock (player.Npcs) id = player.Npcs.FirstOrDefault(n => ReferenceEquals(n.Value, npc)).Key;
+        lock (player.Npcs)
+        {
+            if (id != 0 && player.Npcs.TryGetValue(id, out var latest)) npc = latest;
+            else
+            {
+                uint resolved = player.Npcs.FirstOrDefault(n => ReferenceEquals(n.Value, npc)).Key;
+                if (resolved != 0) id = resolved;
+                else if (use.TargetId != 0 && player.Npcs.TryGetValue(use.TargetId, out var byTarget))
+                {
+                    id = use.TargetId;
+                    npc = byTarget;
+                }
+            }
+        }
         player.StashOpen = false;
         player.GuildStashOpen = false;
         player.TradeStashOpen = false;
@@ -237,7 +256,10 @@ public static partial class Game
             talk.Script, talk.TextAudio.Count > 0, talk.Index, talk.Row, talk.OpensGuildHideouts, talk.RewardOffer);
         bool offeredScript = false;
         // A scripted row's end (FinishNPCChat, DoNPCChat, a screen, a move): after its talk, or now when it has none.
-        if (EndsWithScript(talk) && talk.Category is "Gossip" or "Quests" or "QuestReward" && talk.RewardOffer is null)
+        if (EndsWithScript(talk)
+            && (talk.Category is "Gossip" or "Quests" or "QuestReward"
+                || (talk.OpensScreen is { } openScreen && ScriptScreens.ContainsKey(openScreen)))
+            && talk.RewardOffer is null)
         {
             if (talk.TextAudio.Count > 0) player.NpcTalkScript = talk;
             else
@@ -253,7 +275,7 @@ public static partial class Game
                 if (await GameEvents.AnyNpcOption(option)) return true;
                 // On the click itself a script that only ends the talk shows nothing: FinishNPCChat with a screen or an
                 // event of a system the server does not have (Einhar's BestiaryScreen). The caller lists the options.
-                if (onClick && talk.NextChat is null && talk.AreaTransition is null
+                if (onClick && talk.NextChat is null && talk.AreaTransition is null && !talk.GoToKingsmarch
                     && !(talk.OpensScreen is { } screen && ScriptScreens.ContainsKey(screen)))
                 {
                     Console.WriteLine($"[gateway] {player.Connection.Remote} npc option {talk.Category} \"{talk.Option}\": its script shows nothing here ({talk.Script.Trim()})");

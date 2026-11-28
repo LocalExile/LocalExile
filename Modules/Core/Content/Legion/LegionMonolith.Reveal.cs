@@ -24,7 +24,7 @@ static partial class LegionMonolith
     static async Task RevealArmy(IModuleContext module, Player player, Encounter e, uint pulse)
     {
         LegionStasis.Member[] army;
-        lock (e) army = e.Army ?? [];
+        lock (e) army = e.Army is { Count: > 0 } a ? [.. a] : [];
         double now = global::Game.AreaTime(player);
         var distances = new List<(LegionStasis.Member Member, double Distance)>();
         foreach (var m in army)
@@ -83,6 +83,7 @@ static partial class LegionMonolith
     {
         if (player.Instance is null) return;
         var done = new List<(LegionStasis.Member Member, StateMachineData? States, int StateComponent)>(members.Count);
+        List<string?>? intros = null;
         foreach (var m in members)
         {
             if (!player.Area.Monsters.TryGetValue(m.Id, out var monster) || monster.Dead || !Holds.TryGetValue(monster, out var hold)) continue;
@@ -101,15 +102,19 @@ static partial class LegionMonolith
             }
             // The action origin stays in state 0: a joiner is created hidden and gets the 0 -> 2 change as a 0x2c8 (LegionStasis.Present), as live viewers did.
             done.Add((m, states, component));
+            if (m.Tier == 3 && !m.Chest) (intros ??= []).Add(monster.Variety?.Id);
         }
         if (done.Count == 0) return;
+        if (intros is not null)
+            for (int i = 0; i < intros.Count; i++)
+                await LegionSpeech.Say(player, intros[i], "MapIntro", (uint)i * LegionSpeech.EncounterStaggerMs);
         lock (e)
         {
             if (e.Army is { } army)
             {
-                var ids = done.Select(d => d.Member.Id).ToHashSet();
-                e.Army = [.. army.Select(m => ids.Contains(m.Id) ? m with { Revealed = true } : m)];
-                if (keep) Keep(player, e);   // the spawn path (Standing) skips it: BeginArmy keeps once after Spawn
+                foreach (var (m, _, _) in done)
+                    if (e.ArmyIndex.TryGetValue(m.Id, out int idx)) army[idx] = army[idx] with { Revealed = true };
+                if (keep) Keep(player, e, flush: false);   // coalesced in Tick so 16 reveal steps do not JSON-serialize 400 members 16 times
             }
         }
         // The reward symbols and the minimap icon appear with the reveal, not before: the area's components write them to every client
@@ -127,15 +132,16 @@ static partial class LegionMonolith
     }
 
     /// <summary>The ruleset's mode 0 message for a client: its elapsed seconds since the shatter (0 before shatter),
-    /// timer length and monolith angle.</summary>
+    /// timer length, alert mode/gauge (Timeless Conflict) and monolith angle.</summary>
     static byte[]? RulesBegin(Player player, Encounter e, byte stage = 0, byte step = 0)
     {
         double now = global::Game.AreaTime(player);
-        double length = e.EndsAt > e.ChargeEnd
+        double length = double.IsFinite(e.EndsAt) && e.EndsAt > e.ChargeEnd
             ? e.EndsAt - e.ChargeEnd
-            : TimerMilliseconds(LegionData.Current, e.Level, global::Game.AreaLeagueStats(player).GetValueOrDefault(Stat.MapLegionDurationPlusPct)) / 1000.0;
+            : TimerMilliseconds(LegionData.Current, e.Level, AreaStats(player).GetValueOrDefault(Stat.MapLegionDurationPlusPct)) / 1000.0;
         float elapsed = e.Phase == Phase.Running ? (float)Math.Clamp(now - e.ChargeEnd, 0, length) : 0f;
-        return LegionRules.Begin(e.X, e.Y, (uint)e.Level, e.Id, elapsed, (float)length, stage, step, e.Rotation);
+        float gauge = e.AlertMode && e.AlertMax > 0 ? Math.Clamp((float)e.AlertGauge / e.AlertMax, 0f, 1f) : 0f;
+        return LegionRules.Begin(e.X, e.Y, (uint)e.Level, e.Id, elapsed, (float)length, stage, step, e.Rotation, alertMode: e.AlertMode, gauge: gauge);
     }
 
     static Task SendRules(Player to, byte[]? message, string what) => message is null ? Task.CompletedTask : PlayerOf(to).Send(message, what);

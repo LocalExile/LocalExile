@@ -89,6 +89,9 @@ public static class Client
         if (await channel.DispatchRulesetLocalAsync(row, payload))
             return true;
 
+        if (await GameEvents.RunRulesetAction(player, row, payload))
+            return true;
+
         if (!RulesetEvents.TryGetValue(row, out var evt) || !evt.Any)
             return false;
 
