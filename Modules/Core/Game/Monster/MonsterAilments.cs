@@ -711,6 +711,7 @@ public static partial class Game
             + (!spell && name == Stat.WitheredOnHitFor2SecondsPctChance ? weaponWitherChance : 0));
         uint? witherSource = owned ? player.Id : null;
         WitherOnHitLocked(m, WitherStat, now, AreaRng(player), witherSource);
+        if (playerHit) CorruptingFeverOnHitLocked(player, targetId, m, playerStats, now, random);
         int poisonStacksBefore = m.Poisons.Stacks(now);
         double poisonUntilBefore = m.Poisons.Until;
         if (TryPoisonOnHitLocked(player, m, mitigated, spell, critical, playerStats, skill, poison, now, random,

@@ -44,7 +44,7 @@ public static partial class Game
     static long MaximumValour(IReadOnlyDictionary<uint, int> stats) =>
         Math.Max(0, 50L + stats.GetValueOrDefault(Stat.BannerResourceMaximumPlus));
 
-    static void GainValourFromMeleeLocked(Player player, SpawnedMonster monster, bool killed, double now,
+    internal static void GainValourFromMeleeLocked(Player player, SpawnedMonster monster, bool killed, double now,
         IReadOnlyDictionary<uint, int> stats)
     {
         if (player.PlayerLife == 0 || !monster.Hostile
@@ -67,6 +67,9 @@ public static partial class Game
 
     static bool CanUseBanner(Player player, ushort skill) => Banners.TryGetValue(player, out var state)
         && (state.Active is { } active ? active.Skill == skill : state.Valour >= 1 && CanPaySkillCost(player, skill));
+
+    static bool CanAutomateBanner(Player player, ushort skill) => Banners.TryGetValue(player, out var state)
+        && state.Active is null && state.Valour >= 1 && CanPaySkillCost(player, skill);
 
     static bool BannerReaches(Player recipient, PlacedBanner banner, double now) =>
         !recipient.Closed && !recipient.LeavingArea && recipient.PlayerLife > 0 && now < banner.Until
@@ -155,7 +158,8 @@ public static partial class Game
         else Cleanup(area);
     }
 
-    static async Task<(bool Accepted, bool Activated)> ToggleBanner(Player player, ushort skill, Func<bool> current)
+    static async Task<(bool Accepted, bool Activated)> ToggleBanner(Player player, ushort skill, Func<bool> current,
+        bool allowRemove = true)
     {
         uint mana = 0, life = 0;
         bool activated = false;
@@ -163,7 +167,11 @@ public static partial class Game
         {
             if (!current() || player.Paused || player.Instance is null || InTown(player) || !CanUseBanner(player, skill)
                 || !Banners.TryGetValue(player, out var state)) return (false, false);
-            if (state.Active is { } previous) EndBannerLocked(player, state, previous);
+            if (state.Active is { } previous)
+            {
+                if (!allowRemove) return (false, false);
+                EndBannerLocked(player, state, previous);
+            }
             else
             {
                 var gem = SupportedSkill(player, skill);

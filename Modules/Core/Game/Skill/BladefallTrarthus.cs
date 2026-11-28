@@ -143,7 +143,9 @@ public static partial class Game
         int Own(uint k) => supported.Stats.GetValueOrDefault(k);
         (int X, int Y) at;
         at = player.Walk.Position(now);
-        await AreaSkillHit(player, state.Skill, gem, at, at, immediate: true);
+        bool triggered = CooldownTriggerSupport(supported) is not null;
+        await AreaSkillHit(player, state.Skill, gem, at, at, immediate: true,
+            triggeredCurrent: triggered ? () => ReferenceEquals(player.BladefallTrarthus, state) && !state.Ended : null);
         if (bladeRow is not uint row) return;
         var playerStats = CharacterPlayerStats(player);
         int Player(uint k) => playerStats.GetValueOrDefault(k);

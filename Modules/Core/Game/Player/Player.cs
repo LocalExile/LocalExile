@@ -206,6 +206,7 @@ public static partial class Game
         ended = [.. player.Auras.Values];
         petrifiedEnded = player.PetrifiedBlood.Active || player.Area.Buffs.Has(player.Id, PetrifiedBlood.BuffRow, player.Id);
         bool triggersEnded = ClearCooldownTriggersLocked(player);
+        ClearInstantBuffSkillsLocked(player);
         player.Auras.Clear();
         ReconcileStanceSelectionLocked(player, persist: true);
         player.PetrifiedBlood.Clear();
@@ -591,7 +592,11 @@ public static partial class Game
                 cooldownBypass, out cost, out lifeCost)) return false;
         ApplyPaidSupportCostsLocked(player, skillId, own, cost, life);
         if (useSpell) lifeCost += SacrificeItemLifeLocked(player, supported.Effect, playerStats);
-        if (lifeCost > 0) PresentStats(player);
+        if (lifeCost > 0)
+        {
+            CorruptingFeverOnLifeSpentLocked(player, lifeCost, skillId, AreaTime(player));
+            PresentStats(player);
+        }
         ConsumeCombatRush(player, skillId, supported, AreaTime(player));
         return true;
     }

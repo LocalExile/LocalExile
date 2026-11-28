@@ -11,7 +11,7 @@ public static partial class Game
         public double Until, NextPulseAt;
         public int CooldownVersion = -1;
         public ushort[] PublishedGuardSkills = [];
-        public int Percent, Remaining, Absorbed, AbsorbedSincePulse, Armour, Reflection;
+        public int Percent, Remaining, Absorbed, AbsorbedSincePulse, Armour, Reflection, LightningDamage, LifeRegenPerMinute;
         public double Physical = 1, Elemental = 1;
         public ushort Buff, Skill;
         public string Effect = "";
@@ -19,10 +19,11 @@ public static partial class Game
         public ProjectileSession? Session;
     }
     const string VaalMoltenShellEffect = "VaalMoltenShell";
+    const string ArcaneCloakEffect = "ArcaneCloak";
     internal static readonly Store<Player, TriggeredGuard> TriggeredGuards = new();
     static bool TriggerGuardSpell(Player player, SupportedGem gem) =>
         GuardSpellEffect(SkillsFor(player).EffectId(gem.Effect)) && !SkillsFor(player).IsVaal(gem.Effect);
-    static bool GuardSpellEffect(string? effect) => effect is "QuickGuard" or "ImmortalCall" or "MoltenShell" or VaalMoltenShellEffect;
+    static bool GuardSpellEffect(string? effect) => effect is "QuickGuard" or "ImmortalCall" or "MoltenShell" or VaalMoltenShellEffect or ArcaneCloakEffect;
     static bool MoltenShellGuard(string effect) => effect is "MoltenShell" or VaalMoltenShellEffect;
 
     static bool TriggeredGuardCurrent(Player player, TriggeredGuard guard) =>
@@ -69,6 +70,9 @@ public static partial class Game
     static void EndTriggeredGuard(Player player, TriggeredGuard guard, double now, bool triggerExplosion = true)
     {
         guard.Until = guard.NextPulseAt = 0;
+        guard.Armour = 0;
+        guard.LightningDamage = 0;
+        guard.LifeRegenPerMinute = 0;
         bool regular = guard.Effect != VaalMoltenShellEffect;
         var cooldown = player.SingleUseCooldowns.GetValueOrDefault(GuardCooldownKey);
         bool resume = regular && cooldown is not null && cooldown.UseVersion == guard.CooldownVersion;
@@ -78,7 +82,6 @@ public static partial class Game
         if (buff != 0) player.Area.Buffs.Clear(player.Id, GuardRow(guard.Effect), player.Id);
         if (triggerExplosion && MoltenShellGuard(guard.Effect))
             ReflectMoltenShellDamage(player, guard, guard.Absorbed);
-        guard.Armour = 0;
         player.Pools = PoolsFor(player, player.Pools.Level);
         // Built now and marked sent, so the stats send's own cooldown refresh does not publish the entry a second time:
         // every repeat restarts the bar's cooldown animation on this client (live 2026-11-18).
@@ -243,13 +246,38 @@ public static partial class Game
         guard.Gem = gem; guard.Skill = skill; guard.Session = session;
         guard.Effect = effect!;
         guard.Physical = guard.Elemental = 1;
-        guard.Percent = guard.Remaining = guard.Absorbed = guard.AbsorbedSincePulse = guard.Armour = guard.Reflection = 0;
+        guard.Percent = guard.Remaining = guard.Absorbed = guard.AbsorbedSincePulse = guard.Armour = guard.Reflection
+            = guard.LightningDamage = guard.LifeRegenPerMinute = 0;
         if (cooldown is not null) guard.CooldownVersion = cooldown.UseVersion;
         double duration = GuardDuration(Own(Stat.BaseSkillEffectDuration), name => GolemStat(playerStats, name), Own);
+        uint arcaneCloakManaSpent = 0;
         if (guard.Effect == "QuickGuard")
         {
             guard.Percent = Math.Clamp(Own(Stat.QuickGuardDamageAbsorbedPct), 0, 100);
             guard.Remaining = Math.Max(0, Own(Stat.QuickGuardDamageAbsorbLimit));
+        }
+        else if (guard.Effect == ArcaneCloakEffect)
+        {
+            int consumePct = Math.Clamp(Own(Stat.ArcaneCloakConsumePctOfMana), 0, 100);
+            uint spent = (uint)Math.Min(player.PlayerMana, (long)player.PlayerMana * consumePct / 100);
+            if (spent > 0)
+            {
+                player.PlayerMana -= spent;
+                arcaneCloakManaSpent = spent;
+                ManaSpentLocked(player, spent, playerStats);
+                SupportManaSpentLocked(player, skill, gem.Stats, spent, now);
+                player.Frames.Area?.Life.Changed(player);
+            }
+            guard.Percent = Math.Clamp(Own(Stat.ArcaneCloakDamageAbsorbedPct), 0, 100);
+            guard.Remaining = (int)Math.Min(int.MaxValue, spent);
+            double buffEffect = Math.Max(0, 1 + ((long)Own(Stat.SkillBuffEffectPlusPct)
+                + GolemStat(playerStats, Stat.BuffEffectOnSelfPlusPct)) / 100d);
+            int lightningPct = Math.Max(0, Own(Stat.ArcaneCloakGainPctOfConsumedManaAsLightningDamage));
+            guard.LightningDamage = ActorScale.Saturate((long)Math.Floor(spent * (lightningPct / 100d) * buffEffect));
+            int regenPerMinPct = Math.Max(0, Own(Stat.ArcaneCloakGainPctOfConsumedManaAsLifeRegeneratedPerSecond)
+                + GolemStat(playerStats, Stat.ArcaneCloakGainPctOfConsumedManaAsLifeRegeneratedPerSecond));
+            if (regenPerMinPct > 0)
+                guard.LifeRegenPerMinute = ActorScale.Saturate((long)Math.Floor(spent * (regenPerMinPct / 100d) * buffEffect));
         }
         else if (guard.Effect == "ImmortalCall")
         {
@@ -288,6 +316,8 @@ public static partial class Game
                 (long)player.Pools.Armour * Math.Max(0, Own(Stat.MoltenShellDamageAbsorbLimitPctOfArmour)) / 100);
         guard.Buff = player.NextBuff++;
         ScheduleGuardPulse(player, guard, now);
+        if (arcaneCloakManaSpent > 0)
+            session.Enqueue(() => SendSkillCost(player, 0, $"Arcane Cloak spent {arcaneCloakManaSpent} mana"));
         session.Enqueue(() => SendCharacterStats(player, PlayerStatChange.Sources));
         PresentTriggeredGuard(player, now);
         // An instant skill's 0x1ce runs its action without an animation, so the client plays none of the cast art of
@@ -306,7 +336,13 @@ public static partial class Game
             $"0x02bc guard cooldown: held for {duration:0.###} s"));
     }
 
-    static ushort GuardRow(string effect) => effect switch { "ImmortalCall" => 110, "MoltenShell" or VaalMoltenShellEffect => 114, _ => 1302 };
+    static ushort GuardRow(string effect) => effect switch
+    {
+        "ImmortalCall" => 110,
+        "MoltenShell" or VaalMoltenShellEffect => 114,
+        ArcaneCloakEffect => 1484,
+        _ => 1302,
+    };
 
     /// <summary>Immortal Call's cast art (MiscAnimated <c>ImmortalCallCast</c>), whose sound events are the activation
     /// sound.</summary>
@@ -366,6 +402,13 @@ public static partial class Game
         Add(Stat.AffectedByGuardSkill, 1);
         Add(Stat.BasePhysicalDamageReductionRating, guard.Armour);
         if (guard.Effect == "QuickGuard") Add(Stat.AvoidBleedPct, 100);
+        if (guard.LightningDamage > 0)
+        {
+            Add(Stat.GlobalMinimumAddedLightningDamage, guard.LightningDamage);
+            Add(Stat.GlobalMaximumAddedLightningDamage, guard.LightningDamage);
+        }
+        if (guard.LifeRegenPerMinute > 0)
+            Add(Stat.BaseLifeRegenerationRatePerMinute, guard.LifeRegenPerMinute);
         return stats;
     }
 

@@ -129,7 +129,7 @@ public sealed class GuardSkillTests
         Assert.True(stored.FullyRecovered);
         Assert.Null(Game.GuardCooldownEntry(f.Player, gem.Id, gem.Effect));
 
-        // Arcane Cloak has the Guard type but no guard buff here: a cast must not start one (with Steelskin's icon).
+        // Arcane Cloak is a full guard skill: a cast starts buff row 1484 (not Steelskin's 1302) and holds the shared guard cooldown.
         using var cloak = new MinionUtilityTests.Fixture();
         cloak.Equip(("Arcane Cloak", 1));
         var arcane = Game.GemSkillEffects(cloak.Player).Single(g => Game.SkillsFor(cloak.Player).EffectId(g.Effect) == "ArcaneCloak");
@@ -137,7 +137,9 @@ public sealed class GuardSkillTests
             false, () => cloak.Player.ActionCount++, out var ticket));
         await Game.CastGemSkill(cloak.Player, arcane.Id, (100, 100), (100, 100),
             cooldownUse: ticket);
-        Assert.True(Game.TriggerGuardReady(cloak.Player, Game.AreaTime(cloak.Player)));
+        Assert.False(Game.TriggerGuardReady(cloak.Player, Game.AreaTime(cloak.Player)));
+        Assert.NotNull(cloak.Player.Area.Buffs.Get(cloak.Player.Id, 1484, cloak.Player.Id));
+        Assert.Null(cloak.Player.Area.Buffs.Get(cloak.Player.Id, 1302, cloak.Player.Id));
     }
 
     sealed class GuardClock : IPlayerUpdateSchedule, IDisposable

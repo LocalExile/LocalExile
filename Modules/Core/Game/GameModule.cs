@@ -264,6 +264,7 @@ public sealed class GameModule : IModule, IDisposable
         string id = module.Manifest.Id;
         GameEvents.PlayerLeaving.Add(id, Rules.EndOutgoingPlayerLinksOnLeave);
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.LeaveArea(player); return Task.CompletedTask; });
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearInstantBuffSkills(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaTotems(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndRejuvenationTotemAura(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearOwnerAttacks(player); return Task.CompletedTask; });
@@ -476,6 +477,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IW
         player.IncomingAilments.Clear();
         Rules.ClearPlayerDecay(player);
         Rules.ClearCorruptedBlood(player);
+        Rules.ClearInstantBuffSkills(player);
         Rules.ClearEssenceAuraExposure(player);
         Rules.ClearReaveStages(player);
         player.RetirePlayerUpdates();

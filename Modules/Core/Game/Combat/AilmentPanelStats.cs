@@ -168,7 +168,11 @@ public static class AilmentPanelStats
         var more = SupportMore.Where(m => (m.Only is null || m.Only.Contains(ailment)) && (!m.MeleeHit || context.Melee)
             && (!m.Attack || context.Attack) && get(m.Stat) != 0).ToList();
         more.Add(new(Stat.DeliriumAuraDamageOverTimePlusPctFinal));
-        if (ailment == "poison") more.Add(new(Stat.HeraldOfAgonyPoisonDamagePlusPctFinal));
+        if (ailment == "poison")
+        {
+            more.Add(new(Stat.HeraldOfAgonyPoisonDamagePlusPctFinal));
+            more.Add(new(Stat.CorrosiveShroudPoisonDamagePlusPctFinalWhileAccumulatingPoison));
+        }
         if (ailmentType == DamageType.Physical) more.Add(new(Stat.HeraldOfPurityPhysicalDamagePlusPctFinal));
         // Elemental Overload: "Ailments never count as being from Critical Strikes" for as long as the keystone is
         // allocated, so the critical rows lose the critical ailment multipliers (the application side rolls the hit's

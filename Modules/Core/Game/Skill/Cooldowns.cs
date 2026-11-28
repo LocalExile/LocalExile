@@ -284,6 +284,8 @@ public static partial class Game
             // a bypass charge or a cost is spent.
             if (skillId is not null && SkillsFor(player).IsGuard(effect)
                 && !GuardReadyFor(player, SkillsFor(player).EffectId(effect), AreaTime(player))) return false;
+            if (skillId is ushort selfBuffSkill && SelfBuffRefused(player, effect, selfBuffSkill, triggered) is not null)
+                return false;
             VaalUseReservation? vaal = null;
             double? vaalAttackDeadline = null;
             if (skillId is ushort requested && GemSkillEffects(player)
@@ -430,9 +432,10 @@ public static partial class Game
     static bool CooldownResetTriggered(Player player, int effect, ushort? skillId, Random random, out bool retainRetaliationUse)
     {
         retainRetaliationUse = false;
-        // Guard skills hold their cooldown frozen until their buff ends (Hold/Resume + guard.RecoverySeconds);
-        // skipping instant reset keeps the held cooldown bar and server guard lockout synchronized.
-        if (SkillsFor(player).IsGuard(effect)) return false;
+        // Guard, Withering Step, and Berserk hold their cooldown frozen until their buff ends;
+        // skipping instant reset keeps the held cooldown bar and server buff lockout synchronized.
+        if (SkillsFor(player).IsGuard(effect)
+            || SkillsFor(player).EffectId(effect) is WitheringStepEffect or BerserkEffect) return false;
         var stats = PlayerStatValues(player);
         var own = skillId is ushort id ? SupportedSkill(player, id).Stats : null;
         int Value(uint key) => (int)Math.Clamp((long)stats.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0),

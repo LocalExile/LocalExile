@@ -137,6 +137,7 @@ public static partial class Game
         if (MinionUtility(effect))
         {
             if (effect is "ConvocationOld" or "Convocation") RecallMinionsLocked(player, gem, now);
+            else if (effect == "SignalPrey") SignalPreyLocked(player, id, gem, aim, 0, now);
             else StartOfferingLocked(player, id, gem, effect, aim, 0, now, fromPlacement: fromPlacement);
         }
         else if (CurseCatalog.All.TryGetValue(effect, out var curse))

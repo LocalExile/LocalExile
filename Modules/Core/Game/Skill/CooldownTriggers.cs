@@ -28,7 +28,11 @@ public static partial class Game
     static GemSupports.Applied? CooldownTriggerSupport(SupportedGem gem) =>
         gem.Supports.FirstOrDefault(s => s.Effect.Id is AutomationSupport or AutoexertionSupport);
 
-    static bool CooldownTriggerSelfBuff(string? effect) => effect is "PhaseRun" or "BloodRage";
+    static bool CooldownTriggerSelfBuff(string? effect) => effect is "PhaseRun" or "PhaseRunRoyale" or "BloodRage"
+        or WitheringStepEffect or BerserkEffect or CorruptingFeverEffect or PlagueBearerEffect;
+
+    static bool IsFrostblinkEffect(string? effect) =>
+        effect is "Frostblink" or "FrostblinkHardMode" or "FrostblinkAltY" or "FrostblinkRoyale";
 
     static Buff CooldownTriggerBuff(Player player, ushort id, CooldownTrigger trigger) =>
         new(trigger.Row, player.Id, SourceSkill: id,
@@ -43,11 +47,14 @@ public static partial class Game
         if (skills.CooldownMs(gem.Effect, gem.Level) <= 0 || skills.IsVaal(gem.Effect)
             || skills.IsRetaliation(gem.Effect)) return false;
         if (support.Effect.Id == AutoexertionSupport) return skills.IsWarcry(gem.Effect);
+        string? effectId = skills.EffectId(gem.Effect);
         return skills.IsSpell(gem.Effect) && skills.IsInstant(gem.Effect) && !skills.IsAttack(gem.Effect)
             && skills.Reservation(gem.Effect, gem.Level) is null
-            && (CooldownTriggerSelfBuff(skills.EffectId(gem.Effect))
+            && (CooldownTriggerSelfBuff(effectId)
                 || IsBrandRecall(player, gem.Effect)
-                || IsRighteousFireEffect(skills.EffectId(gem.Effect)) || IsMineDetonation(skills.EffectId(gem.Effect))
+                || IsRighteousFireEffect(effectId) || IsMineDetonation(effectId)
+                || IsFrostblinkEffect(effectId) || BannerAuraRow(effectId) != 0
+                || IsBladefallTrarthus(gem.Effect)
                 || TriggerPayloadAvailable(player, gem));
     }
 
@@ -88,7 +95,7 @@ public static partial class Game
         if (state.Active.Remove(id, out var held)) player.Area.Buffs.Clear(player.Id, held.Row, player.Id, tag: id);
     }
 
-    static bool ClearCooldownTriggersLocked(Player player, IReadOnlyCollection<ushort>? onlyIds = null)
+    internal static bool ClearCooldownTriggersLocked(Player player, IReadOnlyCollection<ushort>? onlyIds = null)
     {
         if (!CooldownTriggers.TryGetValue(player, out var state) || state.Active.Count == 0) return false;
         ushort[] targets = onlyIds is null
@@ -249,7 +256,7 @@ public static partial class Game
         return (true, activated);
     }
 
-    static async Task TickCooldownTriggers(Player player, double now)
+    internal static async Task TickCooldownTriggers(Player player, double now)
     {
         if (!CooldownTriggers.TryGetValue(player, out var state) || state.Active.Count == 0) return;
         bool changed = false;
@@ -328,9 +335,12 @@ public static partial class Game
 
         var session = ProjectilesFor(player);
         var aim = player.Walk.Position(now);
+        var instantAim = aim;
+        uint instantTarget = 0;
         var effect = SkillsFor(player).EffectId(gem.Effect);
         bool warcry = trigger.Row == AutoexertionBuffRow;
         bool guard = TriggerGuardSpell(player, gem);
+        CooldownUseTicket? committedTicket = null;
         Action? release;
         if (warcry) release = () => UseWarcry(player, gem.Effect, gem.Stats, skillId, triggered: true);
         else if (IsMineDetonation(effect))
@@ -348,6 +358,86 @@ public static partial class Game
                     await CastBrandRecall(player, skillId, skill, Current);
             });
         }
+        else if (BannerAuraRow(effect) != 0)
+        {
+            if (!CanAutomateBanner(player, skillId)) return;
+            release = () => session.Enqueue(async () =>
+            {
+                if (Current()) await ToggleBanner(player, skillId, Current, allowRemove: false);
+            });
+        }
+        else if (IsBladefallTrarthus(gem.Effect))
+        {
+            if (player.BladefallTrarthus is not null) return;
+            var playerStats = CharacterPlayerStats(player);
+            bool paysLife = Lifetap.ConvertsCostToLife(gem.Stats, playerStats);
+            bool freeMana = playerStats.GetValueOrDefault(Stat.NoManaCost) != 0;
+            if (paysLife ? player.PlayerLife <= 1 : !freeMana && player.PlayerMana == 0) return;
+            release = () => session.Enqueue(async () =>
+            {
+                if (Current()) await ActivateBladefallTrarthus(player, skillId);
+            });
+        }
+        else if (effect == "SignalPrey")
+        {
+            const int SignalPreyRange = 120;
+            var closest = player.Area.MonstersNear(aim, SignalPreyRange)
+                .Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0 && !p.Value.Invulnerable
+                    && Dist(p.Value.Walk.Position(now), aim) <= SignalPreyRange)
+                .OrderBy(p => Dist(p.Value.Walk.Position(now), aim))
+                .ThenBy(p => p.Key)
+                .FirstOrDefault();
+            if (closest.Value is null) return;
+            uint preyId = closest.Key;
+            var preyPos = closest.Value.Walk.Position(now);
+            instantAim = preyPos;
+            instantTarget = preyId;
+            release = () => SignalPreyLocked(player, skillId, gem, preyPos, preyId, now);
+        }
+        else if (IsFrostblinkEffect(effect))
+        {
+            var playerStats = CharacterPlayerStats(player);
+            if (playerStats.GetValueOrDefault(Stat.YourMovementSkillsAreDisabled) != 0) return;
+            var skillEntry = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
+            if (skillEntry.Name is null) return;
+            var landing = ResolveAutomatedFrostblinkLanding(player, aim, gem, playerStats, now);
+            instantAim = landing;
+            release = () =>
+            {
+                if (landing != aim) player.Walk.Teleport(landing.X, landing.Y, now);
+                RecordAcceptedGemUse(player, gem.Effect, landing);
+                if (SkillsFor(player).IsTravel(gem.Effect))
+                {
+                    QueueFlaskTrigger(player, FlaskEnchantments.Trigger.Travel);
+                    LoyaltyTravelSkillTriggered(player);
+                }
+                var usedTicket = committedTicket;
+                session.Enqueue(async () =>
+                {
+                    if (Current()) await FrostblinkAreas(player, skillEntry, aim, landing, usedTicket, triggeredCurrent: Current);
+                });
+            };
+        }
+        else if (effect == WitheringStepEffect)
+        {
+            if (player.ProjectileRuntime is { Active: true } wsRuntime)
+                wsRuntime.AdvanceTo(Math.Max(wsRuntime.Runtime.Now, GameServer.Core.Projectiles.ProjectileRuntime.Time(now)));
+            if (CharacterPlayerStats(player).GetValueOrDefault(Stat.YourMovementSkillsAreDisabled) != 0
+                || !CanUseWitheringStepLocked(player, now)) return;
+            release = () => StartWitheringStepLocked(player, skillId, now);
+        }
+        else if (effect == BerserkEffect)
+        {
+            if (!CanStartBerserkLocked(player, skillId, gem.Effect)) return;
+            release = () => StartBerserkLocked(player, skillId, now);
+        }
+        else if (effect == CorruptingFeverEffect)
+            release = () => StartCorruptingFeverLocked(player, skillId, now);
+        else if (effect == PlagueBearerEffect)
+        {
+            if (!CanUsePlagueBearerLocked(player, automated: true)) return;
+            release = () => TogglePlagueBearerLocked(player, skillId, now, automated: true);
+        }
         else if (CooldownTriggerSelfBuff(effect))
             release = () => session.Enqueue(async () =>
             {
@@ -362,10 +452,15 @@ public static partial class Game
                     await ActivateRighteousFire(player, skillId, gem.Effect, gem.Level, gem.Quality, gem.SourceGem?.TypeHash ?? 0);
             });
         }
-        else release = PrepareTriggeredPayload(player, session, skillId, aim, Current);
+        else
+        {
+            if (guard && SelfBuffRefused(player, gem.Effect, skillId, triggered: true) is not null) return;
+            release = PrepareTriggeredPayload(player, session, skillId, aim, Current);
+        }
         if (release is null || !TryBeginCooldownUseCore(player, gem.Effect, cooldown, instant: true, () => { },
                 out var ticket, null, true, null, skillId, Current, triggered: true)
             || ticket?.TryExecute(player, gem.Effect) != true) return;
+        committedTicket = ticket;
         int supportCooldownMs = SkillsFor(player).CooldownMs(support.Gem.Effect, support.Gem.Level);
         if (supportCooldownMs > 0)
         {
@@ -378,7 +473,8 @@ public static partial class Game
         release();
         if (!guard)
         {
-            var instant = InstanceProtocol.InstantAction(player.Id, skillId, aim.X, aim.Y,
+            var instant = InstanceProtocol.InstantAction(player.Id, skillId, instantAim.X, instantAim.Y,
+                targetObjectId: instantTarget == 0 ? null : instantTarget,
                 sequence: player.Connection.LockstepClient ? NextLockstepSequence(player) : (ushort)0xffff,
                 flags: player.Connection.LockstepClient ? (ushort)0x101 : (ushort)0, triggered: true);
             session.Enqueue(() => SendWorldRecord(player, player.Id, instant,
@@ -387,5 +483,30 @@ public static partial class Game
         if (ticket.Paid is { } paid && (paid.Mana > 0 || paid.Life > 0))
             session.Enqueue(() => SendSkillCost(player, paid.Life, warcry ? "Autoexertion cost" : "Automation cost"));
         session.Enqueue(() => SendNativeCooldownRefresh(player));
+    }
+
+    static (int X, int Y) ResolveAutomatedFrostblinkLanding(Player player, (int X, int Y) from, SupportedGem gem,
+        IReadOnlyDictionary<uint, int> playerStats, double now)
+    {
+        int travelPct = ActorScale.Saturate((long)gem.Stats.GetValueOrDefault(Stat.SkillMaximumTravelDistancePlusPct)
+            + playerStats.GetValueOrDefault(Stat.SkillMaximumTravelDistancePlusPct));
+        if (player.Walk.Moving(now) && player.Walk.Destination != from
+            && InstantLocationSkill.TryResolveLanding(player, from, player.Walk.Destination, travelPct,
+                allowTerrainFallback: true, out var movingLanding))
+            return movingLanding;
+        const int seekRadius = 60;
+        var enemy = player.Area.MonstersNear(from, seekRadius)
+            .Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0 && !p.Value.Invulnerable)
+            .OrderBy(p => Dist(p.Value.Walk.Position(now), from))
+            .ThenBy(p => p.Key)
+            .FirstOrDefault();
+        if (enemy.Value is not null)
+        {
+            var enemyPos = enemy.Value.Walk.Position(now);
+            if (enemyPos != from && InstantLocationSkill.TryResolveLanding(player, from, enemyPos, travelPct,
+                    allowTerrainFallback: true, out var enemyLanding))
+                return enemyLanding;
+        }
+        return from;
     }
 }
