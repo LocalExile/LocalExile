@@ -206,7 +206,8 @@ public static class TownNpcs
                 new(Npc + "Epilogue/Helena", 389, 175, 0.742503f, Model: "Metadata/NPC/Missions/Helena.ao", State: 2),
             ]),
         ]),
-        // island_camp.dgr: I. Commander Kirac (786, 675) and HelenaIntro (510, 173: tunnel intro trigger for a11q1).
+        // island_camp.dgr: I. Commander Kirac (786, 675), HelenaIntro (510, 173: tunnel intro trigger for a11q1),
+        // Johan (686, 759) and Faustus (686, 746, camp.arm L1147-1148).
         new(0xb4e7, "2_11_endgame_town", new("Metadata/Terrain/Act11/Camp/Rooms/camp.arm", 1679, 1058, 0, 92, 92, Seed: 1),
         [
             new(Npc + "Epilogue/Lilly", 186, 366, 0.499106f, Model: "Metadata/NPC/Act5/Lilly.ao", Z: -202.5f),
@@ -217,6 +218,9 @@ public static class TownNpcs
             new(Npc + "Epilogue/Helena", 771, 696, 0.564095f, Model: "Metadata/NPC/Missions/Helena.ao", State: 2),
             new(Npc + "Epilogue/HelenaIntro", 510, 173, 0.903148f, Model: "Metadata/NPC/Missions/Helena.ao", State: 1),
             new(Npc + "Epilogue/Kirac", 786, 675, -2.32129f, Model: "Metadata/Monsters/Masters/Kirac.ao"),
+            new(Npc + "League/Kalguur/VillageMayorTown", 686, 759, 0.830435f),
+            // VillageFaustusTown has no .ot of its own (Metadata/NPC/NPC); camp.arm L1148 supplies Faustus.ao.
+            new(Npc + "League/Kalguur/VillageFaustusTown", 686, 746, 1.28664f, Model: Npc + "League/Heist/Faustus/Faustus.ao"),
         ]),
         // The Rogue Harbour (HeistHub). Not a campaign town, but its hub room names its NPCs the same way. hub.dgr places
         // the single node "hub" with rotation I, at (92, 92) on every seed; a version 31 room (no 0 before the angle),

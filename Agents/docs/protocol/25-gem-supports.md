@@ -168,9 +168,10 @@ hit and attack rate. Invoking those calculators with a fixed 100-damage hit at t
 100 average damage and 200 DPS with zero, two or three repeats and their 22/44/66% bonuses. The server's
 panel preserves that per-hit convention for both hands.
 
-Melee Splash hits the enemies around each struck one for the
-support's less damage; its radius is the 14-unit base (poewiki) grown by the area modifier and
-`melee_splash_area_of_effect_+%_final` (`MeleeSplash`).
+Melee Splash hits the enemies around each struck one of a Melee Strike skill (from `melee_splash` such as Tribal Fury,
+a support gem, an item/enchant, or a tincture), applying any splash damage multiplier (`support_melee_splash_damage_+%_final_for_splash`,
+none for Tribal Fury); its radius is the 14-unit base (poewiki) grown by increased area (including
+`melee_splash_area_of_effect_+%`) and more area multipliers (including `melee_splash_area_of_effect_+%_final`) (`MeleeSplash`).
 
 Spell Cascade repeats a supported area spell in a line: one extra area per side along the caster-to-target
 direction (`support_spell_cascade_number_of_cascades_per_side`, 1) and, with `support_spell_cascade_sideways`

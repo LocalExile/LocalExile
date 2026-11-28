@@ -42,6 +42,8 @@ public static partial class Game
         var (owner, source, registered) = emitter;
         if (owner.PlayerLife == 0 || owner.Closed || owner.LeavingArea || source.Monster.Dead || source.Monster.Life == 0
             || now >= emitter.Until || !ReferenceEquals(owner.Area.Monsters.GetValueOrDefault(source.Id), source.Monster)) return false;
+        if (source.Kind == "Mercenary")
+            return owner.Companion is { } comp && comp.EntityId == source.Id && ReferenceEquals(comp.Monster, source.Monster);
         if (!registered) return OwnedFighter(owner, source.Id) is { } native && ReferenceEquals(native.Monster, source.Monster);
         if (IsRelicSkill(source.Skill)) return now < source.Until;
         return now < owner.Reservations.Until.GetValueOrDefault(source.Id, owner.Summons.Until.GetValueOrDefault(source.Id))
@@ -49,6 +51,37 @@ public static partial class Game
             && ReferenceEquals(fighter.Monster, source.Monster)
             && GolemStat(fighter.Own, Stat.SummonedSentinelsHaveRandomTemplarAura) != 0;
     }
+
+    /// <summary>Publishes (or updates) an active companion's shared non-curse auras into <c>SharedMinionAuraEmitters</c>.
+    /// Each aura's own increased aura effect (<see cref="PlayerMinions.Aura.OwnAuraEffectPct"/>, e.g. Generosity + gear)
+    /// adds linearly with Bestowed Knighthood's <c>permanenet_mercenary_non_curse_aura_effect_+%</c> when
+    /// <paramref name="scaleByLuminary"/> is true and the companion is permanent.</summary>
+    public static void SyncCompanionSharedAuras(Player owner, ActiveCompanion companion, PlayerMinions.Aura[] auras,
+        double now, bool scaleByLuminary = true)
+    {
+        if (auras.Length == 0 || !CompanionAliveInArea(owner, companion))
+        {
+            ClearSharedMinionAuras(owner, companion.EntityId);
+            return;
+        }
+        int luminaryPct = scaleByLuminary && companion.IsPermanent ? LuminaryBonusesOf(owner).NonCurseAuraEffectPct : 0;
+        var effective = new PlayerMinions.Aura[auras.Length];
+        for (int i = 0; i < auras.Length; i++)
+        {
+            int totalPct = auras[i].OwnAuraEffectPct + luminaryPct;
+            var scaled = totalPct == 0 ? auras[i] : ScaleCompanionNonCurseAura(auras[i], totalPct);
+            effective[i] = scaled with { SharesWithAllies = true, OwnAuraEffectPct = 0 };
+        }
+        var source = new PlayerMinions.Minion(companion.EntityId, companion.Monster, "Mercenary", "Mercenary")
+        {
+            Until = double.PositiveInfinity,
+        };
+        SyncSharedMinionAuras(owner, source, effective, now, double.PositiveInfinity, registered: false);
+    }
+
+    /// <summary>Clears any shared non-curse auras published by a companion entity.</summary>
+    public static void ClearCompanionSharedAuras(Player owner, uint entityId) =>
+        ClearSharedMinionAuras(owner, entityId);
 
     static void SyncSharedMinionAura(Player owner, PlayerMinions.Minion source, PlayerMinions.Aura aura, double now) =>
         SyncSharedMinionAuras(owner, source, [aura], now, double.PositiveInfinity, registered: true);
@@ -72,10 +105,10 @@ public static partial class Game
             return;
         }
         double radiusScale = Math.Sqrt(Math.Max(0, 1 + source.Monster.Effects[Stat.BaseSkillAreaOfEffectPlusPct] / 100d));
-        if (emitter.RadiusScale == radiusScale && emitter.Auras.SequenceEqual(auras)) return;
+        if (emitter.RadiusScale == radiusScale && SameSharedAuras(emitter.Auras, auras)) return;
         HashSet<EntityId>? changedRecipients = null;
         foreach (var old in emitter.Auras)
-            if (!auras.Contains(old))
+            if (!auras.Any(next => SameSharedAura(old, next)))
                 foreach (var id in ZoneMembers(owner, source.Id, MinionAuraZones, old.BuffRow))
                 {
                     owner.Area.Buffs.Clear(id.Value, old.BuffRow, source.Id);
@@ -90,6 +123,20 @@ public static partial class Game
         if (changedRecipients is not null)
             foreach (var id in changedRecipients) RefreshMinionAuraRecipient(emitter, id.Value);
     }
+
+    static bool SameSharedAuras(PlayerMinions.Aura[] a, PlayerMinions.Aura[] b)
+    {
+        if (a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++)
+            if (!SameSharedAura(a[i], b[i])) return false;
+        return true;
+    }
+
+    static bool SameSharedAura(PlayerMinions.Aura a, PlayerMinions.Aura b) =>
+        a.EffectId == b.EffectId && a.BuffRow == b.BuffRow && a.Radius == b.Radius
+        && a.SharesWithAllies == b.SharesWithAllies && a.AffectsSource == b.AffectsSource
+        && a.Stats.SequenceEqual(b.Stats)
+        && (a.BuffValues is null ? b.BuffValues is null : b.BuffValues is not null && a.BuffValues.SequenceEqual(b.BuffValues));
 
     static void RefreshMinionAuraRecipient(MinionAuraEmitter emitter, uint recipient)
     {

@@ -10,12 +10,13 @@ public static partial class Game
     static void CreateBladestormLocked(Player player,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, SupportedGem admitted,
         AttackHand hand, SkillCatalog.Unarmed weapon, int? offCritical, (int X, int Y) at, (int X, int Y) aim,
-        double interval, ushort sequence, double now, double radiusMore, double damageMore, double ruthless, int repeat,
-        bool? cryExerted)
+        double interval, ushort sequence, double now, double radiusMore, double damageMore, double ruthless,
+        bool? cryExerted, int? rallyingDamage, int otherWarcries = 0)
     {
         var stats = CharacterPlayerStats(player);
         int Own(uint key) => admitted.Stats.GetValueOrDefault(key);
-        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), stats.GetValueOrDefault, Own);
+        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), stats.GetValueOrDefault, Own,
+            DurationKinds(player, gem.Effect));
         int limit = Own(Stat.BladestormMaximumNumberOfStormsAllowed);
         if (duration <= 0 || limit <= 0) return;
         var area = SkillAreaStats(player, admitted.Stats, gem.Effect, stats);
@@ -27,12 +28,12 @@ public static partial class Game
         if (!sand)
             stormStats = new Dictionary<uint, int>(stormStats) { [Stat.BleedOnHitWithAttacksPct] = 100 };
         double more = Math.Max(0, 1 + Own(Stat.BladestormStormDamagePlusPctFinal) / 100d) * damageMore;
-        if (repeat > 0) more *= MeleeRepeatDamageMore(player, gem.Id, repeat);
-        var attack = CaptureAreaAttack(player, gem.Id, admitted with { Stats = stormStats }, hand, weapon, offCritical,
-            more, more, sand ? "sand storm" : "blood storm");
+        var attack = CaptureExertedAreaAttack(player, gem.Id, admitted with { Stats = stormStats }, hand, weapon, offCritical,
+            more, more, sand ? "sand storm" : "blood storm", cryExerted == true, otherWarcries, rallyingDamage);
         var session = ProjectilesFor(player);
         session.PlaceBladestorm(gem, attack, at, aim, sand, limit, radius, sequence, now, interval, duration, ruthless,
-            cryExerted, Own(Stat.BladestormMovementSpeedPlusPctWhileInSandstorm), sand ? BlindEffectLess(stats) : 0);
+            cryExerted, rallyingDamage, Own(Stat.BladestormMovementSpeedPlusPctWhileInSandstorm), sand ? BlindEffectLess(stats) : 0,
+            otherWarcries);
     }
 
     static (bool Blood, int MoveIncreased) BladestormBonuses(Player player) =>
@@ -87,8 +88,8 @@ public static partial class Game
         internal void PlaceBladestorm(
             (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, RetainedAreaAttack attack,
             (int X, int Y) origin, (int X, int Y) aim, bool sand, int limit, int radius, ushort sequence, double now,
-            double interval, double duration, double ruthless, bool? cryExerted, int moveIncreased,
-            int blindLess)
+            double interval, double duration, double ruthless, bool? cryExerted, int? rallyingDamage, int moveIncreased,
+            int blindLess, int otherWarcries = 0)
         {
             bladestorms ??= [];
             while (bladestorms.Count >= limit) RemoveBladestorm(bladestorms[0]);
@@ -99,9 +100,11 @@ public static partial class Game
             {
                 var ray = (Vector(aim) - Vector(origin)).Unit * (duration * sandPace);
                 var end = (origin.X + (int)Math.Round(ray.X), origin.Y + (int)Math.Round(ray.Y));
+                var layout = Player.Layout;
                 foreach (var cell in ClientPathfinder.Line(origin, end))
                 {
-                    if (!Player.Layout.WalkableFor(cell.X, cell.Y, 0) || Player.Barrier.Contains(cell)) break;
+                    if (cell.X < 0 || cell.Y < 0 || cell.X >= layout.GridW || cell.Y >= layout.GridH
+                        || !layout.WalkableFor(cell.X, cell.Y, 0) || Player.Barrier.Contains(cell)) break;
                     destination = cell;
                 }
             }
@@ -148,7 +151,7 @@ public static partial class Game
                         swingAt: null, triggeredCurrent: Current, discharge: null, strikeIndex: 0, firstContactAt: null,
                         ruthlessMore: ruthless, priorTargets: null, scaledBlastChaos: 0, singleStrikeTarget: null,
                         onHit: null, scheduledSession: this, cryExerted, prepaidRawExtra: 0, baseChaos: 0, hammer: null,
-                        retainedAttack: attack);
+                        retainedAttack: attack, rallyingDamage: rallyingDamage, extraOtherWarcries: otherWarcries);
                     if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled Bladestorm hit must not yield.");
                     hit.GetAwaiter().GetResult();
                     SchedulePulse(when + cadence);

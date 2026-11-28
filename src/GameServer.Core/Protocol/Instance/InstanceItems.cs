@@ -148,6 +148,18 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public IncursionTempleData? IncursionTemple { get; init; }
     public ExpeditionSagaData? ExpeditionSaga { get; init; }
 
+    /// <summary>MercenaryContract component 173 (Mercenary Warrant rematch blueprint, 0x1424ac0f0): serialized directly
+    /// on the item wire payload and persisted independently of <see cref="Note"/>.</summary>
+    public MercenaryContractData? MercenaryContract { get; init; }
+
+    /// <summary>Item header flag bit 6 (0x0040, reader 0x1421f2d00 → item +0x2c): marks a hired mercenary's rolled gear
+    /// as locked in place ("This Mercenary item cannot be removed, only replaced." / 0x1edc, or 0x20cb in row 107).</summary>
+    public const ushort MercenaryLockedHeaderFlag = 0x0040;
+
+    /// <summary>Persisted lock for a hired mercenary's rolled gear: emits <see cref="MercenaryLockedHeaderFlag"/> on the
+    /// wire and forbids removing, splitting, socketing or crafting the item (only in-place replacement is allowed).</summary>
+    public bool MercenaryLocked { get; init; }
+
     /// <summary>The u16 after the type hash (reader 0x1421f2d00): bit 0 → item +0x28; bit 1 → +0x29, which keeps the item
     /// out of every inventory but InventoryIdKey 0 and 0x41 and is required for 0x41 (0x141d65f80); bit 2 → +0x2a, with
     /// bit 1 the tooltip's second marker icon (0x140c998a0); bit 3 → +0x2b, refused in every inventory; bit 4 the
@@ -192,7 +204,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter", "IncursionTemple", "ExpeditionSaga", "BrequelFruit"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter", "IncursionTemple", "ExpeditionSaga", "MercenaryContract", "BrequelFruit"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -221,7 +233,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public byte[] Payload()
     {
         if (!CanSerialize(Components)) throw new ArgumentException($"unsupported item components: {string.Join(", ", Components.Where(c => !Supported.Contains(c)))}");
-        var w = new BlobWriter().U32(TypeHash).U16((ushort)(HeaderFlags & 0x01ff));
+        ushort headerFlags = (ushort)((HeaderFlags | (MercenaryLocked ? MercenaryLockedHeaderFlag : 0)) & 0x01ff);
+        var w = new BlobWriter().U32(TypeHash).U16(headerFlags);
         foreach (string c in Components)
         {
             switch (c)
@@ -307,6 +320,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     break;
                 case "ExpeditionSaga":
                     (ExpeditionSaga ?? new ExpeditionSagaData(0, [])).Write(w);
+                    break;
+                case "MercenaryContract":
+                    (MercenaryContract ?? new MercenaryContractData(new(0, 0, 0, 0, 0, []))).Write(w);
                     break;
                 // BrequelFruit (Component 170, reader 0x141ebaec0 / writer 0x141ebae80): u32 LE fleshgraftLevel (+0x18, default 1).
                 case "BrequelFruit":
@@ -785,6 +801,19 @@ public static class InstanceItems
 
     public static InventoryQuickMove ReadInventoryQuickMove(ReadOnlySpan<byte> m) =>
         new(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6] != 0, m[7], m[8] != 0);
+
+    /// <summary>C→S 0x010c (9 bytes BE, caller 0x1403107d0, builder 0x14216eed0, writer 0x141f9fa30, reader 0x141fa05c0):
+    /// Ctrl + click quick-move between player carried inventory (main or expanded) and a mercenary equipment inventory
+    /// (rows 95..97, 107). Layout: u32 BE itemId (+2), u8 fromExpanded (+6), u8 toMercenary (+7: 1 = into mercenary,
+    /// 0 = out to player), u8 target (+8: roster key 0..3 when toMercenary == 1, or Inventories._row 95/96/97/107 when
+    /// toMercenary == 0; note opposite offset order of +7/+8 vs C→S 0x00fd).</summary>
+    public const ushort MercenaryQuickMoveId = 0x010c;
+    public const int MercenaryQuickMoveLength = 9;
+
+    public readonly record struct MercenaryQuickMove(uint ItemId, bool FromExpanded, bool ToMercenary, byte Target);
+
+    public static MercenaryQuickMove ReadMercenaryQuickMove(ReadOnlySpan<byte> m) =>
+        new(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6] != 0, m[7] != 0, m[8]);
 
     public const ushort UseItemClickId = 0x57, FlaskChargesId = 0x00c6, ItemUseResultId = 0x0174;
     public const int UseItemClickLength = 11;

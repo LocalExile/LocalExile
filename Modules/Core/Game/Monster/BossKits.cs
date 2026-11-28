@@ -17,6 +17,7 @@ public static class BossKits
     public static void LoadBossKitsData()
     {
         CampaignBosses = LoadCampaignBosses();
+        EntityOrAllyOnlyTargets = LoadEntityOrAllyOnlyTargets();
         GemGranted = [.. ClientTables.TableOrEmpty("GemEffects")
             .SelectMany(g => new[] { g.IntOrNull("GrantedEffect"), g.IntOrNull("GrantedEffect2") }).OfType<int>()];
         ProjectileMinimumRangeStat = Stat.Of("projectile_minimum_range");
@@ -52,6 +53,36 @@ public static class BossKits
             || id.StartsWith("Metadata/Monsters/AtlasExiles/AtlasExile2", StringComparison.Ordinal)
             || id.StartsWith("Metadata/Monsters/AtlasExiles/AtlasExile3", StringComparison.Ordinal)
             || id.StartsWith("Metadata/Monsters/AtlasExiles/AtlasExile4", StringComparison.Ordinal));
+
+    static HashSet<int> EntityOrAllyOnlyTargets = default!;
+
+    /// <summary>GrantedEffects whose ActiveSkill only accepts entity/marker objects (target type 15) or allies (3)
+    /// without accepting an enemy (1), ground (2), or self (4). Generic boss AI casts with <c>targetObjectId = 0</c>
+    /// aimed at the player, which either crashes unchecked client handlers (ArakaaliHide, AbberathHide, LbBossFlee)
+    /// or fails CanUse (ShavronneEmpowerBeam, PietyFireForm/IceForm, BirdmanConsume, BrineKingCharge).</summary>
+    static HashSet<int> LoadEntityOrAllyOnlyTargets()
+    {
+        HashSet<int> effects = [];
+        if (ClientTables.TableOrNull("ActiveSkills") is not { } active
+            || ClientTables.TableOrNull("GrantedEffects") is not { } granted) return effects;
+        HashSet<int> skills = [];
+        int i = 0;
+        foreach (var a in active)
+        {
+            int[] targets = [.. a.Ints("ActiveSkillTargetTypes")];
+            if (targets.Length > 0 && (targets.Contains(15) || targets.Contains(3))
+                && !targets.Contains(1) && !targets.Contains(2) && !targets.Contains(4))
+                skills.Add(i);
+            i++;
+        }
+        i = 0;
+        foreach (var e in granted)
+        {
+            if (e.IntOrNull("ActiveSkill") is int a && skills.Contains(a)) effects.Add(i);
+            i++;
+        }
+        return effects;
+    }
 
     /// <summary>A boss the ordinary AI plays as a kit: a monster the campaign places as a boss (IsCampaignBoss: any of
     /// the ten acts' named monsters, big and small), one with a life bar, an Atlas Guardian/Conqueror, or an Essence
@@ -106,6 +137,11 @@ public static class BossKits
     /// <summary>Whether the effect is <see cref="MercenaryPortalOut"/>.</summary>
     public static bool IsLeavePortal(SkillCatalog catalog, int effect) => effect >= 0 && catalog.EffectId(effect) == MercenaryPortalOut;
 
+    // Entity-marker-only ([15]) and ally-only ([3]) actions require a real targetObjectId; MaligaroVanish (ActionType
+    // 636, tgt=[4]) dereferences targetEntity->Positioned unchecked in OnStart. Generic AI passes targetObjectId=0.
+    internal static bool IsUnsafeGenericTarget(int effect) =>
+        EntityOrAllyOnlyTargets.Contains(effect) || SkillCatalog.ActionTypeId(effect) == "MaligaroVanish";
+
     /// <summary>Whether one granted effect is something the ordinary AI can play as an action (the test <see cref="Effects"/>
     /// applies to each of a variety's effects), for a caller whose effects do not come from the variety's own list: a
     /// mercenary's build skills.</summary>
@@ -113,6 +149,7 @@ public static class BossKits
     {
         if (SolarisLunaris.IsBody(variety) && effect is 6739 or 6740) return false;
         if (effect < 0 || catalog.CastsOnDeath(effect) || IsDamageTakenTrigger(catalog, effect)
+            || IsUnsafeGenericTarget(effect)
             // A summon's movement attack is how it reaches the player (Doubt's spider MonsterFlickerStrike); a boss
             // keeps only its non-movement skills.
             || (catalog.IsMovement(effect) && !(forSummon && catalog.IsAttack(effect)))
@@ -127,9 +164,10 @@ public static class BossKits
             || id.Contains("Bond", StringComparison.Ordinal)
             || id.Contains("Mark", StringComparison.Ordinal)
             || id.Contains("Souls", StringComparison.Ordinal)
-            // This action drives the arena's ArakaaliTurret_A/B objects, not a standalone hit. Without them its
-            // native shuffle dereferences an empty turret list (live Arakaali crash at 0x141c7a0e4).
+            // These actions drive Arakaali's arena objects (ArakaaliTurret_A/B for SpiderGodActivateLaser,
+            // live crash at 0x141c7a0e4; TeleportMarkerSerialized1..4 / SilkArakaali for ArakaaliHide, ActionType 724).
             || id.StartsWith("SpiderGodActivateLaser", StringComparison.Ordinal)
+            || id.StartsWith("ArakaaliHide", StringComparison.Ordinal)
             || id.Contains("EmptyAction", StringComparison.Ordinal)
             || id.Contains("Emerge", StringComparison.Ordinal)
             || id.Contains("Retreat", StringComparison.Ordinal)
@@ -239,6 +277,7 @@ public static class BossKits
         foreach (bool trigger in new[] { false, true })
             foreach (int effect in candidates)
                 if (effect >= 0 && !effects.Contains(effect) && !catalog.CastsOnDeath(effect) && !IsLeavePortal(catalog, effect)
+                    && !IsUnsafeGenericTarget(effect)
                     && !(MonsterKitHooks.HasEffectFilters && !MonsterKitHooks.AllowEffect(variety, effect, catalog.EffectId(effect)))
                     && IsDamageTakenTrigger(catalog, effect) == trigger
                     && (MonsterSkills.ShapeOf(catalog, effect) is not null || trigger && (catalog.IsAttack(effect) || catalog.IsSpell(effect))))

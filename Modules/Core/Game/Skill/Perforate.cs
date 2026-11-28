@@ -49,7 +49,7 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, SupportedGem admitted,
         (int X, int Y) from, (int X, int Y) to, ushort sequence, int repeat, AttackHand hand, SkillCatalog.Unarmed weapon,
         int? offCritical, SkillCriticalRoll critical, double radiusMore, double damageMore, double ruthless,
-        bool exerted, bool seismicExerted, double now)
+        bool exerted, bool seismicExerted, double now, int? rallyingDamage = null)
     {
         var session = ProjectilesFor(player);
         var stats = SkillAreaStats(player, admitted.Stats, gem.Effect);
@@ -67,7 +67,8 @@ public static partial class Game
         if (steps.Length == 0) return;
 
         double more = damageMore * (sand ? 1 : PerforateBloodDamageMore(StatValue));
-        var source = CaptureAreaAttack(player, gem.Id, admitted, hand, weapon, offCritical, more, more, "spike");
+        var source = CaptureExertedAreaAttack(player, gem.Id, admitted, hand, weapon, offCritical, more, more, "spike",
+            exerted, (seismicExerted ? 1 : 0) + (MeleeWarcryTriggersFor(critical)?.Count ?? 0), rallyingDamage);
         HashSet<uint>? struck = sand ? [] : null;
         bool Active() => session.Active && player.PlayerLife > 0;
         long start = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(now));
@@ -97,7 +98,7 @@ public static partial class Game
                     strikeIndex: 0, firstContactAt: null, ruthless, priorTargets: null, scaledBlastChaos: 0,
                     singleStrikeTarget: null, onHit: null, scheduledSession: session, cryExerted: exerted,
                     prepaidRawExtra: 0, baseChaos: 0, hammer: null, retainedAttack: source, allowMeleeSplash: false,
-                    contactTargets: candidates, seismicExerted: seismicExerted);
+                    contactTargets: candidates, seismicExerted: seismicExerted, rallyingDamage: rallyingDamage);
                 if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled Perforate contact must not yield.");
                 hit.GetAwaiter().GetResult();
             }

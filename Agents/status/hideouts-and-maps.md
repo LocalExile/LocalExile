@@ -130,6 +130,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- **Settlers of Kalguur / Kingsmarch (`Modules/Core/Content/Settlers`, verified live in 3.29.3d):** Karui Shores
+  Johan/Faustus intro & tutorial quests, native `kingsmarch.arm` `0x02bb` hub (349 objects, zero client patches),
+  ruleset `0x9b` town/workers/production/shipping/mapping/disenchanting/dual-mode recombinator, all 6 map ore/dust
+  encounters, Lost Shipments, Kalguuran Scarabs, Refiner's Bargain, Prospecting Astrolabe integration, 3 boss arenas
+  (Black Knight, Admiral Valerius, Sasan), SQLite persistence (`settlers_village.sql`), and Waypoint tunables
+  (`settings.json`, retail `1.0` defaults); see [30](../docs/protocol/30-settlers-kingsmarch.md).
 - Act 11 Atlas endgame progression (verified live in 3.29.3d): unconditional endgame flag bypass removed (kept as
   `/atlas_unlock`), Karui Shores War Room Map Device works for `a11q1`, and Eagon stands in hideouts once unlocked.
   `0x01a3` carries Tangle/Cleansing 28-map counts and sections `0x04` (Maven witnessed), `0x08` (Memory Lines), and
@@ -392,8 +398,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ducat socketing and reclaim, and Message in a Bottle reveal.
   Ship upgrades (`DeepwaterUpgrades` rows 0–4: `+1` lantern, Sulphur scaling, extra scattered objects, final-lantern
   Adrenaline, all five upgrade pieces with Vesper turn-ins `#3920–3924` unlocking copy-cap tiers and
-  `GhostflameCraftingBenchProps_Stage1..6`), Act 1 Deepwater Fairgraves (`1_1_9` with `FlameBarrier1` and
-  `AllFlameLanternDeepwater`), and Kishara's Rest (`#29` barrier → `#30` imbued level ≥ 83 boss arena with two-phase
+  `GhostflameCraftingBenchProps_Stage1..6`), Act 1 Deepwater Fairgraves (`1_1_9` with dynamic `FlameBarrier1` and
+  `AllFlameLanternDeepwater`, crediting minion/totem/trap/mine kills too), and Kishara's Rest (`#29` barrier → `#30` imbued level ≥ 83 boss arena with two-phase
   Cressie and Velka, guaranteed unique + 8% Coursing Current Support + first-kill quest drops, and
   `VelkaDescensionObject` opening Velka Bloodline `Descendancy#15`) work
   ([03](../docs/protocol/03-area-and-world.md) §8, [12](../docs/protocol/12-quests.md) §5,

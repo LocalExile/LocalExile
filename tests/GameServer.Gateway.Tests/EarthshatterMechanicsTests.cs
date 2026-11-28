@@ -126,6 +126,50 @@ public sealed class EarthshatterMechanicsTests
             Assert.InRange(exertedFissure / (double)plainFissure, 1.16, 1.19);
             Assert.InRange(exertedSpike / (double)plainSpike, 1.16, 1.19);
         }
+
+        using (var rallying = new Trial("Earthshatter of Prominence", "Overexertion Support", "Rallying Cry"))
+        {
+            var start = Assert.Single(rallying.Plan(count: 1)).Start;
+            var endpoint = Assert.Single(rallying.Plan(count: 1)).End;
+            var plainTarget = rallying.Monster(920, start);
+            await rallying.Cast(rallying.Skill);
+            uint plainFissure = plainTarget.MaxLife - plainTarget.Life;
+            rallying.Advance(.30);
+            var plainSpikeTarget = rallying.Monster(921, endpoint);
+            await Game.WarcryReleased(rallying.Player, Trial.Origin, 90, rallying.Player.ProjectileEpoch);
+            rallying.Advance(.30);
+            uint plainSpike = plainSpikeTarget.MaxLife - plainSpikeTarget.Life;
+            Assert.True(plainFissure > 0 && plainSpike > 0);
+
+            rallying.Advance(.70);
+            var cry = Game.GemSkillEffects(rallying.Player).Single(g => g.Name == "Rallying Cry");
+            Game.GrantRallyingCryExertsLocked(rallying.Player, Game.SupportedSkill(rallying.Player, cry.Id).Stats,
+                new Dictionary<uint, int>(), affectedAllies: 2);
+            var exertedTarget = rallying.Monster(922, start);
+            await rallying.Cast(rallying.Skill);
+            uint exertedFissure = exertedTarget.MaxLife - exertedTarget.Life;
+            rallying.Advance(.30);
+            var exertedSpikeTarget = rallying.Monster(923, endpoint);
+            await Game.WarcryReleased(rallying.Player, Trial.Origin, 90, rallying.Player.ProjectileEpoch);
+            rallying.Advance(.30);
+            uint exertedSpike = exertedSpikeTarget.MaxLife - exertedSpikeTarget.Life;
+            // Rallying Cry (+5% per ally * 2 = 10% more) + Overexertion Support (+18% more for 1 warcry) = ~1.298x.
+            Assert.InRange(exertedFissure / (double)plainFissure, 1.28, 1.32);
+            Assert.InRange(exertedSpike / (double)plainSpike, 1.28, 1.32);
+        }
+
+        using (var snaking = new Trial("Earthshatter of Prominence", "Volcanic Fissure of Snaking"))
+        {
+            var endpoint = Assert.Single(snaking.Plan(count: 1)).End;
+            await snaking.Cast(snaking.Skill);
+            snaking.Advance(.70);
+            // Witness sits inside the spike's 25-cell blast radius, far outside the snaking fissure's 10-cell path body.
+            var witness = snaking.Monster(930, (endpoint.X, endpoint.Y + 22));
+            var snakingId = Game.GemSkillEffects(snaking.Player).Single(g => g.Name == "Volcanic Fissure of Snaking").Id;
+            await snaking.Cast(snakingId);
+            snaking.Advance(.60);
+            Assert.True(witness.Life < witness.MaxLife);
+        }
     }
 
     sealed class Trial : IDisposable

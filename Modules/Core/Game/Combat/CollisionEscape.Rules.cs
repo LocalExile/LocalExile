@@ -36,7 +36,7 @@ public static partial class Game
                 && !player.Barrier.Contains((x, y));
             if (CollisionEscape.Find(from, player.Layout.GridW, player.Layout.GridH, Walkable,
                 living ? player.CorrectionBlockers()
-                    : player.StationaryBlockers) is not { } free) return;
+                    : player.PlayerStationaryBlockers) is not { } free) return;
             to = free;
             if (tell)
             {

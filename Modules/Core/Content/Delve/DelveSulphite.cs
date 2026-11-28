@@ -268,6 +268,8 @@ public sealed partial class DelveModule
             var recipients = InGame.Keys.Where(p => ReferenceEquals(p.Instance, player.Instance) && p.Connection.PlayerSent && !p.LeavingArea && !p.Closed && p.PlayerLife > 0
                 && LeagueFor(p).Modules.Contains(module.Manifest.Id) && MapSulphite.Distance(p.Walk.Position(AreaTime(p)), (deposit.X, deposit.Y)) <= 150).ToList();
             if (!recipients.Contains(player)) recipients.Add(player);
+            List<(Player Player, int Gain)> intercepted = [];
+            bool interceptSulphite = encounter.Mods.Get(Stat.MapSulphiteGrantsRandomOreInstead) > 0;
             Saves.Atomically(() =>
             {
                 foreach (var recipient in recipients)
@@ -275,6 +277,11 @@ public sealed partial class DelveModule
                     var recipientWorld = WorldOf(PlayerOf(recipient));
                     int gain = MapSulphite.Yield(encounter.AreaLevel, encounter.Mods,
                         CharacterName(recipient).Equals(encounter.Owner, StringComparison.OrdinalIgnoreCase), recipients.Count);
+                    if (interceptSulphite)
+                    {
+                        intercepted.Add((recipient, gain));
+                        continue;
+                    }
                     ushort before = 0, after = 0;
                     recipientWorld.CharacterData.Change(SulphiteKey, old =>
                     {
@@ -286,6 +293,25 @@ public sealed partial class DelveModule
                 }
                 return true;
             });
+            foreach (var (recipient, gain) in intercepted)
+            {
+                if (!VillageResourceHooks.TryInterceptSulphite(recipient, gain, encounter.Mods))
+                {
+                    var recipientWorld = WorldOf(PlayerOf(recipient));
+                    ushort before = 0, after = 0;
+                    Saves.Atomically(() =>
+                    {
+                        recipientWorld.CharacterData.Change(SulphiteKey, old =>
+                        {
+                            before = ushort.TryParse(old, out var n) ? n : (ushort)0;
+                            after = MapSulphite.Credit(before, gain, Capacity(recipientWorld));
+                            return after.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                        });
+                        return true;
+                    });
+                    awards.Add((recipient, before, after));
+                }
+            }
             player.Instance.SetState(MinedKey(deposit.Index));
             if (MapSulphite.Fumes(encounter.Mods))
                 foreach (var (id, monster) in player.Area.Monsters)

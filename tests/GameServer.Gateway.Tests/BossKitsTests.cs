@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 
 namespace GameServer.Gateway.Tests;
@@ -68,15 +69,16 @@ public sealed class BossKitsTests
             Assert.False(BossKits.IsCampaignBoss(corpse));
             Assert.Empty(BossKits.Kit(player, corpse, 1, 406));
 
-            // Arakaali's arena-laser activators need the encounter's turret objects. Generic AI has none; calling
-            // the activator with an empty turret list crashes the native client, even while the boss is at full life.
+            // Arakaali's arena-laser activators and ArakaaliHide (ActionType 724, entity-targeted) need arena objects
+            // not created on the client; calling them crashes the native client, even while the boss is at full life.
             var arakaali = Assert.IsType<MonsterCatalog.Variety>(
                 Game.Monsters.Find("Metadata/Monsters/VaalSpiderGod/Arakaali"));
             var catalog = Game.SkillsFor(player);
             int[] laserDrivers = [6879, 7802, 7805];
-            Assert.All(laserDrivers, effect => Assert.Contains(effect, arakaali.GrantedEffects!));
+            int[] hideDrivers = [6885, 6886, 6887];
+            Assert.All(laserDrivers.Concat(hideDrivers), effect => Assert.Contains(effect, arakaali.GrantedEffects!));
             var arakaaliKit = BossKits.Kit(player, arakaali, 55, Game.MavenNucleus.CombatEffect(catalog, arakaali));
-            Assert.DoesNotContain(arakaaliKit, entry => laserDrivers.Contains(entry.Effect));
+            Assert.DoesNotContain(arakaaliKit, entry => laserDrivers.Contains(entry.Effect) || hideDrivers.Contains(entry.Effect));
             // Standalone mortar and melee attacks remain playable; this does not disable the encounter or its actor.
             Assert.Contains(arakaaliKit, entry => entry.Effect == 4438);
             Assert.Contains(arakaaliKit, entry => entry.Effect == 208);
@@ -87,6 +89,17 @@ public sealed class BossKitsTests
                 int slot = arakaaliKit.ToList().FindIndex(entry => entry.Effect == effect);
                 Assert.Contains((artKey, art), arakaaliSkills[slot].Stats!);
             }
+            var arakaaliPlayer = new Player(player.Layout with { Id = Arakaali.Area }, 1, 1);
+            var controllerSkills = Assert.IsAssignableFrom<IReadOnlyList<GrantedSkill>>(
+                Arakaali.SkillsFor(arakaaliPlayer, arakaali, 55));
+            int[] controllerEffects = [.. controllerSkills
+                .Select(s => catalog.EffectsPerLevel((int)s.EffectsPerLevelRow)?.Effect ?? -1)];
+            // Controller drives native ArakaaliHide[6885] using created TeleportMarkerSerialized1..4 scene objects;
+            // laser activators and Silk transition variants (6886/6887) stay out of the controller skill list.
+            Assert.DoesNotContain(controllerEffects, effect => laserDrivers.Contains(effect) || effect is 6886 or 6887);
+            Assert.Contains(6885, controllerEffects);
+            Assert.Contains(208, controllerEffects);
+            Assert.Contains(4438, controllerEffects);
 
             CheckPietyBlood(player);
 
@@ -390,6 +403,51 @@ public sealed class BossKitsTests
             var monster = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Hellion/HellionBoss"));
             var kit = BossKits.Kit(player, monster, 6, Game.MavenNucleus.CombatEffect(catalog, monster), unique: true);
             Assert.Contains(kit, k => catalog.EffectId(k.Effect) == "GABurningMenaceCleave");
+        });
+    }
+
+    [Fact]
+    public void Entity_only_ally_only_and_unchecked_target_actions_stay_out_of_generic_boss_kits_and_markers_serialize()
+    {
+        InGame(player =>
+        {
+            var catalog = Game.SkillsFor(player);
+            var sample = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/VaalSpiderGod/Arakaali"));
+            // Entity-only ([15] / [15,8]), ally-only ([3]), and MaligaroVanish (unchecked targetEntity->Positioned):
+            int[] blocked = [6885, 6886, 6887, 6753, 5558, 4365, 6743, 6796, 10503, 6330, 2505, 2506, 6691, 6426];
+            foreach (int effect in blocked)
+                Assert.False(BossKits.IsUsable(catalog, sample, effect), $"effect {effect} ({catalog.EffectId(effect)}) must stay out of generic kits");
+
+            var mapMaligaro = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Maligaro/Maligaro2Map"));
+            var maligaroKit = BossKits.Kit(player, mapMaligaro, 75, Game.MavenNucleus.CombatEffect(catalog, mapMaligaro), unique: true);
+            Assert.DoesNotContain(maligaroKit, k => k.Effect == 6426);
+            var uniqueEffects = BossKits.UniqueOrder(catalog, mapMaligaro, [.. (mapMaligaro.GrantedEffects ?? []), .. blocked]);
+            foreach (int effect in blocked)
+                Assert.DoesNotContain(effect, uniqueEffects);
+
+            // Native marker types used by ArakaaliHide and AbberathHide serialize cleanly and keep disjoint SceneObjects prefixes.
+            var placements = new[]
+            {
+                new GlyphQuest.Placement("Metadata/MiscellaneousObjects/TeleportMarkerSerialized1", "", 100, 120, 1.5f, 0f, 0),
+                new GlyphQuest.Placement("Metadata/MiscellaneousObjects/TeleportMarkerSerialized2", "", 160, 120, 3.0f, 0f, 0),
+                new GlyphQuest.Placement("Metadata/Monsters/Abberath/AbberathJumpOut", "", 200, 240, 0.5f, 0f, 0),
+            };
+            var instance = new InstanceState();
+            var arakaaliMarkers = CampaignBossHelpers.RegisterSceneMarkers(instance, Arakaali.MarkerPrefix, placements.Take(2));
+            Assert.Equal(2, arakaaliMarkers.Count);
+            Assert.All(arakaaliMarkers, m => Assert.StartsWith(Arakaali.MarkerPrefix, m.Key, StringComparison.Ordinal));
+            Assert.DoesNotContain(arakaaliMarkers, m => m.Key.StartsWith("Arakaali/", StringComparison.Ordinal));
+            // Idempotent re-registration preserves object ids and blobs serialize cleanly.
+            var again = CampaignBossHelpers.RegisterSceneMarkers(instance, Arakaali.MarkerPrefix, placements.Take(2));
+            Assert.Equal(arakaaliMarkers.Select(m => m.Id), again.Select(m => m.Id));
+            var abberathMarkers = CampaignBossHelpers.RegisterSceneMarkers(instance, AbberathEncounter.MarkerPrefix, placements.Skip(2));
+            Assert.Single(abberathMarkers);
+            foreach (var marker in arakaaliMarkers.Concat(abberathMarkers))
+            {
+                var entry = instance.World.SceneObjects[marker.Key];
+                Assert.True(QuestObject.CanSerialize(entry.Object.Components));
+                Assert.NotEmpty(entry.Object.Blob());
+            }
         });
     }
 

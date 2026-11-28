@@ -333,7 +333,9 @@ public static class MaligaroSanctumEncounter
             vanished = true;
             activeSubBoss = sub;
             var pos = maligaro.Walk.Position(now);
-            await CastAction(runner, maligaroId, maligaro, 6426, pos, 0.8, now, "[Maligaro] Vanish");
+            // MaligaroVanish[6426] (ActionType 636, tgt=[4]): OnStart reads targetEntity->Positioned unchecked, so
+            // it must carry Maligaro's own object id rather than 0.
+            await CastAction(runner, maligaroId, maligaro, 6426, pos, 0.8, now, "[Maligaro] Vanish", targetObjectId: maligaroId);
             SetInvulnerable(runner, maligaroId, maligaro, true, CannotBeDamagedBuff);
             await SetWorldHidden(runner, maligaroId, maligaro, true);
 
