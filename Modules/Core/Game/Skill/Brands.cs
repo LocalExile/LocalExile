@@ -71,6 +71,8 @@ public static partial class Game
             "current_number_of_active_trigger_sigils", "current_number_of_inactive_trigger_sigils"),
     ];
 
+    const int StormBrandBeamSearchRadius = 22;
+    const double IndecisionReattachInterval = 0.3;
     const ushort StormBrandDamageBeamRow = 115;       // MiscBeams ConduitSigilBeamEffect
     const ushort PenanceBrandChargeBeamRow = 274;     // MiscBeams PenanceBrandChargeBeam
     const ushort BrandsurgeCastBeamRow = 297;         // MiscBeams BrandDetonateCastBeam
@@ -912,7 +914,8 @@ public static partial class Game
                 || (brand.Family == BrandFamily.Cataclysm
                     && BrandStat(playerStats, "armageddon_brand_brands_attach_to_new_enemy_each_activation_%_chance") is int chance and > 0
                     && AreaRng(player).Next(100) < chance);
-            if (reattach && FindAttachTargetLocked(player, state, brand, playerStats, at,
+            bool switchReady = brand.EffectId != "StormBrandAltX" || at - brand.AttachedAt >= IndecisionReattachInterval - 1e-9;
+            if (reattach && switchReady && FindAttachTargetLocked(player, state, brand, playerStats, at,
                 excludeMonster: brand.AttachedMonsterId) is { } next)
             {
                 DetachBrandLocked(player, session, state, brand, at, bytes, spawnGround: false);
@@ -1206,44 +1209,62 @@ public static partial class Game
         double now, WorldRecordBuilder bytes)
     {
         var origin = brand.At;
-        int radius = BrandEffectiveRadius(player, brand, playerStats);
+        var areaStats = BrandAreaStats(player, brand, playerStats);
+        int Get(uint stat) => areaStats.GetValueOrDefault(stat);
+        int impactRadius = Math.Max(4, SkillArea.Radius(SkillArea.BaseRadius(brand.EffectId, Get), Get, spell: true));
         int beamTargets = Math.Max(1, BrandStat(brand.Gem.Stats, "conduit_sigil_number_of_beam_targets"));
         int extraChainChance = BrandStat(playerStats, "storm_brand_additional_chain_chance_%")
             + BrandStat(brand.Gem.Stats, "storm_brand_additional_chain_chance_%");
         if (extraChainChance > 0 && AreaRng(player).Next(100) < extraChainChance) beamTargets++;
 
-        var targets = new List<(uint Id, SpawnedMonster Monster)>(beamTargets);
-        if (brand.Attached && brand.AttachedMonster is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false })
-            targets.Add((brand.AttachedMonsterId, brand.AttachedMonster));
+        var targets = new List<(uint Id, SpawnedMonster Monster, (int X, int Y) At)>(beamTargets);
+        if (brand.Attached && brand.AttachedMonster is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false } attached)
+            targets.Add((brand.AttachedMonsterId, attached, attached.Walk.Position(now)));
 
         if (targets.Count < beamTargets)
         {
-            var extras = player.Area.Monsters
+            int searchRadius = Math.Max(4, SkillArea.Radius(StormBrandBeamSearchRadius, Get, spell: true));
+            var extras = player.Area.MonstersNear(origin, searchRadius)
                 .Where(kv => kv.Key != brand.AttachedMonsterId
-                    && kv.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
-                    && kv.Value.OwnerId is null && !MonsterAsleep(player, kv.Key)
-                    && Dist(kv.Value.Walk.Position(now), origin) <= radius)
-                .OrderBy(kv => Dist(kv.Value.Walk.Position(now), origin))
-                .ThenBy(kv => kv.Key)
+                    && kv.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false, OwnerId: null })
+                .Select(kv => (Id: kv.Key, Monster: kv.Value, At: kv.Value.Walk.Position(now)))
+                .Where(hit => Dist(hit.At, origin) <= searchRadius)
+                .OrderBy(hit => Dist(hit.At, origin))
+                .ThenBy(hit => hit.Id)
                 .Take(beamTargets - targets.Count);
-            foreach (var kv in extras) targets.Add((kv.Key, kv.Value));
+            targets.AddRange(extras);
         }
 
         if (targets.Count == 0) return;
+
+        // All impacts from one activation share a hit set. Later activations and other brands can hit again.
+        var victims = new Dictionary<uint, SpawnedMonster>(targets.Count);
+        foreach (var (id, monster, at) in targets)
+        {
+            victims.Add(id, monster);
+            SpawnBeamLocked(player, state, origin, brand.AttachedMonsterId, at, id,
+                StormBrandDamageBeamRow, now + 0.25, bytes);
+            SpawnTempEffectLocked(player, state, at, StormBrandImpactAo, now + 0.25, bytes);
+        }
+        foreach (var (_, _, at) in targets)
+        {
+            foreach (var (id, monster) in player.Area.MonstersNear(at, impactRadius))
+            {
+                if (monster is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false, OwnerId: null }
+                    && Dist(monster.Walk.Position(now), at) <= impactRadius)
+                    victims.TryAdd(id, monster);
+            }
+        }
+
         int attachedMorePct = BrandStat(brand.Gem.Stats, "sigil_attached_target_hit_damage_+%_final");
         int extraPen = BrandStat(playerStats, "storm_brand_attached_target_lightning_penetration_%")
             + BrandStat(playerStats, "sigil_attached_target_lightning_penetration_%");
         var multipliers = BrandHitMultipliers(playerStats, brand.Gem);
-
-        foreach (var (tid, monster) in targets)
+        foreach (var (id, monster) in victims)
         {
-            bool isBranded = tid == brand.AttachedMonsterId;
+            bool isBranded = id == brand.AttachedMonsterId;
             double hitMore = isBranded ? Math.Max(0, 1 + attachedMorePct / 100.0) : 1.0;
-            var tAt = monster.Walk.Position(now);
-            SpawnBeamLocked(player, state, origin, brand.Attached ? brand.AttachedMonsterId : 0, tAt, tid,
-                StormBrandDamageBeamRow, now + 0.25, bytes);
-            SpawnTempEffectLocked(player, state, tAt, StormBrandImpactAo, now + 0.25, bytes);
-            DealBrandSpellHitLocked(player, brand.SkillId, brand.Gem, playerStats, multipliers, tid, monster,
+            DealBrandSpellHitLocked(player, brand.SkillId, brand.Gem, playerStats, multipliers, id, monster,
                 now, hitMore, ailmentMore: 1.0, extraPenetrationType: isBranded && extraPen > 0 ? (DamageType.Lightning, extraPen) : null,
                 label: brand.EffectId, placement: brand.Placement);
         }
@@ -1656,6 +1677,14 @@ public static partial class Game
 
     static int BrandEffectiveRadius(Player player, ActiveBrand brand, IReadOnlyDictionary<uint, int> playerStats, int extraBaseRadius = 0)
     {
+        var stats = BrandAreaStats(player, brand, playerStats);
+        int Get(uint stat) => stats.GetValueOrDefault(stat);
+        int radius = SkillArea.Radius(SkillArea.BaseRadius(brand.EffectId, Get), Get, spell: true);
+        return Math.Max(4, radius + extraBaseRadius);
+    }
+
+    static Dictionary<uint, int> BrandAreaStats(Player player, ActiveBrand brand, IReadOnlyDictionary<uint, int> playerStats)
+    {
         var own = brand.Gem.Stats;
         int extraAreaPct = AttachedFraction(brand) >= 0.5
             ? BrandStat(playerStats, "brand_area_of_effect_+%_if_50%_attached_duration_expired") : 0;
@@ -1663,8 +1692,7 @@ public static partial class Game
             extraAreaPct += BrandStat(playerStats, "penance_brand_area_of_effect_+%");
         if (extraAreaPct != 0)
             own = new Dictionary<uint, int>(own) { [SkillArea.BaseIncreased] = own.GetValueOrDefault(SkillArea.BaseIncreased) + extraAreaPct };
-        int radius = SkillRadius(player, own, spell: true, brand.Effect);
-        return Math.Max(4, radius + extraBaseRadius);
+        return SkillAreaStats(player, own, brand.Effect);
     }
 
     static (HitRollModifiers Ordinary, HitRollModifiers Critical) BrandHitMultipliers(

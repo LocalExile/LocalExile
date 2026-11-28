@@ -34,8 +34,8 @@ public static class SkillArea
             : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactAltX" or "DarkPactRoyale" ? 26
             : effect is "StormCall" or "StormCallAltX" or "Frostblink" or "FrostblinkHardMode" or "FrostblinkAltX" || Game.IsPyroclastMine(effect) ? 20
             : effect is "GalvanicArrow" or "GalvanicArrowAltX" or "GalvanicArrowAltY" ? 28
-            : effect is "StormBrand" or "StormBrandAltX" or "StormBrandAltY"
-                or "PenanceBrand" or "PenanceBrandAltX" or "PenanceBrandAltY"
+            : effect is "StormBrand" or "StormBrandAltX" or "StormBrandAltY" ? 9
+            : effect is "PenanceBrand" or "PenanceBrandAltX" or "PenanceBrandAltY"
                 or "WintertideBrand" or "WintertideBrandAltX" or "WintertideBrandAltY" ? 22
             : effect == "Brandsurge" ? 26
             : effect == "EarthquakeAltX" ? 18
