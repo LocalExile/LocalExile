@@ -79,7 +79,7 @@ public static partial class Game
             if (!CurrentGameWork || !aura.Valid()) return;
             entered = [.. aura.Entered];
             aura.Entered.Clear();
-            if (aura.Active())
+            if (aura.Active() && zone.Inside.Count > 0)
             {
                 double now = ProjectileWorldTime(player);
                 var (damageOverTime, stats) = aura.Damage(seconds);

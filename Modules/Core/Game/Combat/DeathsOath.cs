@@ -34,7 +34,10 @@ public static partial class Game
         DeathAuras.TryGetValue(player, out var state);
         if (state is { Live: true } && grant is { } same && state.Grant.Identity == same.Identity && state.Grant.Level == same.Level
             && ReferenceEquals(state.Area, player.Area) && ReferenceEquals(state.Owner, CombatLifetime))
+        {
+            state.Radius = DeathAuraRadius(player, same, DeathAuraOwnStats(player, same), CharacterPlayerStats(player));
             return;
+        }
         if (state is not null) StopDeathAura(player, state, grant is null ? "no worn grant" : "restarted");
         if (grant is not { } g) return;
         var s = new DeathAuraState { Grant = g, Area = player.Area, Owner = CombatLifetime };
@@ -74,9 +77,9 @@ public static partial class Game
                 using var scope = new PlayerStatScope(player, fresh: true);
                 var stats = new Dictionary<uint, int>(CharacterPlayerStats(player));
                 var ownStats = DeathAuraOwnStats(player, s.Grant);
-                double perSecond = DeathAuraDps(stats, ownStats);
-                s.Radius = DeathAuraRadius(player, s.Grant, ownStats, stats);
                 double now = AreaTime(player);
+                double perSecond = DeathAuraDps(stats, ownStats, lifetapActive: player.Lifetap.Until > now);
+                s.Radius = DeathAuraRadius(player, s.Grant, ownStats, stats);
                 if (GameServer.Core.Diagnostics.ServerTrace.Skills && now >= s.NextLog && s.Hit + s.Blocked > 0)
                 {
                     Console.WriteLine($"[gateway] Death Aura: {perSecond:0} chaos/s, radius {s.Radius}, monster-frames hit {s.Hit}, behind walls {s.Blocked}");
@@ -111,25 +114,50 @@ public static partial class Game
             + (key == SkillArea.Increase ? player.Pools.AuraAreaPct : 0), spell: true);
     }
 
-    static Dictionary<uint, int> DeathAuraOwnStats(Player player, WornGrantedSkills.Grant grant) =>
-        SkillsFor(player).EffectStats(grant.Effect, grant.Level)
+    // Support more multipliers applicable to Death Aura's chaos area damage over time (not spell damage).
+    static readonly uint[] DeathAuraSupportMore =
+    [
+        Stat.SupportVoidManipulationChaosDamagePlusPctFinal,
+        Stat.SupportAreaConcentrateAreaDamagePlusPctFinal,
+        Stat.SupportEfficacyDamageOverTimePlusPctFinal,
+        Stat.SupportRapidDecayDamageOverTimePlusPctFinal,
+        Stat.SupportReducedDurationDamagePlusPctFinal,
+        Stat.CrueltyDamageOverTimePlusPctFinal,
+    ];
+
+    static IReadOnlyDictionary<uint, int> DeathAuraOwnStats(Player player, WornGrantedSkills.Grant grant)
+    {
+        var equipment = ItemsOf(player).EquipmentSnapshot();
+        if (equipment.Any(e => e.Item.Id == grant.Host))
+            return WornSupportedSkill(player, grant, equipment, null).Stats;
+        return SkillsFor(player).EffectStats(grant.Effect, grant.Level)
             .GroupBy(p => p.Item1).ToDictionary(p => p.Key, p => p.Sum(v => v.Item2));
+    }
 
     // Base chaos per second from the skill (base_chaos_damage_to_deal_per_minute), scaled by non-curse enemy aura effect
-    // (including The Sundered Will's chaos aura share), the player's applicable increases, then DoT multipliers.
-    static double DeathAuraDps(IReadOnlyDictionary<uint, int> stats, IReadOnlyDictionary<uint, int> own)
+    // (including The Sundered Will's chaos aura share), increases (excluding spell damage: DeathAura lacks
+    // spell_damage_modifiers_apply_to_skill_dot), socketed support more multipliers, DoT multipliers, Malevolence and charges.
+    static double DeathAuraDps(IReadOnlyDictionary<uint, int> stats, IReadOnlyDictionary<uint, int> own,
+        bool lifetapActive = false)
     {
+        int Own(uint key) => own.GetValueOrDefault(key);
+        if (DamageStats.Prohibited(DamageType.Chaos, Own)) return 0;
         double Get(uint key) => (double)stats.GetValueOrDefault(key) + own.GetValueOrDefault(key);
-        double basis = own.GetValueOrDefault(Stat.BaseChaosDamageToDealPerMinute) / 60d;
+        double basis = Own(Stat.BaseChaosDamageToDealPerMinute) / 60d;
         double auraEffect = stats.GetValueOrDefault(Stat.NonCurseAuraEffectPlusPct)
             + stats.GetValueOrDefault(Stat.AuraEffectPlusPct)
             + (stats.GetValueOrDefault(Stat.NumberOfActiveLinks) > 0
                 ? stats.GetValueOrDefault(Stat.NonCurseAuraEffectPlusPctWhileLinked) : 0)
             + ChaosDamageAuraEffectPct(stats);
-        double increased = Get(Stat.DamagePlusPct) + Get(Stat.SpellDamagePlusPct) + Get(Stat.ChaosDamagePlusPct)
+        double increased = Get(Stat.DamagePlusPct) + Get(Stat.ChaosDamagePlusPct)
             + Get(Stat.DamageOverTimePlusPct) + Get(Stat.ChaosDamageOverTimePlusPct) + Get(Stat.AreaDamagePlusPct);
         double dps = basis * Math.Max(0, 100 + auraEffect) / 100 * Math.Max(0, 100 + increased) / 100;
-        return dps * Math.Max(0, 100 + Get(Stat.DotMultiplierPlus) + Get(Stat.ChaosDotMultiplierPlus)) / 100;
+        foreach (uint stat in DeathAuraSupportMore) dps *= Math.Max(0, 1 + Own(stat) / 100d);
+        if (lifetapActive && Own(Lifetap.DamageStat) is int lifetap and not 0)
+            dps *= Math.Max(0, 1 + lifetap / 100d);
+        dps = dps * Math.Max(0, 100 + Get(Stat.DotMultiplierPlus) + Get(Stat.ChaosDotMultiplierPlus)) / 100;
+        int deliriumMore = stats.GetValueOrDefault(Stat.DeliriumAuraDamageOverTimePlusPctFinal);
+        return dps * Math.Max(0, 1 + deliriumMore / 100d) * ChargeDamageMore(stats);
     }
 
     // GameEvents.MonsterKilled: the killer wearing Death's Oath takes its chaos degeneration for its duration.
