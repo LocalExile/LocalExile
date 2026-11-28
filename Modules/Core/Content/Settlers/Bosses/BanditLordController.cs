@@ -200,6 +200,7 @@ public static class BanditLordController
 
         public uint BossId;
         public int Level = AreaLevel;
+        public string? OwnerName;
         public bool Engaged;
         public bool Defeated;
         public int Phase = 1; // 1 (100-50%), 2 (50-0%)
@@ -233,6 +234,7 @@ public static class BanditLordController
         var state = new ArenaState
         {
             Level = MapRunOf(player) is { Area.Level: > 0 } run ? run.Area.Level : AreaLevel,
+            OwnerName = MapRunOf(player)?.Owner ?? CharacterName(player),
             PortalId = inst.World.NewMonsterId(),
         };
         if (inst.ContentState.TryGetValue(SaveKey, out string? saved) && saved == "defeated")
@@ -308,10 +310,16 @@ public static class BanditLordController
         await arena.Gate.WaitAsync();
         try
         {
-            if (!arena.Defeated && arena.BossId == 0)
+            if (!arena.Defeated && (arena.BossId == 0 || !player.Area.Monsters.ContainsKey(arena.BossId)))
             {
-                foreach (var (id, m) in player.Area.Monsters.ToArray())
-                    if (m.Variety?.Id == BossVarietyId && SettlersBosses.Alive(m)) { arena.BossId = id; break; }
+                bool foundBoss = player.Area.Monsters.Values.Any(m => m.Variety?.Id == BossVarietyId && SettlersBosses.Alive(m));
+                if (foundBoss)
+                {
+                    var restored = await SettlersBosses.EnsureScriptedBoss(
+                        player, BossVarietyId, (byte)Math.Clamp(arena.Level, 1, 100),
+                        DefaultBossSpawn, DefaultBossRotation, BossEffects);
+                    if (restored is { } b) arena.BossId = b.Id;
+                }
             }
             if (!arena.Defeated && arena.BossId != 0 && player.Area.Monsters.TryGetValue(arena.BossId, out var boss))
             {
@@ -328,16 +336,19 @@ public static class BanditLordController
         try
         {
             if (!arena.PresentedPlayers.Add(player)) return;
-            await SettlersBosses.CreateBossPortal(player, arena.PortalId, arena.PortalAt.X, arena.PortalAt.Y, arena.PortalRot, arena.PortalOpen);
-
-            foreach (var r in arena.Rubbish)
+            await SettlersBosses.ForViewer(player, async () =>
             {
-                var sm = SettlersBosses.BaseStates(RubbishStackType)?.Set("destroyed", r.State);
-                bool blocked = r.State != 2;
-                await SettlersBosses.CreateQuestObj(player, r.Id, RubbishStackType, r.X, r.Y, r.Rotation,
-                    model: r.Model, blocked: blocked, states: sm, hideMinimap: true);
-                if (blocked) SettlersBosses.SetDiscBarrier(player, r.Id, r.X, r.Y, 3, true);
-            }
+                await SettlersBosses.CreateBossPortal(player, arena.PortalId, arena.PortalAt.X, arena.PortalAt.Y, arena.PortalRot, arena.PortalOpen);
+
+                foreach (var r in arena.Rubbish)
+                {
+                    var sm = SettlersBosses.BaseStates(RubbishStackType)?.Set("destroyed", r.State);
+                    bool blocked = r.State != 2;
+                    await SettlersBosses.CreateQuestObj(player, r.Id, RubbishStackType, r.X, r.Y, r.Rotation,
+                        model: r.Model, blocked: blocked, states: sm, hideMinimap: true);
+                    if (blocked) SettlersBosses.SetDiscBarrier(player, r.Id, r.X, r.Y, 3, true);
+                }
+            });
         }
         finally { arena.Gate.Release(); }
     }
@@ -836,14 +847,17 @@ public static class BanditLordController
         }
     }
 
-    internal static async Task OnMonsterKilled(MonsterKill kill)
+    internal static Task OnMonsterKilled(MonsterKill kill) =>
+        OnBossKilled(kill.Player, kill.Monster.VarietyId, (kill.Monster.X, kill.Monster.Y));
+
+    internal static async Task OnBossKilled(Player player, string varietyId, (int X, int Y) at)
     {
-        if (kill.Monster.VarietyId != BossVarietyId) return;
-        if (!Arenas.TryGetValue(kill.Player.Instance, out var arena)) return;
+        if (varietyId != BossVarietyId) return;
+        if (!Arenas.TryGetValue(player.Instance, out var arena)) return;
         await arena.Gate.WaitAsync();
         try
         {
-            await CompleteVictory(kill.Player, arena, (kill.Monster.X, kill.Monster.Y));
+            await CompleteVictory(player, arena, at);
         }
         finally { arena.Gate.Release(); }
     }
@@ -876,14 +890,15 @@ public static class BanditLordController
         await SettlersBosses.GrantBossKillFlags(player, KilledQuestFlag, KilledLeagueQuestFlag);
 
         // Retail Abandoned Port loot: massive owner-only Gold (VillageMapGoldDropsOnlyForOwner), The Living Blade / The Bandit Lord's Band, Runegraft chance!
+        var owner = SettlersBosses.ResolveArenaOwner(player, arena.OwnerName);
         var dropAt = player.Layout.Near(killAt);
-        int goldDropped = await SettlersBosses.DropBossGold(player, dropAt, minGold: 40000, maxGold: 55000, ownerOnly: true);
-        await SettlersBosses.TryDropBossUnique(player, dropAt, arena.Level, UniqueDropPool, UniqueDropChance, scatterIndex: 13);
+        int goldDropped = await SettlersBosses.DropBossGold(owner, dropAt, minGold: 40000, maxGold: 55000, ownerOnly: true);
+        await SettlersBosses.TryDropBossUnique(owner, dropAt, arena.Level, UniqueDropPool, UniqueDropChance, scatterIndex: 13);
         if (AreaRng(player).NextDouble() < 0.50)
-            await SettlersBosses.DropRunegrafts(player, dropAt, arena.Level, 1, 1, scatterBase: 15);
+            await SettlersBosses.DropRunegrafts(owner, dropAt, arena.Level, 1, 1, scatterBase: 15);
 
-        await SettlersBossCallbacks.RaiseRescueMappers(new RescueMappersEvent(player, AreaId, arena.Level, goldDropped));
-        await SettlersBossCallbacks.RaiseBossDefeated(new SettlersBossDefeatedEvent(player, SettlersBossKind.BanditLord, AreaId, arena.Level));
+        await SettlersBossCallbacks.RaiseRescueMappers(new RescueMappersEvent(owner, AreaId, arena.Level, goldDropped));
+        await SettlersBossCallbacks.RaiseBossDefeated(new SettlersBossDefeatedEvent(owner, SettlersBossKind.BanditLord, AreaId, arena.Level));
     }
 
     internal static async Task<bool> OnObjectUse(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)

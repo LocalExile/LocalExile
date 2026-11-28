@@ -151,6 +151,7 @@ public static class SettlersBosses
         GameEvents.AreaTick.Add(ownerId, GameEvents.InArea(AdmiralValeriusController.AreaId, AdmiralValeriusController.Tick));
         GameEvents.AreaTick.Add(ownerId, GameEvents.InArea(BanditLordController.AreaId, BanditLordController.Tick));
         GameEvents.MonsterKilled.Add(ownerId, OnMonsterKilled);
+        GameEvents.Kill.Add(ownerId, OnKill);
         GameEvents.ObjectUse.Add(ownerId, OnObjectUse);
         GameEvents.PlayerLeaving.Add(ownerId, OnPlayerLeaving);
         GameEvents.Stats.Add(ownerId, ApplyBossDebuffStats);
@@ -234,6 +235,54 @@ public static class SettlersBosses
                 await BanditLordController.OnMonsterKilled(kill);
                 break;
         }
+    }
+
+    static void OnKill(KillContext kill)
+    {
+        if (kill.Monster.Rarity != MonsterRarity.Unique) return;
+        string areaId = kill.Player.Layout.Id;
+        if (areaId is not (BlackKnightController.AreaId or AdmiralValeriusController.AreaId or BanditLordController.AreaId))
+            return;
+        kill.Afterwards.Add(() => areaId switch
+        {
+            BlackKnightController.AreaId => BlackKnightController.OnBossKilled(kill.Player, kill.VarietyId, kill.At),
+            AdmiralValeriusController.AreaId => AdmiralValeriusController.OnBossKilled(kill.Player, kill.VarietyId, kill.At),
+            BanditLordController.AreaId => BanditLordController.OnBossKilled(kill.Player, kill.VarietyId, kill.At),
+            _ => Task.CompletedTask,
+        });
+    }
+
+    internal static bool Framed(Player player) =>
+        player.Area.Owned && player.Connection.WorldOutput.Started;
+
+    internal static async Task Shared(Player runner, Func<Player, Task> send)
+    {
+        if (Framed(runner))
+        {
+            await send(runner);
+            return;
+        }
+        foreach (var member in ActivePlayers(runner))
+            await send(member);
+    }
+
+    internal static async Task ForViewer(Player target, Func<Task> send)
+    {
+        var previous = Program.ViewOf.Value;
+        Program.ViewOf.Value = target;
+        try { await send(); }
+        finally { Program.ViewOf.Value = previous; }
+    }
+
+    internal static Player ResolveArenaOwner(Player fallback, string? ownerName)
+    {
+        if (!string.IsNullOrEmpty(ownerName))
+        {
+            foreach (var member in ActivePlayers(fallback))
+                if (CharacterName(member).Equals(ownerName, StringComparison.OrdinalIgnoreCase))
+                    return member;
+        }
+        return fallback;
     }
 
     static async Task<bool> OnObjectUse(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt) =>
@@ -432,38 +481,41 @@ public static class SettlersBosses
     }
 
     /// <summary>Replaces an auto-populated (non-scripted) boss with a <c>Scripted = true</c> boss carrying the full retail
-    /// skill list, or spawns it fresh if absent. Preserves existing <c>Scripted = true</c> bosses on re-entry.</summary>
+    /// skill list, or spawns it fresh if absent. Preserves existing <c>Scripted = true</c> bosses (and re-hydrates restored
+    /// bosses whose <c>OwnedSkills</c> were stripped across vacate/re-entry) while keeping saved life.</summary>
     internal static async Task<(uint Id, SpawnedMonster Monster)?> EnsureScriptedBoss(
         Player player, string varietyId, byte level, (int X, int Y) fallbackAt, float fallbackRotation,
-        int[] skillEffects, Func<MonsterObject, MonsterObject>? shape = null)
+        int[] skillEffects, Func<MonsterObject, MonsterObject>? shape = null, MonsterRarity rarity = MonsterRarity.Unique)
     {
-        // Check if a scripted boss of this variety already exists (e.g. re-entry into Starfall Crater).
-        foreach (var (existingId, existing) in player.Area.Monsters.ToArray())
-        {
-            if (existing.Variety?.Id == varietyId && existing.Scripted)
-                return (existingId, existing);
-        }
-
-        // Remove any auto-populated non-scripted instance of this boss so ordinary AI never conflicts.
+        // Check if a scripted boss of this variety with its skill kit already exists.
+        uint? preservedLife = null;
         var spawnAt = fallbackAt;
         float rotation = fallbackRotation;
         foreach (var (existingId, existing) in player.Area.Monsters.ToArray())
         {
             if (existing.Variety?.Id != varietyId) continue;
+            bool hasKit = player.Instance.World.MonsterOrigins.TryGetValue(existingId, out var orig)
+                && orig.Object.Skills is { Count: > 0 };
+            if (existing.Scripted && hasKit)
+                return (existingId, existing);
             spawnAt = existing.Walk.Position(AreaTime(player));
-            if (player.Instance.World.MonsterOrigins.TryGetValue(existingId, out var origin))
-                rotation = origin.Object.Rotation;
+            if (existing.Life > 0 && existing.Life < existing.MaxLife)
+                preservedLife = existing.Life;
+            if (orig is not null)
+                rotation = orig.Object.Rotation;
             await DespawnMonster(player, existingId);
         }
 
         if (Monsters.Find(varietyId) is not { Supported: true } variety) return null;
         var skills = BuildBossSkills(player, variety, level, skillEffects);
         var spot = WalkableNear(player, spawnAt);
-        uint id = await SpawnMonster(player, variety, level, MonsterRarity.Unique, spot.X, spot.Y,
-            log: true, alone: false, unrisen: false, rotation: rotation,
+        uint id = await SpawnMonster(player, variety, level, rarity, spot.X, spot.Y,
+            log: rarity == MonsterRarity.Unique, alone: false, unrisen: false, rotation: rotation,
             ownedSkills: skills, scripted: true, placement: MonsterPlacement.Established,
             instanceOwned: true, shape: shape);
         if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var boss)) return null;
+        if (preservedLife is uint savedLife && savedLife > 0 && savedLife < boss.MaxLife)
+            boss.Life = savedLife;
         return (id, boss);
     }
 
@@ -476,8 +528,7 @@ public static class SettlersBosses
             m.ActionGeneration++;
         }
         player.Instance.World.MonsterOrigins.TryRemove(id, out _);
-        foreach (var member in ActivePlayers(player))
-            await SendWorldRemoval(PlayerOf(member), id, null);
+        await Shared(player, member => SendWorldRemoval(PlayerOf(member), id, null));
     }
 
     internal static async Task EnsureBossBar(Player runner, uint bossId, SpawnedMonster boss)
@@ -506,11 +557,11 @@ public static class SettlersBosses
             player.Instance.World.MonsterOrigins[bossId] = origin with { Object = origin.Object with { StateMachine = current } };
         int comp = ComponentIndex(variety.ComponentsOrBase, "StateMachine");
         if (comp < 0) return;
-        foreach (var member in ActivePlayers(player))
+        await Shared(player, async member =>
         {
-            if (!member.Area.Monsters.TryGetValue(bossId, out var m) || m.Asleep) continue;
+            if (!member.Area.Monsters.TryGetValue(bossId, out var m) || m.Asleep) return;
             await SendWorldRecord(member, bossId, InstanceEntities.StateMachineUpdate(bossId, (byte)comp, current), null);
-        }
+        });
     }
 
     internal static async Task SetBossTransition(Player player, uint bossId, byte state)
@@ -520,11 +571,11 @@ public static class SettlersBosses
         if (comp < 0) return;
         if (player.Instance.World.MonsterOrigins.TryGetValue(bossId, out var origin))
             player.Instance.World.MonsterOrigins[bossId] = origin with { Object = origin.Object with { TransitionState = state } };
-        foreach (var member in ActivePlayers(player))
+        await Shared(player, async member =>
         {
-            if (!member.Area.Monsters.TryGetValue(bossId, out var m) || m.Asleep) continue;
+            if (!member.Area.Monsters.TryGetValue(bossId, out var m) || m.Asleep) return;
             await SendWorldRecord(member, bossId, InstanceEntities.TransitionableUpdate(bossId, (byte)comp, state), null);
-        }
+        });
     }
 
     internal static void SetBossInvulnerable(Player player, uint bossId, SpawnedMonster boss, bool on)
@@ -554,8 +605,7 @@ public static class SettlersBosses
     {
         var safe = WalkableNear(runner, dest);
         boss.Walk.Teleport(safe.X, safe.Y, now);
-        foreach (var member in ActivePlayers(runner))
-            await SendWorldRecord(PlayerOf(member), bossId, InstanceProtocol.Teleport(bossId, safe.X, safe.Y), null);
+        await Shared(runner, member => SendWorldRecord(PlayerOf(member), bossId, InstanceProtocol.Teleport(bossId, safe.X, safe.Y), null));
     }
 
     /// <summary>Plays a scripted boss skill action (<c>0x01ab</c> + <c>0x01ac</c>) toward <paramref name="aim"/>.</summary>
@@ -690,9 +740,8 @@ public static class SettlersBosses
         };
         var blob = obj.Blob();
         list.Add(new(id, at, endsAt, aoPath, scale));
-        foreach (var member in ActivePlayers(runner))
-            await SendWorldCreate(member, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), blob),
-                null, wake: true, awaitBirth: false);
+        await Shared(runner, member => SendWorldCreate(member, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), blob),
+            null, wake: true, awaitBirth: false));
         return id;
     }
 
@@ -703,8 +752,7 @@ public static class SettlersBosses
             if (list[i].EndsAt > now) continue;
             uint id = list[i].Id;
             list.RemoveAt(i);
-            foreach (var member in ActivePlayers(runner))
-                await SendWorldRemoval(PlayerOf(member), id, null);
+            await Shared(runner, member => SendWorldRemoval(PlayerOf(member), id, null));
         }
     }
 
@@ -713,8 +761,7 @@ public static class SettlersBosses
         var copy = list.ToArray();
         list.Clear();
         foreach (var fx in copy)
-            foreach (var member in ActivePlayers(runner))
-                await SendWorldRemoval(PlayerOf(member), fx.Id, null);
+            await Shared(runner, member => SendWorldRemoval(PlayerOf(member), fx.Id, null));
     }
 
     internal static async Task<bool> CreateQuestObj(Player player, uint id, string type, int x, int y, float rotation,
@@ -758,21 +805,20 @@ public static class SettlersBosses
         if (QuestObjectTypes.Find(type) is not { } info) return;
         int idx = ComponentIndex(info.Components, "StateMachine");
         if (idx < 0) return;
-        foreach (var member in ActivePlayers(runner))
-            await SendWorldRecord(PlayerOf(member), id, InstanceEntities.StateMachineUpdate(id, (byte)idx, states), null);
+        await Shared(runner, member => SendWorldRecord(PlayerOf(member), id, InstanceEntities.StateMachineUpdate(id, (byte)idx, states), null));
     }
 
     internal static async Task UpdateObjTransition(Player runner, uint id, string type, byte state, bool? blocked = null)
     {
         if (QuestObjectTypes.Find(type) is not { } info) return;
         int tIdx = QuestObject.TransitionableIndex(info.Components);
-        foreach (var member in ActivePlayers(runner))
+        await Shared(runner, async member =>
         {
             if (tIdx >= 0)
                 await SendWorldRecord(PlayerOf(member), id, InstanceEntities.TransitionableUpdate(id, (byte)tIdx, state), null);
             if (blocked is bool b)
                 await SendWorldRecord(PlayerOf(member), id, InstanceEntities.BlockageUpdate(id, b), null);
-        }
+        });
     }
 
     internal static void SetLineBarrier(Player player, uint objectId, int x, int y, float rotation, int halfWidth, int halfThickness, bool blocked)
@@ -927,12 +973,11 @@ public static class SettlersBosses
         uint id = owner.Instance.Ground.Add(ground, owner, shared: !ownerOnly);
         if (ownerOnly)
         {
-            await SendGroundItem(owner, id, ground, "settlers boss drop", justDropped: true);
+            await ForViewer(owner, () => SendGroundItem(owner, id, ground, "settlers boss drop", justDropped: true));
         }
         else
         {
-            foreach (var member in ActivePlayers(owner))
-                await SendGroundItem(member, id, ground, "settlers boss drop", justDropped: true);
+            await Shared(owner, member => SendGroundItem(member, id, ground, "settlers boss drop", justDropped: true));
         }
     }
 

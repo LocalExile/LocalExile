@@ -366,15 +366,15 @@ public static class BlackKnightController
         await arena.Gate.WaitAsync();
         try
         {
-            if (!arena.Defeated && arena.BossId == 0)
+            if (!arena.Defeated && (arena.BossId == 0 || !player.Area.Monsters.ContainsKey(arena.BossId)))
             {
-                foreach (var (id, m) in player.Area.Monsters.ToArray())
+                bool foundBoss = player.Area.Monsters.Values.Any(m => m.Variety?.Id == BossVarietyId && SettlersBosses.Alive(m));
+                if (foundBoss)
                 {
-                    if (m.Variety?.Id == BossVarietyId && SettlersBosses.Alive(m))
-                    {
-                        arena.BossId = id;
-                        break;
-                    }
+                    var restored = await SettlersBosses.EnsureScriptedBoss(
+                        player, BossVarietyId, (byte)Math.Clamp(arena.Level, 1, 100),
+                        DefaultBossSpawn, DefaultBossRotation, BossEffects);
+                    if (restored is { } b) arena.BossId = b.Id;
                 }
             }
             if (!arena.Defeated && arena.BossId != 0 && player.Area.Monsters.TryGetValue(arena.BossId, out var boss))
@@ -404,21 +404,24 @@ public static class BlackKnightController
         try
         {
             if (!arena.PresentedPlayers.Add(player)) return;
-            foreach (var node in arena.Deposits)
+            await SettlersBosses.ForViewer(player, async () =>
             {
-                var sm = SettlersBosses.BaseStates(node.Type)?.Set("harvestable", node.State);
-                await SettlersBosses.CreateQuestObj(player, node.Id, node.Type, node.X, node.Y, node.Rotation,
-                    model: node.Model, states: sm, hideMinimap: node.State != 1);
-            }
-            foreach (var pillar in arena.Pillars)
-            {
-                if (pillar.Destroyed) continue;
-                var sm = SettlersBosses.BaseStates(pillar.Type)?.Set("delete", 1);
-                if (pillar.IsLaserCover && sm is not null) sm = sm.Set("cracked", pillar.Cracked);
-                await SettlersBosses.CreateQuestObj(player, pillar.Id, pillar.Type, pillar.X, pillar.Y, 0f,
-                    blocked: true, states: sm, hideMinimap: true);
-                SettlersBosses.SetDiscBarrier(player, pillar.Id, pillar.X, pillar.Y, pillar.IsLaserCover ? 3 : 4, true);
-            }
+                foreach (var node in arena.Deposits)
+                {
+                    var sm = SettlersBosses.BaseStates(node.Type)?.Set("harvestable", node.State);
+                    await SettlersBosses.CreateQuestObj(player, node.Id, node.Type, node.X, node.Y, node.Rotation,
+                        model: node.Model, states: sm, hideMinimap: node.State != 1);
+                }
+                foreach (var pillar in arena.Pillars)
+                {
+                    if (pillar.Destroyed) continue;
+                    var sm = SettlersBosses.BaseStates(pillar.Type)?.Set("delete", 1);
+                    if (pillar.IsLaserCover && sm is not null) sm = sm.Set("cracked", pillar.Cracked);
+                    await SettlersBosses.CreateQuestObj(player, pillar.Id, pillar.Type, pillar.X, pillar.Y, 0f,
+                        blocked: true, states: sm, hideMinimap: true);
+                    SettlersBosses.SetDiscBarrier(player, pillar.Id, pillar.X, pillar.Y, pillar.IsLaserCover ? 3 : 4, true);
+                }
+            });
         }
         finally { arena.Gate.Release(); }
     }
@@ -873,14 +876,17 @@ public static class BlackKnightController
         }
     }
 
-    internal static async Task OnMonsterKilled(MonsterKill kill)
+    internal static Task OnMonsterKilled(MonsterKill kill) =>
+        OnBossKilled(kill.Player, kill.Monster.VarietyId, (kill.Monster.X, kill.Monster.Y));
+
+    internal static async Task OnBossKilled(Player player, string varietyId, (int X, int Y) at)
     {
-        if (kill.Monster.VarietyId != BossVarietyId) return;
-        if (!Arenas.TryGetValue(kill.Player.Instance, out var arena)) return;
+        if (varietyId != BossVarietyId) return;
+        if (!Arenas.TryGetValue(player.Instance, out var arena)) return;
         await arena.Gate.WaitAsync();
         try
         {
-            await CompleteVictory(kill.Player, arena, (kill.Monster.X, kill.Monster.Y));
+            await CompleteVictory(player, arena, at);
         }
         finally { arena.Gate.Release(); }
     }

@@ -194,6 +194,7 @@ public static class AdmiralValeriusController
         public uint BossId;
         public uint DaemonId;
         public int Level = AreaLevel;
+        public string? OwnerName;
         public bool Engaged;
         public bool Defeated;
         public int Phase = 1; // 1 (100-66%), 2 (66-33%), 3 (33-0%)
@@ -226,6 +227,7 @@ public static class AdmiralValeriusController
         var state = new ArenaState
         {
             Level = MapRunOf(player) is { Area.Level: > 0 } run ? run.Area.Level : AreaLevel,
+            OwnerName = MapRunOf(player)?.Owner ?? CharacterName(player),
             DoorId = inst.World.NewMonsterId(),
             PortalId = inst.World.NewMonsterId(),
         };
@@ -289,7 +291,7 @@ public static class AdmiralValeriusController
             // Replace or spawn KalguurCannonballDaemon__ (8795) as scripted helper.
             var daemonSpawned = await SettlersBosses.EnsureScriptedBoss(
                 player, CannonballDaemonId, (byte)Math.Clamp(arena.Level, 1, 100),
-                DefaultDaemonSpawn, 0f, DaemonEffects);
+                DefaultDaemonSpawn, 0f, DaemonEffects, rarity: MonsterRarity.Normal);
             if (daemonSpawned is { } d)
             {
                 arena.DaemonId = d.Id;
@@ -309,10 +311,16 @@ public static class AdmiralValeriusController
         await arena.Gate.WaitAsync();
         try
         {
-            if (!arena.Defeated && arena.BossId == 0)
+            if (!arena.Defeated && (arena.BossId == 0 || !player.Area.Monsters.ContainsKey(arena.BossId)))
             {
-                foreach (var (id, m) in player.Area.Monsters.ToArray())
-                    if (m.Variety?.Id == BossVarietyId && SettlersBosses.Alive(m)) { arena.BossId = id; break; }
+                bool foundBoss = player.Area.Monsters.Values.Any(m => m.Variety?.Id == BossVarietyId && SettlersBosses.Alive(m));
+                if (foundBoss)
+                {
+                    var restored = await SettlersBosses.EnsureScriptedBoss(
+                        player, BossVarietyId, (byte)Math.Clamp(arena.Level, 1, 100),
+                        DefaultBossSpawn, DefaultBossRotation, BossEffects);
+                    if (restored is { } b) arena.BossId = b.Id;
+                }
             }
             if (!arena.Defeated && arena.BossId != 0 && player.Area.Monsters.TryGetValue(arena.BossId, out var boss))
             {
@@ -329,12 +337,15 @@ public static class AdmiralValeriusController
         try
         {
             if (!arena.PresentedPlayers.Add(player)) return;
-            await SettlersBosses.CreateQuestObj(player, arena.DoorId, SettlersBosses.BossForceFieldDoorType,
-                arena.DoorAt.X, arena.DoorAt.Y, arena.DoorRot,
-                transitionState: (byte)(arena.DoorClosed ? 2 : 1), blocked: arena.DoorClosed, hideMinimap: true);
-            SettlersBosses.SetLineBarrier(player, arena.DoorId, arena.DoorAt.X, arena.DoorAt.Y, arena.DoorRot, 14, 2, arena.DoorClosed);
+            await SettlersBosses.ForViewer(player, async () =>
+            {
+                await SettlersBosses.CreateQuestObj(player, arena.DoorId, SettlersBosses.BossForceFieldDoorType,
+                    arena.DoorAt.X, arena.DoorAt.Y, arena.DoorRot,
+                    transitionState: (byte)(arena.DoorClosed ? 2 : 1), blocked: arena.DoorClosed, hideMinimap: true);
+                SettlersBosses.SetLineBarrier(player, arena.DoorId, arena.DoorAt.X, arena.DoorAt.Y, arena.DoorRot, 14, 2, arena.DoorClosed);
 
-            await SettlersBosses.CreateBossPortal(player, arena.PortalId, arena.PortalAt.X, arena.PortalAt.Y, arena.PortalRot, arena.PortalOpen);
+                await SettlersBosses.CreateBossPortal(player, arena.PortalId, arena.PortalAt.X, arena.PortalAt.Y, arena.PortalRot, arena.PortalOpen);
+            });
         }
         finally { arena.Gate.Release(); }
     }
@@ -755,13 +766,16 @@ public static class AdmiralValeriusController
                 await SettlersBosses.HitPlayer(p, wave.MonsterId, wm, waveAtk,
                     at => SettlersBosses.Near(at, cell, 12.5),
                     () => !arena.Defeated && SettlersBosses.Alive(boss));
-                // Apply tidal wave knockback along wave travel direction.
-                var pPos = p.Walk.Position(now);
-                var pushed = SettlersBosses.WalkableNear(p, (
-                    pPos.X + (int)Math.Round(wave.Dir.Dx * 12),
-                    pPos.Y + (int)Math.Round(wave.Dir.Dy * 12)));
-                p.Walk.Teleport(pushed.X, pushed.Y, now);
-                await SendWorldRecord(PlayerOf(p), p.Id, InstanceProtocol.Teleport(p.Id, pushed.X, pushed.Y), null);
+                // Apply tidal wave knockback along wave travel direction (never teleport dead players).
+                if (p.PlayerLife > 0)
+                {
+                    var pPos = p.Walk.Position(now);
+                    var pushed = SettlersBosses.WalkableNear(p, (
+                        pPos.X + (int)Math.Round(wave.Dir.Dx * 12),
+                        pPos.Y + (int)Math.Round(wave.Dir.Dy * 12)));
+                    p.Walk.Teleport(pushed.X, pushed.Y, now);
+                    await SendWorldRecord(PlayerOf(p), p.Id, InstanceProtocol.Teleport(p.Id, pushed.X, pushed.Y), null);
+                }
             }
         }
     }
@@ -856,14 +870,17 @@ public static class AdmiralValeriusController
         }
     }
 
-    internal static async Task OnMonsterKilled(MonsterKill kill)
+    internal static Task OnMonsterKilled(MonsterKill kill) =>
+        OnBossKilled(kill.Player, kill.Monster.VarietyId, (kill.Monster.X, kill.Monster.Y));
+
+    internal static async Task OnBossKilled(Player player, string varietyId, (int X, int Y) at)
     {
-        if (kill.Monster.VarietyId != BossVarietyId) return;
-        if (!Arenas.TryGetValue(kill.Player.Instance, out var arena)) return;
+        if (varietyId != BossVarietyId) return;
+        if (!Arenas.TryGetValue(player.Instance, out var arena)) return;
         await arena.Gate.WaitAsync();
         try
         {
-            await CompleteVictory(kill.Player, arena, (kill.Monster.X, kill.Monster.Y));
+            await CompleteVictory(player, arena, at);
         }
         finally { arena.Gate.Release(); }
     }
@@ -926,13 +943,14 @@ public static class AdmiralValeriusController
         await SettlersBosses.GrantBossKillFlags(player, KilledQuestFlag, KilledLeagueQuestFlag);
 
         // Retail Sailor's Folly loot: massive owner-only Gold (VillageMapGoldDropsOnlyForOwner), Admiral's Arrogance chance, 1-2 Runegrafts!
+        var owner = SettlersBosses.ResolveArenaOwner(player, arena.OwnerName);
         var dropAt = player.Layout.Near(killAt);
-        int goldDropped = await SettlersBosses.DropBossGold(player, dropAt, minGold: 50000, maxGold: 65000, ownerOnly: true);
-        await SettlersBosses.TryDropBossUnique(player, dropAt, arena.Level, UniqueDropPool, AdmiralsArroganceDropChance, scatterIndex: 13);
-        await SettlersBosses.DropRunegrafts(player, dropAt, arena.Level, 1, 2, scatterBase: 15);
+        int goldDropped = await SettlersBosses.DropBossGold(owner, dropAt, minGold: 50000, maxGold: 65000, ownerOnly: true);
+        await SettlersBosses.TryDropBossUnique(owner, dropAt, arena.Level, UniqueDropPool, AdmiralsArroganceDropChance, scatterIndex: 13);
+        await SettlersBosses.DropRunegrafts(owner, dropAt, arena.Level, 1, 2, scatterBase: 15);
 
-        await SettlersBossCallbacks.RaiseRescueShipment(new RescueShipmentEvent(player, AreaId, arena.Level, goldDropped));
-        await SettlersBossCallbacks.RaiseBossDefeated(new SettlersBossDefeatedEvent(player, SettlersBossKind.AdmiralValerius, AreaId, arena.Level));
+        await SettlersBossCallbacks.RaiseRescueShipment(new RescueShipmentEvent(owner, AreaId, arena.Level, goldDropped));
+        await SettlersBossCallbacks.RaiseBossDefeated(new SettlersBossDefeatedEvent(owner, SettlersBossKind.AdmiralValerius, AreaId, arena.Level));
     }
 
     internal static async Task<bool> OnObjectUse(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)

@@ -959,15 +959,24 @@ public sealed class MapOreEncounter
             {
                 Level = Math.Max(83, state.AreaLevel),
             };
-            var run = new MapDevice.Run(player.Character.Name!, area, MapMods.None,
-                ReturnTo: new(player.Layout.Hash, player.InstanceNumber, node.X, node.Y))
+            ushort originArea = player.Layout.Hash;
+            ulong originInstance = player.InstanceNumber;
+            string ownerName = CharacterName(player);
+            var run = new MapDevice.Run(ownerName, area, MapMods.None,
+                ReturnTo: new(originArea, originInstance, node.X, node.Y))
             {
                 Atlas = false,
             };
             await ChangeArea(player, new PendingTransfer(area.Hash16, node.SubAreaInstance, node.SubAreaInstance == 0, AtSpawn: true)
             {
                 Map = run,
-                Done = response => { if (response.Ok) node.SubAreaInstance = response.Instance; },
+                Done = response =>
+                {
+                    if (!response.Ok) return;
+                    node.SubAreaInstance = response.Instance;
+                    RecordCustomReturnOrigin(area.Hash16, response.Instance,
+                        originArea, originInstance, node.X, node.Y, ownerName, variation: 0);
+                },
             }, "Starfall Crater entrance");
         }
         finally { state.Gate.Release(); }
