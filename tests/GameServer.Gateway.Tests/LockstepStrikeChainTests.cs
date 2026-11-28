@@ -72,11 +72,11 @@ public class LockstepStrikeChainTests
             for (; seen < starts.Count; seen++)
             {
                 var (from, to) = starts[seen];
-                var now = client.Position(n * Frame);
+                // Frame n's 0x1ab arrives and executes on the client at n * Frame + Lag (after frames 0..n-1 have stepped);
+                // compare `from` against the client's cell at THAT execution instant, not Lag earlier.
+                var now = client.Position(n * Frame + Lag);
                 double jump = Math.Max(Math.Abs(from.X - now.X), Math.Abs(from.Y - now.Y));
                 trace.Add($"frame {n} ({n * Frame:0.000} s): 0x1ab ({from.X},{from.Y})->({to.X},{to.Y}), client ({now.X},{now.Y})");
-                // The trail answers with the estimate's cell a round trip and two frames back, so a step boundary puts
-                // it one cell behind the client; before the fix the pair was the estimate's own cell, six ahead.
                 Assert.True(jump <= 2,
                     $"the 0x1ab starts at ({from.X},{from.Y}) and the client stands at ({now.X},{now.Y}): {jump:0.0} cells." +
                     " Trace: " + string.Join(" | ", trace) + " | " + string.Join(" | ", Sent()));

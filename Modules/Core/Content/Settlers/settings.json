@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "settings": {
+    "goldBurnRateMultiplier": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0,
+      "max": 100,
+      "step": 0.1,
+      "format": "multiplier",
+      "label": "Gold burn rate",
+      "description": "Scales how quickly Kingsmarch consumes treasury gold to pay workers (0 disables gold upkeep)."
+    },
+    "wageMultiplier": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0,
+      "max": 100,
+      "step": 0.1,
+      "format": "multiplier",
+      "label": "Worker wages",
+      "description": "Scales hourly gold wages for recruited and assigned Kingsmarch workers."
+    },
+    "miningSpeedMultiplier": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 100,
+      "step": 0.1,
+      "format": "multiplier",
+      "label": "Mining speed",
+      "description": "Scales how fast Kingsmarch miners convert pending map ore into mined ore."
+    },
+    "smeltingSpeedMultiplier": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 100,
+      "step": 0.1,
+      "format": "multiplier",
+      "label": "Smelting speed",
+      "description": "Scales how fast Kingsmarch smelters convert mined ore into bars."
+    },
+    "farmingSpeedMultiplier": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 100,
+      "step": 0.1,
+      "format": "multiplier",
+      "label": "Farming speed",
+      "description": "Scales crop growth speed across all Kingsmarch farm plots."
+    },
+    "cropYieldMultiplier": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 100,
+      "step": 0.1,
+      "format": "multiplier",
+      "label": "Crop yield",
+      "description": "Scales the quantity of crops harvested per growth cycle."
+    },
+    "disenchantingSpeedMultiplier": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 100,
+      "step": 0.1,
+      "format": "multiplier",
+      "label": "Disenchanting speed",
+      "description": "Scales how fast Rog and his assistants disenchant queued items into Thaumaturgic Dust."
+    },
+    "dustYieldMultiplier": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 100,
+      "step": 0.1,
+      "format": "multiplier",
+      "label": "Thaumaturgic Dust yield",
+      "description": "Scales the amount of Thaumaturgic Dust gained from disenchanting and map dust encounters."
+    },
+    "shippingSpeedMultiplier": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 100,
+      "step": 0.1,
+      "format": "multiplier",
+      "label": "Shipping speed",
+      "description": "Scales ship voyage travel speed between Kingsmarch and foreign ports."
+    },
+    "shippingRiskMultiplier": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0,
+      "max": 10,
+      "step": 0.1,
+      "format": "multiplier",
+      "label": "Shipping risk",
+      "description": "Scales voyage risk and shipping failure probability (0 disables shipment losses)."
+    },
+    "shippingRewardMultiplier": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 100,
+      "step": 0.1,
+      "format": "multiplier",
+      "label": "Shipping rewards",
+      "description": "Scales item and currency rewards returned from completed shipments."
+    },
+    "mappingSpeedMultiplier": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 100,
+      "step": 0.1,
+      "format": "multiplier",
+      "label": "Map runner speed",
+      "description": "Scales how quickly Kingsmarch Atlas runners complete queued maps."
+    },
+    "mappingDeathChanceMultiplier": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0,
+      "max": 10,
+      "step": 0.1,
+      "format": "multiplier",
+      "label": "Map runner death chance",
+      "description": "Scales the chance of Kingsmarch map runners dying during map runs (0 disables runner deaths)."
+    },
+    "oreFoundMultiplier": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 100,
+      "step": 0.1,
+      "format": "multiplier",
+      "label": "Ore found",
+      "description": "Scales the quantity of ore claimed from map deposits and Refiner's Bargain conversions."
+    },
+    "bossAmbushChanceMultiplier": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0,
+      "max": 10,
+      "step": 0.1,
+      "format": "multiplier",
+      "label": "Boss ambush chance",
+      "description": "Scales the chance of Admiral Valerius pirate ambushes, Sasan bandit ambushes, and Starfall Crater spawns."
+    },
+    "offlineCatchupEnabled": {
+      "type": "bool",
+      "default": true,
+      "label": "Offline catch-up simulation",
+      "description": "Simulates elapsed Kingsmarch mining, smelting, farming, disenchanting, shipping, and mapping time while offline."
+    }
+  }
+}

@@ -65,8 +65,21 @@ public sealed partial class DeepwaterModule : IModule
         DeepwaterCrafting.LoadGameData();
         DeepwaterCursedDucats.LoadGameData();
         DeepwaterProgression.LoadGameData();
+        DeepwaterSpeech.LoadGameData();
         DeepwaterUpgrades.LoadGameData();
         DeepwaterVelka.LoadGameData();
+    }
+
+    /// <summary>True for The Sovereign hub and the encounter areas that embed The Sovereign as record 1.</summary>
+    internal static bool IsDeckArea(string areaId) =>
+        areaId == HubId || DeepwaterGrid.IsEncounter(areaId);
+
+    /// <summary>True when <paramref name="player"/> is on The Sovereign hub or on the encounter's PseudoHub deck
+    /// (<c>QF 3625 InMyDeepwaterPseudoHub</c>).</summary>
+    internal static bool IsOnDeck(Player player)
+    {
+        string area = PlayerOf(player).AreaId;
+        return area == HubId || (DeepwaterGrid.IsEncounter(area) && ClientHasQuestFlag(player, DeepwaterConstants.InPseudoHub));
     }
 
     // Rulesets row (S→C 0x1f) DeepwaterHubRules (ClientDeepwaterHub; the hub's windows look it up by row and use it without
@@ -85,11 +98,13 @@ public sealed partial class DeepwaterModule : IModule
         public uint Boat;
         public (int X, int Y) BoatAt;
         public int BoatReach;
-        // The deck's Chart Locker and Bathysphere (DeepwaterHub).
+        public uint CoastValerie;
+        public bool CoastIntroPlayed;
+        // The deck's Chart Locker and Bathysphere (DeepwaterHub / PseudoHub).
         public uint Locker, Portal;
         public (int X, int Y) LockerAt, PortalAt;
         public int LockerReach, PortalReach;
-        public bool LockerOpen;
+        public bool LockerOpen, DeckSpawned;
         // Valerie's "Take Chart": the chart device opens with its reward window, and again once the reward is taken.
         public bool DeviceAfterReward, DeviceWithReward;
         // A started Chart or Voyage waiting at the deck's Bathysphere (DeepwaterStart), when its opening ends (instance
@@ -193,6 +208,10 @@ public sealed partial class DeepwaterModule : IModule
             try
             {
                 await SpawnRowboat(module, player);
+                var modPlayer = PlayerOf(player);
+                var enterState = _states.GetOrCreateValue(modPlayer);
+                enterState.CoastValerie = await DeepwaterProgression.AnimateCoastValerie(player);
+                enterState.CoastIntroPlayed = enterState.CoastValerie == 0 || ClientHasQuestFlag(player, "DeepwaterNPCSeen");
                 await SpawnDeck(module, player);
                 await StartRun(module, player);
                 await DeepwaterFairgraves.Enter(module, player);
@@ -229,6 +248,12 @@ public sealed partial class DeepwaterModule : IModule
             await DeepwaterProgression.TickQuestPickups(player);
             await DeepwaterFairgraves.Tick(module, player);
             await DeepwaterEncounters.Tick(module, player);
+            if (_states.TryGetValue(PlayerOf(player), out var coastState) && coastState.CoastValerie != 0
+                && !coastState.CoastIntroPlayed && ClientHasQuestFlag(player, "DeepwaterNPCSeen"))
+            {
+                coastState.CoastIntroPlayed = true;
+                await DeepwaterSpeech.CoastIntro(player, coastState.CoastValerie);
+            }
             await TickDeck(player);
             if (RunOf(player) is not { } run) return;
             await _light.Tick(module, player, run);
@@ -375,7 +400,7 @@ public sealed partial class DeepwaterModule : IModule
         // the run's chests, interactables, capsules, ArenaTeleporter & VelkaDescensionObject; encounters; deck; rowboat.
         GameEvents.ObjectUse.Add(id, async (player, use, at) =>
         {
-            if (PlayerOf(player).AreaId == HubId && DeepwaterProgression.PickHubStash(player, use.TargetId)) return false;
+            if (IsOnDeck(player) && DeepwaterProgression.PickHubStash(player, use.TargetId)) return false;
             if (RunOf(player) is { } run && (await DeepwaterLoot.Use(module, player, run, use, at)
                 || await DeepwaterExtraction.Use(module, player, run, use, at)
                 || await DeepwaterVelka.Use(module, player, run, use, at))) return true;
