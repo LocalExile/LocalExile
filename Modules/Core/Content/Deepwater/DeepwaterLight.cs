@@ -89,6 +89,11 @@ internal sealed class DeepwaterLight
             diver.Killed = false;
             await global::Game.SendWorldRecord(player, player.Id, InstanceEntities.AddBuff(player.Id, diver.DrownBuff, DeepwaterConstants.DrowningBuff,
                 u68: BitConverter.SingleToUInt32Bits((float)DeepwaterConstants.DrowningSeconds)), $"0x01c1 deepwater_drowning: out of light at ({at.X}, {at.Y})");
+            if (!ClientHasQuestFlag(player, DeepwaterConstants.FirstDrowningHeard))
+            {
+                await SetQuestFlags(player, [DeepwaterConstants.FirstDrowningHeard]);
+                await DeepwaterSpeech.FirstDrowning(player);
+            }
         }
         else if (!dark && diver.DrownBuff != 0)
         {
@@ -106,6 +111,7 @@ internal sealed class DeepwaterLight
         {
             diver.Killed = true;
             module.Log($"{player.Character.Name} drowned at ({at.X}, {at.Y}) after {elapsed:0.0} s out of light");
+            await DeepwaterSpeech.PlayerDrowned(player);
             await Drown(player);
         }
     }
