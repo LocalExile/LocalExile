@@ -193,6 +193,55 @@ public static partial class Game
 
     public static bool InTown(Player player) => WaypointCatalog.Areas.Find(player.Layout.Hash) is { IsTown: true };
 
+    // Non-town hubs and safe foyers that have IsTown=0, IsHideout=0, IsMapArea=0 in client.db WorldAreas
+    // (The Sovereign, Kingsmarch, Azurite Mine Encampment, Rogue Harbour, Menagerie, Aspirants' Plaza, etc.).
+    static readonly HashSet<string> NonCombatHubIds = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "DeepwaterHub", "Delve_Hub", "Delve_Endless", "HeistHub", "HeistHubEndless",
+        "Menagerie_Hub", "KalguuranSettlersLeague", "Metamorphosis_Hub", "Synthesis_Hub",
+        "BrequelHub", "ChayulaHub", "ChayulaLeague", "1_Labyrinth_AirlockClean", "Labyrinth_Airlock",
+        "SanctumFoyer_Fellshrine", "SanctumFoyer_Fellshrine_Deal", "SanctumFoyer_Start",
+        "2_11_atlas", "2_11_lab", "2_11_lab_trailer", "CharacterSelect",
+    };
+
+    static HashSet<string> CampaignCombatAreas = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Loads genuine Acts 1–10 campaign combat area IDs from <c>client.db</c> <c>WorldAreas</c> at startup.</summary>
+    public static void LoadCampaignCombatAreas()
+    {
+        var areas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (ClientTables.Has("WorldAreas"))
+        {
+            foreach (var row in ClientTables.Table("WorldAreas"))
+            {
+                if (row.Text("Id") is not { Length: > 0 } id) continue;
+                int act = row.IntOrNull("Act") ?? 0;
+                if (act is < 1 or > 10) continue;
+                if (row.Bool("IsTown") || row.Bool("IsHideout") || row.Bool("IsMapArea")
+                    || row.Bool("IsVaalArea") || row.Bool("IsLabyrinthAirlock")
+                    || row.Bool("IsLabyrinthArea") || row.Bool("IsLabyrinthBossArea"))
+                    continue;
+                // Standard campaign combat zones are named 1_<act>_... (Acts 1-5) or 2_<act>_... (Acts 6-10).
+                if (id.Length >= 4 && (id[0] == '1' || id[0] == '2') && id[1] == '_' && char.IsAsciiDigit(id[2])
+                    && id != TutorialObjects.Strand && !NonCombatHubIds.Contains(id))
+                    areas.Add(id);
+            }
+        }
+        CampaignCombatAreas = areas;
+    }
+
+    /// <summary>True for towns, hideouts, and non-town league hubs/foyers where combat encounters and chests never spawn.</summary>
+    public static bool IsNonCombatHub(string areaId) =>
+        !string.IsNullOrEmpty(areaId) && (NonCombatHubIds.Contains(areaId) || areaId.EndsWith("_town", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>True when <paramref name="player"/> is in a town, hideout, or non-town league hub/foyer.</summary>
+    public static bool IsNonCombatHub(Player player) =>
+        InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null || IsNonCombatHub(player.Layout.Id);
+
+    /// <summary>True only for genuine Acts 1–10 campaign combat areas (excluding towns, hideouts, hubs, Strand, maps, Vaal side areas, Labyrinth, and league encounters).</summary>
+    public static bool IsCampaignCombatArea(string areaId) =>
+        !string.IsNullOrEmpty(areaId) && CampaignCombatAreas.Contains(areaId);
+
     public static async Task EndAurasOnDeath(Player player)
     {
         if (player.PlayerLife != 0 || player.AuraDeathHandled || ProjectileOutputGuard.Value is { } before && !before()) return;
@@ -296,7 +345,7 @@ public static partial class Game
         decimal xpPenalty = await GameEvents.ResolveDeathPenaltyPct(player, DeathExperiencePenaltyPercent(player));
         var (xpPenaltyPct, xpBefore, xpAfter) = ApplyDeathExperiencePenalty(player, xpPenalty);
         if (xpAfter != xpBefore)
-            await Send(player, InstanceEntities.PlayerExperienceUpdate(player.Id, xpAfter),
+            await SendOwnWorldRecord(player, InstanceEntities.PlayerExperienceUpdate(player.Id, xpAfter),
                 $"0x02bc death XP penalty -{xpPenaltyPct}% ({xpBefore} -> {xpAfter})");
         if (xpPenaltyPct > 0)
             await Send(player, InstanceChat.ChatLine($"You have lost {xpPenaltyPct}% experience."),

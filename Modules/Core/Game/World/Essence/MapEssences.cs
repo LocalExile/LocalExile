@@ -111,7 +111,7 @@ public static partial class MapEssences
 
     public static int Count(Player player)
     {
-        if (player.Instance is null || InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null
+        if (player.Instance is null || IsNonCombatHub(player)
             || player.Layout.Walkable is null || player.Layout.Id == TutorialObjects.Strand
             || LabyrinthTrials.InLabyrinth(player.Layout.Id)) return 0;
         var map = MapRunOf(player);
@@ -289,7 +289,7 @@ public static partial class MapEssences
 
     public static async Task Enter(Player player)
     {
-        if (player.Instance is null || InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null
+        if (player.Instance is null || IsNonCombatHub(player)
             || player.Layout.Walkable is null || player.Layout.Id == TutorialObjects.Strand
             || LabyrinthTrials.InLabyrinth(player.Layout.Id)) return;
         int level = AreaLevel(player);
