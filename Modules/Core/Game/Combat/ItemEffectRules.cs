@@ -1,7 +1,8 @@
 using System.Collections.Concurrent;
 using GameServer.Core.Protocol.Instance;
 
-/// <summary>World rules bind an actor stat on kill, or a worn skill's own stat on hit, to an existing effect.</summary>
+/// <summary>World rules bind a stat to an existing effect: charges on every charge event, Onslaught on kill, a worn
+/// skill's mark on hit and its socketed spell on block.</summary>
 sealed partial class ItemEffectRules
 {
     internal sealed record MarkRule(uint Stat, bool RareOrUnique, bool RequiresNoMark);
@@ -10,17 +11,36 @@ sealed partial class ItemEffectRules
     readonly List<MarkRule> onHit = [];
     readonly HashSet<uint> blockSupportStats = [];
     readonly ConcurrentDictionary<(SkillCatalog Skills, int Effect, int Level), MarkRule[]> grantedMarks = new();
-    internal readonly IReadOnlyList<ChargeGains.Rule> ChargeRules;
-    internal readonly IReadOnlyList<ChargeGains.Rule> MinionKillCharges;
-    internal readonly IReadOnlyList<ChargeGains.Rule> HitChargeRules;
-    internal readonly (uint Stat, ChargeType Type)[] MonsterHitCharges;
+    readonly IReadOnlyList<ChargeGains.Rule> killCharges, hitCharges, whenHitCharges, blockCharges, stunCharges, skillUseCharges;
+    internal readonly IReadOnlyList<ChargeGains.Rule> MinionKillCharges, MinionHitCharges;
+    internal readonly (uint Stat, ChargeType Type)[] MonsterHitCharges, MonsterWhenHitCharges;
     internal readonly bool NeedsRareHit;
+
+    /// <summary>Whose event a rule listens to: the player's, a supported minion's, or a hostile monster's.</summary>
+    internal enum Actor { Player, Minion, Monster }
 
     sealed class ChargeRuleLists
     {
-        internal readonly SortedDictionary<long, ChargeGains.Rule[]> PlayerKills = [], MinionKills = [];
-        internal readonly SortedDictionary<long, (uint Stat, ChargeType Type)[]> PlayerHits = [], MonsterHits = [];
+        internal readonly Dictionary<(string Event, Actor Actor), SortedDictionary<long, ChargeGains.Rule[]>> ByEvent = [];
+        internal readonly HashSet<(string Event, Actor Actor, uint Stat)> Stats = [];
+
+        internal ChargeGains.Rule[] Of(string trigger, Actor actor) =>
+            ByEvent.TryGetValue((trigger, actor), out var rules) ? [.. rules.Values.SelectMany(r => r)] : [];
+        internal (uint Stat, ChargeType Type)[] Pairs(string trigger, Actor actor) =>
+            [.. Of(trigger, actor).Select(r => (r.Stat, r.Type!.Value))];
     }
+
+    /// <summary>The player's charge rules for an event, in roll order.</summary>
+    internal IReadOnlyList<ChargeGains.Rule> PlayerCharges(ChargeEvent e) => e switch
+    {
+        ChargeEvent.Kill => killCharges,
+        ChargeEvent.Hit => hitCharges,
+        ChargeEvent.WhenHit => whenHitCharges,
+        ChargeEvent.Block => blockCharges,
+        ChargeEvent.Stun => stunCharges,
+        ChargeEvent.SkillUse => skillUseCharges,
+        _ => [],
+    };
 
     static readonly RuleTable<GameData.Snapshot, ItemEffectRules> Tables = new();
     internal static ItemEffectRules Current => Tables.GetValue(GameData.Current, static snapshot => new(snapshot));
@@ -31,14 +51,16 @@ sealed partial class ItemEffectRules
     {
         var charges = new ChargeRuleLists();
         foreach (var row in snapshot.FxRules) Compile(row, charges);
-        MinionKillCharges = [.. charges.MinionKills.Values.SelectMany(rules => rules)];
-        var playerHits = charges.PlayerHits.Values.SelectMany(rules => rules)
-            .Select(hit => new ChargeGains.Rule(hit.Stat, hit.Type, static (e, _) => e is ChargeEvent.Hit));
-        HitChargeRules = [.. playerHits, .. ChargeGains.OtherRules];
-        MonsterHitCharges = [.. charges.MonsterHits.Values.SelectMany(rules => rules)];
-        // Keep the original roll order, including the random charge type drawn between the two sets.
-        ChargeRules = [.. charges.PlayerKills.Where(r => r.Key < 0).SelectMany(r => r.Value), .. ChargeGains.AdditionalKillRules,
-            .. charges.PlayerKills.Where(r => r.Key > 0).SelectMany(r => r.Value), .. ChargeGains.OtherRules];
+        killCharges = charges.Of("kill", Actor.Player);
+        hitCharges = charges.Of("hit", Actor.Player);
+        whenHitCharges = charges.Of("when_hit", Actor.Player);
+        blockCharges = charges.Of("block", Actor.Player);
+        stunCharges = charges.Of("stun", Actor.Player);
+        skillUseCharges = charges.Of("skill_use", Actor.Player);
+        MinionKillCharges = charges.Of("kill", Actor.Minion);
+        MinionHitCharges = charges.Of("hit", Actor.Minion);
+        MonsterHitCharges = charges.Pairs("hit", Actor.Monster);
+        MonsterWhenHitCharges = charges.Pairs("when_hit", Actor.Monster);
         NeedsRareHit = onHit.All(rule => rule.RareOrUnique);
     }
 
