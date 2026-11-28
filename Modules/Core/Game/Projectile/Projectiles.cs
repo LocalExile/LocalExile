@@ -369,6 +369,7 @@ public static partial class Game
             ClearDivineBlastOrbs();
             ClearVoidSpheres();
             ClearHydrosphere();
+            ClearTornadoes();
             ClearConvictionWaves();
             ClearBladestorms();
             ClearTrarthus();
@@ -704,6 +705,8 @@ public static partial class Game
 
         public ProjectileActor? Actor(ProjectileActorKey key, long at)
         {
+            if (tornadoes.TryGetValue(key.Id, out var orb) && orb.Actor.Key == key && orb.Absorbs(at))
+                return orb.Actor;
             if (waterSphere is { } sphere && sphere.Actor!.Key == key && at < sphere.Until)
                 return sphere.Actor;
             if (key.Id == Player.Id && key.Generation == epoch)
@@ -744,6 +747,7 @@ public static partial class Game
             // A totem's id and place never change, so it keeps one record for as long as it is listed.
             AddTotemsAndPlayer(result);
             AddHydrosphereActors(result, from);
+            AddTornadoActors(result, from);
             return result;
         }
 
@@ -765,6 +769,7 @@ public static partial class Game
             }
             AddTotemsAndPlayer(result);
             AddHydrosphereActors(result, at);
+            AddTornadoActors(result, at);
             return result;
         }
 
@@ -884,6 +889,8 @@ public static partial class Game
             if (contact.Projectile.Use.Payload is ObjectProjectileOffense thrown) return thrown.Hit(this, contact);
             if (contact.Projectile.Use.Payload is not ProjectileOffense shot || shot.Valid?.Invoke() == false)
                 return ProjectileHitResult.Miss;
+            if (tornadoes.TryGetValue(contact.Target.Id, out var orb) && orb.Actor.Key == contact.Target)
+                return ContactTornado(orb, contact, shot);
             if (waterSphere is { } sphere && sphere.Actor!.Key == contact.Target)
                 return ContactHydrosphere(sphere, contact, shot);
             if (!Player.Area.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0 || target.WorldHidden || ArenaHazards.Untargetable(Player, target)
@@ -1586,6 +1593,7 @@ public static partial class Game
             return [stop, orient, move];
         }
         public static ProjectileVector Vector((int X, int Y) p) => new(p.X, p.Y);
+        static (int X, int Y) RoundCell(ProjectileVector p) => ((int)Math.Round(p.X), (int)Math.Round(p.Y));
         static string? PayloadLabel(object? payload) => payload switch
         {
             ProjectileOffense offense => offense.Label,

@@ -121,7 +121,7 @@ public static partial class Game
                 Player.TrackProjectileObject(sphere.Id);
                 Create(sphere.Id, () =>
                 {
-                    var pos = HydroCell(sphere.Position(Runtime.Now));
+                    var pos = RoundCell(sphere.Position(Runtime.Now));
                     var obj = new MonsterObject(pos.X, pos.Y, 1, MonsterObject.AnomalyComponents,
                         StateMachine: HydroStates(sphere), Stats: [(Stat.IsWaterSphereOwnerId, (int)Player.Id),
                             (Stat.HideMiniLifeBar, 1)])
@@ -163,8 +163,6 @@ public static partial class Game
         bool HydroCurrent(WaterSphere sphere, long at) => Active && Player.PlayerLife > 0
             && ReferenceEquals(waterSphere, sphere) && at < sphere.Until && sphere.Current();
 
-        static (int X, int Y) HydroCell(ProjectileVector pos) => ((int)Math.Round(pos.X), (int)Math.Round(pos.Y));
-
         static StateMachineData HydroStates(WaterSphere sphere) => new StateMachineData([0, 0, 0, 0], 0,
             ["moving", "shocked", "frozen", "aura_radius"])
             .Set("moving", sphere.Moving ? 1 : 0)
@@ -179,7 +177,7 @@ public static partial class Game
         {
             var segment = to - from;
             double length = segment.Length;
-            var centre = HydroCell(from + segment * .5);
+            var centre = RoundCell(from + segment * .5);
             double now = ProjectileWorldTime(Player);
             foreach (var (_, target) in Player.Area.MonstersNear(centre, sphere.DrenchRadius + length * .5 + 1))
             {
@@ -222,7 +220,7 @@ public static partial class Game
             foreach (var target in sphere.Drenched.Keys.Where(target => target.Dead || sphere.Drenched[target] <= seconds).ToArray())
                 sphere.Drenched.Remove(target);
             bool cold = sphere.Cold(now), lightning = sphere.Lightning(now);
-            var at = HydroCell(sphere.Position(now));
+            var at = RoundCell(sphere.Position(now));
             string art = lightning ? cold ? "combined_nova.ao" : "shock_nova.ao" : cold ? "ice_nova.ao" : "water_nova.ao";
             Effect(at.X, at.Y, HydroArt + art, ProjectileRuntime.Time(.31), sphere.PulseRadius);
             if (ServerTrace.Projectiles)

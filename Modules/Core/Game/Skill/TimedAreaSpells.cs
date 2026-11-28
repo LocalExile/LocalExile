@@ -4,7 +4,7 @@ public static partial class Game
 {
     static bool TimedAreaSpellEffect(string? effect) =>
         CorpseDamageSpell(effect) || CremationEffect(effect) || BladefallEffect(effect)
-        || FrostBombEffect(effect) || VoidSphereEffect(effect) || HydrosphereEffect(effect) || IsBladeVortex(effect)
+        || FrostBombEffect(effect) || VoidSphereEffect(effect) || HydrosphereEffect(effect) || TornadoEffect(effect) || IsBladeVortex(effect)
         || effect is "BallLightningAltY" or VaalBladeVortexEffect;
 
     public sealed partial class ProjectileSession
@@ -12,7 +12,7 @@ public static partial class Game
         internal void ScheduleTimedAreaSpell(
             (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
             (int X, int Y) aim, uint target, double windup, ushort sequence, Func<bool> commit,
-            SkillCriticalRoll? critical, SacrificeUse sacrifice, double more, int repeat)
+            SkillCriticalRoll? critical, SacrificeUse sacrifice, double more, int repeat, (int X, int Y)? origin = null)
         {
             var intensity = CastingIntensity(Player, gem.Id);
             double beidatMore = CastingBeidatSpell(Player, gem.Id)?.More ?? 1;
@@ -79,6 +79,14 @@ public static partial class Game
                     ReleaseHydrosphere(Player.Id, gem.Effect, source.Stats, aim, Current,
                         (centre, radius, drenched, cold, lightning) => Hit(centre, radius, ProjectileWorldTime(Player),
                             targetFilter: drenched, spellSource: HydroDamageSource(source, cold, lightning)));
+                    return;
+                }
+                if (TornadoEffect(effect))
+                {
+                    var element = TornadoElement(Player, source);
+                    var damage = TornadoDamageSource(source, element);
+                    ReleaseTornado(gem.Effect, gem.Level, source, element, origin ?? Player.Walk.Position(now), aim, Current,
+                        (centre, radius) => Hit(centre, radius, ProjectileWorldTime(Player), spellSource: damage));
                     return;
                 }
                 if (effect == "BallLightningAltY")

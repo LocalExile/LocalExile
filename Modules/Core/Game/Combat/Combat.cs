@@ -1347,7 +1347,7 @@ public static partial class Game
         var momentumTravel = player.Walk.ObserveTravel(AreaTime(player));
         var baseSkill = BaseSupportedSkill(player, skillId);
         if (SkillsFor(player).EffectId(baseSkill.Effect) is TwisterEffect or CatStealthCryEffect or KineticAnomalyEffect
-            or ThunderburstEffect or FleshrendEffect or HydrosphereTriggeredEffect) return false;
+            or ThunderburstEffect or FleshrendEffect or HydrosphereTriggeredEffect or TornadoTriggeredEffect) return false;
         if (actionToken is not null && (player.ActionCount != action || player.ElementalAilments.ActionFactor(AreaTime(player)) == 0 || player.HitRecovery.Active(AreaTime(player)))) return false;
         if (VaalArcticArmourActive(player, AreaTime(player)) && cooldownUse?.Instant != true && !locationInstant
             && !SkillsFor(player).IsInstant(baseSkill.Effect)) return false;
@@ -1899,6 +1899,7 @@ public static partial class Game
             RecordBrandSkillUsedLocked(player, acceptedAt);
         SpiritBurstOnSkillUse(player, aim, acceptedAt);
         TriggerCraftedWeaponSpells(player, aim, acceptedAt);
+        TriggerWeaponTornado(player, effect, aim, acceptedAt);
     }
 
     // Lockstep instant replies join the ordinary action sequence. At 0x14219c1f0, flag 0x100 reaches

@@ -53,9 +53,9 @@ public static partial class Game
             return () =>
             {
                 var origin = brandOrigin ?? player.Walk.Position(AreaTime(player));
-                session.ScheduleTimedAreaSpell(skill, aim, 0, 0, 0xffff, current, critical, sacrifice, 1, 0);
+                session.ScheduleTimedAreaSpell(skill, aim, 0, 0, 0xffff, current, critical, sacrifice, 1, 0, origin);
                 foreach (var area in SpellCascadeAreas(player, skill.Effect, gem.Stats, origin, aim))
-                    session.ScheduleTimedAreaSpell(skill, area, 0, 0, 0xffff, current, critical, sacrifice, 1, 0);
+                    session.ScheduleTimedAreaSpell(skill, area, 0, 0, 0xffff, current, critical, sacrifice, 1, 0, origin);
             };
         }
         if (PlacedArcPayload(SkillsFor(player).EffectId(gem.Effect)))

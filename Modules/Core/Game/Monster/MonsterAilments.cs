@@ -659,7 +659,7 @@ public static partial class Game
         if (!m.RuleAilments.Idle) packets.AddRange(AlternateAilmentBuffs(id, $"monster 0x{id:x} ({m.Label})", m.RuleAilments, now));
         bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
         bool lowLifeMove = MonsterOnLowLife(m) && m.Effects[Stat.MovementVelocityPlusPctWhenOnLowLife] != 0;
-        int sphereHinder = VoidSphereHinder(player.Area, m, now);
+        int sphereHinder = Math.Max(VoidSphereHinder(player.Area, m, now), TornadoHinder(player.Area, m, now));
         if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && sphereHinder == 0
             && vines == 1 && trap == 1 && snare == 1
             && m.Effects[Stat.ActionSpeedMinusPct] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown && !lowLifeMove) return;

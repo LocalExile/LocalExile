@@ -291,6 +291,8 @@ public static partial class Game
     static readonly RuleTable<PlacedSkills.DamageSnapshot, PlacedSkills.DamageSnapshot> RecentMineAreaProfiles = new();
     sealed record HydrospherePlacedProfiles(PlacedSkills.DamageSnapshot? Lightning, PlacedSkills.DamageSnapshot? Mixed);
     static readonly RuleTable<PlacedSkills.DamageSnapshot, HydrospherePlacedProfiles> PlacedHydrosphereDamage = new();
+    sealed record PlacedTornadoElement(DamageType Type);
+    static readonly RuleTable<PlacedSkills.DamageSnapshot, PlacedTornadoElement> PlacedTornadoElements = new();
 
     // Preserve the placement-time offensive inputs. A mine chooses the recent-detonation area profile at release.
     static PlacedSkills.DamageSnapshot? CapturePlacedDamage(Player player, ushort skill, SupportedGem gem,
@@ -421,8 +423,12 @@ public static partial class Game
                 if (count <= 0 || limit <= 0) return null;
                 var context = ReservationContext(player, admission.Skill);
                 var reserve = admission.Mine ? SupportedReservation(player, admission.Skill) : null;
-                var offense = CapturePlacedDamage(player, admission.Skill, gem);
-                if (offense is not null && HydrosphereEffect(SkillsFor(player).EffectId(gem.Effect)))
+                string? placedEffect = SkillsFor(player).EffectId(gem.Effect);
+                DamageType? tornadoElement = TornadoEffect(placedEffect) ? TornadoElement(player, gem) : null;
+                var offense = CapturePlacedDamage(player, admission.Skill, TornadoDamageSource(gem, tornadoElement));
+                if (offense is not null && tornadoElement is DamageType kindElement)
+                    PlacedTornadoElements.Add(offense, new(kindElement));
+                if (offense is not null && HydrosphereEffect(placedEffect))
                     PlacedHydrosphereDamage.Add(offense, new(
                         CapturePlacedDamage(player, admission.Skill, HydroDamageSource(gem, 0, 100)),
                         CapturePlacedDamage(player, admission.Skill, HydroDamageSource(gem, 50, 50))));
@@ -790,6 +796,7 @@ public static partial class Game
         bool frostBomb = effect == "FrostBomb";
         bool voidSphere = VoidSphereEffect(effect);
         bool hydrosphere = HydrosphereEffect(effect);
+        bool tornado = TornadoEffect(effect);
         bool staticOrb = effect == "BallLightningAltY";
         bool bladefall = effect == "Bladefall";
         bool purifyingFlame = IsPurifyingFlame(effect);
@@ -801,7 +808,7 @@ public static partial class Game
         bool shockNova = ShockNovaEffect(effect);
         bool cascade = GlacialCascadeEffect(effect);
         bool ruin = effect == TrarthanBargain;
-        if (bladefall || purifyingFlame || conviction || bladeBlast || lance || manabond
+        if (bladefall || purifyingFlame || conviction || bladeBlast || lance || manabond || tornado
             || cascade || effect == "ShockNovaAltX")
         {
             var enemy = triggeringEnemy.Value is not null ? triggeringEnemy
@@ -815,7 +822,7 @@ public static partial class Game
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
             && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm || brand
-                || frostBomb || voidSphere || hydrosphere || staticOrb || bladefall || detonateDead || volatileDead
+                || frostBomb || voidSphere || hydrosphere || tornado || staticOrb || bladefall || detonateDead || volatileDead
                 || purifyingFlame || conviction || bladeBlast
                 || unloading || lance || manabond || shockNova || cascade || ruin))
         {
@@ -852,6 +859,15 @@ public static partial class Game
                     PlacedAreaDamageLocked(player, contact, centre, radius, ProjectileWorldTime(player), inventionMore,
                         currentSkill: true, spellDamage: true, targetFilter: drenched);
                 }
+            }
+            else if (tornado)
+            {
+                var placement = new PlacedAreaHit(placed, inventionMore);
+                var element = placed.Offense is { } saved && PlacedTornadoElements.TryGetValue(saved, out var stored)
+                    ? stored.Type : (DamageType?)null;
+                session.ScheduleContact(ProjectileRuntime.Time(now), Current,
+                    () => session.ReleaseTornado(placed.Effect, gem.Level, gem with { Stats = placed.Own }, element, placed.At,
+                        aim, Current, (centre, radius) => placement.Apply(player, centre, radius, ProjectileWorldTime(player))));
             }
             else if (staticOrb)
                 session.SchedulePlacedStaticBall(new(placed, inventionMore), Current);
