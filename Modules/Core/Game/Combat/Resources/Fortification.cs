@@ -103,9 +103,12 @@ public static partial class Game
 
     public static void ConfigureFortificationRecovery(Player player, uint maximumLife, Func<uint, int> get)
     {
-        FortificationOf(player).ConfigureRecovery(AreaTime(player), maximumLife,
-            false,
-            PanelStats.LifeRegenerationMultiplier(get));
+        bool oath = PanelStats.ZealotsOath(get);
+        uint pool = oath ? player.Pools.EnergyShield : maximumLife;
+        double multiplier = oath
+            ? (PanelStats.LifeRegenerationBlocked(get) || !EnergyShield.ConversionAllowed(get) ? 0 : EnergyShield.RegenerationMultiplier(get))
+            : PanelStats.LifeRegenerationMultiplier(get);
+        FortificationOf(player).ConfigureRecovery(AreaTime(player), pool, false, multiplier);
     }
 
     public static void CarryFortification(Player player, uint ticket)
