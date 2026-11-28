@@ -116,6 +116,34 @@ public static partial class Game
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
     }
 
+    public sealed record TownMapDevice(uint Id, int X, int Y);
+    static readonly Store<Player, TownMapDevice> TownMapDevices = new();
+
+    /// <summary>The Karui Shores War Room interactive Map Device spawned for this player, or null outside Karui Shores.</summary>
+    public static TownMapDevice? EndgameTownDevice(Player player) =>
+        player.Layout.Id == MapDevice.EndgameTownArea && TownMapDevices.TryGetValue(player, out var dev) ? dev : null;
+
+    /// <summary>Creates the interactive War Room Map Device in Karui Shores (<c>2_11_endgame_town</c>) overlaying
+    /// camp.arm's FlashBack_MapDevice_01 visual doodad so characters can complete a11q1 without visiting a hideout.</summary>
+    public static async Task SpawnEndgameTownDevice(Player player)
+    {
+        if (player.Layout.Id != MapDevice.EndgameTownArea) return;
+        if (QuestObjectTypes.Find(MapDevice.EndgameTownDeviceType) is not { } info
+            || !QuestObject.CanSerialize(info.Components))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} Karui Shores map device {MapDevice.EndgameTownDeviceType}: unknown or unsupported components");
+            return;
+        }
+        int x = MapDevice.EndgameTownDeviceX, y = MapDevice.EndgameTownDeviceY;
+        uint id = player.TakeObjectId();
+        var obj = new QuestObject(x, y, info.Components, Rotation: MapDevice.EndgameTownDeviceRotation, TransitionState: 1);
+        await SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapDevice.EndgameTownDeviceType), obj.Blob()),
+            $"0x02bb create Karui Shores Map Device 0x{id:x} ({MapDevice.EndgameTownDeviceType}) at ({x}, {y})");
+        await SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id),
+            $"0x01a9 Karui Shores Map Device 0x{id:x} enters wake zone");
+        TownMapDevices.AddOrUpdate(player, new(id, x, y));
+    }
+
     public static (uint Id, int X, int Y, bool Campaign)? MapDeviceHere(Player player)
     {
         if (player.Layout.Id == MapDevice.CampaignDeviceArea)
@@ -123,6 +151,8 @@ public static partial class Game
                 foreach (var (id, obj) in player.QuestObjects)
                     if (obj.Rule.ObjectType == MapDevice.CampaignDeviceType)
                         return (id, obj.At.X, obj.At.Y, true);
+        if (EndgameTownDevice(player) is { } townDevice)
+            return (townDevice.Id, townDevice.X, townDevice.Y, false);
         lock (player.HideoutDoodads)
             foreach (var (id, device) in player.HideoutDoodads)
                 if (HideoutCatalog.IsPlaced(device)) return (id, device.X, device.Y, false);
@@ -441,6 +471,7 @@ public static partial class Game
 
     static ushort MapPortalVariation(MapDevice.OpenMap run, int index)
     {
+        if (run.PortalVariation != 0) return run.PortalVariation;   // the recipe's own portal (MapDeviceRecipes)
         byte mode = CharacterSaves.Cosmetics(run.Owner).GetValueOrDefault(InstanceMicrotransactions.PortalSlot) is
             { Record: 0, Option: 1 or 2 } choice ? choice.Option : (byte)0;
         if (mode == 0 || Cosmetics.Portals.Count == 0) return CharacterSaves.PortalCosmetic(run.Owner);

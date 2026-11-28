@@ -56,6 +56,21 @@ public static partial class Game
             fighter.Monster.Walk.Position(now), StillLinked);
     }
 
+    /// <summary>Triggers Intuitive Link's supported spells when a linked companion hits an enemy.</summary>
+    public static void ReleaseCompanionIntuitiveLinkLocked(Player player, ActiveCompanion companion, (int X, int Y) aim, double now)
+    {
+        if (!CompanionAliveInArea(player, companion)
+            || ActiveCompanionLink(player, companion.EntityId, now) is not { EffectId: "IntuitiveLink" } link
+            || !IntuitiveLinkSources.TryGetValue(link, out var source)
+            || !LinkedSourceCurrent(player, source)) return;
+        var session = ProjectilesFor(player);
+        if (!session.Active) return;
+        bool StillLinked() => CompanionAliveInArea(player, companion)
+            && ReferenceEquals(ActiveCompanionLink(player, companion.EntityId, AreaTime(player)), link);
+        ReleaseLinkedSpell(player, session, source, "Intuitive Link", aim, now, Stat.TriggerOnTriggerLinkTargetHit,
+            companion.Monster.Walk.Position(now), StillLinked);
+    }
+
     public static LinkedTriggerSource? CaptureCriticalTriggerSource(Player player, ushort skill)
     {
         var gem = SupportedSkill(player, skill);

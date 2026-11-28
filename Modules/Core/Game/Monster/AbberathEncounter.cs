@@ -36,6 +36,8 @@ public static class AbberathEncounter
     // DoorAbberathPhase2: start_blocked = false (state 2 = locked, state 1 = unlocked)
     const string DoorPhase1Type = "Metadata/Terrain/Act6/Area8/Objects/DoorAbberathPhase1";
     const string DoorPhase2Type = "Metadata/Terrain/Act6/Area8/Objects/DoorAbberathPhase2";
+    const string JumpOutMarkerType = "Metadata/Monsters/Abberath/AbberathJumpOut";
+    internal const string MarkerPrefix = "AbberathMarker/";
 
     const string HoofArt = "Metadata/Effects/Spells/monsters_effects/act6/abberath/abberathenragedhoof.ao";
     const string JumpOutArt = "Metadata/Effects/Spells/monsters_effects/act6/abberath/abberathjumpout.ao";
@@ -60,6 +62,8 @@ public static class AbberathEncounter
         try
         {
             SyncGatesForPlayer(player, fight.AllGates);
+            if (fight.JumpOutMarkers.Count > 0)
+                await BindSceneMarkers(player, fight.JumpOutMarkers, "[Abberath] jump-out marker");
             if (IsMonsterRunner(player))
                 await fight.Step(player, AreaTime(player));
         }
@@ -97,6 +101,7 @@ public static class AbberathEncounter
         readonly List<(int X, int Y)> p2GoatSpawners;
         readonly List<(int X, int Y)> meteorMarkers;
         readonly List<(int X, int Y)> arenaMiddles;
+        readonly List<ArenaMarker> jumpOutMarkers;
 
         readonly List<ArenaGate> p1Gates = [];
         readonly List<ArenaGate> p2Gates = [];
@@ -106,6 +111,7 @@ public static class AbberathEncounter
         readonly HashSet<uint> adds = [];
 
         public IEnumerable<ArenaGate> AllGates => p1Gates.Concat(p2Gates);
+        public IReadOnlyList<ArenaMarker> JumpOutMarkers => jumpOutMarkers;
 
         uint p1Id, p2Id;
         (int X, int Y) lastBossPos;
@@ -127,6 +133,7 @@ public static class AbberathEncounter
                 .SelectMany(i => placed.Of($"Metadata/Monsters/Abberath/MeteorShowerMarker{i}Target"))
                 .Select(p => (p.X, p.Y))];
             arenaMiddles = [.. placed.Of("Metadata/Monsters/Abberath/ArenaMiddle").Select(p => (p.X, p.Y))];
+            jumpOutMarkers = RegisterSceneMarkers(owner.Instance, MarkerPrefix, placed.Of(JumpOutMarkerType));
         }
 
         public void StopAndClear()
@@ -149,6 +156,7 @@ public static class AbberathEncounter
             {
                 gatesInit = true;
                 bool alreadyRetreated = runner.Instance.HasState(PhaseFlag(PhaseKey, 0));
+                p1Retreated = alreadyRetreated;
                 foreach (var gp in phase1Doors)
                     if (await CreateGate(runner, DoorPhase1Type, gp, startLocked: !alreadyRetreated, lockedState: 1, unlockedState: 2) is { } g)
                         p1Gates.Add(g);
@@ -160,10 +168,13 @@ public static class AbberathEncounter
             var p1Entry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Phase1);
             var p2Entry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Phase2);
 
-            if (p1Entry.Value is { } p1 && Alive(p1))
+            if (p1Entry.Value is { } p1)
             {
                 p1Id = p1Entry.Key;
-                await StepPhase1(runner, p1, now);
+                if (Alive(p1))
+                    await StepPhase1(runner, p1, now);
+                else if (!p1Retreated)
+                    await CompletePhase1Retreat(runner, p1, p1.Walk.Position(now), now, castHide: false);
             }
 
             if (p2Entry.Value is { } p2)
@@ -182,7 +193,8 @@ public static class AbberathEncounter
         {
             SyncSavedPhases(runner.Instance, boss, PhaseKey, Phase1Thresholds);
             var pos = boss.Walk.Position(now);
-            var target = NearestLivingTarget(runner, pos, now, maxRange: 125, awakeId: p1Id);
+            // The Valley of the Fire Drinker entrance sits ~132 cells east of mapboss1WG; engage across the arena.
+            var target = NearestLivingTarget(runner, pos, now, maxRange: 160, awakeId: p1Id);
             if (target is null) return;
 
             if (!p1Init)
@@ -208,33 +220,8 @@ public static class AbberathEncounter
             // 50% HP Canyon Retreat: cast AbberathHide[6753], open DoorAbberathPhase1, spawn Goatmen ambush, form Abberath2 in bossphase2.arm
             if (!p1Retreated && boss.LifePhases is { Completed: 0 } ph && ph.Begin(boss.Life, boss.MaxLife))
             {
-                p1Retreated = true;
-                MarkPhaseCompleted(runner.Instance, PhaseKey, 0);
                 ph.Finish();
-                SetInvulnerable(runner, p1Id, boss, true, CannotBeDamagedBuff);
-                await CastAction(runner, p1Id, boss, 6753, pos, 1.0, now, "[Abberath] Hide & retreat");
-                await SpawnTimedEffect(runner, effects, pos, JumpOutArt, now + 1.6, scale: 1.3f);
-
-                // Unlock canyon exit door
-                foreach (var g in p1Gates) await SetGateLocked(runner, g, false);
-
-                // Spawn Goatmen canyon ambush (NoRewards = true)
-                await SpawnGoatAmbush(runner, boss.Level, pos, goatSpawners, count: 5);
-
-                // Spawn Abberath2 in bossphase2.arm if not already present
-                if (!runner.Area.Monsters.Values.Any(m => m.Variety?.Id == Phase2))
-                {
-                    var p2Spot = PickPhase2Spot(runner, pos);
-                    if (Monsters.Find(Phase2) is { Supported: true, Id: Phase2 } v2)
-                    {
-                        await SpawnMonster(runner, v2, boss.Level, MonsterRarity.Unique, p2Spot.X, p2Spot.Y,
-                            lifePercent: 100);
-                    }
-                }
-
-                await RetireMonsters(runner, [p1Id]);
-                p1Id = 0;
-                Console.WriteLine("[gateway] Abberath Phase 1 retreated into canyon; DoorAbberathPhase1 opened & Goatmen ambush spawned");
+                await CompletePhase1Retreat(runner, boss, pos, now, castHide: true);
                 return;
             }
 
@@ -243,10 +230,62 @@ public static class AbberathEncounter
             await StepCommonAbberathSkills(runner, p1Id, boss, target, phase2: false, now);
         }
 
+        async Task CompletePhase1Retreat(Player runner, SpawnedMonster boss, (int X, int Y) pos, double now, bool castHide)
+        {
+            p1Retreated = true;
+            MarkPhaseCompleted(runner.Instance, PhaseKey, 0);
+            if (castHide)
+            {
+                SetInvulnerable(runner, p1Id, boss, true, CannotBeDamagedBuff);
+                await CastHideRetreat(runner, boss, pos, now);
+                await SpawnTimedEffect(runner, effects, pos, JumpOutArt, now + 1.6, scale: 1.3f);
+            }
+
+            // Unlock canyon exit door
+            foreach (var g in p1Gates) await SetGateLocked(runner, g, false);
+
+            // Spawn Goatmen canyon ambush (NoRewards = true)
+            await SpawnGoatAmbush(runner, boss.Level, pos, goatSpawners, count: 5);
+
+            // Spawn Abberath2 in bossphase2.arm if not already present
+            if (!runner.Area.Monsters.Values.Any(m => m.Variety?.Id == Phase2))
+            {
+                var p2Spot = PickPhase2Spot(runner, pos);
+                if (Monsters.Find(Phase2) is { Supported: true, Id: Phase2 } v2)
+                {
+                    await SpawnMonster(runner, v2, boss.Level, MonsterRarity.Unique, p2Spot.X, p2Spot.Y,
+                        lifePercent: 100);
+                }
+            }
+
+            if (castHide)
+            {
+                await RetireMonsters(runner, [p1Id]);
+                p1Id = 0;
+            }
+            Console.WriteLine("[gateway] Abberath Phase 1 retreated into canyon; DoorAbberathPhase1 opened & Goatmen ambush spawned");
+        }
+
+        // AbberathHide[6753] (ActionType 704, ActiveSkillTargetTypes=[15]): OnStart dereferences targetEntity+0x8
+        // (ObjectType) unchecked to collect matching AbberathJumpOut markers. Only send 6753 with a bound marker id.
+        async Task CastHideRetreat(Player runner, SpawnedMonster boss, (int X, int Y) pos, double now)
+        {
+            if (jumpOutMarkers.Count == 0) return;
+            await BindSceneMarkers(runner, jumpOutMarkers, "[Abberath] jump-out marker");
+            // Do not emit 0x01ab (WorldOrder.First) targeting a marker created in the same lockstep frame (0x02bb WorldOrder.Last).
+            var marker = jumpOutMarkers
+                .Where(m => Scenes(runner).Contains(m.Id) && !runner.Area.Delta.HasCreateFor(m.Id, runner))
+                .MinBy(m => Distance(pos, (m.X, m.Y)));
+            if (marker is null) return;
+            await CastAction(runner, p1Id, boss, 6753, (marker.X, marker.Y), 1.0, now,
+                "[Abberath] Hide & retreat", targetObjectId: marker.Id);
+        }
+
         async Task StepPhase2(Player runner, SpawnedMonster boss, double now)
         {
             var pos = boss.Walk.Position(now);
-            var target = NearestLivingTarget(runner, pos, now, maxRange: 130, awakeId: p2Id);
+            // The Valley of the Soul Drinker entrance sits ~162 cells west of mapboss2WG; engage across the arena.
+            var target = NearestLivingTarget(runner, pos, now, maxRange: 165, awakeId: p2Id);
             if (target is null)
             {
                 foreach (var g in p2Gates) await SetGateLocked(runner, g, false);

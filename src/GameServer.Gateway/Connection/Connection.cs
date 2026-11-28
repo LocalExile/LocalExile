@@ -97,8 +97,9 @@ public sealed partial class Connection(Player player)
     // The real round trip (LockstepLatency), its probe in flight (Stopwatch timestamp, 0 for none) and the next one's time.
     public LockstepLatency LockstepLatency = new();
     public long LockstepProbeSentAt;
-    // Where the player was at each recent frame start (Game.LockstepClientCell).
+    // Where the player was at each recent frame start (Game.LockstepClientCell), and the teleport epoch it belongs to.
     public readonly Queue<(double At, (int X, int Y) Cell)> LockstepTrail = new();
+    public int LockstepTrailTeleportCount;
     public double LockstepNextProbeAt;
     // The frame now being sent, on Clock (PlayerWalk.FrameOf).
     public (double Start, double End)? LockstepFrame;

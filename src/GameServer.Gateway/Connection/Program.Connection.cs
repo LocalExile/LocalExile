@@ -805,23 +805,32 @@ public partial class Program
 
     // The wire itself: the keystream must be applied and written in one order, so encryption and the write share this
     // short gate. Send's gate orders the packets and runs their state callbacks; it never holds this one while waiting.
+    // Encrypts into a pooled copy so caller buffers (shared broadcasts, retries) are never mutated in place.
     public static async Task Write(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes)
     {
-        if (HasNoWire(ciphers)) return;
+        if (HasNoWire(ciphers) || bytes.Length == 0) return;
         var wire = WireGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
         var performance = MetricsFor(ciphers);
         long waitingAt = Stopwatch.GetTimestamp();
         await wire.WaitAsync().ConfigureAwait(false);
         performance.Elapsed(LatencyPhase.WireWait, waitingAt);
         long heldAt = Stopwatch.GetTimestamp();
+        byte[]? rented = null;
         try
         {
-            ciphers.Send.Process(bytes);
+            rented = System.Buffers.ArrayPool<byte>.Shared.Rent(bytes.Length);
+            Buffer.BlockCopy(bytes, 0, rented, 0, bytes.Length);
+            ciphers.Send.Process(rented.AsSpan(0, bytes.Length));
             long writeAt = Stopwatch.GetTimestamp();
-            try { await stream.WriteAsync(bytes).ConfigureAwait(false); }
+            try { await stream.WriteAsync(rented.AsMemory(0, bytes.Length)).ConfigureAwait(false); }
             finally { performance.Elapsed(LatencyPhase.SocketWrite, writeAt); }
         }
-        finally { wire.Release(); performance.Elapsed(LatencyPhase.WireHold, heldAt); }
+        finally
+        {
+            if (rented is not null) System.Buffers.ArrayPool<byte>.Shared.Return(rented);
+            wire.Release();
+            performance.Elapsed(LatencyPhase.WireHold, heldAt);
+        }
     }
 
     /// <summary>The client sent both Predictive-only and Lockstep-only messages in this area (ClientPackets), which one

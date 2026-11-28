@@ -310,9 +310,9 @@ public static class InstanceNpcs
 /// An NPC (Agents/docs/protocol/17-npcs.md): a 0x2bb object of an NPCs.dat type such as <c>Metadata/NPC/Act1/Tarkleigh</c>.
 /// <c>Metadata/NPC/NPC</c> deserializes Positioned, Animated, BaseEvents, InteractionAction, NPC and MinimapIcon (client
 /// Render + Targetable); 190 NPC types have exactly that list, others add Transitionable, StateMachine, Stats (written as a
-/// monster's), Functions or ControlZone. Brackets is not written.
+/// monster's), Functions, ControlZone or Brackets (0 wire bytes).
 /// <para>NPC (slot 17 0x141e7b6e0) reads two u8 (→ +0x20 has dialogue, +0x21 a component index or 0xff). BaseEvents,
-/// Functions and ControlZone read nothing (slot 17 0x1400f1180: ret).</para>
+/// Functions, ControlZone and Brackets read nothing (slot 17 0x1400f1180: ret).</para>
 /// <para><paramref name="Model"/>: an .ao for Animated when the type's own is missing or not the one the town room places
 /// (Irasha's type is <c>Metadata/NPC/NPC</c>); <paramref name="Height"/>: a fixed world z (Positioned flags0 bit2), as the
 /// room's record gives it.</para>
@@ -324,7 +324,7 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
     /// <summary>Deserialized components of <c>Metadata/NPC/NPC</c> in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents = ["Positioned", "Animated", "BaseEvents", "InteractionAction", "NPC", "MinimapIcon"];
 
-    static readonly HashSet<string> Supported = [.. BaseComponents, "Transitionable", "StateMachine", "Stats", "Functions", "ControlZone"];
+    static readonly HashSet<string> Supported = [.. BaseComponents, "Transitionable", "StateMachine", "Stats", "Functions", "ControlZone", "Brackets"];
 
     /// <summary>Whether <see cref="Blob"/> can serialize a type with these deserialized components.</summary>
     public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false) =>

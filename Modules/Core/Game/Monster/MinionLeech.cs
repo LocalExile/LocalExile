@@ -15,7 +15,9 @@ public static partial class Game
         link.EffectId == "VampiricLink" && now < link.Until && player.PlayerLife > 0 && !player.Closed && !player.LeavingArea
         && (link.AwaySince is not double away || now - away < LinkSkills.BreakSeconds)
         && player.Area.Monsters.GetValueOrDefault(link.Target) is { Dead: false, Life: > 0 } monster
-        && player.Minions.Owns(link.Target, monster) ? monster : null;
+        && (player.Minions.Owns(link.Target, monster)
+            || (player.Companion is { } comp && comp.EntityId == link.Target && ReferenceEquals(comp.Monster, monster)))
+            ? monster : null;
 
     static bool HasVampiricMinion(Player player, double now)
     {
@@ -45,7 +47,10 @@ public static partial class Game
             monster.Life = life;
             if (life == monster.MaxLife && OwnedFighter(player, link.Target) is { } fighter)
                 MinionLifeLeeches.Remove(fighter);
-            player.Minions.OutputQueue.Add(new([], null, link.Target, monster, PlayerMinions.OutputKind.Life));
+            if (player.Companion is { } comp && comp.EntityId == link.Target)
+                player.Area.Life.Set(link.Target, AreaLife.LifePool, life);
+            else
+                player.Minions.OutputQueue.Add(new([], null, link.Target, monster, PlayerMinions.OutputKind.Life));
         }
         return redirected;
     }

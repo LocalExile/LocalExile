@@ -336,7 +336,7 @@ public static partial class MonsterSkills
     {
         foreach (ushort row in rows)
         {
-            player.Area.Buffs.Set(id, new(row, id, AuraSource: true));
+            player.Area.Buffs.Set(id, global::BuffRows.Spec(row, id, null) with { AuraSource = true });
         }
     }
 
@@ -606,9 +606,9 @@ public static partial class MonsterSkills
         until = AreaTime(player) + use.Seconds;
         buffs.Active.Add((buff, use.Stats, until));
         m.BuffStats = Sum(buffs.Active.Select(b => b.Stats));
-        // Each use is a buff of its own (its tag), with its countdown.
+        // Each use is a buff of its own (its tag), with its countdown and any definition-required tail/behaviour data.
         if (use.BuffRow > 0)
-            player.Area.Buffs.Set(id, new(use.BuffRow, id, U68: Buff.Seconds(use.Seconds), Tag: buff));
+            player.Area.Buffs.Set(id, global::BuffRows.Spec(use.BuffRow, id, use.Stats, use.Seconds, tag: buff));
         _ = EndBuff(player, id, m, use, buffs, buff, player.Layout);
     }
 

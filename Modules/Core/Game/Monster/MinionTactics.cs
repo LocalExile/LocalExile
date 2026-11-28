@@ -110,7 +110,8 @@ public static partial class Game
 
     static double TauntedHitAgainstMinion(Player player, uint attacker, SpawnedMonster source, GolemState.Golem target, double now)
     {
-        if (source.TauntedUntil > now || DecoyTarget(source, now) is not null) return .9;
+        if (source.TauntedUntil > now || DecoyTarget(source, now) is not null
+            || ActiveCompanionTaunter(player, source, now) is not null) return .9;
         var taunter = ActiveMinionTaunter(player, attacker, source, now);
         return taunter is not null && !ReferenceEquals(target, taunter) ? .9 : 1;
     }

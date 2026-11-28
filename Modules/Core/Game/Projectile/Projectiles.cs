@@ -894,12 +894,21 @@ public static partial class Game
             {
                 if (!RampageEffectCurrent(Player, ownedEpoch) || !target.Hostile || target.OwnerId is not null)
                     return ProjectileHitResult.Miss;
-                if (!shot.Spell && !RampageAttackHits(Player, contact.Target.Id, target, shot.Accuracy, contact.At / (double)ProjectileRuntime.QuantaPerSecond, random))
-                    return ProjectileHitResult.Miss;
+                int ownedHitChance = 100;
+                if (!shot.Spell)
+                {
+                    ownedHitChance = RampageAttackHitChance(Player, contact.Target.Id, target, shot.Accuracy,
+                        contact.At / (double)ProjectileRuntime.QuantaPerSecond);
+                    if (!DamageModel.Hits(ownedHitChance, random.Next(100))) return ProjectileHitResult.Miss;
+                }
                 if (MonsterBlocks(target, random, shot.Spell)) return ProjectileHitResult.Blocked;
                 var raw = shot.Hit.Scale(contact.Multiplier).Roll(random);
+                // A Rampage attack that rolls to hit takes the same critical confirmation roll as every other attack
+                // (the ordinary path below confirms with EvasionEntropy.ConfirmsCritical after RollCriticalStrike):
+                // a spell always hits, so only an attack needs it.
                 bool crit = random.Next(10000) < shot.CriticalChance
-                    + BrittleCriticalChance(target, contact.At / (double)ProjectileRuntime.QuantaPerSecond);
+                    + BrittleCriticalChance(target, contact.At / (double)ProjectileRuntime.QuantaPerSecond)
+                    && (shot.Spell || EvasionEntropy.ConfirmsCritical(ownedHitChance, Player.AttackAccuracyRandom));
                 var (ownedDamage, _) = MonsterDamage(target, raw, crit, !shot.Spell, default);
                 if (crit) ownedDamage = DamageModel.CriticalDamage(ownedDamage, CriticalMultiplierOn(target,
                     shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage));
@@ -967,11 +976,15 @@ public static partial class Game
             if (shot.CompletedChainDamagePercent != 0)
                 chainsMore *= Math.Max(0, 1 + (double)shot.CompletedChainDamagePercent
                     * (contact.Projectile.Profile.Chain - contact.Projectile.ChainsRemaining) / 100);
+            // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
+            var player = shot.ActualCaster ?? CharacterPlayerStats(Player);
+            bool exertedAttack = shot.DirectAttackContact && !shot.Mirage;
+            int shotExertWarcries = !exertedAttack ? 0 : (shot.IntimidatingCryExerted ? 1 : 0) + shot.OtherWarcryExertions + (shot.RallyingDamage.HasValue ? 1 : 0);
             double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
             double elementalMore = shot.DamageMorePerElementalAilment == 0 ? 1
                 : ElementalHitDamageMore(shot.DamageMorePerElementalAilment, ElementalHitAilmentsOn(target, at));
-            double ailmentMore = chainsMore * returnMore * elementalMore
-                * ExertedAttackMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage);
+            double ailmentMore = chainsMore * returnMore * elementalMore * (!exertedAttack ? 1
+                : ExertedAttackMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage, player));
             if (ailmentMore != 1)
                 shot = shot with
                 {
@@ -991,18 +1004,18 @@ public static partial class Game
             if (shot.ShatteringSteelAmmoHitBonus > 0)
                 more *= 1 + shot.ShatteringSteelAmmoHitBonus * Math.Clamp((70 - contact.Projectile.Distance) / 60, 0, 1);
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
-            // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
-            var player = shot.ActualCaster ?? CharacterPlayerStats(Player);
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more * chainsMore);
             var hitRolls = HitRollsFor(player);
-            var damageRoll = WithIntimidatingCryExert((hitRolls with { DamageMorePct = 0 })
+            var damageRoll = WithExertedAttackRollModifiers((hitRolls with { DamageMorePct = 0 })
                 .ForSkill(name => name is var k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
-                    finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted).ForWeapon(shot.WeaponLocal);
+                    finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted,
+                shotExertWarcries, player, shot.SkillStats).ForWeapon(shot.WeaponLocal);
             long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(player, shot.SkillStats);
             var rolled = WithConditionalSupportDamageLocked(Player, shot.SkillStats, !shot.Spell, target,
                 GameEvents.WithOutgoingDamage(Player, player, target,
                     damageRoll.RollBeforeCritical(packet, random, criticalDoubleDamage)), at);
-            rolled = WithExertedAttackDamage(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage);
+            if (exertedAttack)
+                rolled = WithExertedAttackDamage(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage, player);
             bool secondForm = contact.Projectile.Form > 0;
             var formCrit = secondForm ? shot.SecondFormOptions : null;
             int chance = secondForm && shot.SecondFormCriticalChance is int second
@@ -1147,6 +1160,9 @@ public static partial class Game
                     target: !shot.FromTrapOrMine && !shot.FromTotem ? target : null);
             if (shot.ActualCaster is null) ChargesOnHit(Player, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false,
                 primary: shot.FirstHit?.Claim() ?? true, skillStats: shot.SkillStats);
+            if (shot.ActualCaster is null && !shot.FromTotem && !shot.FromTrapOrMine
+                && shot.Trauma is { Gained: false } trauma && shot.TraumaSource is { } traumaSource)
+                TryGainTraumaLocked(Player, this, traumaSource, trauma, at, "Trauma");
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
                 OwnerStun(Player, shot.Effect, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats, lifeBefore,
                     localStunReduction: shot.LocalStunThresholdReduction, weaponClass: shot.WeaponClass));

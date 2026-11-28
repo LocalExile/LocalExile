@@ -46,7 +46,7 @@ static partial class LegionMonolith
     }
 
     static readonly ConditionalWeakTable<SpawnedMonster, Hold> Holds = new();
-    static bool Multiple(Player player) => global::Game.AreaLeagueStats(player).GetValueOrDefault(Stat.MapLegionMultipleBreakout) > 0;
+    static bool Multiple(Player player) => AreaStats(player).GetValueOrDefault(Stat.MapLegionMultipleBreakout) > 0;
 
     static string? ModelOf(int key) => LegionData.Current.MiscAnimatedModels.GetValueOrDefault(key);
 
@@ -58,6 +58,8 @@ static partial class LegionMonolith
             if (!p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, instance)) return p;
         return null;
     }
+
+    internal static Player? LiveRunner(Player fallback, InstanceState? instance) => ResolveRunner(fallback, instance);
 
     /// <summary>Arms the non-lethal floor and clears EntranceGrace so every combat damage path (hits, DoTs, minions, totems,
     /// traps, mines, brands, culling strike) can damage this revealed frozen member and break it out at 1 life.</summary>
@@ -124,40 +126,79 @@ static partial class LegionMonolith
         }
     }
 
-    /// <summary>The saved members are marked broken; true when one of them was an unbroken general (its bolts go out).</summary>
-    static bool MarkBroken(Player player, Encounter e, HashSet<uint> ids)
+    /// <summary>The saved members are marked broken in O(1) via ArmyIndex (incrementing Breakouts for Eternal Conflict
+    /// and advancing the Timeless Conflict Alert gauge when active); tracks dual Generals (Face Off) and returns whether Schism triggered.</summary>
+    static (bool GeneralBroken, uint NextGeneralId, bool TriggerSchism, uint SchismPulse) MarkBroken(Player player, Encounter e, HashSet<uint> ids)
     {
         lock (e)
         {
-            if (e.Army is not { } army) return false;
-            bool general = army.Any(m => ids.Contains(m.Id) && m.Tier == 3 && !m.Chest && !m.Broken);
-            bool multiple = Multiple(player);
-            e.Army = [.. army.Select(m => ids.Contains(m.Id) ? m with { Broken = true,
-                Breakouts = m.Breakouts + (multiple && !m.Chest ? 1 : 0) } : m)];
-            Keep(player, e);
-            return general;
+            if (e.Army is not { } army) return (false, 0, false, 0);
+            bool general = false;
+            bool multiple = e.MultipleBreakout || Multiple(player);
+            int alertAdded = 0;
+            foreach (uint id in ids)
+            {
+                if (!e.ArmyIndex.TryGetValue(id, out int idx)) continue;
+                var m = army[idx];
+                if (m.Tier == 3 && !m.Chest && !m.Broken) general = true;
+                if (e.AlertMode) alertAdded += LegionArmy.RankAlertValue(LegionData.Current, e.Level, m.Tier, m.Chest, m.WarHoard);
+                army[idx] = m with { Broken = true, Breakouts = m.Breakouts + (multiple && !m.Chest ? 1 : 0) };
+            }
+            uint nextGen = 0;
+            if (general)
+            {
+                foreach (var m in army)
+                    if (m.Tier == 3 && !m.Chest && !m.Broken) { nextGen = m.Id; break; }
+                e.GeneralId = nextGen;
+            }
+            bool triggerSchism = false;
+            uint schismPulse = 0;
+            if (e.AlertMode && alertAdded > 0)
+            {
+                e.AlertGauge = Math.Min(e.AlertMax, e.AlertGauge + alertAdded);
+                if (e.Phase == Phase.Running && e.AlertGauge >= e.AlertMax)
+                {
+                    e.Phase = Phase.Frozen;
+                    e.Releasing = true;
+                    e.StageAt = global::Game.AreaTime(player);
+                    e.RuleStage = 1;
+                    e.RuleStep = 3;
+                    schismPulse = e.Pulse;
+                    triggerSchism = true;
+                }
+            }
+            // Flush immediately on Schism phase change; coalesce per-monster breakouts in Tick to avoid AoE frame stalls.
+            Keep(player, e, flush: triggerSchism);
+            return (general, nextGen, triggerSchism, schismPulse);
         }
     }
 
     /// <summary>Breaks the monsters out: a 0x2c8 state 3 (the client plays the threshold shards, breaking_free, a general's shell break and the 3 s
-    /// ramp itself, R10), crystal off (present=1, breakout=1) for everyone now and for players who enter later.</summary>
+    /// ramp itself, R10), crystal off (present=1, breakout=1) for everyone now and for players who enter later.
+    /// Under Eternal Conflict, non-chest monsters receive buff 2459, re-freeze with scaled frozen stats and re-arm for further break-outs.</summary>
     static async Task Free(IModuleContext module, Player player, Encounter e, List<(Hold Hold, SpawnedMonster Monster)> items)
     {
         items = [.. items.Where(i => !i.Monster.Dead && player.Area.Monsters.ContainsKey(i.Hold.Member.Id))];   // none that ReleaseArmy removed
         if (items.Count == 0) return;
-        bool general = MarkBroken(player, e, [.. items.Select(i => i.Hold.Member.Id)]);
+        var (general, nextGeneralId, triggerSchism, schismPulse) = MarkBroken(player, e, [.. items.Select(i => i.Hold.Member.Id)]);
         // A member the reveal has not reached yet (a chest broke within the reveal's 0.8 s) is shown first: state 3 follows 2.
         await RevealMembers(module, player, e, [.. items.Where(i => !i.Hold.Revealed).Select(i => i.Hold.Member)]);
+        bool multipleBreakout;
+        lock (e) multipleBreakout = e.MultipleBreakout || Multiple(player);
+        var instance = player.Instance;
         foreach (var (hold, monster) in items)
         {
-            lock (e) hold.Member = e.Army?.FirstOrDefault(m => m.Id == hold.Member.Id) ?? hold.Member;
             uint id = hold.Member.Id;
+            lock (e)
+                if (e.Army is { } current && e.ArmyIndex.TryGetValue(id, out int idx)) hold.Member = current[idx];
             monster.OnNonLethalZero = null;
             monster.EntranceGrace = true;
             monster.ScriptHeld = true;
             // The break-out carries the life percent the client reads its threshold shards from; 1 at least, as the last hit left 1 life.
             uint percent = (uint)Math.Max(1, (long)monster.Life * 100 / Math.Max(1, monster.MaxLife));
             LegionStasis.SetOriginState(player, id, LegionStasis.BreakingOut);
+            if (multipleBreakout && !hold.Member.Chest)
+                player.Area.Buffs.Set(id, new Buff(LegionStasis.EnhancedBuff, Tag: 1));
             // Seen in the live test: the life bar must not stay near 0 after the break-out. Full life/ES makes the client hide it; EntranceGrace blocks further damage.
             monster.Life = monster.MaxLife;
             global::Game.RefillMonsterEnergyShieldLocked(player.Area, id, monster);
@@ -177,41 +218,54 @@ static partial class LegionMonolith
                 await LegionStasis.SendState(p, id, hold.Member.Sequence, LegionStasis.BreakingOut, percent, null);
                 if (LegionStasis.SendFreezeBuff) await global::Game.SendWorldRecord(PlayerOf(p), id, InstanceEntities.RemoveBuff(id, hold.Member.Buff), null);
             });
-            if (Multiple(player) && !hold.Member.Chest)
+            if (multipleBreakout && !hold.Member.Chest && !triggerSchism)
             {
-                var instance = player.Instance;
+                var rearmHold = hold;
+                var rearmMonster = monster;
                 global::Game.SendAfter(player, 3, async () =>
                 {
-                    if (ResolveRunner(player, instance) is not { } runner || monster.Dead || !runner.Area.Monsters.ContainsKey(id)) return;
+                    if (ResolveRunner(player, instance) is not { } runner || rearmMonster.Dead || !runner.Area.Monsters.ContainsKey(id)) return;
                     lock (e)
                     {
-                        if (e.Phase != Phase.Running || e.Army is null) return;
-                        e.Army = [.. e.Army.Select(m => m.Id == id ? m with { Broken = false } : m)];
-                        hold.Member = e.Army.Single(m => m.Id == id);
-                        Keep(runner, e);
+                        if (e.Phase != Phase.Running || e.Army is not { } current || !e.ArmyIndex.TryGetValue(id, out int idx)) return;
+                        current[idx] = current[idx] with { Broken = false };
+                        rearmHold.Member = current[idx];
+                        Keep(runner, e, flush: false);
                     }
-                    lock (hold) hold.Broken = false;
-                    var reset = (monster.States ?? monster.Variety?.StateMachine)?.Set("breakout", 0);
+                    lock (rearmHold) rearmHold.Broken = false;
+                    var reset = (rearmMonster.States ?? rearmMonster.Variety?.StateMachine)?.Set("breakout", 0);
                     if (reset is not null)
                     {
-                        monster.States = reset;
+                        rearmMonster.States = reset;
                         if (runner.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                             runner.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = reset } };
                         if (component >= 0) await LegionOutput.ToArea(runner, p => global::Game.SendWorldRecord(p, id, InstanceEntities.StateMachineUpdate(id, (byte)component, reset), null));
                     }
                     LegionStasis.SetOriginState(runner, id, LegionStasis.Revealed);
-                    await LegionOutput.ToArea(runner, p => LegionStasis.SendState(p, id, hold.Member.Sequence, LegionStasis.Revealed, 100, null));
-                    LegionStasis.ScaleFrozen(runner, id, monster, LegionScarabs.FrozenStats(e.FrozenDamageTakenPct, hold.Member));
-                    ArmFloor(module, runner, hold, monster);
+                    await LegionOutput.ToArea(runner, p => LegionStasis.SendState(p, id, rearmHold.Member.Sequence, LegionStasis.Revealed, 100, null));
+                    LegionStasis.ScaleFrozen(runner, id, rearmMonster, LegionScarabs.FrozenStats(e.FrozenDamageTakenPct, rearmHold.Member));
+                    ArmFloor(module, runner, rearmHold, rearmMonster);
                 });
             }
         }
         if (general)
         {
-            Phase phase;
-            lock (e) phase = e.Phase;
-            await ToAll(player, e, StatesOf(phase, e), "spawn_lightning=0");
+            if (nextGeneralId != 0 && InArea(player, e.Id))
+            {
+                // Face Off: another General still stands frozen — retarget monolith lightning onto it.
+                await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(PlayerOf(p), e.Id,
+                    InstanceEntities.BaseDataUpdate(e.Id, [EntityVariable.Entity(GeneralPropertyKey, nextGeneralId)]),
+                    $"0x02c1 Legion monolith 0x{e.Id:x} general=0x{nextGeneralId:x} (retarget)"));
+            }
+            else
+            {
+                Phase phase;
+                lock (e) phase = e.Phase;
+                await ToAll(player, e, StatesOf(phase, e), "spawn_lightning=0");
+            }
         }
+        if (triggerSchism)
+            await Finish(module, player, e, schismPulse, "schism");
     }
 
     /// <summary>A one-shot effect object at a cell, removed after <see cref="FlashSeconds"/>.</summary>
@@ -237,9 +291,10 @@ static partial class LegionMonolith
     static async Task BreakChest(IModuleContext module, Player player, Hold hold, SpawnedMonster chestMonster, int x, int y)
     {
         var e = hold.E;
-        double radius = ChestRadius * Math.Max(0, 100 + global::Game.AreaLeagueStats(player).GetValueOrDefault(Stat.MapLegionChestsBreakOutRangePlusPct)) / 100.0 + ChestMargin;
+        double radius = ChestRadius * Math.Max(0, 100 + AreaStats(player).GetValueOrDefault(Stat.MapLegionChestsBreakOutRangePlusPct)) / 100.0 + ChestMargin;
         LegionStasis.Member[] army;
-        lock (e) army = e.Army ?? [];
+        int spreadChance;
+        lock (e) (army, spreadChance) = (e.Army is { Count: > 0 } a ? [.. a] : [], e.ChestSpreadChancePct);
         double now = global::Game.AreaTime(player);
         var near = new List<(Hold Hold, SpawnedMonster Monster)> { (hold, chestMonster) };
         foreach (var m in army)
@@ -253,27 +308,46 @@ static partial class LegionMonolith
             monster.EntranceGrace = true;
             near.Add((h, monster));
         }
-        // During the timer a broken-out War Chest explodes, frees nearby normal/elite soldiers and stays as a broken-out
-        // silhouette (state 3, breakout=1, overhead reward symbols intact); it becomes clickable only at release (ReleaseArmy).
-        if (global::Game.AreaRng(player).Next(100) < global::Game.AreaLeagueStats(player).GetValueOrDefault(Stat.MapLegionPctChanceChestsBreakOutSpreadRewards)
-            && hold.Member.Rewards is { Length: > 0 } rewards)
+        // Legion Scarab of Treasures (map_legion_%_chance_chests_break_out_spread_rewards):
+        // spreads this chest's reward rows onto freed soldiers and boosts their difficulty.
+        int spreadCount = 0;
+        if (spreadChance > 0 && hold.Member.Rewards is { Length: > 0 } chestRewards && near.Count > 1)
         {
-            lock (e)
+            var rng = global::Game.AreaRng(player);
+            var spreadTargets = new List<(Hold Hold, SpawnedMonster Monster)>();
+            for (int i = 1; i < near.Count; i++)
             {
-                var ids = near.Where(n => !n.Hold.Member.Chest).Select(n => n.Hold.Member.Id).ToHashSet();
-                e.Army = [.. (e.Army ?? []).Select(m => ids.Contains(m.Id) ? m with { Rewards = [.. (m.Rewards ?? []).Concat(rewards).Distinct()], Spread = true } : m)];
-                foreach (var (h, _) in near) h.Member = e.Army.FirstOrDefault(m => m.Id == h.Member.Id) ?? h.Member;
-                Keep(player, e);
+                if (rng.Next(100) >= Math.Clamp(spreadChance, 0, 100)) continue;
+                var (h, monster) = near[i];
+                int[] merged = [.. (h.Member.Rewards ?? []).Concat(chestRewards).Distinct()];
+                h.Member = h.Member with { Rewards = merged, Spread = true };
+                spreadTargets.Add((h, monster));
+                spreadCount++;
             }
-            foreach (var (h, target) in near.Where(n => !n.Hold.Member.Chest))
+            if (spreadTargets.Count > 0)
             {
-                LegionStasis.ScaleFrozen(player, h.Member.Id, target, LegionScarabs.FrozenStats(e.FrozenDamageTakenPct, h.Member));
-                LegionStasis.ShowRewards(player, h.Member.Id, h.Member.Rewards, true);
+                lock (e)
+                {
+                    if (e.Army is { } current)
+                    {
+                        foreach (var (h, _) in spreadTargets)
+                            if (e.ArmyIndex.TryGetValue(h.Member.Id, out int idx))
+                                current[idx] = current[idx] with { Rewards = h.Member.Rewards, Spread = true };
+                        Keep(player, e, flush: false);
+                    }
+                }
+                foreach (var (h, target) in spreadTargets)
+                {
+                    LegionStasis.ScaleFrozen(player, h.Member.Id, target, LegionScarabs.FrozenStats(e.FrozenDamageTakenPct, h.Member));
+                    LegionStasis.ShowRewards(player, h.Member.Id, h.Member.Rewards, true);
+                }
             }
         }
+        // During the timer a broken-out War Chest explodes, frees nearby normal/elite soldiers and stays as a broken-out
+        // silhouette (state 3, breakout=1, overhead reward symbols intact); it becomes clickable only at release (ReleaseArmy).
         await Flash(player, ModelOf(ChestExplodeKey), x, y);
         await Free(module, player, e, near);
-        module.Log($"chest broke out at ({x}, {y}), freed {near.Count - 1}");
+        module.Log($"chest broke out at ({x}, {y}), freed {near.Count - 1}" + (spreadCount > 0 ? $" (spread rewards to {spreadCount})" : ""));
     }
 
     /// <summary>The early end: every member still frozen breaks out as a hit would break it (the 0x2c8 state 3, the crystal off), so ReleaseArmy then wakes it.
@@ -281,7 +355,7 @@ static partial class LegionMonolith
     static async Task BreakRemaining(IModuleContext module, Player player, Encounter e)
     {
         LegionStasis.Member[] army;
-        lock (e) army = e.Army ?? [];
+        lock (e) army = e.Army is { Count: > 0 } a ? [.. a] : [];
         var left = new List<(Hold Hold, SpawnedMonster Monster)>();
         var inFlight = new HashSet<uint>();
         foreach (var m in army)
@@ -330,11 +404,10 @@ static partial class LegionMonolith
     {
         var list = new List<(string, double)>();
         if (rewards is not { Length: > 0 }) return list;
-        var types = LegionData.Current.RewardTypes;
+        var byRow = LegionData.Current.RewardTypesByRow;
         foreach (int row in rewards)
         {
-            var rt = types.FirstOrDefault(r => r.Row == row);
-            if (rt is not null && ModelOf(rt.MiscAnimatedKey) is { Length: > 0 } ao)
+            if (byRow.TryGetValue(row, out var rt) && ModelOf(rt.MiscAnimatedKey) is { Length: > 0 } ao)
                 list.Add((ao, rt.Scale));
         }
         return list;

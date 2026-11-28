@@ -1228,6 +1228,93 @@ public sealed class ItemDrops
         ("Metadata/Items/DivinationCards/DivinationCardTheEndlessDarkness", 0.15),
     ];
 
+    sealed record BossDropIndex(object From, Dictionary<string, List<GameServer.Storage.GameDataStore.BossItemRow>> ByBoss);
+    volatile BossDropIndex? _bossDropIndex;
+
+    BossDropIndex GetBossDropIndex(DropDataProvider.Snapshot snapshot)
+    {
+        var current = _bossDropIndex;
+        if (current is not null && ReferenceEquals(current.From, snapshot)) return current;
+        var byBoss = new Dictionary<string, List<GameServer.Storage.GameDataStore.BossItemRow>>(StringComparer.Ordinal);
+        foreach (var row in snapshot.BossItems.Values)
+        {
+            if (!byBoss.TryGetValue(row.BossId, out var list)) byBoss[row.BossId] = list = [];
+            list.Add(row);
+        }
+        _bossDropIndex = current = new(snapshot, byBoss);
+        return current;
+    }
+
+    /// <summary>Data-driven boss drops from world.db <c>drop_boss_items</c>: non-unique items (fragments, crests,
+    /// invitations, boss-only currency, gems, cards) roll by their configured chance — with mutually-exclusive
+    /// guaranteed fragment pools (2+ <c>other</c> rows whose fractional chances sum to ~1.0, e.g. Shaper/Elder/T17
+    /// fragments) selecting exactly one fragment per kill — and unpublished (<c>chance IS NULL</c>,
+    /// <c>override_chance IS NULL</c>) unique pool rows granting one weighted unique from the boss's retail unique
+    /// pool without double-rolling <see cref="EncounterJewels"/>.</summary>
+    public IReadOnlyList<Drop> BossDrops(string bossId, int monsterLevel, Random random, DropDataProvider.Snapshot? data = null)
+    {
+        var snapshot = data ?? _dropDataProvider.Current;
+        if (snapshot.Bosses.TryGetValue(bossId, out var boss) && !boss.Enabled) return [];
+        if (!GetBossDropIndex(snapshot).ByBoss.TryGetValue(bossId, out var rows) || rows.Count == 0) return [];
+        var result = new List<Drop>();
+        byte dropLevel = (byte)Math.Clamp(monsterLevel, 1, 100);
+        List<(UniqueCatalog.Definition Def, double Weight)>? uniquePool = null;
+        List<(GameServer.Storage.GameDataStore.BossItemRow Row, double Chance)>? fractionalOthers = null;
+        double fractionalOtherSum = 0;
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            if (row.ItemKind == "unique")
+            {
+                // Explicit chance or override rows are handled by EncounterJewels or dedicated module handlers.
+                if (row.OverrideChance is not null || row.Chance is not null || uniques is null) continue;
+                if (uniques.Find(row.ItemId) is not { } def || def.Name != row.ItemId) continue;
+                double weight = Math.Max(0.05, StockUniqueWeight(def.Name));
+                (uniquePool ??= []).Add((def, weight));
+                continue;
+            }
+            if ((row.OverrideChance ?? row.Chance) is not (> 0 and <= 1 and var chance)) continue;
+            if (row.ItemKind == "other" && chance < 1.0)
+            {
+                (fractionalOthers ??= []).Add((row, chance));
+                fractionalOtherSum += chance;
+                continue;
+            }
+            if (chance < 1.0 && random.NextDouble() >= chance) continue;
+            if (catalog.Find(row.ItemId) is { Supported: true } type)
+                result.Add(new(ItemCatalog.Create(type) with { ItemLevel = dropLevel }, type));
+        }
+        if (fractionalOthers is { Count: > 0 })
+        {
+            // Mutually-exclusive guaranteed fragment pools (e.g. Shaper 0.50/0.50, Elder 0.50/0.50, T17 0.50/0.50 or
+            // 0.34/0.33/0.33) always pick exactly one fragment; single fractional items roll independently.
+            if (fractionalOthers.Count >= 2 && fractionalOtherSum is >= 0.95 and <= 1.05)
+            {
+                if (Pick(fractionalOthers, random) is { } chosenOther
+                    && catalog.Find(chosenOther.ItemId) is { Supported: true } type)
+                    result.Add(new(ItemCatalog.Create(type) with { ItemLevel = dropLevel }, type));
+            }
+            else
+            {
+                for (int i = 0; i < fractionalOthers.Count; i++)
+                {
+                    var (row, chance) = fractionalOthers[i];
+                    if (random.NextDouble() < chance && catalog.Find(row.ItemId) is { Supported: true } type)
+                        result.Add(new(ItemCatalog.Create(type) with { ItemLevel = dropLevel }, type));
+                }
+            }
+        }
+        if (uniquePool is { Count: > 0 } && uniques is not null && Pick(uniquePool, random) is { } chosen)
+        {
+            int bonus = chosen.EncounterItemLevelBonus ?? ItemLevelBonus(MonsterRarity.Unique);
+            byte uqLevel = (byte)Math.Clamp(monsterLevel + (long)bonus, 1, 100);
+            if (uniques.Create(chosen with { ItemLevel = uqLevel }, random) is { } item
+                && catalog.ByHash(item.TypeHash) is { } type)
+                result.Add(new(item with { Identified = false }, type));
+        }
+        return result;
+    }
+
     public IReadOnlyList<Drop> EncounterJewels(string bossId, int monsterLevel, Random random, DropDataProvider.Snapshot data)
     {
         if (uniques is null || data.Bosses.TryGetValue(bossId, out var boss) && !boss.Enabled) return [];
@@ -1286,30 +1373,65 @@ public sealed class ItemDrops
             ? t1Type.DropLevel : 58;
     }
 
+    const string NightmareMapId = "Metadata/Items/Maps/MapKeyNightmareBoss";
+
     /// <summary>An approximate generic-map drop: a map of the current map tier (or tier 1 in the late campaign once
     /// monsters meet the tier-1 map's DropLevel). Our own rates until the game pools are known. <paramref name="chanceFactor"/>
     /// scales the chance (a monster's or league's map-related drop chance), and <paramref name="tierUpgradePermillage"/>
-    /// rolls a +1 tier upgrade (clamped to 16) only after the map drop roll succeeds.</summary>
+    /// rolls a +1 tier upgrade (clamped to 16) only after the map drop roll succeeds. Each socketed Voidstone (0..4) adds
+    /// +25% (+250 permillage) chance for maps to drop 1 tier higher, converts maps below tier 16 to gold proportionally to
+    /// the elevated Atlas quadrants (25%/50%/75%/100%), and adds 0.4% per Voidstone for tier-16 drops to become Nightmare
+    /// (Tier 17) maps.</summary>
     public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng, int voidstones = 0,
-        double chanceFactor = 1, int tierUpgradePermillage = 0, int increasedRarity = 0) =>
+        double chanceFactor = 1, int tierUpgradePermillage = 0, int increasedRarity = 0, int nightmareChancePermyriad = 0) =>
         Map(monsterLevel, monster, mapTier, rng, voidstones, chanceFactor, tierUpgradePermillage, increasedRarity,
-            corruptEightMods: false);
+            corruptEightMods: false, nightmareChancePermyriad: nightmareChancePermyriad);
 
     public Drop? Map(int monsterLevel, MonsterRarity monster, int mapTier, Random rng, int voidstones,
-        double chanceFactor, int tierUpgradePermillage, int increasedRarity, bool corruptEightMods)
+        double chanceFactor, int tierUpgradePermillage, int increasedRarity, bool corruptEightMods,
+        int nightmareChancePermyriad = 0)
     {
         if (maps is null || (mapTier <= 0 && monsterLevel < MinCampaignMapDropLevel())) return null;
         double chance = monster switch { MonsterRarity.Normal => 0.004, MonsterRarity.Magic => 0.012, MonsterRarity.Rare => 0.05, _ => 0.20 };
         if (mapTier <= 0) chance *= SystemSettings.Default.DropCampaignMapChanceMultiplier;
         chance = Math.Min(1, chance * SystemSettings.Default.DropMultiplier("maps") * Math.Max(0, chanceFactor));
         if (chance <= 0 || rng.NextDouble() >= chance) return null;
-        int stones = Math.Max(0, voidstones);
-        int tier = Math.Clamp((mapTier > 0 ? mapTier : 1) + (stones > 0 ? 1 : 0), 1, 16);
-        if (tierUpgradePermillage > 0 && mapTier > 0 && tier < 16
-            && rng.NextDouble() < Math.Min(1000, tierUpgradePermillage) / 1000d)
-            tier = Math.Min(16, tier + 1);
-        // Socketed Voidstones convert found maps below tier 16 to gold (maps.md).
-        if (stones > 0 && tier < 16) return Gold(monsterLevel, monster, rng);
+        int stones = Math.Clamp(voidstones, 0, 4);
+        int tier = Math.Clamp(mapTier > 0 ? mapTier : 1, 1, 16);
+        int totalUpgrade = Math.Max(0, tierUpgradePermillage) + stones * 250;
+        if (totalUpgrade > 0 && mapTier > 0 && tier < 16)
+        {
+            if (totalUpgrade <= 1000)
+            {
+                if (rng.NextDouble() < totalUpgrade / 1000d)
+                    tier = Math.Min(16, tier + 1);
+            }
+            else
+            {
+                int guaranteed = totalUpgrade / 1000;
+                int remainder = totalUpgrade % 1000;
+                tier = Math.Min(16, tier + guaranteed);
+                if (remainder > 0 && tier < 16 && rng.NextDouble() < remainder / 1000d)
+                    tier = Math.Min(16, tier + 1);
+            }
+        }
+        // Socketed Voidstones elevate Atlas quadrants to T16 and convert found maps below tier 16 to gold
+        // proportionally (25%/50%/75% for 1–3 stones, 100% at 4 stones).
+        if (stones > 0 && tier < 16 && (stones >= 4 || rng.NextDouble() < stones / 4.0))
+            return Gold(monsterLevel, monster, rng);
+        // Tier 16 map drops with socketed Voidstones can become Nightmare (Tier 17) maps (0.4% per Voidstone = 40 permyriad each).
+        if (tier == 16 && stones > 0 && mapTier >= 16)
+        {
+            double nightmareChance = Math.Clamp((stones * 40 + Math.Max(0, nightmareChancePermyriad)) / 10_000d, 0, 1);
+            if (nightmareChance > 0 && rng.NextDouble() < nightmareChance
+                && catalog.ById(NightmareMapId) is { Supported: true } nightmareType)
+            {
+                var nightmare = ItemCatalog.Create(nightmareType) with { ItemLevel = (byte)Math.Clamp(Math.Max(84, monsterLevel + ItemLevelBonus(monster)), 1, 100) };
+                if (rolls is not null)
+                    nightmare = rolls.Roll(nightmare, ItemRarity.Rare, rng) with { Identified = false };
+                return new(nightmare, nightmareType);
+            }
+        }
         if (maps.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type
             || (mapTier <= 0 && monsterLevel < type.DropLevel)) return null;
         var item = ItemCatalog.Create(type) with { ItemLevel = (byte)Math.Clamp(monsterLevel + ItemLevelBonus(monster), 1, 100) };

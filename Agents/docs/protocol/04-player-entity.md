@@ -143,7 +143,7 @@ Offsets are inside the component object. "If bN" means that bit of the component
 | i32 x | +0x294 | **grid** x |
 | i32 y | +0x298 | grid y. World position = `(grid + 0.5) * const` |
 | f32 rotation | +0x29c | radians; turns the object's model (the Coast exit's arch uses π/2, [08](08-area-transitions.md) §5) |
-| u16 | +0x1e0 | |
+| u16 | +0x1e0 | team (low 15 bits) and Is Minion (bit 15), [10](10-chat-and-commands.md) Team |
 | u8 flags0, u8 flags1 | | |
 | if f0 & 0x20: f32 +0x2b0, f32 +0x2a8, f32 +0x2ac | | +0x2b0 the uniform scale (× the object type's own, type `+0x5c`; "Scale" in the info dump `0x141e36650`; setter `0x141e39050`, skipped when `+0x1e6` bit 4 "locked scale"), +0x2a8 / +0x2ac an x / y stretch on top of it: the local-to-world transform `0x141e394f0` takes x × +0x2a8 × +0x2b0, y × +0x2ac × +0x2b0, z × +0x2b0. The constructor sets 1.0. Sending s in all three draws at s² in x and y (Righteous Fire's ring, live 2026-10-23) |
 | if f1 & 0x04: f32 +0x2d8, +0x2dc, +0x2e0, +0x2e4 | | probably a rotation quaternion (copied as one block) |

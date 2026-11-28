@@ -782,6 +782,7 @@ public static partial class Game
         uint wireLife = Math.Max(1u, owned is null ? life : initialLife);
         ushort animationSeed = (ushort)(((id * 2654435761u) ^ ((uint)variety.Hash16 << 16)) >> 16);
         if (animationSeed == 0) animationSeed = 1;
+        bool isAlliedMinion = friendly && !instanceOwned && !scripted && owned is not null;
         var monster = new MonsterObject(x, y, wireLife, variety.ComponentsOrBase, ao, rarity, name, states, BossKits.StartState(variety, SolarisLunaris.StartState(player, variety, MonsterEmerge.CreateState(variety, emerge, waits))), team,
             skills, stats)
         {
@@ -793,6 +794,7 @@ public static partial class Game
             AnimationSeed = animationSeed,
             HasDialogue = waitingForBanditChoice,
             Blocking = !nonBlocking && variety.PositionedBlocking,
+            IsMinion = isAlliedMinion,
             CurrentAction = currentAction,
             Parent = attachTo?.Parent ?? 0, Bone = attachTo?.Bone ?? "<root>",
             AttachKind = attachTo?.Kind ?? EffectObject.AttachWithoutRotation, AttachFlags = attachTo?.Flags ?? 0,
@@ -888,6 +890,7 @@ public static partial class Game
                 SkillIds = skillIds, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
                 Scripted = scripted || !friendly && atlas,
                 NonBlocking = nonBlocking || noBodyUntilReleased,
+                AlliedMinion = isAlliedMinion,
                 Life = initialLife, Stage = stageSkill is null ? null : stage, States = monster.StateMachine,
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, SpeedRoll = speedRoll,
                 Threshold = QuestsOf(player).ThresholdOf(player.Layout.Id, variety.Id),
@@ -895,8 +898,8 @@ public static partial class Game
                 KingPhaseLocked = !friendly && KingInMists.IsBoss2(variety),
                 KingGrace = !friendly && KingInMists.IsBoss(variety),
                 FetishGrace = !friendly && KingInMists.IsFetish(variety),
-                // The three thresholds the Atlas bosses change phase at (a quarter of their life each, three times).
-                LifePhases = !friendly && (brine || atlas) ? new([75, 50, 25]) : !friendly && DepravedTrinity.IsBoss(variety) ? new([66, 33]) : !friendly ? (Yugul.Phases(player, variety) ?? Arakaali.Phases(player, variety) ?? Sirus.Phases(variety) ?? KitavaActFive.Phases(variety) ?? KitavaActTen.Phases(variety)) : null,
+                // The thresholds the Atlas bosses change phase at (by boss family, AtlasBosses.Phases).
+                LifePhases = !friendly && brine ? new([75, 50, 25]) : !friendly && atlas ? AtlasBosses.Phases(variety) : !friendly && DepravedTrinity.IsBoss(variety) ? new([66, 33]) : !friendly ? (Yugul.Phases(player, variety) ?? Arakaali.Phases(player, variety) ?? Sirus.Phases(variety) ?? KitavaActFive.Phases(variety) ?? KitavaActTen.Phases(variety)) : null,
                 EntranceGrace = waitingForBanditChoice || !friendly && (brine && player.Layout.Id == "2_6_15" || Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)
                     || player.Layout.Id == SolarisLunaris.Area && (SolarisLunaris.IsBody(variety) || SolarisLunaris.IsCelestial(variety))),
             }, emerge, waits);
@@ -2844,7 +2847,8 @@ public static partial class Game
                 double t = Math.Clamp((now - sweepStart) / Math.Max(0.01, sweepEnd - sweepStart), 0, 1);
                 angle = startAngle + SweepRadians * t;
                 bool protectedByGrace = InGracePeriod(player) || MonsterAsleep(player, id);
-                if (!protectedByGrace && player.Golems.All.Count + player.Reservations.Fighters.Count + player.Summons.Fighters.Count > 0)
+                if (!protectedByGrace && (player.Golems.All.Count + player.Reservations.Fighters.Count + player.Summons.Fighters.Count > 0
+                    || player.Companion is not null))
                 {
                     minionAttack ??= a with { Damage = a.Damage.Scale(MinionDamageFactor) };
                     foreach (var golem in player.Golems.All.Values.Concat(player.Reservations.Fighters.Values).Concat(player.Summons.Fighters.Values).ToArray())
@@ -2855,6 +2859,16 @@ public static partial class Game
                         if (!InSweptBeam(origin, golem.Monster.Walk.Position(now), prevAngle, angle, Length, HalfWidth)) continue;
                         nextMinionHit[golem.Id] = now + HitCooldown;
                         if (GolemTakeHitLocked(player, golem, id, m, minionAttack, now, area: true)) minionHit = true;
+                    }
+                    if (player.Companion is { } comp && CompanionAliveInArea(player, comp))
+                    {
+                        nextMinionHit ??= [];
+                        if (now >= nextMinionHit.GetValueOrDefault(comp.EntityId, double.NegativeInfinity)
+                            && InSweptBeam(origin, comp.Monster.Walk.Position(now), prevAngle, angle, Length, HalfWidth))
+                        {
+                            nextMinionHit[comp.EntityId] = now + HitCooldown;
+                            if (CompanionTakeEnemyHitLocked(player, comp, id, m, minionAttack, now, area: true)) minionHit = true;
+                        }
                     }
                 }
                 if (!protectedByGrace && now >= nextPlayerHit && InSweptBeam(origin, player.Walk.Position(now), prevAngle, angle, Length, HalfWidth))
@@ -3004,6 +3018,9 @@ public static partial class Game
         foreach (var golem in player.Golems.All.Values.Concat(player.Reservations.Fighters.Values).ToArray())
             if (!golem.Monster.Dead && Dist(golem.Monster.Walk.Position(now), aim) <= radius)
                 GolemTakeHitLocked(player, golem, id, m, a, now, area: true);
+        if (player.Companion is { } comp && CompanionAliveInArea(player, comp)
+            && Dist(comp.Monster.Walk.Position(now), aim) <= radius)
+            CompanionTakeEnemyHitLocked(player, comp, id, m, a, now, area: true);
         double dx = here.X - aim.X, dy = here.Y - aim.Y;
         if (dx * dx + dy * dy > radius * radius) return null;
         return CommitMonsterHitLocked(player, id, m, a, now, here, aim, checkRange: false, sequence: sequence);
@@ -3141,7 +3158,8 @@ public static partial class Game
             (rolled, baseHit) = (rolled.Convert(auraConversion), baseHit.Convert(auraConversion));
         // Glacial Wave and Sap: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.
         double lessened = m.Ailments.ChillDamageDealtFactor(now) * SappedDamageFactor(m, now)
-            * SigilEnemyDamageFactor(player, m, now);
+            * SigilEnemyDamageFactor(player, m, now)
+            * CompanionTauntedHitAgainstOtherFactor(player, m, now);
         if (lessened < 1) (rolled, baseHit) = (rolled.Scale(lessened), baseHit.Scale(lessened));
         // Damage taken as shifts the hit's types before any mitigation. Chill, freeze and shock read the shifted damage
         // taken; ignite still reads the damage dealt (baseHit), as the wiki's Damage taken as says.

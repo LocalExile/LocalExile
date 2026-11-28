@@ -4,11 +4,14 @@ using static Game;
 using static Program;
 
 /// <summary>The campaign Arakaali controller: full combat ownership, Silk transition with invulnerability,
-/// corner-to-corner relocation (<c>ArakaaliHide[6885]</c>), hatching spiderling eggs (<c>5567</c>/<c>5570</c>),
-/// and slowing web pools (<c>5221</c>/<c>5222</c>).</summary>
+/// native marker-targeted corner-to-corner relocation (<c>ArakaaliHide[6885]</c> targeting created
+/// <c>TeleportMarkerSerialized1..4</c> scene objects, with server-hidden fallback when no markers are placed),
+/// hatching spiderling eggs (<c>5567</c>/<c>5570</c>), and slowing web pools (<c>5221</c>/<c>5222</c>).</summary>
 public static class Arakaali
 {
     public const string Area = "2_7_12_2", Boss = "Metadata/Monsters/VaalSpiderGod/Arakaali";
+    // Distinct from ArakaaliLasers' "Arakaali/" turret prefix so SceneObjects queries never overlap.
+    internal const string MarkerPrefix = "ArakaaliMarker/";
     const string EggVariety = "Metadata/Monsters/SpiderlingEgg/SpiderlingEggArakaali",
         HatchVariety = "Metadata/Monsters/SpiderPlague/SpiderArakaaliHatch";
     const string WebBurstArt = "Metadata/Effects/Spells/summon_spider_arakaalisfang/summon_poof.ao",
@@ -34,6 +37,10 @@ public static class Arakaali
         RiptideEffect = 6555, SuperRiptideEffect = 6557,
         HideEffect = 6885;
 
+    // ArakaaliHide[6885] (ActionType 724, vtable 0x143262830): OnStart (0x141b00f40) dereferences targetEntity+0x98
+    // (Positioned) unchecked to copy target Rotation, OnHideContact (0x141b00f60) relocates & rotates the actor, and
+    // OnAnimEnd (0x141b01000) plays Emerge. Only cast with a valid, client-bound TeleportMarkerSerialized1..4 id.
+    // Silk transition variants 6886/6887 remain excluded (Silk transition uses SilkClip directly).
     static readonly int[] Effects =
     [
         CleaveEffect, TendrilsCenter, TendrilsLeft, TendrilsRight, MortarEffect,
@@ -84,9 +91,7 @@ public static class Arakaali
     static MonsterAttack Attack(Player c, MonsterCatalog.Variety v, byte level, int effect)
     {
         var atk = BossKits.AttackFor(c, v, level, effect, Skill(effect));
-        if (effect == HideEffect)
-            return new(Skill(effect), HideSeconds, 120, DamagePacket.Empty) { Spell = true, Scripted = true };
-        if (atk.Damage.IsZero && effect is not (EggP1Effect or EggP2Effect or WebP1Effect or WebP2Effect))
+        if (atk.Damage.IsZero && effect is not (EggP1Effect or EggP2Effect or WebP1Effect or WebP2Effect or HideEffect))
         {
             var (min, max) = Monsters.BaseDamage(v, level) ?? (15, 25);
             var type = effect is TendrilsCenter or TendrilsLeft or TendrilsRight ? DamageType.Lightning
@@ -119,7 +124,7 @@ public static class Arakaali
         if (found.Value is null) return;
         var fight = Fights.GetValue(c.Instance, _ => new(found.Key, found.Value, c));
         await fight.Gate.WaitAsync();
-        try { fight.Bind(c); if (IsMonsterRunner(c)) await fight.Step(c, AreaTime(c)); }
+        try { await fight.Bind(c); if (IsMonsterRunner(c)) await fight.Step(c, AreaTime(c)); }
         finally { fight.Gate.Release(); }
     }
 
@@ -132,6 +137,7 @@ public static class Arakaali
     sealed record EggEntry(uint Id, (int X, int Y) At, double HatchAt);
     sealed record WebPool((int X, int Y) At, double Radius, double Until);
     sealed record PendingHit(double At, int Gen, int Effect, (int X, int Y) Spot, (int X, int Y)? Origin, double Radius, bool Cone);
+    sealed record CornerPoint(int X, int Y, uint MarkerId);
 
     internal sealed class Fight
     {
@@ -143,7 +149,8 @@ public static class Arakaali
         readonly HashSet<Player> players = [];
         readonly HashSet<Player> webAffected = [];
         readonly object webHolder = new();
-        readonly List<(int X, int Y)> corners = [];
+        readonly List<CampaignBossHelpers.ArenaMarker> markers;
+        readonly List<CornerPoint> corners = [];
         readonly List<EggEntry> eggs = [];
         readonly HashSet<uint> spiders = [];
         readonly List<WebPool> webs = [];
@@ -152,38 +159,42 @@ public static class Arakaali
         double silkDeadline = double.NaN;
         double hideDeadline = double.NaN;
         (int X, int Y) hideDestination;
+        bool hideUsedNative;
         double nextRelocate, nextEgg, nextWeb, nextSpecial, nextWebCheck;
         int cornerIndex, castStep;
-        bool stopped, cleaned;
+        bool engaged, stopped, cleaned;
 
         public Fight(uint objectId, SpawnedMonster monster, Player owner)
         {
             id = objectId; boss = monster; instance = owner.Instance; area = owner.Area;
             var placed = CampaignBossHelpers.AreaPlacements(owner);
+            List<GlyphQuest.Placement> markerPlacements = [];
             for (int n = 1; n <= 4; n++)
-                foreach (var p in placed.Of($"Metadata/MiscellaneousObjects/TeleportMarkerSerialized{n}"))
-                    corners.Add((p.X, p.Y));
+                markerPlacements.AddRange(placed.Of($"Metadata/MiscellaneousObjects/TeleportMarkerSerialized{n}"));
+            markers = CampaignBossHelpers.RegisterSceneMarkers(instance, MarkerPrefix, markerPlacements);
+            foreach (var m in markers)
+                corners.Add(new(m.X, m.Y, m.Id));
             if (corners.Count < 2)
             {
                 var mid = placed.Of("Metadata/Terrain/Act7/Area12Level2/Objects/ArakaaliArenaMiddle").FirstOrDefault();
                 var center = mid is not null ? (mid.X, mid.Y) : boss.Walk.Position(AreaTime(owner));
                 corners.Clear();
-                corners.Add((center.X - 32, center.Y - 32));
-                corners.Add((center.X + 32, center.Y - 32));
-                corners.Add((center.X + 32, center.Y + 32));
-                corners.Add((center.X - 32, center.Y + 32));
+                corners.Add(new(center.X - 32, center.Y - 32, 0));
+                corners.Add(new(center.X + 32, center.Y - 32, 0));
+                corners.Add(new(center.X + 32, center.Y + 32, 0));
+                corners.Add(new(center.X - 32, center.Y + 32, 0));
             }
             var startAt = boss.Walk.Position(AreaTime(owner));
             cornerIndex = Enumerable.Range(0, corners.Count)
-                .MinBy(i => CampaignBossHelpers.Distance(startAt, corners[i]));
-            double now = AreaTime(owner);
-            nextRelocate = now + 18;
-            nextEgg = now + 7;
-            nextWeb = now + 5;
-            nextSpecial = now + 2;
+                .MinBy(i => CampaignBossHelpers.Distance(startAt, (corners[i].X, corners[i].Y)));
         }
 
-        public void Bind(Player c) => players.Add(c);
+        public async Task Bind(Player c)
+        {
+            players.Add(c);
+            if (markers.Count > 0 && MonsterShown(c, id) && !MonsterAsleep(c, id))
+                await CampaignBossHelpers.BindSceneMarkers(c, markers, "[Arakaali] arena teleport marker");
+        }
         IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, instance));
 
         async Task All(Func<Player, byte[]?> message)
@@ -209,6 +220,7 @@ public static class Arakaali
                 if (!cleaned)
                 {
                     cleaned = true;
+                    hideDeadline = double.NaN;
                     CampaignBossHelpers.SetInvulnerable(c, id, boss, false);
                     await ClearWebDebuffs();
                     await CampaignBossHelpers.ClearAllEffects(c, effects);
@@ -262,17 +274,31 @@ public static class Arakaali
                 }
             }
 
-            // Handle active corner-to-corner relocation (ArakaaliHide[6885]).
+            // Handle active corner-to-corner relocation.
             if (!double.IsNaN(hideDeadline))
             {
                 if (now < hideDeadline) return;
                 hideDeadline = double.NaN;
                 boss.Walk.Teleport(hideDestination.X, hideDestination.Y, now);
-                await SendWorldRecord(c, id, InstanceProtocol.Teleport(id, hideDestination.X, hideDestination.Y),
-                    $"[Arakaali] relocated to corner {hideDestination}");
-                await SetWorldHidden(c, id, boss, false);
+                if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+                    c.Instance.World.MonsterOrigins[id] = origin with
+                    {
+                        Object = origin.Object with
+                        {
+                            GridX = hideDestination.X,
+                            GridY = hideDestination.Y,
+                            StateMachine = boss.States ?? origin.Object.StateMachine,
+                        }
+                    };
+                if (!hideUsedNative)
+                {
+                    await SetWorldHidden(c, id, boss, false);
+                    await CampaignBossHelpers.SpawnTimedEffect(c, effects, hideDestination, WebBurstArt, now + 1.2, scale: 1.3f);
+                }
+                hideUsedNative = false;
                 CampaignBossHelpers.SetInvulnerable(c, id, boss, false);
                 boss.BusyUntil = now + 0.6;
+                Console.WriteLine($"[Arakaali] relocated to corner {hideDestination}");
                 return;
             }
 
@@ -281,6 +307,14 @@ public static class Arakaali
             if (target is null) return;
             boss.Target = target;
             boss.Aggro = true;
+            if (!engaged)
+            {
+                engaged = true;
+                nextRelocate = now + 18;
+                nextEgg = now + 7;
+                nextWeb = now + 5;
+                nextSpecial = now + 1.5;
+            }
             if (!boss.BossBarShown && boss.Variety is { BossHealthBar: true })
             {
                 boss.BossBarShown = true;
@@ -294,19 +328,50 @@ public static class Arakaali
             var aim = target.Walk.Position(now);
             double dist = CampaignBossHelpers.Distance(pos, aim);
 
-            // Corner-to-corner relocation (ArakaaliHide[6885]).
+            // Corner-to-corner relocation: use native ArakaaliHide[6885] targeting the created TeleportMarkerSerialized
+            // scene object once bound on the area; fall back to server-hidden travel only if no placed markers exist.
             if (now >= nextRelocate && corners.Count >= 2)
             {
                 nextRelocate = now + (second ? 16 : 21);
                 int nextCorner = (cornerIndex + 1 + AreaRng(c).Next(corners.Count - 1)) % corners.Count;
                 cornerIndex = nextCorner;
-                hideDestination = CampaignBossHelpers.WalkableNear(c, corners[cornerIndex]);
-                await Cast(c, HideEffect, hideDestination, now);
+                var corner = corners[cornerIndex];
+                if (corner.MarkerId != 0 && !Scenes(c).Contains(corner.MarkerId))
+                    await CampaignBossHelpers.BindSceneMarkers(c, markers, "[Arakaali] arena teleport marker");
+                // Do not emit 0x01ab (WorldOrder.First) targeting a marker created in the same lockstep frame (0x02bb WorldOrder.Last).
+                bool nativeHide = corner.MarkerId != 0 && Scenes(c).Contains(corner.MarkerId)
+                    && !c.Area.Delta.HasCreateFor(corner.MarkerId, c);
+                boss.ActionGeneration++; boss.SwingGeneration = null;
+                boss.FlinchUntil = 0; boss.StunSerial++;
+                boss.Walk.Order(pos.X, pos.Y, now);
+                if (nativeHide)
+                {
+                    hideDestination = (corner.X, corner.Y);
+                    hideUsedNative = true;
+                    CampaignBossHelpers.SetInvulnerable(c, id, boss, true);
+                    bool sent = await SendMonsterAction(c, id, boss, boss.ActionGeneration, () =>
+                        InstanceProtocol.ActionStarted(id, pos.X, pos.Y, corner.X, corner.Y,
+                            Skill(HideEffect), c.NextActionSequence(), 0x0408, targetObjectId: corner.MarkerId),
+                        "[Arakaali] ArakaaliHide");
+                    if (!sent)
+                    {
+                        hideUsedNative = false;
+                        CampaignBossHelpers.SetInvulnerable(c, id, boss, false);
+                        return;
+                    }
+                    hideDeadline = now + HideSeconds;
+                    boss.BusyUntil = hideDeadline;
+                    Console.WriteLine($"[Arakaali] native ArakaaliHide to corner {cornerIndex + 1} (marker 0x{corner.MarkerId:x}) at {hideDestination}");
+                    return;
+                }
+                hideDestination = CampaignBossHelpers.WalkableNear(c, (corner.X, corner.Y));
+                hideUsedNative = false;
+                await CampaignBossHelpers.SpawnTimedEffect(c, effects, pos, WebBurstArt, now + 1.2, scale: 1.3f);
                 CampaignBossHelpers.SetInvulnerable(c, id, boss, true);
                 await SetWorldHidden(c, id, boss, true);
                 hideDeadline = now + HideSeconds;
                 boss.BusyUntil = hideDeadline;
-                Console.WriteLine($"[Arakaali] hiding to relocate to corner {cornerIndex + 1} at {hideDestination}");
+                Console.WriteLine($"[Arakaali] hiding (fallback) to relocate to corner {cornerIndex + 1} at {hideDestination}");
                 return;
             }
 

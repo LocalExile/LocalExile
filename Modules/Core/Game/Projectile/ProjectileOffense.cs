@@ -151,6 +151,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     /// <summary>The use's once-per-use grants (the Frenzy gem's charge), shared by its volley: the first enemy hit
     /// claims them.</summary>
     public UseOnce? FirstHit { get; init; }
+    internal Game.TraumaUse? Trauma { get; init; }
+    internal Game.SupportedGem? TraumaSource { get; init; }
 
     /// <summary>Selects the frozen output for the target's state before this hit's side effects, without recapturing
     /// release inputs or drawing random numbers.</summary>
