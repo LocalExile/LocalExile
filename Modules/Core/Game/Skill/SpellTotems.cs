@@ -494,7 +494,8 @@ public static partial class Game
                     if (BladefallEffect(effect)) session.ReleaseTotemBladefall(totem, at, sequence, Current);
                     else if (FrostBombEffect(effect))
                         session.ReleaseFrostBomb(gem.Effect, SupportedSkill(player, totem.SkillId).Stats, at, Current,
-                            (centre, radius, _) => TotemNovaLocked(player, session, totem, centre, radius, sequence));
+                            impact => TotemNovaLocked(player, session, totem, impact.Centre, impact.Radius, sequence,
+                                damageMore: impact.HitMore, durationAilmentMore: effect == ForthcomingFrostBomb ? impact.AilmentMore : null));
                     else if (IsPurifyingFlame(effect))
                         SchedulePurifyingFlame(player, session, gem.Effect, SupportedSkill(player, totem.SkillId).Stats,
                             TotemCasterStats(CharacterPlayerStats(player)), totem.At, at, Current,

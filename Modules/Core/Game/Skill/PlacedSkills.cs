@@ -782,7 +782,7 @@ public static partial class Game
         bool arc = ArcProxyEffect(effect);
         bool storm = IsStormCall(effect) || IsFirestorm(player, placed.Effect);
         bool brand = TriggerBrandSpell(player, placed.Effect);
-        bool frostBomb = effect == "FrostBomb";
+        bool frostBomb = FrostBombEffect(effect);
         bool staticOrb = effect == "BallLightningAltY";
         bool bladefall = effect == "Bladefall";
         bool purifyingFlame = IsPurifyingFlame(effect);
@@ -1006,8 +1006,10 @@ public static partial class Game
 
     internal sealed record PlacedAreaHit(PlacedSkills.Placed Device, double DamageMore)
     {
-        public void Apply(Player player, (int X, int Y) centre, double radius, double now, double more = 1) =>
-            PlacedAreaDamageLocked(player, Device, centre, radius, now, DamageMore * more, currentSkill: true, spellDamage: true);
+        public void Apply(Player player, (int X, int Y) centre, double radius, double now, double more = 1,
+            double? ailmentMore = null) =>
+            PlacedAreaDamageLocked(player, Device, centre, radius, now, DamageMore * more, currentSkill: true, spellDamage: true,
+                ailmentDamageMore: DamageMore * (ailmentMore ?? more));
     }
 
     static void PlacedAreaDamageLocked(Player player, PlacedSkills.Placed placed,
@@ -1015,7 +1017,7 @@ public static partial class Game
         uint? bearTarget = null, KeyValuePair<uint, SpawnedMonster>? hexblastTarget = null, PlacedArcSplit? arcSplit = null,
         PlacedShockNova? shockNova = null, PlacedCascade? cascade = null, ProjectileSession? ruinSession = null,
         Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null, SkillCriticalRoll? sharedCritical = null,
-        bool spatialSpell = false, IReadOnlyList<KeyValuePair<uint, SpawnedMonster>>? selected = null)
+        bool spatialSpell = false, IReadOnlyList<KeyValuePair<uint, SpawnedMonster>>? selected = null, double? ailmentDamageMore = null)
     {
         using var statScope = new PlayerStatScope(player, fresh: selected is null);
         var owner = CharacterPlayerStats(player);
@@ -1034,7 +1036,7 @@ public static partial class Game
         // apply it here only for synthetic Offense-less placements, for ailments (AilmentPanelStats omits it),
         // and for Fire Trap's burning ground DoT below.
         double hitMore = (placed.Offense is null ? skitterMore : 1) * damageMore;
-        double ailmentMore = skitterMore * damageMore;
+        double ailmentMore = skitterMore * (ailmentDamageMore ?? damageMore);
         bool spell = offenseSnapshot?.Spell ?? spellDamage;
         var hitRolls = HitRollsFor(owner).ForSkill(placed.Own.GetValueOrDefault, spell);
         bool attack = SkillsFor(player).IsAttack(placed.Effect);

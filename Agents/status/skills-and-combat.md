@@ -437,7 +437,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Ball Lightning applies repeated bolts with one hit interval per target and release. Orbiting steers one orb along
   a widening spiral, checks clearance at each grid step and shares the client's seeded launch speed for hand casts.
   Static places a finite orb for self-casts, damage triggers and mines and uses the same hit interval.
-- Frost Bomb uses its crystal duration and pulse or detonation behavior for supported triggers and totems.
+- Frost Bomb variants use their crystal duration and pulse or detonation behavior. Forthcoming scales hits and damaging ailments independently by the crystal's duration, including damage from traps, mines, and totems.
 - Detonate Dead and Volatile Dead use eligible corpses and their timed effects across supported cast and proxy paths.
 - Cremation variants place finite geysers and resolve their corpse and impact effects.
 - Unearth pierces along its flight and creates a usable Bone Archer corpse at the landing.

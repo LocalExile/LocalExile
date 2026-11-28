@@ -950,7 +950,7 @@ public static partial class Game
         Func<(int X, int Y), bool>? covers = null, double damageMore = 1, bool spellImpale = false, int extraCriticalIncrease = 0,
         int extraShockChance = 0, CascadePulse? cascade = null, long baseChaos = 0,
         Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null, SkillCriticalRoll? sharedCritical = null,
-        uint hexblastTarget = 0)
+        uint hexblastTarget = 0, double? durationAilmentMore = null)
     {
         var skill = SupportedSkill(player, totem.SkillId);
         if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true) is not { } inputs) return;
@@ -974,8 +974,9 @@ public static partial class Game
             .ForWeapon(weaponLocal);
         bool hexblast = hexblastTarget != 0;
         bool splash = false;
-        var ignite = hexblast ? SupportedIgnite(player, totem.SkillId, spell: true, caster, capturedInputs: inputs) : default;
-        var poison = hexblast ? SupportedPoison(player, totem.SkillId, spell: true, caster, capturedInputs: inputs) : default;
+        bool specificAilments = hexblast || durationAilmentMore.HasValue;
+        var ignite = specificAilments ? SupportedIgnite(player, totem.SkillId, spell: true, caster, capturedInputs: inputs) : default;
+        var poison = specificAilments ? SupportedPoison(player, totem.SkillId, spell: true, caster, capturedInputs: inputs) : default;
         void Contact(uint id, SpawnedMonster m)
         {
             double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
@@ -1022,17 +1023,17 @@ public static partial class Game
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
             if (hitSummon)
                 HitSummonsOnHitLocked(player, m, skill.Stats, totem.SkillId, now, AreaRng(player), playerConsumesCorpse: false);
-            double ailmentMore = hex is null ? 1
-                : Math.Max(0, 1 + skill.Stats.GetValueOrDefault(Stat.HexblastAilmentDamagePlusPctFinalIfHexed) / 100d);
+            double ailmentMore = durationAilmentMore ?? (hex is null ? 1
+                : Math.Max(0, 1 + skill.Stats.GetValueOrDefault(Stat.HexblastAilmentDamagePlusPctFinalIfHexed) / 100d));
             if (!m.Dead && damage > 0)
             {
                 AilmentsOnHitLocked(player, id, m, mitigated, !attack, crit, 100, caster, ailmentSkillStats, now, AreaRng(player),
                     attackGains: default, projectileDamage: false, projectileFreezeChance: 0,
                     sourceEffect: skill.Effect, blind: blind, hitOrigin: cascade?.HitOrigin(targetAt, totem.At) ?? totem.At,
                     playerHit: false, attackerSize: totem.BodySize, attackerHasReversedStat: false,
-                    poison: hexblast ? RepeatAilment(poison, ailmentMore) : default,
+                    poison: specificAilments ? RepeatAilment(poison, ailmentMore) : default,
                     extraShockChance: extraShockChance, cascadeBurst: cascade?.Burst ?? CascadeBurst.None);
-                if (hexblast && (crit ? ignite.CriticalMax : ignite.Max) > 0)
+                if (specificAilments && (crit ? ignite.CriticalMax : ignite.Max) > 0)
                     foreach (var packet in IgniteOnHitLocked(player, id, m, RepeatAilment(ignite, ailmentMore),
                         crit, now, playerIgnite: false) ?? [])
                         session.World(id, packet);
