@@ -118,7 +118,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Summoned followers stop pathless walk orders and retry when a route becomes available.
 - Spell-totem summons keep their minion identity instead of inheriting their summoning skill's totem flags.
 - Held summon casts each raise their minion: the next cast or a walk does not cancel a cast whose mana was paid.
-- Righteous Fire's enemy burn with linked supports. Docs: [11](../docs/protocol/11-skills.md) Â§12.
+- Righteous Fire's enemy burn with linked supports, plus spell damage scaling for Arcane Devotion. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Vaal Righteous Fire spends souls and sacrifices Energy Shield before Life, with an independent timed burn and spell buff.
 - Increased and reduced damage over time taken on enemies combine with other damage-taken modifiers for persistent
   damage.

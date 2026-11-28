@@ -4,6 +4,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using DamageModel = GameServer.Core.World.DamageModel;
 using DamageType = GameServer.Core.World.DamageType;
+using DamageTypeHistory = GameServer.Core.World.DamageTypeHistory;
 using DamageOverTime = GameServer.Core.World.DamageOverTime;
 
 public static partial class Game
@@ -1628,10 +1629,21 @@ public static partial class Game
         Stat.CastOnDamageTakenDamagePlusPctFinal,
     ];
 
+    static readonly uint[] RighteousFireSpellSupportMore =
+    [
+        Stat.SupportControlledDestructionSpellDamagePlusPctFinal, Stat.SupportEfficacySpellDamagePlusPctFinal,
+        Stat.SupportCastOnCritSpellDamagePlusPctFinal, Stat.SupportCastOnMeleeKillSpellDamagePlusPctFinal,
+        Stat.DelveModSpellDamagePlusPctFinal, Stat.ActiveSkillSpellDamagePlusPctFinal,
+    ];
+
     static double RighteousFireBaseDps(Player player, RighteousFireState rf, bool self) =>
         (player.PlayerMaxLife * (double)(self ? rf.BurnPctPerMinute : rf.DamagePctPerMinute)
             + player.Pools.EnergyShield * (double)(self ? rf.EnergyShieldBurnPctPerMinute : rf.EnergyShieldDamagePctPerMinute)
             + player.Pools.Mana * (double)(self ? rf.ManaBurnPctPerMinute : rf.ManaDamagePctPerMinute)) / 6000d;
+
+    static double RighteousFireEnemyDps(Player player, RighteousFireState rf,
+        IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int> own) =>
+        ScaleRighteousFireDps(RighteousFireBaseDps(player, rf, self: false), playerStats, own);
 
     static double ScaleRighteousFireDps(double basis,
         IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int> own)
@@ -1642,7 +1654,17 @@ public static partial class Game
         double increased = Combined(Stat.DamagePlusPct) + Combined(Stat.FireDamagePlusPct) + Combined(Stat.ElementalDamagePlusPct)
             + Combined(Stat.DamageOverTimePlusPct) + Combined(Stat.FireDamageOverTimePlusPct) + Combined(Stat.BurnDamagePlusPct)
             + Combined(Stat.AreaDamagePlusPct) + Combined(Stat.RighteousFireDamagePlusPct);
-        double dps = basis * Math.Max(0, 100 + increased) / 100;
+        double spellMore = 1;
+        if (Own(Stat.SpellDamageModifiersApplyToSkillDot) != 0)
+        {
+            int Caster(uint key) => playerStats.GetValueOrDefault(key);
+            increased += Combined(Stat.SpellDamagePlusPct);
+            if (Combined(Stat.StrongCasting) != 0) increased += DamageStats.StrengthDamageBonus(Caster);
+            spellMore = PlayerHitDamage.SpellDamageMore(Caster, DamageTypeHistory.Fire);
+            foreach (uint stat in RighteousFireSpellSupportMore)
+                spellMore *= Math.Max(0, 1 + Own(stat) / 100d);
+        }
+        double dps = basis * Math.Max(0, 100 + increased) / 100 * spellMore;
         foreach (uint stat in RighteousFireSupportMore) dps *= Math.Max(0, 1 + Own(stat) / 100d);
         double dotMultiplier = Combined(Stat.DotMultiplierPlus) + Combined(Stat.FireDotMultiplierPlus);
         dps = dps * Math.Max(0, 100 + dotMultiplier) / 100;
@@ -1675,7 +1697,7 @@ public static partial class Game
             using var scope = new PlayerStatScope(player, fresh: true);
             var stats = new Dictionary<uint, int>(CharacterPlayerStats(player));
             double perSecond = CurrentRighteousFireSkillLocked(player, rf) is { } supported
-                ? ScaleRighteousFireDps(RighteousFireBaseDps(player, rf, self: false), stats, supported.Stats)
+                ? RighteousFireEnemyDps(player, rf, stats, supported.Stats)
                     * RighteousFireTimedSupportFactor(rf, AreaTime(player), seconds)
                 : 0;
             return (new SkillDamageContext(SkillHitKind.Spell, stats).OverTime(new DamageOverTime(DamageType.Fire, perSecond, seconds)), stats);
