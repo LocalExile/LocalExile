@@ -144,6 +144,7 @@ public static partial class Game
     {
         stats = WithSelfBuffs(player, WithTriggeredGuard(player, stats));
         stats = WithVaalArcticArmour(player, stats);
+        AddVaalRighteousFireStats(player, stats);
         AddMomentumStats(player, stats);
         AddTraumaStats(player, stats);
         double now = AreaTime(player);

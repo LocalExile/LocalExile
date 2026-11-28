@@ -1633,13 +1633,12 @@ public static partial class Game
             + player.Pools.EnergyShield * (double)(self ? rf.EnergyShieldBurnPctPerMinute : rf.EnergyShieldDamagePctPerMinute)
             + player.Pools.Mana * (double)(self ? rf.ManaBurnPctPerMinute : rf.ManaDamagePctPerMinute)) / 6000d;
 
-    static double RighteousFireEnemyDps(Player player, RighteousFireState rf,
+    static double ScaleRighteousFireDps(double basis,
         IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int> own)
     {
         int Own(uint key) => own.GetValueOrDefault(key);
         double Combined(uint key) => (double)playerStats.GetValueOrDefault(key) + own.GetValueOrDefault(key);
         if (DamageStats.Prohibited(DamageType.Fire, Own)) return 0;
-        double basis = RighteousFireBaseDps(player, rf, self: false);
         double increased = Combined(Stat.DamagePlusPct) + Combined(Stat.FireDamagePlusPct) + Combined(Stat.ElementalDamagePlusPct)
             + Combined(Stat.DamageOverTimePlusPct) + Combined(Stat.FireDamageOverTimePlusPct) + Combined(Stat.BurnDamagePlusPct)
             + Combined(Stat.AreaDamagePlusPct) + Combined(Stat.RighteousFireDamagePlusPct);
@@ -1676,7 +1675,8 @@ public static partial class Game
             using var scope = new PlayerStatScope(player, fresh: true);
             var stats = new Dictionary<uint, int>(CharacterPlayerStats(player));
             double perSecond = CurrentRighteousFireSkillLocked(player, rf) is { } supported
-                ? RighteousFireEnemyDps(player, rf, stats, supported.Stats) * RighteousFireTimedSupportFactor(rf, AreaTime(player), seconds)
+                ? ScaleRighteousFireDps(RighteousFireBaseDps(player, rf, self: false), stats, supported.Stats)
+                    * RighteousFireTimedSupportFactor(rf, AreaTime(player), seconds)
                 : 0;
             return (new SkillDamageContext(SkillHitKind.Spell, stats).OverTime(new DamageOverTime(DamageType.Fire, perSecond, seconds)), stats);
         },

@@ -135,6 +135,7 @@ public static class PlayerHitDamage
     static double SpellMore(Func<uint, int> get, DamageTypeHistory history) =>
         Math.Max(0, 1 + get(Stat.SpellDamageAuraSpellDamagePlusPctFinal) / 100.0)
         * Math.Max(0, 1 + get(Stat.RighteousFireSpellDamagePlusPctFinal) / 100.0)
+        * Math.Max(0, 1 + get(Stat.VaalRighteousFireSpellDamagePlusPctFinal) / 100.0)
         // Arcane Surge's own more Spell Damage (Arcane Blessing), a stat of the buff on the player.
         * Math.Max(0, 1 + get(Stat.SpellDamagePlusPctFinalFromArcaneSurge) / 100.0)
         // Pain Attunement: "30% more Spell Damage when on Low Life".
