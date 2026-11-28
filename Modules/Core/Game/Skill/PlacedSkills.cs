@@ -573,6 +573,7 @@ public static partial class Game
                 }
                 if (!committed) return null;
                 player.RecentEvents.Record(StatConditions.PlacedTrapOrMine, now);
+                PhaseRunOnSkillUse(player, admission.Skill);
                 RecordAcceptedGemUse(player, gem.Effect, clamped);
                 player.Placed.Dirty = true;
                 player.Minions.StatRevision++;

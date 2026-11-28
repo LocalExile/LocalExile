@@ -453,6 +453,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   variant centre reflected damage on the caster's position when the guard explodes or pulses.
 - Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use
   swaps it for its more melee physical damage (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
+  variant centre reflected damage on the caster's position when the guard explodes or pulses. Arcane Cloak spends
+  current Mana for hit absorption and added lightning damage until the guard ends.
+- Phase Run: movement speed and Phasing last longer per Frenzy Charge consumed. Dash, Link casts, instant
+  location skills and trap or mine placement switch to the melee damage buff after a successful use. See [skill protocol](../docs/protocol/11-skills.md).
 - Crushing Fist, Glacial Shield Swipe, Swordstorm, Eviscerate and Shield of Light open a use window on block.
   Swordstorm deals eight timed dual-weapon hits. Glacial Shield Swipe advances a forward cone.
   Eviscerate advances two waves that can each hit a target.

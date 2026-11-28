@@ -1300,6 +1300,7 @@ public static partial class Game
             int action = beginAction ? Interlocked.Increment(ref player.ActionCount) : player.ActionCount;
             if (beginAction) player.Walk.Order(from.X, from.Y, acceptedAt);
             player.Walk.Teleport(to.X, to.Y, acceptedAt);
+            PhaseRunOnSkillUse(player, skillId);
             RecordAcceptedGemUseAt(player, effect, to, acceptedAt);
             if (player.ProjectileRuntime is { Active: true } stormRuntime) stormRuntime.StormOrbOnLightningUse(effect, acceptedAt);
             if (CastingSpell(player, effect) && !SkillsFor(player).IsInstant(effect))
@@ -1803,12 +1804,9 @@ public static partial class Game
                 && !IsTotemSkill(player, skillId))
                 RecordNonInstantSpellUseLocked(player, gem.Effect, AreaTime(player));
             NoteGemAttackUse(player, skillId, gem.Effect);
-        }
-        if (gem.Name is not null)
-        {
             PhaseRunOnSkillUse(player, skillId);
-            WitheringStepOnSkillUse(player, skillId);
         }
+        if (gem.Name is not null) WitheringStepOnSkillUse(player, skillId);
         using var pactScope = pactSpell is null ? null : new GhorrCastScope(pactSpell);
         using var beidatScope = beidatSpell is null ? null : new BeidatCastScope(beidatSpell);
         var intensity = CaptureIntensityCast(player, skillId, paidIntensity);
@@ -2213,6 +2211,7 @@ public static partial class Game
                             if (player.ProjectileActive(epoch)) _ = SendNativeCooldownRefresh(player);
                         });
                     }
+                    PhaseRunOnSkillUse(player, skillId);
                     accepted = true;
                     RecordAcceptedGemUseAt(player, gem.Effect, to, acceptedAt);
                     return PlayerInstantAction(player, skillId, rawAim, targetObjectId);
