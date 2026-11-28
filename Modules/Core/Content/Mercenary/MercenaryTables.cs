@@ -234,52 +234,79 @@ public static class MercenaryTables
         return rolled;
     }
 
+    /// <summary>The support count a skill rolls (<c>MercenarySupportCounts</c>: 0 Low, 1 Medium, 2 High, 3 None). From area
+    /// level 68 it is the wiki's endgame table: Low 2, Medium 2 (30%) or 3, High 4 (30%) or 5. [ESTIMATE] Below 68 "support
+    /// counts may be lower" with no numbers given, so the endgame count is capped at 1, 2 and 3 from levels 1, 24 and 45.</summary>
+    public static int SupportCount(int mode, int level, Random rng)
+    {
+        int endgame = mode switch
+        {
+            0 => 2,
+            1 => rng.Next(100) < 30 ? 2 : 3,
+            2 => rng.Next(100) < 30 ? 4 : 5,
+            _ => 0,
+        };
+        return Math.Min(endgame, level < 24 ? 1 : level < 45 ? 2 : level < 68 ? 3 : 5);
+    }
+
+    /// <summary>The weight of a support tier at <paramref name="level"/>. The wiki: lower tiers are more common at low levels
+    /// and less common high; at level 83 a three-tier support never rolls Tier I and rolls Tier III about 33% of the time.
+    /// [ESTIMATE] the other weights, and the levels a tier opens at (II from 35, III and Gilded from 65).</summary>
+    public static int SupportTierWeight(int tier, int level, bool threeTiers) => level switch
+    {
+        < 35 => tier == 1 ? 1 : 0,
+        < 65 => tier switch { 1 => 60, 2 => 40, _ => 0 },
+        < 83 => tier switch { 1 => 25, 2 => 45, _ => 30 },
+        _ => tier switch { 1 => threeTiers ? 0 : 25, 2 => 67, _ => 33 },
+    };
+
+    /// <summary>A support's tiers are rows that differ only by the Low / Mid / High end of their Id (LeechLow, LeechMid,
+    /// LeechHigh); a Gilded support is a single High row.</summary>
+    static string SupportStem(string id) =>
+        id.EndsWith("Low", StringComparison.Ordinal) || id.EndsWith("Mid", StringComparison.Ordinal) ? id[..^3]
+        : id.EndsWith("High", StringComparison.Ordinal) ? id[..^4] : id;
+
     static (List<int> Rows, List<ushort> Hashes) RollSupportsFor(SkillRow skill, int level, Random rng, int additionalSupportChancePct)
     {
         if (skill.SupportCountMode == 3 || skill.PossibleSupports.Length == 0) return ([], []);
-        int maxForLevel = level < 24 ? 1 : level < 45 ? 2 : level < 68 ? 3 : 4;
-        int baseCount = skill.SupportCountMode switch
-        {
-            0 => Math.Min(maxForLevel, rng.Next(1, 3)),
-            1 => Math.Min(maxForLevel, rng.Next(1, 4)),
-            2 => Math.Min(maxForLevel, rng.Next(2, 5)),
-            _ => 0,
-        };
+        int count = SupportCount(skill.SupportCountMode, level, rng);
         if (additionalSupportChancePct > 0 && rng.Next(100) < additionalSupportChancePct)
-            baseCount = Math.Min(5, baseCount + 1);
-        if (baseCount <= 0) return ([], []);
+            count = Math.Min(5, count + 1);
+        if (count <= 0) return ([], []);
 
-        int maxTier = level < 35 ? 1 : level < 65 ? 2 : 3;
-        var candidates = skill.PossibleSupports
-            .Select(r => SupportRowsData.TryGetValue(r, out var s) ? s : null)
-            .Where(s => s is not null && s.Hash16 != 0 && s.Tier <= maxTier)
-            .Cast<SupportRow>()
-            .ToArray();
-        if (candidates.Length == 0)
-            candidates = skill.PossibleSupports
-                .Select(r => SupportRowsData.TryGetValue(r, out var s) ? s : null)
-                .Where(s => s is not null && s.Hash16 != 0)
-                .Cast<SupportRow>()
-                .ToArray();
-        if (candidates.Length == 0) return ([], []);
+        // One tier per support, drawn by weight; a support with no tier open at this level is left out, unless none is open
+        // at all, when each support's lowest tier stands in (as the old roll did).
+        var groups = skill.PossibleSupports
+            .Select(r => SupportRowsData.TryGetValue(r, out var s) ? s : null).OfType<SupportRow>().Where(s => s.Hash16 != 0)
+            .GroupBy(s => SupportStem(s.Id)).Select(g => g.ToArray()).ToList();
+        var supports = new List<SupportRow>();
+        foreach (var rows in groups)
+        {
+            bool threeTiers = rows.Select(s => s.Tier).Distinct().Count() >= 3;
+            int total = rows.Sum(s => SupportTierWeight(s.Tier, level, threeTiers));
+            if (total <= 0) continue;
+            int roll = rng.Next(total);
+            supports.Add(rows.First(s => (roll -= SupportTierWeight(s.Tier, level, threeTiers)) < 0));
+        }
+        if (supports.Count == 0) supports = [.. groups.Select(rows => rows.MinBy(s => s.Tier)!)];
 
-        for (int i = candidates.Length - 1; i > 0; i--)
+        for (int i = supports.Count - 1; i > 0; i--)
         {
             int j = rng.Next(i + 1);
-            (candidates[i], candidates[j]) = (candidates[j], candidates[i]);
+            (supports[i], supports[j]) = (supports[j], supports[i]);
         }
 
-        List<int> rows = [];
+        List<int> picked = [];
         List<ushort> hashes = [];
         HashSet<int> families = [];
-        foreach (var supp in candidates)
+        foreach (var supp in supports)
         {
-            if (rows.Count >= baseCount) break;
+            if (picked.Count >= count) break;
             if (supp.SupportFamily is int fam && !families.Add(fam)) continue;
-            rows.Add(supp.Row);
+            picked.Add(supp.Row);
             hashes.Add(supp.Hash16);
         }
-        return (rows, hashes);
+        return (picked, hashes);
     }
 
     static IEnumerable<int> DrawRows(int[] rows, int count, int level, Random rng)
