@@ -1,32 +1,35 @@
--- Every charge rule on hit, after the shipped hit rows (10, 20, 30) in their old order.
+-- Every charge rule on hit, in their old order, after the hit charge rules already in the world.
 
-INSERT INTO fx_rules (id, book, title, replaces, status, position) VALUES
-('gain_frenzy_charge_on_hit_while_bleeding', 'charges', 'Gain a Frenzy Charge on Hit while Bleeding', 'gain_frenzy_charge_on_hit_while_bleeding', 'built', 100),
-('gain_frenzy_charge_on_hitting_rare_or_unique_enemy_%', 'charges', 'Chance to gain a Frenzy Charge when you Hit a Rare or Unique Enemy', 'gain_frenzy_charge_on_hitting_rare_or_unique_enemy_%', 'built', 110),
-('chance_to_gain_power_charge_on_rare_or_unique_enemy_hit_%', 'charges', 'Chance to gain a Power Charge when you Hit a Rare or Unique Enemy', 'chance_to_gain_power_charge_on_rare_or_unique_enemy_hit_%', 'built', 120),
-('add_power_charge_on_critical_strike_%', 'charges', 'Chance to gain a Power Charge on Critical Strike', 'add_power_charge_on_critical_strike_%', 'built', 130),
-('chance_to_gain_endurance_charge_on_crit_%', 'charges', 'Chance to gain an Endurance Charge on Critical Strike', 'chance_to_gain_endurance_charge_on_crit_%', 'built', 140),
-('chance_to_gain_endurance_charge_on_melee_crit_%', 'charges', 'Chance to gain an Endurance Charge on Melee Critical Strike', 'chance_to_gain_endurance_charge_on_melee_crit_%', 'built', 150),
-('gain_frenzy_charge_on_critical_strike_%', 'charges', 'Chance to gain a Frenzy Charge on Critical Strike', 'gain_frenzy_charge_on_critical_strike_%', 'built', 160),
-('add_frenzy_charge_on_critical_strike', 'charges', 'Gain a Frenzy Charge on Critical Strike', 'add_frenzy_charge_on_critical_strike', 'built', 170),
-('gain_frenzy_charge_per_enemy_you_crit_%_chance', 'charges', 'Chance to gain a Frenzy Charge for each Enemy you Critically Strike', 'gain_frenzy_charge_per_enemy_you_crit_%_chance', 'built', 180),
-('gain_power_charge_per_enemy_you_crit', 'charges', 'Gain a Power Charge for each Enemy you Critically Strike', 'gain_power_charge_per_enemy_you_crit', 'built', 190),
-('gain_power_charge_on_critical_strike_with_wands_%', 'charges', 'Chance to gain a Power Charge on Critical Strike with Wands', 'gain_power_charge_on_critical_strike_with_wands_%', 'built', 200),
-('gain_power_charge_on_non_critical_strike_%', 'charges', 'Chance to gain a Power Charge on Non-Critical Strike', 'gain_power_charge_on_non_critical_strike_%', 'built', 210),
-('unique_gain_power_charge_on_non_crit', 'charges', 'Gain a Power Charge on Non-Critical Strike', 'unique_gain_power_charge_on_non_crit', 'built', 220),
-('power_charge_on_non_critical_strike_%_chance_with_claws_daggers', 'charges', 'Chance to gain a Power Charge on Non-Critical Strike with a Claw or Dagger', 'power_charge_on_non_critical_strike_%_chance_with_claws_daggers', 'built', 230),
-('add_endurance_charge_on_skill_hit_%', 'charges', 'Chance to gain an Endurance Charge on Hit with this Skill', 'add_endurance_charge_on_skill_hit_%', 'built', 340),
-('gain_frenzy_charge_on_hitting_unique_enemy_%', 'charges', 'Chance to gain a Frenzy Charge when you Hit a Unique Enemy', 'gain_frenzy_charge_on_hitting_unique_enemy_%', 'built', 350),
-('gain_power_charge_on_hit_%_chance_against_frozen_enemy', 'charges', 'Chance to gain a Power Charge when you Hit a Frozen Enemy', 'gain_power_charge_on_hit_%_chance_against_frozen_enemy', 'built', 360),
-('chance_to_gain_endurance_charge_on_hit_%_vs_bleeding_enemy', 'charges', 'Chance to gain an Endurance Charge when you Hit a Bleeding Enemy', 'chance_to_gain_endurance_charge_on_hit_%_vs_bleeding_enemy', 'built', 370),
-('gain_frenzy_charge_on_hitting_marked_enemy_%', 'charges', 'Chance to gain a Frenzy Charge when you Hit your Marked Enemy', 'gain_frenzy_charge_on_hitting_marked_enemy_%', 'built', 380),
-('gain_power_charge_on_hit_while_bleeding', 'charges', 'Gain a Power Charge on Hit while Bleeding', 'gain_power_charge_on_hit_while_bleeding', 'built', 390),
-('add_power_charge_on_hit_while_poisoned_%', 'charges', 'Chance to gain a Power Charge on Hit while Poisoned', 'add_power_charge_on_hit_while_poisoned_%', 'built', 400),
-('sweep_add_endurance_charge_on_hit_%', 'charges', 'Holy Sweep: chance to gain an Endurance Charge on Hit', 'sweep_add_endurance_charge_on_hit_%', 'built', 410),
-('ice_spear_%_chance_to_gain_power_charge_on_critical_strike', 'charges', 'Ice Spear: chance to gain a Power Charge on Critical Strike', 'ice_spear_%_chance_to_gain_power_charge_on_critical_strike', 'built', 420),
-('power_siphon_%_chance_to_gain_power_charge_on_kill', 'charges', 'Power Siphon: chance to gain a Power Charge on Kill', 'power_siphon_%_chance_to_gain_power_charge_on_kill', 'built', 430),
-('frenzy_%_chance_to_gain_additional_frenzy_charge', 'charges', 'Frenzy: chance to gain an additional Frenzy Charge', 'frenzy_%_chance_to_gain_additional_frenzy_charge', 'built', 440),
-('unique_lose_all_power_charges_on_crit', 'charges', 'Lose all Power Charges on Critical Strike', 'unique_lose_all_power_charges_on_crit', 'built', 450);
+WITH base(shift) AS (SELECT max(0, coalesce(max(position), 0) - 90) FROM fx_rules WHERE id IN (SELECT w.rule FROM fx_rule_when w JOIN fx_rule_do d ON d.rule = w.rule WHERE w.trigger = 'hit' AND d.action = 'charge' AND d.target = 'self')),
+new_rules(id, title, position) AS (VALUES
+('gain_frenzy_charge_on_hit_while_bleeding', 'Gain a Frenzy Charge on Hit while Bleeding', 100),
+('gain_frenzy_charge_on_hitting_rare_or_unique_enemy_%', 'Chance to gain a Frenzy Charge when you Hit a Rare or Unique Enemy', 110),
+('chance_to_gain_power_charge_on_rare_or_unique_enemy_hit_%', 'Chance to gain a Power Charge when you Hit a Rare or Unique Enemy', 120),
+('add_power_charge_on_critical_strike_%', 'Chance to gain a Power Charge on Critical Strike', 130),
+('chance_to_gain_endurance_charge_on_crit_%', 'Chance to gain an Endurance Charge on Critical Strike', 140),
+('chance_to_gain_endurance_charge_on_melee_crit_%', 'Chance to gain an Endurance Charge on Melee Critical Strike', 150),
+('gain_frenzy_charge_on_critical_strike_%', 'Chance to gain a Frenzy Charge on Critical Strike', 160),
+('add_frenzy_charge_on_critical_strike', 'Gain a Frenzy Charge on Critical Strike', 170),
+('gain_frenzy_charge_per_enemy_you_crit_%_chance', 'Chance to gain a Frenzy Charge for each Enemy you Critically Strike', 180),
+('gain_power_charge_per_enemy_you_crit', 'Gain a Power Charge for each Enemy you Critically Strike', 190),
+('gain_power_charge_on_critical_strike_with_wands_%', 'Chance to gain a Power Charge on Critical Strike with Wands', 200),
+('gain_power_charge_on_non_critical_strike_%', 'Chance to gain a Power Charge on Non-Critical Strike', 210),
+('unique_gain_power_charge_on_non_crit', 'Gain a Power Charge on Non-Critical Strike', 220),
+('power_charge_on_non_critical_strike_%_chance_with_claws_daggers', 'Chance to gain a Power Charge on Non-Critical Strike with a Claw or Dagger', 230),
+('add_endurance_charge_on_skill_hit_%', 'Chance to gain an Endurance Charge on Hit with this Skill', 340),
+('gain_frenzy_charge_on_hitting_unique_enemy_%', 'Chance to gain a Frenzy Charge when you Hit a Unique Enemy', 350),
+('gain_power_charge_on_hit_%_chance_against_frozen_enemy', 'Chance to gain a Power Charge when you Hit a Frozen Enemy', 360),
+('chance_to_gain_endurance_charge_on_hit_%_vs_bleeding_enemy', 'Chance to gain an Endurance Charge when you Hit a Bleeding Enemy', 370),
+('gain_frenzy_charge_on_hitting_marked_enemy_%', 'Chance to gain a Frenzy Charge when you Hit your Marked Enemy', 380),
+('gain_power_charge_on_hit_while_bleeding', 'Gain a Power Charge on Hit while Bleeding', 390),
+('add_power_charge_on_hit_while_poisoned_%', 'Chance to gain a Power Charge on Hit while Poisoned', 400),
+('sweep_add_endurance_charge_on_hit_%', 'Holy Sweep: chance to gain an Endurance Charge on Hit', 410),
+('ice_spear_%_chance_to_gain_power_charge_on_critical_strike', 'Ice Spear: chance to gain a Power Charge on Critical Strike', 420),
+('power_siphon_%_chance_to_gain_power_charge_on_kill', 'Power Siphon: chance to gain a Power Charge on Kill', 430),
+('frenzy_%_chance_to_gain_additional_frenzy_charge', 'Frenzy: chance to gain an additional Frenzy Charge', 440),
+('unique_lose_all_power_charges_on_crit', 'Lose all Power Charges on Critical Strike', 450))
+INSERT INTO fx_rules (id, book, title, replaces, status, position)
+SELECT id, 'charges', title, id, 'built', position + shift FROM new_rules CROSS JOIN base;
 
 INSERT INTO fx_rule_sources (rule, kind, key)
 SELECT id, 'stat', replaces FROM fx_rules WHERE id IN ('gain_frenzy_charge_on_hit_while_bleeding', 'gain_frenzy_charge_on_hitting_rare_or_unique_enemy_%', 'chance_to_gain_power_charge_on_rare_or_unique_enemy_hit_%', 'add_power_charge_on_critical_strike_%', 'chance_to_gain_endurance_charge_on_crit_%', 'chance_to_gain_endurance_charge_on_melee_crit_%', 'gain_frenzy_charge_on_critical_strike_%', 'add_frenzy_charge_on_critical_strike', 'gain_frenzy_charge_per_enemy_you_crit_%_chance', 'gain_power_charge_per_enemy_you_crit', 'gain_power_charge_on_critical_strike_with_wands_%', 'gain_power_charge_on_non_critical_strike_%', 'unique_gain_power_charge_on_non_crit', 'power_charge_on_non_critical_strike_%_chance_with_claws_daggers', 'add_endurance_charge_on_skill_hit_%', 'gain_frenzy_charge_on_hitting_unique_enemy_%', 'gain_power_charge_on_hit_%_chance_against_frozen_enemy', 'chance_to_gain_endurance_charge_on_hit_%_vs_bleeding_enemy', 'gain_frenzy_charge_on_hitting_marked_enemy_%', 'gain_power_charge_on_hit_while_bleeding', 'add_power_charge_on_hit_while_poisoned_%', 'sweep_add_endurance_charge_on_hit_%', 'ice_spear_%_chance_to_gain_power_charge_on_critical_strike', 'power_siphon_%_chance_to_gain_power_charge_on_kill', 'frenzy_%_chance_to_gain_additional_frenzy_charge', 'unique_lose_all_power_charges_on_crit');

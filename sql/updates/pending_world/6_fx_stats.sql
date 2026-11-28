@@ -33,4 +33,14 @@ INSERT INTO fx_stat_notes (stat, handled, ref, note) VALUES
 ('lose_power_charge_each_second_if_not_detonated_mines_recently', 'code', 'ChargeGains.Periodics', 'a task: step 5'),
 ('gain_X_power_charges_on_casting_a_spell', 'code', 'MonsterCharges.MonsterChargesOnHitDealtLocked', 'a monster actor: step 4'),
 ('remove_charges_on_hit_%', 'code', 'MonsterCharges.MonsterChargesOnHitDealtLocked', 'charges taken from the player: step 2'),
-('map_monsters_steal_charges', 'code', 'MonsterCharges.StealMapChargesLocked', 'charges taken from the player: step 2');
+('map_monsters_steal_charges', 'code', 'MonsterCharges.StealMapChargesLocked', 'charges taken from the player: step 2'),
+('chance_to_grant_power_charge_on_death_%', 'code', 'Curses.CurseCharges', 'a cursed enemy grants the charge: step 2'),
+('chance_to_grant_frenzy_charge_on_death_%', 'code', 'Curses.CurseCharges', 'a cursed enemy grants the charge: step 2'),
+('chance_to_grant_endurance_charge_on_death_%', 'code', 'Curses.CurseCharges', 'a cursed enemy grants the charge: step 2'),
+('grant_attacker_power_charge_when_hit_%_chance', 'code', 'Curses.CurseCharges', 'a cursed enemy grants the charge: step 2'),
+('grant_attacker_frenzy_charge_when_hit_%_chance', 'code', 'Curses.CurseCharges', 'a cursed enemy grants the charge: step 2'),
+('grant_attacker_endurance_charge_when_hit_%_chance', 'code', 'Curses.CurseCharges', 'a cursed enemy grants the charge: step 2'),
+('chance_to_grant_endurance_charge_to_nearby_allies_on_hit_%', 'code', 'SpectreChargeRoars.PlayerGrantsNearbyChargesLocked', 'charges for nearby allies: step 2'),
+('chance_to_grant_frenzy_charge_to_nearby_allies_on_hit_%', 'code', 'SpectreChargeRoars.PlayerGrantsNearbyChargesLocked', 'charges for nearby allies: step 2'),
+('chance_to_grant_frenzy_charge_to_nearby_allies_on_kill_%', 'code', 'SpectreChargeRoars.PlayerGrantsNearbyChargesLocked', 'charges for nearby allies: step 2'),
+('chance_to_grant_power_charge_to_nearby_allies_on_kill_%', 'code', 'SpectreChargeRoars.PlayerGrantsNearbyChargesLocked', 'charges for nearby allies: step 2');

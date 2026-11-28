@@ -1,4 +1,7 @@
--- The additional charges on kill, at their old place between the chance rows (-10) and the conditional ones (10).
+-- The additional charges on kill, at their old place: after the rules at negative positions and before
+-- every rule at a positive one, which moves up by 10 to make room (custom rows included).
+UPDATE fx_rules SET position = position + 10
+WHERE position > 0 AND id IN (SELECT w.rule FROM fx_rule_when w JOIN fx_rule_do d ON d.rule = w.rule WHERE w.trigger = 'kill' AND d.action = 'charge' AND d.target = 'self');
 
 INSERT INTO fx_rules (id, book, title, replaces, status, position) VALUES
 ('add_endurance_charge_on_kill', 'charges', 'Gain an Endurance Charge on Kill', 'add_endurance_charge_on_kill', 'built', 2),

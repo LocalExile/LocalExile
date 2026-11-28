@@ -147,7 +147,8 @@ Each step is its own pull request with its tests.
 
 1. One position per rule; every charge rule rolled on an event as rows; `fx_stats`. Done, except the per-actor active
    sets: rules still add the used skill's stats through a lookup, so the sets wait for a `used_skill` scope (step 5),
-   and the event's stats and weapon are still read when the charge queue rolls.
+   and the event's stats and weapon are still read when the charge queue rolls. Charges a cursed enemy or a nearby ally
+   grants, and those taken from the player, stay C# until step 2.
 2. Recover, debuff, ailment and remove actions, with the on-kill and on-block recovery.
 3. The triggered-skill pipeline, one source family at a time.
 4. Minions, monsters and totems as actors.

@@ -50,10 +50,10 @@ and any value but 0 gains. A minion or monster rule needs a chance, a named char
 conditions its actor knows (critical on hit, the kill conditions at death; none for a monster).
 
 Every charge rule has a `fx_rules.position`, where it rolls among its event's rules for each actor. Two rules of one
-event and actor cannot share a position, and a stat has one rule per event and actor. The positions keep the order of
-the C# lists they replaced: on kill -30 to 60, on hit 10 to 450, on the other events 240 to 600. `fx_stats` lists every
-stat an enabled rule reads, and the stats still handled in C# with the step that takes them
-([design](effect-rules-design.md)).
+event and actor cannot share a position, and a stat has one rule per event and actor. An update that adds rules places
+them among the rows already in the world, custom ones included. The positions keep the order of the C# lists they
+replaced: on kill -30 to 70, on hit 10 to 450, on the other events 240 to 600. `fx_stats` lists every stat an enabled
+rule reads, and the stats still handled in C# with the step that takes them ([design](effect-rules-design.md)).
 
 For an effect that fits one of these combinations, start a new SQL file in `sql/updates/pending_world/`.
 Use a shipped rule as a template, a stable rule ID, a stat key the actor already receives, and a free position. Opening a world applies pending files. Reloading reads edits already committed to the database.
