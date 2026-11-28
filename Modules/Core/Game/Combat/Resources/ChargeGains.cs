@@ -67,7 +67,7 @@ public static class ChargeGains
     public sealed record Rule(uint Stat, ChargeType? Type, Func<ChargeEvent, WeaponProfile, bool> When, bool Flag = false,
         Outcome Does = Outcome.Gain);
 
-    static bool Melee(ChargeEvent.Hit h, WeaponProfile w) => h.Melee ?? (!h.Spell && !w.Bow && !w.Wand);
+    internal static bool Melee(ChargeEvent.Hit h, WeaponProfile w) => h.Melee ?? (!h.Spell && !w.Bow && !w.Wand);
     static bool RareOrUnique(MonsterRarity r) => r is MonsterRarity.Rare or MonsterRarity.Unique;
 
     static readonly Rule[] LegacyKillChances =
@@ -198,14 +198,18 @@ public static class ChargeGains
     /// </summary>
     public static List<Gain> Roll(ChargeEvent e, Func<uint, int> get, WeaponProfile weapon, Random rng)
     {
-        var rules = e switch
-        {
-            ChargeEvent.Kill => ItemEffectRules.Enabled ? ItemEffectRules.Current.ChargeRules : Rules,
-            ChargeEvent.Hit => ItemEffectRules.Enabled ? ItemEffectRules.Current.HitChargeRules : LegacyHitRules,
-            _ => OtherRules
-        };
+        var rules = ItemEffectRules.Enabled ? ItemEffectRules.Current.PlayerCharges(e) : LegacyRules(e);
         return Roll(e, get, weapon, rng, rules);
     }
+
+    /// <summary>The original C# rules for an event: what <c>Game_EFFECT_RULES=0</c> rolls, and what the world rules
+    /// must match.</summary>
+    internal static IReadOnlyList<Rule> LegacyRules(ChargeEvent e) => e switch
+    {
+        ChargeEvent.Kill => Rules,
+        ChargeEvent.Hit => LegacyHitRules,
+        _ => OtherRules,
+    };
 
     internal static List<Gain> Roll(ChargeEvent e, Func<uint, int> get, WeaponProfile weapon, Random rng, IReadOnlyList<Rule> rules)
     {
