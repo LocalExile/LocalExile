@@ -187,8 +187,8 @@ public sealed partial class MercenaryModule
 
         if (run.Equipment.Count == 0)
         {
-            run.Equipment = MercenaryEquipment.Roll(kind, build, level, rng,
-                stats.GetValueOrDefault(Stat.MapMercenaryAllUniqueItems) > 0, UniquesFor(player));
+            run.Equipment = MercenaryEquipment.WithInfamousModifier(MercenaryEquipment.Roll(kind, build, level, rng,
+                stats.GetValueOrDefault(Stat.MapMercenaryAllUniqueItems) > 0, UniquesFor(player)), build, level, rng);
         }
 
         if (run.GearItems.Count == 0)
@@ -521,6 +521,10 @@ public sealed partial class MercenaryModule
             await Send(player, InstanceEntities.Gold(goldLeft),
                 $"0x026e gold {goldLeft} after mercenary duel wager ({wagerPaid})");
         await SetStates(player, run.Body, MercenaryWire.CountdownStates, "(7, 0, 1, 1): the duel was chosen");
+        // The "3, 2, 1, Fight!" banner: CountdownTimers row 0 (MercenaryCountdown) shown by S→C 0x162 from 3; the client
+        // steps it down itself (retail 3.29: 3 at the choice, Fight! about 1.6 s later, as the duel switch lands).
+        await Everyone(player, member => Send(member, InstanceTimers.CountdownTimer(3),
+            "0x0162 countdown timer: 3 (MercenaryCountdown)"));
         Save(player, run);
         return true;
     }
