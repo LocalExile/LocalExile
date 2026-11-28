@@ -1128,7 +1128,8 @@ public static class AreaPopulation
         {
             var layout = population.Player.Layout;
             return FindEncounterSites(layout.GridW, layout.GridH, layout.Walkable!, (layout.SpawnX, layout.SpawnY),
-                [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))]);
+                [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))],
+                layout.Level?.FeatureAreas);
         });
         return PickEncounterSpot(sites, taken, rng, 20);
     }
@@ -1137,17 +1138,29 @@ public static class AreaPopulation
 
     /// <summary>Where a league encounter stands: a cell as deep in the walk map as a pack centre, as far from the
     /// arrival and the area transitions as the packs keep, and <paramref name="spacing"/> from every taken cell (the
-    /// placed monsters, other encounters). With no such cell the taken cells are ignored; null when the area has no
-    /// cell at all.</summary>
+    /// placed monsters, other encounters), and never inside a sub-area an ExtraTerrainFeatures row adds (the Sacred
+    /// Grove beside a map, a Harvest grove's room): that room holds its own mechanic, not another league's content.
+    /// With no such cell the taken cells are ignored; null when the area has no cell at all.</summary>
     public static (int X, int Y)? EncounterSpot(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
-        IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<(int X, int Y)> taken, Random rng, int spacing = 20)
+        IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<(int X, int Y)> taken, Random rng, int spacing = 20,
+        IReadOnlyList<(int X0, int Y0, int X1, int Y1)>? featureAreas = null)
     {
-        return PickEncounterSpot(FindEncounterSites(w, h, walkable, arrival, transitions), taken, rng, spacing);
+        return PickEncounterSpot(FindEncounterSites(w, h, walkable, arrival, transitions, featureAreas), taken, rng, spacing);
     }
 
     static EncounterSites FindEncounterSites(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
-        IReadOnlyList<(int X, int Y)> transitions)
+        IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<(int X0, int Y0, int X1, int Y1)>? featureAreas = null)
     {
+        bool InFeatureArea(int x, int y)
+        {
+            if (featureAreas is null) return false;
+            for (int i = 0; i < featureAreas.Count; i++)
+            {
+                var a = featureAreas[i];
+                if (x >= a.X0 && y >= a.Y0 && x < a.X1 && y < a.Y1) return true;
+            }
+            return false;
+        }
         var cells = new bool[w * h];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -1158,7 +1171,7 @@ public static class AreaPopulation
         {
             for (int y = Math.Max(0, arrival.Y - 40); y < Math.Min(h, arrival.Y + 40); y++)
                 for (int x = Math.Max(0, arrival.X - 40); x < Math.Min(w, arrival.X + 40); x++)
-                    if (depth[y * w + x] >= 2) nearArrival.Add((x, y));
+                    if (depth[y * w + x] >= 2 && !InFeatureArea(x, y)) nearArrival.Add((x, y));
             nearArrival = [.. nearArrival.OrderBy(cell =>
             {
                 long dx = cell.X - (arrival.X + 12), dy = cell.Y - arrival.Y;
@@ -1169,7 +1182,8 @@ public static class AreaPopulation
         for (int y = 0; y < h; y += 3)
             for (int x = 0; x < w; x += 3)
                 if (depth[y * w + x] >= CentreDepth && !Near((x, y), arrival, SpawnClearance)
-                    && !transitions.Any(t => Near((x, y), t, TransitionClearance)))
+                    && !transitions.Any(t => Near((x, y), t, TransitionClearance))
+                    && !InFeatureArea(x, y))
                     candidates.Add((x, y));
         return new(candidates, nearArrival);
     }
