@@ -864,6 +864,8 @@ public sealed class LockstepAttack(int action, uint targetId, SpawnedMonster? ta
     public Func<double> Hold { get; } = hold;
     // Ground attacks have no target-hit task to advance their repeat timer when the swing starts.
     public Func<double>? GroundAttackSeconds { get; init; }
+    // Full attack duration delegate used to clamp LockstepBusyUntil when a walk-up reaches its swing.
+    public Func<double>? AttackSeconds { get; init; }
     // Placed where its 0x1ab went out and not decided yet: the step pass tests its goal every frame.
     public bool Open;
     // When MoveTo's search timer (+0x55c) last started (Game.StepWalkUp).

@@ -411,6 +411,27 @@ public static class GameEvents
     /// <summary>Whether anything subscribes to client messages with this opcode.</summary>
     public static bool WantsPacket(ushort opcode) => Packets.TryGetValue(opcode, out var packet) && packet.Any;
 
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<byte, GameEvent<Func<Player, ReadOnlyMemory<byte>, Task<bool>>>> RulesetActions = new();
+
+    /// <summary>A client ruleset action (<c>C→S 0x02ca</c>) for <paramref name="rulesetId"/> (the <c>Rulesets.dat</c> row).
+    /// Subscribers receive only that ruleset's payload bytes and return true when handled, never hijacking other rulesets.</summary>
+    public static GameEvent<Func<Player, ReadOnlyMemory<byte>, Task<bool>>> RulesetAction(byte rulesetId) =>
+        RulesetActions.GetOrAdd(rulesetId, _ => new());
+
+    /// <summary>Dispatches a <c>C→S 0x02ca</c> ruleset payload to subscribers registered for <paramref name="rulesetId"/>.
+    /// Returns true as soon as one subscriber consumes it.</summary>
+    public static async Task<bool> RunRulesetAction(Player player, byte rulesetId, ReadOnlyMemory<byte> payload)
+    {
+        if (!RulesetActions.TryGetValue(rulesetId, out var evt) || !evt.Any) return false;
+        foreach (var (owner, run) in evt.Subscribers(player))
+        {
+            bool handled = false;
+            if (await GameEventOwners.Guard(owner, $"RulesetAction(0x{rulesetId:x2})", async () => handled = await run(player, payload)) && handled)
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>A chat command, <c>/name args…</c>, through <see cref="CommandsBuilding"/>. The Gateway's own commands, and those added
     /// before it, keep their name. One that throws tells the player it failed, and the error is in the Gateway's log.</summary>
     public static IDisposable Command(string owner, string name, string usage, Func<Player, string[], Task> run, params string[] arguments) =>
@@ -793,6 +814,9 @@ public static class GameEvents
     public static readonly GameEvent<Func<Player, uint, SpawnedNpc, NpcCatalog.Talk, string, Task<bool>>> RulesetEvent = new();
     /// <summary>The player interacted with a Map Device (hideout or Karui Shores) right before the Map Device window opens.</summary>
     public static readonly GameEvent<Func<Player, Task>> MapDeviceOpened = new();
+
+    /// <summary>An NPCTalk row's end script ran (e.g. a custom script verb or screen action); return true when handled.</summary>
+    public static readonly GameEvent<Func<Player, uint, SpawnedNpc, NpcCatalog.Talk, Task<bool>>> NpcTalkScript = new();
 
     public static async Task<bool> AnyNpcTalk(Player player, uint id, SpawnedNpc npc)
     {
@@ -1288,6 +1312,18 @@ public static class GameEvents
             if (subscriber.Rank != GameEventOwners.ModRank) continue;
             bool allowed = false;
             if (GameEventOwners.Guard(subscriber.Owner, nameof(MapDeviceAcceptsItem), () => allowed = subscriber.Run(null, typeHash, itemClass)) && allowed)
+                return true;
+        }
+        return false;
+    }
+
+    public static async Task<bool> RunNpcTalkScript(Player player, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk)
+    {
+        if (!NpcTalkScript.Any) return false;
+        foreach (var (owner, run) in NpcTalkScript.Subscribers(player))
+        {
+            bool handled = false;
+            if (await GameEventOwners.Guard(owner, nameof(NpcTalkScript), async () => handled = await run(player, npcId, npc, talk)) && handled)
                 return true;
         }
         return false;

@@ -28,9 +28,10 @@ public sealed partial class DeepwaterModule
     void LoadHub(IModuleContext module)
     {
         string id = module.Manifest.Id;
-        // Mode 1 (the border modifiers and the reroll cost) after 0x1f, so the Voyage window has them whenever it opens.
+        // Mode 1 (the border modifiers and the reroll cost) after 0x1f, so the Voyage window has them whenever it opens
+        // (both on The Sovereign and on an encounter's PseudoHub deck).
         GameEvents.EnterMessages.Add(id, player =>
-            PlayerOf(player).AreaId == HubId && DeepwaterPlanner.Message(player, DeepwaterPlanner.Current(player)) is { } border
+            IsDeckArea(PlayerOf(player).AreaId) && DeepwaterPlanner.Message(player, DeepwaterPlanner.Current(player)) is { } border
                 ? [("0x02c9 DeepwaterHubRules mode 1 (border modifiers)", border)] : []);
         GameEvents.NpcUsesLeagueFlags.Add(id, DeepwaterProgression.UsesLeagueFlags);
         GameEvents.NpcOptionPicked.Add(id, async (player, talk) =>
@@ -108,9 +109,32 @@ public sealed partial class DeepwaterModule
     {
         var modPlayer = PlayerOf(player);
         var state = _states.GetOrCreateValue(modPlayer);
-        (state.Locker, state.Portal, state.LockerOpen) = (0, 0, false);
+        (state.Locker, state.Portal, state.LockerOpen, state.DeckSpawned) = (0, 0, false, false);
         (state.Armed, state.ArmedPlan, state.PortalOpenAt, state.Confirm) = (null, null, 0, null);
         if (modPlayer.AreaId != HubId) return;
+        await PopulateDeck(module, player, state);
+    }
+
+    /// <summary>Populates the encounter's PseudoHub Sovereign deck (record 1) when a player extracts up to it or
+    /// re-enters an ended run on the deck: restores <c>IsMapOwner</c> for the owner and spawns the Chart Locker,
+    /// Bathysphere portal, Crafting Vats, Valerie/Vesper/CorpseBattery, deck &amp; below-deck Stashes, and bench props.</summary>
+    internal async Task EnterPseudoHubDeck(IModuleContext module, Player player)
+    {
+        var modPlayer = PlayerOf(player);
+        if (!IsOnDeck(player) || !DeepwaterGrid.IsEncounter(modPlayer.AreaId)) return;
+        var state = _states.GetOrCreateValue(modPlayer);
+        if (state.DeckSpawned) return;
+        if (HubOwner(player) && !player.Character.HasQuestFlag(DeepwaterConstants.MapOwner))
+            await SetQuestFlags(player, [DeepwaterConstants.MapOwner]);
+        await FourCharts(module, player, live: true);
+        await DeepwaterCursedDucats.SyncFlags(player);
+        await DeepwaterUpgrades.TryGrantHubSulphurPurifier(module, player);
+        await PopulateDeck(module, player, state);
+    }
+
+    async Task PopulateDeck(IModuleContext module, Player player, State state)
+    {
+        state.DeckSpawned = true;
         var lines = player.Layout.Level?.RoomObjects ?? [];
         if (lines.FirstOrDefault(o => o.Type == DeepwaterLocker.ChartLocker) is { } locker
             && await SpawnStateObject(module, player, locker, "open", 0) is { } l)
@@ -178,7 +202,7 @@ public sealed partial class DeepwaterModule
     async Task<bool> UseDeck(IModuleContext module, Player player, InstanceTransfer.UseSkillOnObject use, double at)
     {
         var modPlayer = PlayerOf(player);
-        if (modPlayer.AreaId != HubId || !_states.TryGetValue(modPlayer, out var state)) return false;
+        if (!IsOnDeck(player) || !_states.TryGetValue(modPlayer, out var state)) return false;
         if (state.Locker != 0 && use.TargetId == state.Locker)
         {
             if (!await WorldOf(player).WalkUpTo(state.LockerAt.X, state.LockerAt.Y, state.LockerReach, at)) return true;
@@ -203,7 +227,7 @@ public sealed partial class DeepwaterModule
         await TickPortal(player, state);
         // A map owner who left hands the deck to a player still on it (every 2 s, not every tick).
         double now = AreaTime(player);
-        if (PlayerOf(player).AreaId == HubId && now >= state.NextOwnerCheck)
+        if (IsOnDeck(player) && now >= state.NextOwnerCheck)
         {
             state.NextOwnerCheck = now + 2;
             if (!player.Character.HasQuestFlag(DeepwaterConstants.MapOwner) && HubOwner(player))
@@ -268,7 +292,7 @@ public sealed partial class DeepwaterModule
         bool device = talk.Script.Contains(DeviceEvent, StringComparison.Ordinal);
         bool chart = talk.Script.Contains(DeviceEvent1x1, StringComparison.Ordinal);
         if (talk.Script.Contains("ChartCallout", StringComparison.Ordinal))
-            module.Log($"{modPlayer.Character}: Valerie NPCTalk {talk.Row} CallOnClient( ChartCallout ) skipped (no known message)");
+            await DeepwaterSpeech.ChartCallout(player);
         if (device && talk.RewardOffer is not null)
         {
             // 3930 "Take Chart": the device with the reward window, and again (with LQF 1820) once the reward is taken.
@@ -313,7 +337,7 @@ public sealed partial class DeepwaterModule
         catch (InvalidDataException) { return false; }
         if (action is not { } a) return false;
         string who = PlayerOf(player).Character;
-        bool onHub = PlayerOf(player).AreaId == HubId;
+        bool onHub = IsOnDeck(player);
         switch (a.Op)
         {
             case DeepwaterHubRuleset.Op.TakeAllLoot:

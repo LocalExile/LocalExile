@@ -58,5 +58,7 @@
     <ProjectReference Include="..\..\Modules\Core\Content\Ritual\Ritual.csproj" />
     <!-- The Legion timer and army plan (LegionTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Legion\Legion.csproj" />
+    <!-- Settlers of Kalguur / Kingsmarch town economy, bridge and operations (SettlersTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Settlers\Settlers.csproj" />
   </ItemGroup>
 </Project>

@@ -14,7 +14,8 @@ public sealed partial class PlayerInventories
         Ring1 = 6, Ring2 = 7, Gloves = 8, Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14,
         Offhand2 = 15, CraftingBench = 16, PassiveJewels = 23, AtlasUpgrades = 39, HarvestCrafting = 43,
         HeistNpcEquipmentFirst = 45, HeistNpcEquipmentCount = 9,
-        ExpandedInventory = 84, MavenInvitations = 86, MemoryLineMaps = 94,
+        ExpandedInventory = 84, MavenInvitations = 86, KalguurDisenchanting = 87, KalguurMapping = 88,
+        RecombinatorInput = 92, RecombinatorOutput = 93, MemoryLineMaps = 94,
         Mercenary1 = 95, Mercenary2 = 96, Mercenary3 = 97,
         Ring3 = 102, MercenaryTemporary = 107, DeepwaterCollection = 114,
         Cursor = InstanceInventories.CursorRow;
