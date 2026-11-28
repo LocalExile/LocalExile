@@ -30,16 +30,6 @@ public static partial class Game
             spell ? null : weapon is null ? MainHandLocalSources(player) : weapon.LocalSources));
     }
 
-    /// <summary>The poison rules a Crucible weapon tree grants this skill by name (<see cref="SkillPoisonStats"/>):
-    /// its whole hit can poison, and its poisons may deal 100% more damage. Captured with the hit, as
-    /// <see cref="SupportedPoison"/> is, because the stats are the caster's at the release.</summary>
-    public static SkillPoisonStats SupportedPoisonSkill(Player player, ushort skillId)
-    {
-        var gem = SupportedSkill(player, skillId);
-        var merged = MergeSkillStats(FinalPlayerStats(player).ToDictionary(v => v.Item1, v => v.Item2), gem.Stats);
-        return SkillPoisonStats.OfEffect(gem.Effect, (uint key) => merged.GetValueOrDefault(key));
-    }
-
     /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
     public static MonsterPoisons.Settings DefaultAttackPoison(Player player, IReadOnlyDictionary<uint, int> playerStats,
         SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null,
@@ -116,8 +106,9 @@ public static partial class Game
         // Decide whether Lethal Dose applies before inserting any poisons from this hit.
         int extra = additional > 0 && target.Stacks(now) == 0 ? additional : 0;
         extra = ActorScale.Saturate((long)extra + Math.Max(0, additionalAlways));
+        int totalDouble = Math.Clamp(doubleChance + poisonSkill.DoubleChance, 0, 100);
         bool AddPoison() => target.Add(now,
-            poisonSkill.Doubles(random!) || doubleChance > 0 && random is not null && RandomRolls.Chance(doubleChance, 100, random) ? perSecond * 2 : perSecond, seconds);
+            totalDouble > 0 && random is not null && RandomRolls.Chance(totalDouble, 100, random) ? perSecond * 2 : perSecond, seconds);
         bool applied = AddPoison();
         for (int i = 0; i < extra; i++) applied |= AddPoison();
         return applied;

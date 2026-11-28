@@ -1183,40 +1183,6 @@ public static partial class Game
             with { Rating = WeaponAccuracyFor(player, null, playerStats, gem.Stats, gem.Effect, extraIncreased) };
     }
 
-    /// <summary>The damage type each per-type critical chance names, by the skill's own ActiveSkillType.</summary>
-    static readonly (string Type, string Stat)[] TypeCriticalChances =
-    [
-        ("Fire", "fire_critical_strike_chance_+%"),
-        ("Cold", "cold_critical_strike_chance_+%"),
-        ("Lightning", "lightning_critical_strike_chance_+%"),
-        ("Chaos", "chaos_critical_strike_chance_+%"),
-    ];
-
-    /// <summary>
-    /// The per-type critical chance stats a skill qualifies for: "+X% increased Critical Strike Chance with Fire
-    /// Skills" and its lightning, cold and chaos siblings. The gate is the skill's own tag, exactly as for the
-    /// per-type multipliers in SupportedCriticalMultiplier: Path of Building parses "with fire skills" as
-    /// KeywordFlag.Fire (ModParser.lua:1049-1053) and sets that flag from the skill's ActiveSkillTypes
-    /// (CalcActiveSkill.lua:400-411). No elemental sibling is added here: the task names only the four types, and
-    /// whether an elemental_critical_strike_chance_+% stat exists is unconfirmed from this copy.
-    /// </summary>
-    static List<string> TypeCriticalChanceStats(SkillCatalog skills, int effect)
-    {
-        List<string> stats = [];
-        foreach (var (type, stat) in TypeCriticalChances)
-            if (skills.HasType(effect, type))
-                stats.Add(stat);
-        return stats;
-    }
-
-    static long TypeCriticalChanceIncrease(SkillCatalog skills, SupportedGem gem, Func<string, long> sum)
-    {
-        long increase = 0;
-        foreach (string stat in TypeCriticalChanceStats(skills, gem.Effect))
-            increase += sum(stat);
-        return increase;
-    }
-
     public static int SupportedCriticalChance(Player player, ushort skillId) => SupportedCriticalChanceFor(player, skillId, false);
 
     // A release retains the unprohibited offensive chance; the hit evaluates current owner prohibitions separately.
@@ -1260,10 +1226,18 @@ public static partial class Game
         else if (placed.Trap)
             extraIncrease += (long)Player(Stat.TrapCriticalStrikeChancePlusPct) + Own(Stat.TrapCriticalStrikeChancePlusPct);
         // The per-type critical chance families join the same extraIncrease, before the attack branch so attacks
-        // take them too (the sigil line below sits on the spell path only): a Fire-tagged skill takes
-        // fire_critical_strike_chance_+%, and likewise for cold, lightning and chaos.
-        extraIncrease += TypeCriticalChanceIncrease(skills, gem, name =>
-            Stats.Key(name) is uint key ? (long)Player(key) + Own(key) : 0);
+        // take them too (the sigil line below sits on the spell path only). "with elemental skills" counts once
+        // whenever Fire, Cold or Lightning is present, matching SupportedCriticalMultiplier.
+        bool fire = skills.HasType(gem.Effect, "Fire");
+        bool cold = skills.HasType(gem.Effect, "Cold");
+        bool lightning = skills.HasType(gem.Effect, "Lightning");
+        if (fire) extraIncrease += (long)Player(Stat.FireCriticalStrikeChancePlusPct) + Own(Stat.FireCriticalStrikeChancePlusPct);
+        if (cold) extraIncrease += (long)Player(Stat.ColdCriticalStrikeChancePlusPct) + Own(Stat.ColdCriticalStrikeChancePlusPct);
+        if (lightning) extraIncrease += (long)Player(Stat.LightningCriticalStrikeChancePlusPct) + Own(Stat.LightningCriticalStrikeChancePlusPct);
+        if (skills.HasType(gem.Effect, "Chaos"))
+            extraIncrease += (long)Player(Stat.ChaosCriticalStrikeChancePlusPct) + Own(Stat.ChaosCriticalStrikeChancePlusPct);
+        if (fire || cold || lightning)
+            extraIncrease += (long)Player(Stat.ElementalCriticalStrikeChancePlusPct) + Own(Stat.ElementalCriticalStrikeChancePlusPct);
         if (skills.IsAttack(gem.Effect))
         {
             if (new[] { Stat.GlobalCannotCrit, Stat.VirtualGlobalCannotCrit, Stat.CannotCriticalStrikeWithAttacks }

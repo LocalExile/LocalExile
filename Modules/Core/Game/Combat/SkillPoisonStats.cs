@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Linq;
 using GameServer.Core;
 using GameServer.Core.World;
@@ -9,11 +8,9 @@ using GameServer.Core.World;
 /// and "X% chance for Poisons inflicted with Blast Rain or Artillery Ballista to deal 100% more Damage"
 /// (<c>blast_rain_artillery_ballista_poison_damage_+100%_final_chance</c>, row 18205). Both are the two stats of one
 /// Mods row, <c>WeaponTreeSkillBlastRainArtilleryBallista</c> (36063, GenerationType 31, Domain 1), and the pair
-/// repeats for Freezing Pulse and Eye of Winter (rows 18202 / 18204), so they are read by their shape rather than by
-/// name: <c>&lt;skills&gt;_all_damage_can_poison</c> counts when <c>&lt;skills&gt;</c> names the hit's ActiveSkills row
-/// (the whole prefix, its first id or its last one). The weapon's mod grants the stat to the character like every other
-/// non-local mod; the skills in the name are what limit it, exactly as the client's own skill code reads only the stat
-/// named after it, and as PoB scopes both lines with
+/// repeats for Freezing Pulse and Eye of Winter (rows 18202 / 18204). The weapon's mod grants the stat to the
+/// character like every other non-local mod; the skills in the name are what limit it, matching transfigured and
+/// Royale variants through their base ActiveSkills id, as PoB scopes both lines with
 /// <c>{ type = "SkillName", skillNameList = { "Blast Rain", "Artillery Ballista" } }</c>
 /// (PoB ModParser.lua 3897-3901 and 3922-3924).
 /// <para>
@@ -39,22 +36,23 @@ using GameServer.Core.World;
 /// </summary>
 public readonly record struct SkillPoisonStats(bool AllDamage, int DoubleChance)
 {
-    const string AllDamageSuffix = "_all_damage_can_poison";
-    const string DoubleChanceSuffix = "_poison_damage_+100%_final_chance";
-
-    /// <summary>The stats named after <paramref name="activeSkill"/> (an ActiveSkills Id, <c>artillery_ballista</c>)
-    /// give a hit of that skill. <paramref name="get"/> is the caster's and the skill's merged stats read by id, where an
-    /// equipped weapon's Crucible mod and the character's passives have landed. "All Damage can Poison" needs a skill
-    /// name; the chance does not.</summary>
+    /// <summary>The stats named after <paramref name="activeSkill"/> (an ActiveSkills Id, <c>artillery_ballista</c> or
+    /// its transfigured/Royale variant) give a hit of that skill. <paramref name="get"/> is the caster's and the
+    /// skill's merged stats read by id, where an equipped weapon's Crucible mod and the character's passives have
+    /// landed.</summary>
     public static SkillPoisonStats Of(string? activeSkill, Func<uint, int> get)
     {
-        long chance = 0;
-        // Without the Stats table there is nothing to match by name; it is not cached, so a later load still works.
-        if (string.IsNullOrEmpty(activeSkill) || Program.Stats.Names.Count == 0)
-            return new(false, (int)Math.Clamp(chance, 0, 100));
-        var ids = Named.GetOrAdd(activeSkill, Resolve);
-        return new(ids.AllDamage.Any(id => get(id) != 0),
-            (int)Math.Clamp(chance + ids.DoubleChance.Sum(id => (long)get(id)), 0, 100));
+        if (string.IsNullOrEmpty(activeSkill)) return default;
+        return BaseSkillId(activeSkill) switch
+        {
+            "blast_rain" or "artillery_ballista" => new(
+                get(Stat.BlastRainArtilleryBallistaAllDamageCanPoison) != 0,
+                Math.Clamp(get(Stat.BlastRainArtilleryBallistaPoisonDamagePlus100PctFinalChance), 0, 100)),
+            "freezing_pulse" or "eye_of_winter" => new(
+                get(Stat.FreezingPulseAndEyeOfWinterAllDamageCanPoison) != 0,
+                Math.Clamp(get(Stat.FreezingPulseAndEyeOfWinterPoisonDamagePlus100PctFinalChance), 0, 100)),
+            _ => default,
+        };
     }
 
     /// <summary>The stats of the skill a release used, from its GrantedEffects row.</summary>
@@ -72,15 +70,29 @@ public readonly record struct SkillPoisonStats(bool AllDamage, int DoubleChance)
 
     /// <summary>A GrantedEffects row's ActiveSkills Id (<c>artillery_ballista</c>); null for a support, a row without an
     /// active skill, or without the client tables.</summary>
-    public static string? ActiveSkillId(int effectRow) =>
-        effectRow >= 0 && effectRow < Effects().Length ? Effects()[effectRow] : null;
+    public static string? ActiveSkillId(int effectRow)
+    {
+        var map = Effects();
+        return effectRow >= 0 && effectRow < map.Length ? map[effectRow] : null;
+    }
 
-    static string?[] effects = [];
+    /// <summary>Warms the GrantedEffects -> ActiveSkills Id snapshot at module load.</summary>
+    public static void LoadData() => _ = Effects();
 
-    /// <summary>Fills the GrantedEffects -> ActiveSkills Id map lazily (the world loader reads this at startup).</summary>
-    static string?[] Effects() => effects.Length == 0
-        ? (effects = LoadEffects())
-        : effects;
+    sealed record EffectMap(object? Revision, string?[] ActiveSkills);
+    static EffectMap effectMap = new(null, []);
+
+    static string?[] Effects()
+    {
+        var current = Volatile.Read(ref effectMap);
+        var key = ClientTables.CacheKey;
+        if (current.ActiveSkills.Length > 0 && Equals(current.Revision, key))
+            return current.ActiveSkills;
+        var loaded = LoadEffects();
+        if (loaded.Length > 0)
+            Volatile.Write(ref effectMap, new(key, loaded));
+        return loaded;
+    }
 
     static string?[] LoadEffects()
     {
@@ -90,21 +102,9 @@ public readonly record struct SkillPoisonStats(bool AllDamage, int DoubleChance)
             ? active[row].Text("Id") : null)];
     }
 
-    readonly record struct StatNames(uint[] AllDamage, uint[] DoubleChance);
-    static readonly ConcurrentDictionary<string, StatNames> Named = new(StringComparer.Ordinal);
-
-    static StatNames Resolve(string skill) =>
-        new([.. Matching(skill, AllDamageSuffix).Where(n => Program.Stats.Key(n) is not null).Select(n => Stat.Of(n))],
-            [.. Matching(skill, DoubleChanceSuffix).Where(n => Program.Stats.Key(n) is not null).Select(n => Stat.Of(n))]);
-
-    static IEnumerable<string> Matching(string skill, string suffix) => Program.Stats.Names.Where(name =>
-        name.Length > suffix.Length && name.EndsWith(suffix, StringComparison.Ordinal)
-        && NamesSkill(name[..^suffix.Length], skill));
-
-    // <skills> names the skill when it is the whole prefix, its first id or its last one: the two prefixes in
-    // 3.29.3c are blast_rain_artillery_ballista and freezing_pulse_and_eye_of_winter. A prefix that names no skill
-    // (local, virtual, map_monsters, triggered_spells) never matches one.
-    static bool NamesSkill(string prefix, string skill) => prefix == skill
-        || prefix.StartsWith(skill + "_", StringComparison.Ordinal)
-        || prefix.EndsWith("_" + skill, StringComparison.Ordinal);
+    static string BaseSkillId(string skill) =>
+        skill.EndsWith("_alt_x", StringComparison.Ordinal) ? skill[..^6]
+        : skill.EndsWith("_alt_y", StringComparison.Ordinal) ? skill[..^6]
+        : skill.EndsWith("_royale", StringComparison.Ordinal) ? skill[..^7]
+        : skill;
 }
