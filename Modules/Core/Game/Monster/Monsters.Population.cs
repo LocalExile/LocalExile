@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
@@ -207,8 +206,18 @@ public static partial class Game
         var scale = mapMods?.Packs ?? default;
         Func<int, int, bool>? scatterable = trapClear.Count == 0 && featureAreas.Count == 0 ? null
             : (x, y) => !trapClear.Contains((x, y)) && !InFeatureArea(x, y);
-        bool isSingleRoomRecipeArena = IsRecipeArea(layout.Hash)
-            && !layout.AreaTransitions.Any(t => t.Transition.DestinationHash16 == layout.Hash && t.Transition.TeleportTo.HasValue);
+        var localTransitions = layout.AreaTransitions
+            .Where(t => t.Transition.DestinationHash16 == layout.Hash
+                && t.Transition.TeleportTo is { } target
+                && t.Transition.Feature is null
+                && !InFeatureArea(target.X, target.Y))
+            .Select(t => (From: layout.Near((t.Transition.GridX, t.Transition.GridY)),
+                To: layout.Near(t.Transition.TeleportTo!.Value)))
+            .Where(t => !InFeatureArea(t.To.X, t.To.Y))
+            .ToList();
+        bool isSingleRoomRecipeArena = MapDevices.IsRecipeArea(layout.Hash)
+            && !MultiRoomRecipeAreas.Contains(layout.Id)
+            && localTransitions.Count == 0;
         var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             safePoints, points,
             AreaPopulation.PopulationSeed(layout.Hash, player.Seed), Spawnable, notes, scale,
@@ -216,9 +225,7 @@ public static partial class Game
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
             scatterable: scatterable,
-            localTransitions: [.. layout.AreaTransitions.Where(t => t.Transition.DestinationHash16 == layout.Hash
-                    && t.Transition.TeleportTo.HasValue)
-                .Select(t => (layout.Near((t.Transition.GridX, t.Transition.GridY)), layout.Near(t.Transition.TeleportTo!.Value)))],
+            localTransitions: localTransitions,
             additionalPacks: [.. MapScarabPacks.Requests(mapMods), .. MapInfluence.Requests(mapMods)],
             ordinaryPacks: mapMods?.Get(Stat.MapMonstrousTreasureNoMonsters) is not > 0,
             grounds: layout.Level?.Grounds);
@@ -308,36 +315,11 @@ public static partial class Game
         AllowedCampaignRoomGuards.Contains(id)
         || (!banditCampHeld && AllowedBanditCampGuards.Contains(id));
 
-    static HashSet<ushort>? _recipeAreaHashes;
-    static object? _recipeAreaCacheKey;
-
-    static bool IsRecipeArea(ushort hash16)
+    // Multi-room recipe dungeons without same-area TeleportTo transitions: keep unassigned bosses deep, never at arrival.
+    static readonly HashSet<string> MultiRoomRecipeAreas = new(StringComparer.OrdinalIgnoreCase)
     {
-        var key = ClientTables.CacheKey;
-        var set = _recipeAreaHashes;
-        if (set is null || !ReferenceEquals(_recipeAreaCacheKey, key))
-        {
-            var loaded = new HashSet<ushort>();
-            if (ClientTables.Has("MapDeviceRecipes") && ClientTables.Has("WorldAreas"))
-            {
-                var areas = ClientTables.Table("WorldAreas");
-                var mapAreas = new HashSet<int>();
-                if (ClientTables.Has("Maps"))
-                    foreach (var m in ClientTables.Table("Maps"))
-                    {
-                        if (m.IntOrNull("Regular_WorldAreasKey") is int reg) mapAreas.Add(reg);
-                        if (m.IntOrNull("Unique_WorldAreasKey") is int uniq) mapAreas.Add(uniq);
-                    }
-                foreach (var r in ClientTables.Table("MapDeviceRecipes"))
-                {
-                    if (r.IntOrNull("WorldArea") is not int row || row <= 0 || row >= areas.Count) continue;
-                    if (mapAreas.Contains(row) || !r.Ints("RecipeItems").Any()) continue;
-                    if (areas[row].IntOrNull("HASH16") is int h) loaded.Add((ushort)h);
-                }
-            }
-            _recipeAreaCacheKey = key;
-            _recipeAreaHashes = set = loaded;
-        }
-        return set.Contains(hash16) && MapDevices.Atlas?.ByHash16(hash16) is null;
-    }
+        "Incursion_Temple1",
+        "MapAtziri1",
+        "MapAtziri2",
+    };
 }

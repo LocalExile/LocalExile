@@ -45,6 +45,77 @@ public sealed class MapOverlayAndEncountersTests
         Assert.NotEqual(plain.Length, withDisplay.Length);
         // Header flag bit 0x40 enables the three area-stat lists at bytes [18..20].
         Assert.Equal(0x40, withDisplay[18] & 0x40);
+
+        // White/Normal map with Atlas IIQ/IIR/PackSize, implicit + unscaled stats, and quality -> rarity.
+        var fullAtlas = new Dictionary<uint, int>
+        {
+            [Stat.MapModEffectPlusPctForNonUniqueMaps] = 50,
+            [Stat.MapItemDropQuantityPlusPct] = 12,
+            [Stat.MapItemDropRarityPlusPct] = 18,
+            [Stat.MapPackSizePlusPct] = 6,
+            [Stat.MapUnscaledItemDropQuantityPlusPct] = 5,
+            [Stat.MapUnscaledItemDropRarityPlusPct] = 7,
+            [Stat.MapUnscaledPackSizePlusPct] = 3,
+            [Stat.MapItemDropQualityAlsoAppliesToMapItemDropRarity] = 1,
+            [Stat.MapStrongboxCloseAfterOpeningChancePct] = 30,
+        };
+        var whiteMods = new MapMods(new Dictionary<uint, int>(), quality: 20)
+        {
+            MapRarity = ItemRarity.Normal,
+            Implicit = new Dictionary<uint, int>
+            {
+                [Stat.MapImplicitItemDropQuantityPlusPct] = 8,
+                [Stat.MapImplicitItemDropRarityPlusPct] = 10,
+                [Stat.MapImplicitPackSizePlusPct] = 4,
+            },
+        };
+        var whiteArea = Game.ComposeMapAreaStats(whiteMods, 5, fullAtlas, new HashSet<string>(), 0);
+        var whiteDisplay = Game.ComposeMapDisplayStats(whiteMods, fullAtlas);
+        Assert.Equal(25, whiteArea[Stat.MapItemDropQuantityPlusPct]); // 12 atlas + 5 unscaled + 8 implicit
+        Assert.Equal(55, whiteArea[Stat.MapItemDropRarityPlusPct]); // 18 atlas + 7 unscaled + 10 implicit + 20 quality
+        Assert.Equal(13, whiteArea[Stat.MapPackSizePlusPct]); // 6 atlas + 3 unscaled + 4 implicit
+        Assert.Equal(whiteArea[Stat.MapItemDropQuantityPlusPct], whiteDisplay[Stat.MapItemDropQuantityPlusPct]);
+        Assert.Equal(whiteArea[Stat.MapItemDropRarityPlusPct], whiteDisplay[Stat.MapItemDropRarityPlusPct]);
+        Assert.Equal(whiteArea[Stat.MapPackSizePlusPct], whiteDisplay[Stat.MapPackSizePlusPct]);
+        Assert.False(whiteDisplay.ContainsKey(Stat.MapStrongboxCloseAfterOpeningChancePct));
+        Assert.False(whiteDisplay.ContainsKey(Stat.MapImplicitItemDropQuantityPlusPct));
+        Assert.False(whiteDisplay.ContainsKey(Stat.MapUnscaledItemDropQuantityPlusPct));
+
+        // Unique map: non-unique mod effect does not scale explicit mods, while Atlas IIQ/IIR/PackSize still appear.
+        var uniqueMods = new MapMods(new Dictionary<uint, int>())
+        {
+            MapRarity = ItemRarity.Unique,
+            ExplicitMods = [new Dictionary<uint, int> { [Stat.MapItemDropRarityPlusPct] = 50 }],
+        };
+        var uniqueDisplay = Game.ComposeMapDisplayStats(uniqueMods, fullAtlas);
+        Assert.Equal(17, uniqueDisplay[Stat.MapItemDropQuantityPlusPct]);
+        Assert.Equal(75, uniqueDisplay[Stat.MapItemDropRarityPlusPct]);
+        Assert.Equal(9, uniqueDisplay[Stat.MapPackSizePlusPct]);
+
+        // Meticulous Appraiser converts all effective IIQ (explicit + implicit + unscaled + atlas) to 3x IIR consistently.
+        var appraiserAtlas = new Dictionary<uint, int>
+        {
+            [Stat.MapModEffectPlusPctForNonUniqueMaps] = 50,
+            [Stat.MapItemDropQuantityPlusPct] = 10,
+            [Stat.MapUnscaledItemDropQuantityPlusPct] = 5,
+            [Stat.MapPackSizePlusPct] = 5,
+            [Stat.MapItemDropQuantityInsteadAppliesToMapItemDropRarityAt3TimesValue] = 1,
+        };
+        var appraiserMods = new MapMods(new Dictionary<uint, int>())
+        {
+            MapRarity = ItemRarity.Rare,
+            ExplicitMods = [new Dictionary<uint, int> { [Stat.MapItemDropQuantityPlusPct] = 40 }],
+            Implicit = new Dictionary<uint, int> { [Stat.MapImplicitItemDropQuantityPlusPct] = 10 },
+        };
+        var appraiserArea = Game.ComposeMapAreaStats(appraiserMods, 10, appraiserAtlas, new HashSet<string>(), 0);
+        var appraiserDisplay = Game.ComposeMapDisplayStats(appraiserMods, appraiserAtlas);
+        // Quantity = 60 (40 * 1.5) + 10 (implicit) + 10 (atlas) + 5 (unscaled) = 85 -> 255% rarity.
+        Assert.Equal(0, appraiserArea[Stat.MapItemDropQuantityPlusPct]);
+        Assert.Equal(255, appraiserArea[Stat.MapItemDropRarityPlusPct]);
+        Assert.Equal(5, appraiserArea[Stat.MapPackSizePlusPct]);
+        Assert.False(appraiserDisplay.ContainsKey(Stat.MapItemDropQuantityPlusPct));
+        Assert.Equal(255, appraiserDisplay[Stat.MapItemDropRarityPlusPct]);
+        Assert.Equal(5, appraiserDisplay[Stat.MapPackSizePlusPct]);
     }
 
     [Fact]
@@ -58,80 +129,5 @@ public sealed class MapOverlayAndEncountersTests
         Assert.Equal(MathF.PI, MapDevice.PortalRotation(100, 100, 100, 110, 2), 4);
         // West of device (dx=-10, dy=0): atan2(-10, 0) = -pi/2
         Assert.Equal(-MathF.PI / 2f, MapDevice.PortalRotation(100, 100, 90, 100, 3), 4);
-    }
-
-    [Fact]
-    public void Display_stats_include_atlas_implicits_quality_to_rarity_on_white_and_unique_maps()
-    {
-        var atlas = new Dictionary<uint, int>
-        {
-            [Stat.MapModEffectPlusPctForNonUniqueMaps] = 50,
-            [Stat.MapItemDropQuantityPlusPct] = 12,
-            [Stat.MapItemDropRarityPlusPct] = 18,
-            [Stat.MapPackSizePlusPct] = 6,
-            [Stat.MapItemDropQualityAlsoAppliesToMapItemDropRarity] = 1,
-            [Stat.MapStrongboxCloseAfterOpeningChancePct] = 30,
-        };
-
-        // White/Normal map with implicit stats and quality -> rarity.
-        var whiteMods = new MapMods(new Dictionary<uint, int>(), quality: 20)
-        {
-            MapRarity = ItemRarity.Normal,
-            Implicit = new Dictionary<uint, int>
-            {
-                [Stat.MapImplicitItemDropQuantityPlusPct] = 8,
-                [Stat.MapImplicitItemDropRarityPlusPct] = 10,
-                [Stat.MapImplicitPackSizePlusPct] = 4,
-            },
-        };
-        var whiteArea = Game.ComposeMapAreaStats(whiteMods, 5, atlas, new HashSet<string>(), 0);
-        var whiteDisplay = Game.ComposeMapDisplayStats(whiteMods, atlas);
-        Assert.Equal(20, whiteArea[Stat.MapItemDropQuantityPlusPct]);
-        Assert.Equal(48, whiteArea[Stat.MapItemDropRarityPlusPct]); // 18 atlas + 10 implicit + 20 quality
-        Assert.Equal(10, whiteArea[Stat.MapPackSizePlusPct]);
-        Assert.Equal(whiteArea[Stat.MapItemDropQuantityPlusPct], whiteDisplay[Stat.MapItemDropQuantityPlusPct]);
-        Assert.Equal(whiteArea[Stat.MapItemDropRarityPlusPct], whiteDisplay[Stat.MapItemDropRarityPlusPct]);
-        Assert.Equal(whiteArea[Stat.MapPackSizePlusPct], whiteDisplay[Stat.MapPackSizePlusPct]);
-        Assert.False(whiteDisplay.ContainsKey(Stat.MapStrongboxCloseAfterOpeningChancePct));
-        Assert.False(whiteDisplay.ContainsKey(Stat.MapImplicitItemDropQuantityPlusPct));
-
-        // Unique map: non-unique mod effect does not scale explicit mods, while Atlas IIQ/IIR/PackSize still appear.
-        var uniqueMods = new MapMods(new Dictionary<uint, int>())
-        {
-            MapRarity = ItemRarity.Unique,
-            ExplicitMods = [new Dictionary<uint, int> { [Stat.MapItemDropRarityPlusPct] = 50 }],
-        };
-        var uniqueDisplay = Game.ComposeMapDisplayStats(uniqueMods, atlas);
-        Assert.Equal(12, uniqueDisplay[Stat.MapItemDropQuantityPlusPct]);
-        Assert.Equal(68, uniqueDisplay[Stat.MapItemDropRarityPlusPct]);
-        Assert.Equal(6, uniqueDisplay[Stat.MapPackSizePlusPct]);
-    }
-
-    [Fact]
-    public void Display_stats_apply_meticulous_appraiser_transform_consistently_with_area_stats()
-    {
-        var atlas = new Dictionary<uint, int>
-        {
-            [Stat.MapModEffectPlusPctForNonUniqueMaps] = 50,
-            [Stat.MapItemDropQuantityPlusPct] = 10,
-            [Stat.MapPackSizePlusPct] = 5,
-            [Stat.MapItemDropQuantityInsteadAppliesToMapItemDropRarityAt3TimesValue] = 1,
-        };
-        var mods = new MapMods(new Dictionary<uint, int>())
-        {
-            MapRarity = ItemRarity.Rare,
-            ExplicitMods = [new Dictionary<uint, int> { [Stat.MapItemDropQuantityPlusPct] = 40 }],
-            Implicit = new Dictionary<uint, int> { [Stat.MapImplicitItemDropQuantityPlusPct] = 10 },
-        };
-
-        var area = Game.ComposeMapAreaStats(mods, 10, atlas, new HashSet<string>(), 0);
-        var display = Game.ComposeMapDisplayStats(mods, atlas);
-        // Quantity = 60 (40 * 1.5) + 10 (implicit) + 10 (atlas) = 80 -> 240% rarity.
-        Assert.Equal(0, area[Stat.MapItemDropQuantityPlusPct]);
-        Assert.Equal(240, area[Stat.MapItemDropRarityPlusPct]);
-        Assert.Equal(5, area[Stat.MapPackSizePlusPct]);
-        Assert.False(display.ContainsKey(Stat.MapItemDropQuantityPlusPct));
-        Assert.Equal(240, display[Stat.MapItemDropRarityPlusPct]);
-        Assert.Equal(5, display[Stat.MapPackSizePlusPct]);
     }
 }

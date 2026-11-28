@@ -167,11 +167,14 @@ public static partial class Game
             foreach (var (id, value) in mods.Stats) if (value != 0) add(id, value);
     }
 
-    static readonly (uint Source, uint Target)[] ImplicitMapDropStats =
+    static readonly (uint Source, uint Target)[] FoldedMapDropStats =
     [
         (Stat.MapImplicitItemDropQuantityPlusPct, Stat.MapItemDropQuantityPlusPct),
         (Stat.MapImplicitItemDropRarityPlusPct, Stat.MapItemDropRarityPlusPct),
         (Stat.MapImplicitPackSizePlusPct, Stat.MapPackSizePlusPct),
+        (Stat.MapUnscaledItemDropQuantityPlusPct, Stat.MapItemDropQuantityPlusPct),
+        (Stat.MapUnscaledItemDropRarityPlusPct, Stat.MapItemDropRarityPlusPct),
+        (Stat.MapUnscaledPackSizePlusPct, Stat.MapPackSizePlusPct),
     ];
 
     static readonly uint[] EffectiveDisplayStats =
@@ -185,7 +188,7 @@ public static partial class Game
     {
         void Add(uint key, int value) => stats[key] = stats.GetValueOrDefault(key) + value;
 
-        foreach (var (source, target) in ImplicitMapDropStats)
+        foreach (var (source, target) in FoldedMapDropStats)
             if (stats.Remove(source, out int value) && value != 0) Add(target, value);
 
         bool qualityToRarity = stats.Remove(Stat.MapItemDropQualityAlsoAppliesToMapItemDropRarity, out int qr) && qr > 0
@@ -196,13 +199,8 @@ public static partial class Game
         // Meticulous Appraiser: the quantity modifiers apply to rarity instead, at 300%.
         bool appraiser = stats.GetValueOrDefault(Stat.MapItemDropQuantityInsteadAppliesToMapItemDropRarityAt3TimesValue) != 0
             || atlas is not null && atlas.GetValueOrDefault(Stat.MapItemDropQuantityInsteadAppliesToMapItemDropRarityAt3TimesValue) != 0;
-        if (appraiser)
-        {
-            int quantity = 0;
-            foreach (uint id in new[] { Stat.MapItemDropQuantityPlusPct, Stat.MapImplicitItemDropQuantityPlusPct, Stat.MapUnscaledItemDropQuantityPlusPct })
-                if (stats.Remove(id, out int value)) quantity += value;
+        if (appraiser && stats.Remove(Stat.MapItemDropQuantityPlusPct, out int quantity) && quantity != 0)
             Add(Stat.MapItemDropRarityPlusPct, 3 * quantity);
-        }
     }
 
     public static Dictionary<uint, int> ComposeMapDisplayStats(MapMods? mods, IReadOnlyDictionary<uint, int> atlas)
@@ -216,10 +214,8 @@ public static partial class Game
         // reflects effective area IIQ/IIR/PackSize on White/Normal/Unique maps without leaking raw Atlas-only stats.
         foreach (uint key in EffectiveDisplayStats)
             if (atlas.TryGetValue(key, out int value) && value != 0) Add(key, value);
-        foreach (var (source, _) in ImplicitMapDropStats)
+        foreach (var (source, _) in FoldedMapDropStats)
             if (atlas.TryGetValue(source, out int value) && value != 0) Add(source, value);
-        if (atlas.TryGetValue(Stat.MapUnscaledItemDropQuantityPlusPct, out int uq) && uq != 0)
-            Add(Stat.MapUnscaledItemDropQuantityPlusPct, uq);
         FoldEffectiveMapStats(stats, mods, atlas);
         foreach (uint key in EffectiveDisplayStats)
             if (stats.TryGetValue(key, out int value) && value == 0) stats.Remove(key);

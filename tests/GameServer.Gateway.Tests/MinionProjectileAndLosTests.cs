@@ -181,74 +181,7 @@ public sealed class MinionProjectileAndLosTests
     }
 
     [Fact]
-    public async Task Minion_projectile_crosses_uphill_and_downhill_terrain_steps()
-    {
-        var clock = new Clock { Time = 1 };
-        using var f = new TriggeredSummonTests.Fixture(clock);
-        var outer = Game.AreaUpdateContext.Value;
-        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
-        string areaId = $"minion-cliff-{Guid.NewGuid():N}";
-        using var walkability = new CliffWalkability(areaId, f.Player.Seed, 200, 200, (x, _) => (short)(x >= 110 ? 30 : 0));
-        try
-        {
-            f.Player.Use(new AreaLayout(1, areaId, 200, 200, 100, 100,
-                (x, y) => x >= 10 && x < 190 && y >= 10 && y < 190, [])
-            {
-                Sight = (_, _) => 1,
-            });
-            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.Time));
-            var zombie = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie"));
-            var uphillTarget = new SpawnedMonster("UphillTarget", new(120, 100, 20), 60, 2, 5000)
-            {
-                Hostile = true,
-                Variety = zombie,
-                Level = 70,
-                Walk = f.Player.NewMonsterWalk(6101, 120, 100, 20, 2, false),
-            };
-            f.Player.Area.Monsters[6101] = uphillTarget;
-
-            var hits = new List<uint>();
-            var profile = new ProjectileProfile("Metadata/Projectiles/IceElementalProjectile")
-                { Speed = 40, Radius = 2, Range = 30 };
-            var owner = new ProjectileActorKey(7001);
-            var offense = new ObjectProjectileOffense("minion-cliff-test", (_, contact) =>
-            {
-                hits.Add(contact.Target.Id);
-                return ProjectileHitResult.Hit;
-            }) { Quiet = true };
-
-            // Uphill: height 0 (x=100) -> 30-step cliff at x=110 -> target at (120, 100).
-            f.Session.Runtime.Release(new ProjectileUse(profile, owner, owner, 1, new(100, 100), new(120, 100)) { Payload = offense });
-            clock.Time += 0.4;
-            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.Time));
-            // Halfway across x=110 (at x=116) before reaching x=120: still in flight, not stopped by Terrain.
-            Assert.Contains(f.Session.Runtime.Projectiles, p => p.Position.X > 110);
-            clock.Time += 0.4;
-            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.Time));
-            Assert.Equal([6101u], hits);
-
-            // Downhill: height 30 (x=120) -> drop at x=110 -> target at (100, 100).
-            f.Player.Area.Monsters.Remove(6101);
-            f.Player.Area.Monsters[6102] = new SpawnedMonster("DownhillTarget", new(100, 100, 20), 60, 2, 5000)
-            {
-                Hostile = true,
-                Variety = zombie,
-                Level = 70,
-                Walk = f.Player.NewMonsterWalk(6102, 100, 100, 20, 2, false),
-            };
-            f.Session.Runtime.Release(new ProjectileUse(profile, owner, owner, 1, new(120, 100), new(100, 100)) { Payload = offense });
-            clock.Time += 0.8;
-            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.Time));
-            Assert.Equal([6101u, 6102u], hits);
-        }
-        finally
-        {
-            Game.AreaUpdateContext.Value = outer;
-        }
-    }
-
-    [Fact]
-    public async Task Minion_projectile_glide_adjusts_end_height_for_terrain_elevation()
+    public async Task Minion_projectile_crosses_terrain_steps_and_adjusts_glide_elevation()
     {
         var clock = new Clock { Time = 1 };
         using var f = new TriggeredSummonTests.Fixture(clock);
@@ -256,7 +189,9 @@ public sealed class MinionProjectileAndLosTests
         player.Connection.LockstepClient = false;
         player.Connection.PlayerSent = player.Connection.PlayerObjectCreated = true;
         player.ProjectileRuntimeState = f.Session;
-        string areaId = $"minion-glide-{Guid.NewGuid():N}";
+        var outer = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+        string areaId = $"minion-cliff-{Guid.NewGuid():N}";
         using var walkability = new CliffWalkability(areaId, player.Seed, 200, 200, (x, _) => (short)(x >= 110 ? 30 : 0));
         var packets = new List<byte[]>();
         var outgoing = Program.Outgoing;
@@ -295,26 +230,72 @@ public sealed class MinionProjectileAndLosTests
                 throw new InvalidOperationException("No 0x01ba MoveTo packet found.");
             }
 
+            var zombie = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie"));
+            var uphillTarget = new SpawnedMonster("UphillTarget", new(120, 100, 20), 60, 2, 5000)
+            {
+                Hostile = true,
+                Variety = zombie,
+                Level = 70,
+                Walk = player.NewMonsterWalk(6101, 120, 100, 20, 2, false),
+            };
+            player.Area.Monsters[6101] = uphillTarget;
+
+            var hits = new List<uint>();
             var profile = new ProjectileProfile("Metadata/Projectiles/IceElementalProjectile")
+                { Speed = 40, Radius = 2, Range = 30 };
+            var owner = new ProjectileActorKey(7001);
+            var offense = new ObjectProjectileOffense("minion-cliff-test", (_, contact) =>
+            {
+                hits.Add(contact.Target.Id);
+                return ProjectileHitResult.Hit;
+            }) { Quiet = true };
+
+            // Uphill: height 0 (x=100) -> 30-step cliff at x=110 -> target at (120, 100).
+            f.Session.Runtime.Release(new ProjectileUse(profile, owner, owner, 1, new(100, 100), new(120, 100)) { Payload = offense });
+            clock.Time += 0.4;
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.Time));
+            // Halfway across x=110 (at x=116) before reaching x=120: still in flight, not stopped by Terrain.
+            Assert.Contains(f.Session.Runtime.Projectiles, p => p.Position.X > 110);
+            clock.Time += 0.4;
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.Time));
+            Assert.Equal([6101u], hits);
+
+            // Downhill: height 30 (x=120) -> drop at x=110 -> target at (100, 100).
+            player.Area.Monsters.Remove(6101);
+            player.Area.Monsters[6102] = new SpawnedMonster("DownhillTarget", new(100, 100, 20), 60, 2, 5000)
+            {
+                Hostile = true,
+                Variety = zombie,
+                Level = 70,
+                Walk = player.NewMonsterWalk(6102, 100, 100, 20, 2, false),
+            };
+            f.Session.Runtime.Release(new ProjectileUse(profile, owner, owner, 1, new(120, 100), new(100, 100)) { Payload = offense });
+            clock.Time += 0.8;
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.Time));
+            Assert.Equal([6101u, 6102u], hits);
+            player.Area.Monsters.Remove(6102);
+            await Flush();
+
+            // Glide elevation: uphill (0 -> 30 + 9 = 39) and downhill (30 -> 0 + 9 = 9).
+            var glideProfile = new ProjectileProfile("Metadata/Projectiles/IceElementalProjectile")
                 { Speed = 40, Radius = 2, Range = 20 };
-            var owner = new ProjectileActorKey(7002);
-            var offense = new ObjectProjectileOffense("minion-glide-test", (_, _) => ProjectileHitResult.Miss)
+            var glideOwner = new ProjectileActorKey(7002);
+            var glideOffense = new ObjectProjectileOffense("minion-glide-test", (_, _) => ProjectileHitResult.Miss)
             {
                 Quiet = true,
                 Presentation = new() { LaunchHeight = 9 },
             };
 
-            // Uphill glide: start ground 0 -> end ground 30 (+9 launch height = 39).
-            f.Session.Runtime.Release(new ProjectileUse(profile, owner, owner, 1, new(100, 100), new(120, 100)) { Payload = offense });
+            lock (packets) packets.Clear();
+            f.Session.Runtime.Release(new ProjectileUse(glideProfile, glideOwner, glideOwner, 1, new(100, 100), new(120, 100)) { Payload = glideOffense });
             await Flush();
             Assert.Equal((120, 100, 39), SingleMoveTo(packets));
             clock.Time += 1.0;
             f.Session.AdvanceTo(ProjectileRuntime.Time(clock.Time));
             await Flush();
 
-            // Downhill glide: start ground 30 -> end ground 0 (+9 launch height = 9).
             lock (packets) packets.Clear();
-            f.Session.Runtime.Release(new ProjectileUse(profile, owner, owner, 1, new(120, 100), new(100, 100)) { Payload = offense });
+            f.Session.Runtime.Release(new ProjectileUse(glideProfile, glideOwner, glideOwner, 1, new(120, 100), new(100, 100)) { Payload = glideOffense });
             await Flush();
             Assert.Equal((100, 100, 9), SingleMoveTo(packets));
             clock.Time += 1.0;
@@ -324,6 +305,7 @@ public sealed class MinionProjectileAndLosTests
         finally
         {
             Program.Outgoing = outgoing;
+            Game.AreaUpdateContext.Value = outer;
         }
     }
 

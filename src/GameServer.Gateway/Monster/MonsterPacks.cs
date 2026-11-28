@@ -718,7 +718,7 @@ public static class AreaPopulation
             // The layout gave no free boss point at all (a sparse boss room the doodad fit misses on a seed nobody
             // recorded, or points whose boss already stands elsewhere): the area's unique boss still stands, deep in the
             // area (or inside its disconnected internal boss arena when localTransitions reach one).
-            var deep = Farthest(w, h, walkable, arrival, transitions, localTransitions);
+            var deep = Farthest(w, h, walkable, arrival, transitions, localTransitions, scatterable);
             notes.Add($"no room point for unique boss(es) {string.Join(", ", rest.Select(i => area.Bosses[i]))} of {area.AreaId}: standing at ({deep.X}, {deep.Y})");
             Bosses(deep, "mapboss", rest);
         }
@@ -1104,22 +1104,26 @@ public static class AreaPopulation
     /// disconnected internal boss arena reached via <paramref name="localTransitions"/>).</summary>
     static (int X, int Y) Farthest(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
         IReadOnlyList<(int X, int Y)> transitions,
-        IReadOnlyList<((int X, int Y) From, (int X, int Y) To)>? localTransitions = null)
+        IReadOnlyList<((int X, int Y) From, (int X, int Y) To)>? localTransitions = null,
+        Func<int, int, bool>? allowed = null)
     {
         var mainBest = FarthestInComponent(w, h, walkable, arrival, transitions, out var mainDist);
         if (localTransitions is { Count: > 0 })
         {
+            bool ValidArenaEntry((int X, int Y) to) =>
+                (uint)to.X < (uint)w && (uint)to.Y < (uint)h && walkable(to.X, to.Y)
+                && (allowed is null || allowed(to.X, to.Y))
+                && !mainDist.ContainsKey(to);
             (int X, int Y)? arenaEntry = null;
             foreach (var (from, to) in localTransitions)
-                if ((uint)to.X < (uint)w && (uint)to.Y < (uint)h && walkable(to.X, to.Y)
-                    && !mainDist.ContainsKey(to) && mainDist.ContainsKey(from))
+                if (ValidArenaEntry(to) && mainDist.ContainsKey(from))
                 {
                     arenaEntry = to;
                     break;
                 }
             if (arenaEntry is null)
                 foreach (var (_, to) in localTransitions)
-                    if ((uint)to.X < (uint)w && (uint)to.Y < (uint)h && walkable(to.X, to.Y) && !mainDist.ContainsKey(to))
+                    if (ValidArenaEntry(to))
                     {
                         arenaEntry = to;
                         break;

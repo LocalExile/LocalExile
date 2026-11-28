@@ -805,6 +805,10 @@ public static partial class Game
         ProjectileGrid.Area? blocking;
         TerrainHeights.Area? heights;
         int heightsAsOf = -1;
+        string? heightsAreaId;
+        uint heightsSeed;
+        readonly string? projectileHeightOverride = Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT");
+        readonly int? projectileHeightOverrideSteps = int.TryParse(Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), out int up) ? up : null;
 
         bool Wall(int x, int y) => Wall(x, y, 1);
 
@@ -816,7 +820,8 @@ public static partial class Game
         int? Height(int x, int y)
         {
             int asOf = TerrainHeights.Forgotten;
-            if (heights is null || heightsAsOf != asOf) (heights, heightsAsOf) = (TerrainHeights.AreaOf(Player.Layout.Id, Player.Seed), asOf);
+            if (heightsAsOf != asOf || heightsAreaId != Player.Layout.Id || heightsSeed != Player.Seed)
+                (heights, heightsAsOf, heightsAreaId, heightsSeed) = (TerrainHeights.AreaOf(Player.Layout.Id, Player.Seed), asOf, Player.Layout.Id, Player.Seed);
             return heights?.At(x, y);
         }
 
@@ -829,13 +834,12 @@ public static partial class Game
                 or "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale"
                 or "LightningStrike" or "LightningStrikeAltX" or "LightningStrikeAltY" or "VaalLightningStrike";
 
-        static int LaunchStepsFor(ProjectileEntity p, ProjectilePresentation presentation) =>
+        int LaunchStepsFor(ProjectileEntity p, ProjectilePresentation presentation) =>
             presentation.LaunchHeight
-            ?? (int.TryParse(Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), out int up)
-                ? up
-                : p.Use.Payload is ProjectileOffense { Spell: true }
-                    ? ProjectileAimHeight.SpellLaunchSteps
-                    : ProjectileHeight.DefaultSteps);
+            ?? projectileHeightOverrideSteps
+            ?? (p.Use.Payload is ProjectileOffense { Spell: true }
+                ? ProjectileAimHeight.SpellLaunchSteps
+                : ProjectileHeight.DefaultSteps);
 
         // 1:1 3.29.3c sloped 3D height ray for explicit-height player projectiles (outbound primary + return/redirect
         // legs). Lobbed arcs, ground-crawling skills, continuation children, monster shots and minion shots keep the plain grid.
@@ -1171,10 +1175,10 @@ public static partial class Game
         }
 
         int? TerrainHeightAt(ProjectileVector at) =>
-            TerrainHeights.At(Player.Layout.Id, Player.Seed, (int)Math.Round(at.X), (int)Math.Round(at.Y));
+            Height((int)Math.Round(at.X), (int)Math.Round(at.Y));
 
-        static ProjectileHeight FlightHeightAt(int? ground, ProjectilePresentation presentation) =>
-            ProjectileHeight.Flight(ground, Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), presentation.LaunchHeight);
+        ProjectileHeight FlightHeightAt(int? ground, ProjectilePresentation presentation) =>
+            ProjectileHeight.Flight(ground, projectileHeightOverride, presentation.LaunchHeight);
 
         public void Publish(ProjectileEvent value)
         {
@@ -1275,7 +1279,7 @@ public static partial class Game
                     ? spawnRay.MarkerAt(value.Position)
                     : IsTerrainFollowingProjectile(p)
                         ? ProjectileHeight.Terrain
-                        : FlightHeightAt(TerrainHeights.At(Player.Layout.Id, Player.Seed, x, y), presentation);
+                        : FlightHeightAt(Height(x, y), presentation);
                 var visual = new Visual(id, height) { SpawnedAt = value.Position };
                 visuals[p.Id] = visual; Player.TrackProjectileObject(id);
                 if (p.Profile.Lobbed) BeginArc(p, visual);
@@ -1475,9 +1479,7 @@ public static partial class Game
         void BeginArc(ProjectileEntity p, Visual visual)
         {
             var end = p.Position + p.Direction * p.Remaining;
-            int? Ground(ProjectileVector at) => TerrainHeights.At(Player.Layout.Id, Player.Seed,
-                (int)Math.Round(at.X), (int)Math.Round(at.Y));
-            if (Ground(p.Position) is not int startGround || Ground(end) is not int endGround)
+            if (TerrainHeightAt(p.Position) is not int startGround || TerrainHeightAt(end) is not int endGround)
             {
                 // A guessed absolute parabola can run entirely underground. Let the client sample the ground
                 // until both endpoints are known; XY landing/damage and bounce chronology remain authoritative.

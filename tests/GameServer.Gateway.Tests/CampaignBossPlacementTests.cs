@@ -42,7 +42,7 @@ public class CampaignBossPlacementTests
     }
 
     [Fact]
-    public void Partial_boss_points_ritual_override_and_warband_fallback_keep_bosses_off_arrival()
+    public void Map_boss_fallback_points_and_disconnected_arena_keep_bosses_off_arrival()
     {
         // MapWorldsPort-style: mapboss1 places boss 1, leaving bosses 3..5; they stay at mapboss1, not arrival.
         var portSpawns = AreaPopulation.Plan(Area(1, 3, 4, 5), 100, 100, Walk, (10, 10), [],
@@ -67,18 +67,22 @@ public class CampaignBossPlacementTests
         var withMapBoss = AreaPopulation.Plan(Area(1), 100, 100, Walk, (10, 10), [],
             [new("mapboss", 60, 60), new("mapbosswarband1", 85, 85)], 11, _ => true, []);
         Assert.Equal((60, 60), (Assert.Single(withMapBoss).X, Assert.Single(withMapBoss).Y));
-    }
 
-    [Fact]
-    public void Unassigned_map_boss_enters_disconnected_arena_via_local_transition_and_never_arrival()
-    {
         // Main map (x < 120) walled off from a separate boss arena (x >= 140) reached via a local transition.
         bool ArenaWalk(int x, int y) => x is >= 0 and < 200 && y is >= 0 and < 200 && (x < 120 || x >= 140);
-        var spawns = AreaPopulation.Plan(Area(1), 200, 200, ArenaWalk, (15, 15), [(155, 100)], [],
+        var arenaSpawns = AreaPopulation.Plan(Area(1), 200, 200, ArenaWalk, (15, 15), [(155, 100)], [],
             42, _ => true, [], unassignedAtArrival: false,
             localTransitions: [((105, 100), (150, 100))]);
-        var boss = Assert.Single(spawns);
-        Assert.True(boss.X >= 140, $"expected boss inside arena (x >= 140), got ({boss.X}, {boss.Y})");
-        Assert.True(ArenaWalk(boss.X, boss.Y));
+        var arenaBoss = Assert.Single(arenaSpawns);
+        Assert.True(arenaBoss.X >= 140, $"expected boss inside arena (x >= 140), got ({arenaBoss.X}, {arenaBoss.Y})");
+        Assert.True(ArenaWalk(arenaBoss.X, arenaBoss.Y));
+
+        // Disconnected feature sub-area excluded by scatterable must not pull an unassigned map boss inside.
+        var featureGuarded = AreaPopulation.Plan(Area(1), 200, 200, ArenaWalk, (15, 15), [(155, 100)], [],
+            42, _ => true, [], unassignedAtArrival: false,
+            scatterable: (x, _) => x < 140,
+            localTransitions: [((105, 100), (150, 100))]);
+        var mainBoss = Assert.Single(featureGuarded);
+        Assert.True(mainBoss.X < 120, $"expected boss to stay out of feature area (x < 120), got ({mainBoss.X}, {mainBoss.Y})");
     }
 }
