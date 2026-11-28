@@ -1734,6 +1734,7 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> playerStats, double now, WorldRecordBuilder bytes)
     {
         if (brand.OverchargeGem is not { } surgeGem) return;
+        surgeGem = BrandsurgeDamageGem(player, brand.Gem, surgeGem);
         int radius = (int)Math.Round(SkillRadius(player, surgeGem.Stats, spell: true, surgeGem.Effect) * brand.OverchargeAreaMore);
         SpawnTempEffectLocked(player, state, at, PresentationOf(brand.Family).ExplosionAo, now + 0.55, bytes,
             (float)Math.Clamp(radius / 24.0, 0.7, 3.0));
@@ -1747,6 +1748,39 @@ public static partial class Game
             DealBrandSpellHitLocked(player, brand.OverchargeSkillId, surgeGem, playerStats, multipliers, id, m,
                 now, brand.OverchargeDamageMore, brand.OverchargeDamageMore, label: "Brandsurge", placement: brand.Placement);
         }
+    }
+
+    static readonly (string Tag, uint Stat)[] BrandsurgeConversions =
+    [
+        ("lightning", Stat.SkillPhysicalDamagePctToConvertToLightning),
+        ("cold", Stat.SkillPhysicalDamagePctToConvertToCold),
+        ("fire", Stat.SkillPhysicalDamagePctToConvertToFire),
+        ("chaos", Stat.SkillPhysicalDamagePctToConvertToChaos),
+    ];
+
+    static SupportedGem BrandsurgeDamageGem(Player player, SupportedGem brand, SupportedGem surge)
+    {
+        var items = ItemsFor(player);
+        if (brand.SourceGem is not { } source || items.ByHash(source.TypeHash) is not { } type
+            || items.Gem(type) is not { Variants.Count: > 0 } gem) return surge;
+        int variant = gem.Variant(source.GemVariant).Index;
+        var skills = SkillsFor(player);
+        Span<uint> matched = stackalloc uint[BrandsurgeConversions.Length];
+        int count = 0;
+        foreach (var (tag, stat) in BrandsurgeConversions)
+            if (skills.GemHasTag(type.Row, variant, tag)) matched[count++] = stat;
+        if (count == 0) return surge;
+
+        // Intrinsic conversion takes priority over equipment and support conversion and also feeds ailments.
+        var stats = new Dictionary<uint, int>(surge.Stats);
+        int remaining = 100;
+        for (int i = 0; i < count; i++)
+        {
+            int percent = remaining / (count - i);
+            stats[matched[i]] = percent;
+            remaining -= percent;
+        }
+        return surge with { Stats = stats };
     }
 
     // ---- Shared Brand Spell Hit Executor --------------------------------------------------------------------------------
