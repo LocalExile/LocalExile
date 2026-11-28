@@ -19,11 +19,10 @@ public static partial class Game
         if (ItemModStats.LocalValue(item, ItemsFor(player).Mods, replaces) == 0) return null;
         foreach (var source in GemSkillEffects(player))
         {
-            string? effect = SkillsFor(player).EffectId(source.Effect);
-            if (!CurseCatalog.Hex(effect)) continue;
+            if (CurseCatalog.HexFamily(SkillsFor(player).EffectId(source.Effect)) is not { } effect) continue;
             var gem = SupportedSkill(player, source.Id);
             if (gem.Host == ring.Id && gem.RequirementsMet && gem.SourceGem is not null)
-                return new(source.Id, effect!, gem);
+                return new(source.Id, effect, gem);
         }
         return null;
     }

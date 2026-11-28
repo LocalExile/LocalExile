@@ -182,7 +182,7 @@ public sealed class MonsterCurses(Action? changed = null)
 
 public static class CurseCatalog
 {
-    public sealed record Definition(ushort Buff, bool Mark = false);
+    public sealed record Definition(ushort Buff, bool Mark = false, string? Family = null);
     public static readonly IReadOnlyDictionary<string, Definition> All = new Dictionary<string, Definition>
     {
         ["TemporalChains"] = new(69), ["ElementalWeakness"] = new(70), ["Flammability"] = new(71),
@@ -190,6 +190,15 @@ public static class CurseCatalog
         ["Vulnerability"] = new(79), ["Punishment"] = new(81), ["Despair"] = new(1016),
         ["WarlordsMark"] = new(74, true), ["AssassinsMark"] = new(77, true), ["SnipersMark"] = new(78, true),
         ["PoachersMark"] = new(80, true), ["AlchemistsMark"] = new(2093, true),
+        ["ElementalWeaknessRoyale"] = new(70, Family: "ElementalWeakness"),
+        ["VulnerabilityRoyale"] = new(79, Family: "Vulnerability"),
+        ["DespairRoyale"] = new(1016, Family: "Despair"),
+        ["WarlordsMarkRoyale"] = new(74, true, "WarlordsMark"),
+        ["AssassinsMarkRoyale"] = new(77, true, "AssassinsMark"),
+        ["PoachersMarkRoyale"] = new(80, true, "PoachersMark"),
     };
+    public static string Family(string effect) => All.GetValueOrDefault(effect)?.Family ?? effect;
     public static bool Hex(string? effect) => effect is not null && All.TryGetValue(effect, out var curse) && !curse.Mark;
+    public static string? HexFamily(string? effect) =>
+        effect is not null && All.TryGetValue(effect, out var curse) && !curse.Mark ? curse.Family ?? effect : null;
 }

@@ -12,7 +12,7 @@ public static partial class Game
         int baseMs = hex.Stats.GetValueOrDefault(Stat.BaseHexZoneSkillDurationMs);
         if (baseMs <= 0) return false;
         if (CaptureGemSourceLifetimeLocked(player, skill, hex.Effect) is not { } source
-            || SkillsFor(player).EffectId(hex.Effect) is not { } effect) return true;
+            || CurseCatalog.HexFamily(SkillsFor(player).EffectId(hex.Effect)) is not { } effect) return true;
         double duration = SkillDurationModifiers.Seconds(baseMs, playerStats.GetValueOrDefault, hex.Stats.GetValueOrDefault,
             DurationKinds(player, hex.Effect));
         int radius = CurseRadius(player, skill, false, hex, playerStats);

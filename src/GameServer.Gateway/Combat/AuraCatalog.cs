@@ -133,6 +133,7 @@ public static class AuraCatalog
         "GraceHardMode" => "Grace", "DeterminationHardMode" => "Determination",
         "PrecisionRoyale" => "Precision", "VitalityRoyale" => "Vitality", "ClarityRoyale" => "Clarity",
         "BloodAndSandRoyale" => StanceCatalog.BloodAndSand,
+        "ElementalWeaknessRoyale" or "VulnerabilityRoyale" or "DespairRoyale" => CurseCatalog.Family(effectId),
         "AspectOfTheCat" => "CatAspect", _ => effectId,
     };
 

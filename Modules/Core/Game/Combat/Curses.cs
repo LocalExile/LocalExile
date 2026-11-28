@@ -97,6 +97,7 @@ public static partial class Game
     {
         if (!CurseCatalog.All.TryGetValue(effect, out var definition) || casterId is null && ExternalTemporalChains(player, effect)
             || monster.Dead || monster.Life == 0 || !monster.Hostile) return false;
+        effect = definition.Family ?? effect;
         var playerStats = sources ?? CharacterPlayerStats(player);
         int Own(uint n) => GolemStat(curseStats, n);
         int Get(uint n) => GolemStat(playerStats, n) + Own(n);
@@ -305,8 +306,9 @@ public static partial class Game
                 if (currentSource is not { Active: true } || currentSource.Identity != source.Identity
                     || currentGem.Effect != gem.Effect || !currentGem.RequirementsMet
                     || GemSkillInstanceDisabled(player, currentGem.Effect, skill) is not null) return false;
-                RecordCompletedCurseCast(player, effect, AreaTime(player));
-                ApplyCurseTargetsLocked(player, skill, currentGem, CurseCatalog.All[effect], aim, target, now, playerStats,
+                var definition = CurseCatalog.All[effect];
+                RecordCompletedCurseCast(player, definition.Family ?? effect, now);
+                ApplyCurseTargetsLocked(player, skill, currentGem, definition, aim, target, now, playerStats,
                     cascadeFrom: player.Walk.Position(now), extraAreas: CastingBeidatSpell(player, skill)?.ExtraAreas ?? 0);
                 break;
             }
