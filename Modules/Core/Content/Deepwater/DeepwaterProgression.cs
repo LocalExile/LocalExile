@@ -8,7 +8,7 @@ namespace GameServer.Modules.Deepwater;
 /// <summary>The Sovereign hub progression, dynamic NPC lifecycle (NPCs 789–795 &amp; <c>CorpseBattery</c>), below-deck
 /// Stash/GuildStash click-swap, <c>Q209–211</c> <c>NPCTalk</c> side-effects, <c>QuestRewardOffers#131–138</c> resolution,
 /// <c>LQF 1834</c> boat unlock, <c>LQF 1841</c> Auto-Lanterns toggle, and Deepwater quest-item flag synchronization.</summary>
-internal static class DeepwaterProgression
+public static class DeepwaterProgression
 {
     public const int ValerieRow = 789,
         ValerieTutorialRow = 790,
@@ -149,12 +149,51 @@ internal static class DeepwaterProgression
 
     // ---- Hub NPCs, CorpseBattery & Below-Deck Stashes ----
 
+    // Valerie's rig.amd has 8 clips and no default "idle" clip; without 0x01b2 she stays in bind pose (T-pose).
+    const uint ClipIdle = 0;            // idle_01 (loop)
+    const uint ClipIdleChair = 1;       // idle_chair_01 (loop)
+    const uint ClipIdleCoast = 2;       // idle_coast_01 (loop)
+    const uint ClipIdleDivingBell = 3;  // idle_diving_bell_01 (loop)
+    const uint ClipIdleTable = 5;       // idle_table_01 (loop)
+
+    public static uint? ValerieIdleClip(string npcType, string areaId) => npcType switch
+    {
+        ValerieTutorial => areaId == DeepwaterModule.Coast ? ClipIdleCoast : ClipIdleTable,
+        Valerie => ClipIdleChair,
+        ValeriePostStory => ClipIdleDivingBell,
+        ValerieCraftingTutorial or ValerieAfterFairgraves or ValerieVesperRevive => ClipIdle,
+        _ => null,
+    };
+
+    /// <summary>Sends Valerie's looping idle animation (<c>0x01b2</c>) immediately after spawn so she never T-poses.</summary>
+    public static Task AnimateValerie(Player player, uint id, string npcType)
+    {
+        if (id == 0 || ValerieIdleClip(npcType, PlayerOf(player).AreaId) is not uint clip) return Task.CompletedTask;
+        return global::Game.SendWorldRecord(PlayerOf(player), id, InstanceProtocol.AnimationUpdate(id, 0, clip, 1f),
+            $"0x01b2 Valerie idle clip {clip} ({npcType.Split('/')[^1]})");
+    }
+
+    /// <summary>Animates ValerieTutorial on The Coast (<c>1_1_2</c>) once spawned by the quest engine.</summary>
+    public static async Task<uint> AnimateCoastValerie(Player player)
+    {
+        if (PlayerOf(player).AreaId != DeepwaterModule.Coast) return 0;
+        uint valerieId = 0;
+        lock (player.Npcs)
+        {
+            foreach (var (id, spawned) in player.Npcs)
+                if (spawned.Npc.Id == ValerieTutorial) { valerieId = id; break; }
+        }
+        if (valerieId != 0) await AnimateValerie(player, valerieId, ValerieTutorial);
+        return valerieId;
+    }
+
     /// <summary>Spawns all dynamic Sovereign hub NPCs (deck Valerie variant, below-deck Valerie, <c>VesperCrafting</c>),
-    /// <c>CorpseBattery</c>, and below-deck Stash/GuildStash, and syncs Deepwater quest-item flags.</summary>
+    /// <c>CorpseBattery</c>, and Stash/GuildStash (works on both The Sovereign hub and the encounter PseudoHub deck),
+    /// and syncs Deepwater quest-item flags.</summary>
     public static async Task SpawnHub(IModuleContext module, Player player)
     {
         await SyncQuestItemFlags(player);
-        if (PlayerOf(player).AreaId != DeepwaterModule.HubId) return;
+        if (!DeepwaterModule.IsOnDeck(player)) return;
         var scene = new HubScene();
         Scenes.AddOrUpdate(player, scene);
         await SpawnHubNpcs(module, player, scene);
@@ -165,10 +204,16 @@ internal static class DeepwaterProgression
     public static Task SpawnHubNpcs(IModuleContext module, Player player) =>
         SpawnHubNpcs(module, player, Scenes.GetOrCreateValue(player));
 
+    static (int X, int Y) DeckOffset(Player player) =>
+        DeepwaterGrid.IsEncounter(PlayerOf(player).AreaId) && player.Layout.Level is { Records.Count: > 1 } level
+            ? (level.Records[1].X * 23, level.Records[1].Y * 23)
+            : (0, 0);
+
     static async Task SpawnHubNpcs(IModuleContext module, Player player, HubScene scene)
     {
-        if (PlayerOf(player).AreaId != DeepwaterModule.HubId) return;
+        if (!DeepwaterModule.IsOnDeck(player)) return;
         var lines = player.Layout.Level?.RoomObjects ?? [];
+        var (ox, oy) = DeckOffset(player);
 
         // 1. Deck Valerie (exactly one active variant on ValeriePlacerOne/Two/Three or beside CorpseBattery).
         bool velkaKilled = HasLeagueFlag(player, VelkaKilledLqf);
@@ -181,22 +226,22 @@ internal static class DeepwaterProgression
         if (velkaKilled && !vesperRevived)
         {
             deckType = ValerieVesperRevive;
-            deckAt = FindPlacement(lines, ValerieVesperRevive, 350, 446, 2.48146f);
+            deckAt = FindPlacement(lines, ValerieVesperRevive, 350 + ox, 446 + oy, 2.48146f);
         }
         else if (vesperRevived)
         {
             deckType = ValeriePostStory;
-            deckAt = FindPlacement(lines, ValeriePlacerThree, 289, 430, -1.01836f);
+            deckAt = FindPlacement(lines, ValeriePlacerThree, 289 + ox, 430 + oy, -1.01836f);
         }
         else if (firstVoyage)
         {
             deckType = Valerie;
-            deckAt = FindPlacement(lines, ValeriePlacerTwo, 303, 471, 0.279252f);
+            deckAt = FindPlacement(lines, ValeriePlacerTwo, 303 + ox, 471 + oy, 0.279252f);
         }
         else
         {
             deckType = ValerieTutorial;
-            deckAt = FindPlacement(lines, ValeriePlacerOne, 313, 457, 1.5708f);
+            deckAt = FindPlacement(lines, ValeriePlacerOne, 313 + ox, 457 + oy, 1.5708f);
         }
 
         if (Npcs.Find(deckType) is { Supported: true } deckNpc)
@@ -215,6 +260,7 @@ internal static class DeepwaterProgression
             }
             scene.DeckValerieId = await SpawnNpc(player, deckNpc, deckAt.X, deckAt.Y, deckAt.Rot);
             scene.DeckValerieNpc = deckNpc;
+            await AnimateValerie(player, scene.DeckValerieId, deckType);
         }
         else
         {
@@ -222,7 +268,7 @@ internal static class DeepwaterProgression
         }
 
         // 2. Deck CorpseBattery (globals.vesper_tank): always spawned so ValerieVesperRevive's beam has a live target.
-        var batteryAt = FindPlacement(lines, CorpseBattery, 364, 459, 0f);
+        var batteryAt = FindPlacement(lines, CorpseBattery, 364 + ox, 459 + oy, 0f);
         if (QuestObjectTypes.Find(CorpseBattery) is { } batteryInfo && CorpseBatteryStates is { } batteryStates
             && QuestObject.CanSerialize(batteryInfo.Components, true))
         {
@@ -242,7 +288,7 @@ internal static class DeepwaterProgression
 
         // 3. Below-deck VesperCrafting (#795, globals.vespercrafting): always spawned; cansee = 1 once LQF 1859 is set.
         bool vesperAwake = HasLeagueFlag(player, VesperFlameGivenLqf);
-        var vesperAt = FindPlacement(lines, VesperCrafting, 331, 137, -1.60168f);
+        var vesperAt = FindPlacement(lines, VesperCrafting, 331 + ox, 137 + oy, -1.60168f);
         if (Npcs.Find(VesperCrafting) is { Supported: true } vesperNpc)
         {
             if (vesperNpc.StateMachine is { } vsm)
@@ -269,9 +315,10 @@ internal static class DeepwaterProgression
         IReadOnlyList<GameServer.Data.Terrain.Generation.PlacedTileObject> lines)
     {
         if (DesiredBelowDeckValerie(player) is not { } type) return;
+        var (ox, oy) = DeckOffset(player);
         var at = type == ValerieAfterFairgraves
-            ? FindPlacement(lines, ValerieAfterFairgraves, 302, 155, 0.748982f)
-            : FindPlacement(lines, ValerieCraftingTutorial, 306, 155, 0.671311f);
+            ? FindPlacement(lines, ValerieAfterFairgraves, 302 + ox, 155 + oy, 0.748982f)
+            : FindPlacement(lines, ValerieCraftingTutorial, 306 + ox, 155 + oy, 0.671311f);
         if (Npcs.Find(type) is not { Supported: true } npc)
         {
             module.Log($"{PlayerOf(player).Character}: below-deck NPC {type} unknown or unsupported");
@@ -281,13 +328,14 @@ internal static class DeepwaterProgression
             npc = npc with { StateMachine = sm.Set("give_flame", 0) };
         scene.BelowValerieId = await SpawnNpc(player, npc, at.X, at.Y, at.Rot);
         scene.BelowValerieNpc = npc;
+        await AnimateValerie(player, scene.BelowValerieId, type);
     }
 
     /// <summary>Live-updates below-deck Valerie when quest flags advance on The Sovereign without requiring a relog
     /// (e.g., spawning #792 right after #3926 "Keep Charting", or upgrading #792 → #791 once LQF 1855 &amp; 1857 are both set).</summary>
     public static async Task RefreshHubNpcs(IModuleContext module, Player player)
     {
-        if (PlayerOf(player).AreaId != DeepwaterModule.HubId || !Scenes.TryGetValue(player, out var scene)) return;
+        if (!DeepwaterModule.IsOnDeck(player) || !Scenes.TryGetValue(player, out var scene)) return;
         string? desired = DesiredBelowDeckValerie(player);
         // Never despawn #791 right after LQF 1859 so her give_flame = 1 beam & ValVesperReleaseConvo play uninterrupted.
         if (desired is null) return;
@@ -308,49 +356,64 @@ internal static class DeepwaterProgression
         await SpawnBelowDeckValerie(module, player, scene, player.Layout.Level?.RoomObjects ?? []);
     }
 
-    /// <summary>Spawns below-deck Stash and GuildStash (from <c>hub_interior.arm</c>) and records both deck and below-deck
-    /// stash ids so <see cref="PickHubStash"/> swaps them cleanly on click (exact <c>Rules.LabyrinthStash</c> pattern).</summary>
+    /// <summary>Spawns deck &amp; below-deck Stash and GuildStash not already created by the area (below-deck on The
+    /// Sovereign, both deck and below-deck on the encounter PseudoHub deck) and records their ids so
+    /// <see cref="PickHubStash"/> swaps them cleanly on click.</summary>
     public static Task SpawnHubStashes(IModuleContext module, Player player) =>
         SpawnHubStashes(module, player, Scenes.GetOrCreateValue(player));
 
     static async Task SpawnHubStashes(IModuleContext module, Player player, HubScene scene)
     {
-        if (PlayerOf(player).AreaId != DeepwaterModule.HubId || Environment.GetEnvironmentVariable("Game_STASH") == "0") return;
+        if (!DeepwaterModule.IsOnDeck(player) || Environment.GetEnvironmentVariable("Game_STASH") == "0") return;
 
         if (player.StashObject != 0) scene.Stashes[player.StashObject] = player.StashAt;
         if (player.GuildStashObject != 0) scene.GuildStashes[player.GuildStashObject] = player.GuildStashAt;
 
         var lines = player.Layout.Level?.RoomObjects ?? [];
-        var belowStash = lines.FirstOrDefault(o => o.Type == StashObject.MetadataPath
-            && (Math.Abs(o.X - player.StashAt.X) > 4 || Math.Abs(o.Y - player.StashAt.Y) > 4));
-        var (sx, sy, srot) = belowStash is not null ? (belowStash.X, belowStash.Y, belowStash.Rotation) : (163, 165, 1.26327f);
-        uint stashId = player.TakeObjectId();
-        byte[] stashCreate = InstanceEntities.CreateObject(stashId, InstanceEntities.ObjectTypeHash(StashObject.MetadataPath),
-            new StashObject(sx, sy, srot).Blob());
-        if (await global::Game.SendWorldCreate(PlayerOf(player), stashId, stashCreate,
-            $"0x02bb create below-deck stash 0x{stashId:x} at ({sx}, {sy})"))
+        var (ox, oy) = DeckOffset(player);
+
+        var stashSpots = lines.Where(o => o.Type == StashObject.MetadataPath)
+            .Select(o => (o.X, o.Y, o.Rotation))
+            .ToList();
+        if (stashSpots.Count == 0) stashSpots.Add((163 + ox, 165 + oy, 1.26327f));
+
+        foreach (var (sx, sy, srot) in stashSpots)
         {
-            await global::Game.SendWorldRecord(PlayerOf(player), stashId, InstanceProtocol.EnterWakeZone(stashId));
-            await RegisterStationaryCollision(player, stashId, StashObject.MetadataPath, sx, sy, srot);
-            scene.Stashes[stashId] = (sx, sy);
-            if (player.StashObject == 0) (player.StashObject, player.StashAt) = (stashId, (sx, sy));
+            if (scene.Stashes.Values.Any(p => Math.Abs(p.X - sx) <= 4 && Math.Abs(p.Y - sy) <= 4)) continue;
+            uint stashId = player.TakeObjectId();
+            byte[] stashCreate = InstanceEntities.CreateObject(stashId, InstanceEntities.ObjectTypeHash(StashObject.MetadataPath),
+                new StashObject(sx, sy, srot).Blob());
+            if (await global::Game.SendWorldCreate(PlayerOf(player), stashId, stashCreate,
+                $"0x02bb create Sovereign stash 0x{stashId:x} at ({sx}, {sy})"))
+            {
+                await global::Game.SendWorldRecord(PlayerOf(player), stashId, InstanceProtocol.EnterWakeZone(stashId));
+                await RegisterStationaryCollision(player, stashId, StashObject.MetadataPath, sx, sy, srot);
+                scene.Stashes[stashId] = (sx, sy);
+                if (player.StashObject == 0) (player.StashObject, player.StashAt) = (stashId, (sx, sy));
+            }
         }
 
         if (!player.Character.Ssf)
         {
-            var belowGuild = lines.FirstOrDefault(o => o.Type == StashObject.GuildMetadataPath
-                && (Math.Abs(o.X - player.GuildStashAt.X) > 4 || Math.Abs(o.Y - player.GuildStashAt.Y) > 4));
-            var (gx, gy, grot) = belowGuild is not null ? (belowGuild.X, belowGuild.Y, belowGuild.Rotation) : (170, 176, 0.922353f);
-            uint guildId = player.TakeObjectId();
-            byte[] guildCreate = InstanceEntities.CreateObject(guildId, InstanceEntities.ObjectTypeHash(StashObject.GuildMetadataPath),
-                new StashObject(gx, gy, grot).Blob());
-            if (await global::Game.SendWorldCreate(PlayerOf(player), guildId, guildCreate,
-                $"0x02bb create below-deck guild stash 0x{guildId:x} at ({gx}, {gy})"))
+            var guildSpots = lines.Where(o => o.Type == StashObject.GuildMetadataPath)
+                .Select(o => (o.X, o.Y, o.Rotation))
+                .ToList();
+            if (guildSpots.Count == 0) guildSpots.Add((170 + ox, 176 + oy, 0.922353f));
+
+            foreach (var (gx, gy, grot) in guildSpots)
             {
-                await global::Game.SendWorldRecord(PlayerOf(player), guildId, InstanceProtocol.EnterWakeZone(guildId));
-                await RegisterStationaryCollision(player, guildId, StashObject.GuildMetadataPath, gx, gy, grot);
-                scene.GuildStashes[guildId] = (gx, gy);
-                if (player.GuildStashObject == 0) (player.GuildStashObject, player.GuildStashAt) = (guildId, (gx, gy));
+                if (scene.GuildStashes.Values.Any(p => Math.Abs(p.X - gx) <= 4 && Math.Abs(p.Y - gy) <= 4)) continue;
+                uint guildId = player.TakeObjectId();
+                byte[] guildCreate = InstanceEntities.CreateObject(guildId, InstanceEntities.ObjectTypeHash(StashObject.GuildMetadataPath),
+                    new StashObject(gx, gy, grot).Blob());
+                if (await global::Game.SendWorldCreate(PlayerOf(player), guildId, guildCreate,
+                    $"0x02bb create Sovereign guild stash 0x{guildId:x} at ({gx}, {gy})"))
+                {
+                    await global::Game.SendWorldRecord(PlayerOf(player), guildId, InstanceProtocol.EnterWakeZone(guildId));
+                    await RegisterStationaryCollision(player, guildId, StashObject.GuildMetadataPath, gx, gy, grot);
+                    scene.GuildStashes[guildId] = (gx, gy);
+                    if (player.GuildStashObject == 0) (player.GuildStashObject, player.GuildStashAt) = (guildId, (gx, gy));
+                }
             }
         }
         module.Log($"{PlayerOf(player).Character}: Sovereign stashes registered ({scene.Stashes.Count} stash, {scene.GuildStashes.Count} guild stash)");
@@ -822,7 +885,7 @@ internal static class DeepwaterProgression
     public static Task OnMessagesHandled(IModuleContext module, Player player, IReadOnlyList<ushort> ids)
     {
         bool checkItems = false, checkHub = false;
-        bool inHub = PlayerOf(player).AreaId == DeepwaterModule.HubId;
+        bool inHub = DeepwaterModule.IsOnDeck(player);
         for (int i = 0; i < ids.Count; i++)
         {
             ushort id = ids[i];

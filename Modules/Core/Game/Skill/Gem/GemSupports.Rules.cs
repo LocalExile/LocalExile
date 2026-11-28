@@ -1274,6 +1274,22 @@ public static partial class Game
             Player, Own, player.Pools.SpellCriticalStrikeChancePct + extraIncrease), Player);
     }
 
+    // "<Curse> has no Reservation if Cast as an Aura" (Impresence's despair_no_reservation, the other hex uniques and
+    // tree nodes): the hex's own <curse>_no_reservation stat.
+    static uint? CurseNoReservationStat(string effectId) => effectId switch
+    {
+        "TemporalChains" => Stat.TemporalChainsNoReservation,
+        "Despair" => Stat.DespairNoReservation,
+        "Vulnerability" => Stat.VulnerabilityNoReservation,
+        "Conductivity" => Stat.ConductivityNoReservation,
+        "Frostbite" => Stat.FrostbiteNoReservation,
+        "Flammability" => Stat.FlammabilityNoReservation,
+        "Enfeeble" => Stat.EnfeebleNoReservation,
+        "Punishment" or "NewPunishment" => Stat.PunishmentNoReservation,
+        "ElementalWeakness" => Stat.ElementalWeaknessNoReservation,
+        _ => null,
+    };
+
     public static SkillCatalog.ReservationCost? SupportedReservationCost(Player player, ushort skillId)
     {
         var gem = SupportedSkill(player, skillId);
@@ -1286,8 +1302,8 @@ public static partial class Game
             if (blasphemy is null) return null;
             sourceReservation = SkillsFor(player).Reservation(blasphemy.Effect.Row, blasphemy.Gem.Level);
             var curseSources = StatSourceValues(player);
-            if (effectId == "TemporalChains" && Stat.TemporalChainsNoReservation is var free
-                && curseSources.GetValueOrDefault(free) != 0) return new(0, 0, 0, 0);
+            if (CurseNoReservationStat(effectId) is uint free && curseSources.GetValueOrDefault(free) != 0)
+                return new(0, 0, 0, 0);
         }
         if (sourceReservation is not { } reservation) return null;
         if (gem.Stats.GetValueOrDefault(Stat.BaseSkillNoReservation) != 0
@@ -1312,7 +1328,7 @@ public static partial class Game
         // Mana-only exemptions never erase a Life reservation.
         if (AuraCatalog.Supported(effectId) && Get(AuraCatalog.NoManaReservationStat(effectId)) != 0)
             manaFlat = manaPercent = 0;
-        if (effectId == "TemporalChains" && Get(Stat.TemporalChainsNoReservation) != 0)
+        if (CurseNoReservationStat(effectId) is uint noReservation && Get(noReservation) != 0)
             manaFlat = manaPercent = 0;
         decimal factor = gem.Supports.Aggregate(1m, (v, support) => v * support.CostMultiplier / 100m);
         if (!lifeInstead && (manaFlat != 0 || manaPercent != 0) && HasFixedManaReservation(effectId, Get))

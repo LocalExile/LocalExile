@@ -329,32 +329,70 @@ public static partial class Game
     sealed class AreaBodies
     {
         readonly BlockerSet current = new(), fixedSet = new();
-        readonly Dictionary<uint, int> index = [];
+        readonly BlockerSet playerCurrent = new(), playerFixedSet = new();
+        readonly Dictionary<uint, int> index = [], playerIndex = [];
         readonly Dictionary<uint, IReadOnlyList<ClientPathfinder.Blocker>> views = [];
-        readonly HashSet<uint> passThrough = [];
-        IReadOnlyList<ClientPathfinder.Blocker>? lastStationary;
-        int lastStationaryCount = -1;
+        readonly HashSet<uint> passThrough = [], playerIds = [];
+        IReadOnlyList<ClientPathfinder.Blocker>? lastStationary, lastPlayerStationary;
+        int lastStationaryCount = -1, lastPlayerStationaryCount = -1;
+        bool separatePlayerView;
 
         public void Reset(Player first, Player[] players, List<(uint Id, SpawnedMonster Monster)> living, bool anyCorpses, double now)
         {
             var stationary = first.StationaryBlockers;
+            var playerStationary = first.PlayerStationaryBlockers;
             if (!ReferenceEquals(stationary, lastStationary) || stationary.Count != lastStationaryCount)
             {
                 fixedSet.Reset(stationary);
                 lastStationary = stationary;
                 lastStationaryCount = stationary.Count;
             }
+            bool separateFixed = !ReferenceEquals(stationary, playerStationary);
+            bool hasAllied = false;
+            if (!separateFixed)
+            {
+                for (int i = 0; i < living.Count; i++)
+                    if (living[i].Monster.AlliedMinion && LivingCollision.Blocks(living[i].Monster)) { hasAllied = true; break; }
+                if (!hasAllied && anyCorpses)
+                    for (int pi = 0; pi < players.Length && !hasAllied; pi++)
+                    {
+                        var p = players[pi];
+                        if (!p.HasCorpses) continue;
+                        foreach (uint id in p.KeptCorpseIds)
+                            if (first.Area.Monsters.TryGetValue(id, out var m) && m.AlliedMinion && p.MonsterBody(id, m, now) is not null)
+                            { hasAllied = true; break; }
+                    }
+                if (!hasAllied && first.Area.DormantMonsters.Count > 0)
+                    foreach (var (_, m) in first.Area.DormantMonsters)
+                        if (m.AlliedMinion && LivingCollision.Blocks(m)) { hasAllied = true; break; }
+            }
+            separatePlayerView = separateFixed || hasAllied;
             current.Reset(stationary);
+            if (separatePlayerView)
+            {
+                if (!ReferenceEquals(playerStationary, lastPlayerStationary) || playerStationary.Count != lastPlayerStationaryCount)
+                {
+                    playerFixedSet.Reset(playerStationary);
+                    lastPlayerStationary = playerStationary;
+                    lastPlayerStationaryCount = playerStationary.Count;
+                }
+                playerCurrent.Reset(playerStationary);
+            }
             index.Clear();
+            playerIndex.Clear();
+            playerIds.Clear();
             views.Clear();
             passThrough.Clear();
             for (int i = 0; i < players.Length; i++)
             {
                 var p = players[i];
                 if (!p.Connection.PlayerSent || p.PlayerLife == 0) continue;
+                playerIds.Add(p.Id);
                 if (p.IsPhasing) { passThrough.Add(p.Id); continue; }
                 var at = p.Walk.Position(now);
-                index[p.Id] = current.Add(new(at.X, at.Y, LivingCollision.PlayerSize));
+                ClientPathfinder.Blocker body = new(at.X, at.Y, LivingCollision.PlayerSize);
+                index[p.Id] = current.Add(body);
+                if (separatePlayerView) playerIndex[p.Id] = playerCurrent.Add(body);
             }
             for (int i = 0; i < living.Count; i++)
             {
@@ -363,7 +401,9 @@ public static partial class Game
                 if (LivingCollision.Blocks(m))
                 {
                     var p = m.Walk.Position(now);
-                    index[id] = current.Add(new(p.X, p.Y, LivingCollision.Size(m)));
+                    ClientPathfinder.Blocker body = new(p.X, p.Y, LivingCollision.Size(m));
+                    index[id] = current.Add(body);
+                    if (separatePlayerView && !m.AlliedMinion) playerIndex[id] = playerCurrent.Add(body);
                 }
             }
             if (anyCorpses)
@@ -376,7 +416,11 @@ public static partial class Game
                     {
                         if (index.ContainsKey(id)) continue;
                         if (!first.Area.Monsters.TryGetValue(id, out var m)) continue;
-                        if (p.MonsterBody(id, m, now) is { } found) index[id] = current.Add(found);
+                        if (p.MonsterBody(id, m, now) is { } found)
+                        {
+                            index[id] = current.Add(found);
+                            if (separatePlayerView && !m.AlliedMinion) playerIndex[id] = playerCurrent.Add(found);
+                        }
                     }
                 }
             }
@@ -386,13 +430,25 @@ public static partial class Game
                 {
                     if (LivingCollision.StepsWithBodies(m) && LivingCollision.Phases(m)) passThrough.Add(id);
                     for (int pi = 0; pi < players.Length; pi++)
-                        if (players[pi].MonsterBody(id, m, now) is { } found) { index[id] = current.Add(found); break; }
+                        if (players[pi].MonsterBody(id, m, now) is { } found)
+                        {
+                            index[id] = current.Add(found);
+                            if (separatePlayerView && !m.AlliedMinion) playerIndex[id] = playerCurrent.Add(found);
+                            break;
+                        }
                 }
             }
         }
 
         public IReadOnlyList<ClientPathfinder.Blocker> For(uint self)
         {
+            if (separatePlayerView && playerIds.Contains(self))
+            {
+                if (passThrough.Contains(self)) return playerFixedSet;
+                if (!playerIndex.TryGetValue(self, out int pi)) return playerCurrent;
+                if (!views.TryGetValue(self, out var pv)) views[self] = pv = playerCurrent.Without(pi);
+                return pv;
+            }
             if (passThrough.Contains(self)) return fixedSet;
             if (!index.TryGetValue(self, out int i)) return current;
             if (!views.TryGetValue(self, out var view)) views[self] = view = current.Without(i);
@@ -401,13 +457,16 @@ public static partial class Game
 
         public void Move(uint id, int x, int y)
         {
-            if (!index.TryGetValue(id, out int i)) return;
-            current.Replace(i, new(x, y, current[i].Size));
+            if (index.TryGetValue(id, out int i))
+                current.Replace(i, new(x, y, current[i].Size));
+            if (separatePlayerView && playerIndex.TryGetValue(id, out int pi))
+                playerCurrent.Replace(pi, new(x, y, playerCurrent[pi].Size));
         }
 
         public void Remove(uint id)
         {
             if (index.Remove(id, out int i)) current.Remove(i);
+            if (separatePlayerView && playerIndex.Remove(id, out int pi)) playerCurrent.Remove(pi);
         }
     }
 }

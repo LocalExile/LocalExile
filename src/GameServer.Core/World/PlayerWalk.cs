@@ -401,8 +401,12 @@ public sealed class PlayerWalk
     /// correction of where the server thinks the walker is, not a displacement. No walk in progress.</summary>
     public void Place(int x, int y, double now) => Put(x, y, now, displaced: false);
 
+    /// <summary>Monotonic counter incremented whenever <see cref="Teleport"/> actually moves the walker to a different cell.</summary>
+    public int TeleportCount { get; private set; }
+
     void Put(int x, int y, double now, bool displaced)
     {
+        if (displaced && At(now, out _) != (x, y)) TeleportCount++;
         if (displaced && _travel is not null)
         {
             SettleTravel(now);
