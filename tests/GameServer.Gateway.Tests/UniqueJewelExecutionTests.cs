@@ -29,6 +29,30 @@ public class UniqueJewelExecutionTests
     }
 
     [Fact]
+    public void Forbidden_pair_rolls_class_notables_and_grants_only_a_matching_unallocated_pair()
+    {
+        var items = Program.Items;
+        var uniques = new UniqueCatalog(items);
+        var random = new Random(791);
+        // Every class variant rolls a notable of that class; the pair grants it only when both halves match it.
+        foreach (var (cls, row) in new[] { ("Marauder", 0), ("Witch", 1), ("Scion", 2), ("Ranger", 3), ("Duelist", 4), ("Shadow", 5), ("Templar", 6) })
+        {
+            var flame = Assert.IsType<Item>(uniques.Create($"Forbidden Flame ({cls})", random));
+            var read = Assert.IsType<(bool Flame, int Graph)>(ForbiddenJewels.Read(flame, items.Mods));
+            Assert.True(read.Flame);
+            Assert.Equal(row, ForbiddenJewels.ClassRowOf(read.Graph));
+            var flesh = Assert.IsType<Item>(uniques.Create("Forbidden Flesh", random));
+            var fleshRead = Assert.IsType<(bool Flame, int Graph)>(ForbiddenJewels.Read(flesh, items.Mods));
+            Assert.False(fleshRead.Flame);
+            var matching = flesh with { Mods = [.. flesh.Mods.Select(m => m with { Values = [read.Graph] })] };
+            Assert.Equal((ushort)read.Graph, ForbiddenJewels.Granted([flame, matching], items.Mods, row, new HashSet<ushort>()));
+            Assert.Null(ForbiddenJewels.Granted([flame], items.Mods, row, new HashSet<ushort>()));
+            Assert.Null(ForbiddenJewels.Granted([flame, matching], items.Mods, (row + 1) % 7, new HashSet<ushort>()));
+            Assert.Null(ForbiddenJewels.Granted([flame, matching], items.Mods, row, new HashSet<ushort> { (ushort)read.Graph }));
+        }
+    }
+
+    [Fact]
     public void Impossible_escape_depends_on_its_socket_and_excludes_its_named_keystone()
     {
         var path = Path.Combine(Path.GetTempPath(), $"escape-{Guid.NewGuid():N}.db");

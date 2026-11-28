@@ -578,6 +578,14 @@ public static partial class Game
                     passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
             }
         }
+        // Forbidden Flame + Forbidden Flesh: a matching pair of the character's class allocates their ascendancy notable,
+        // once, unless it is already allocated (ForbiddenJewels.Granted). Its stats go through the ascendancy policy as
+        // an allocated ascendancy node's do.
+        if (ForbiddenJewels.Granted(treeJewels.Select(i => i.Item), catalog.Mods, player.Character.ClassRow, allocated) is ushort forbidden
+            && tree.Find(forbidden) is { IsAscendancy: true } forbiddenPassive)
+            foreach (var (key, value) in selectedDefinition is not null
+                ? AscendancyPolicies.NodeStats(player, selectedDefinition, forbidden, forbiddenPassive.Stats) : forbiddenPassive.Stats)
+                passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
         foreach (var (key, value) in TattooCountingStats(tattoos, allocated.Where(n => !suppressedNotables.Contains(n) && !suppressedSmalls.Contains(n)).ToHashSet(), effectPct))
             passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
         foreach (var (key, value) in scalingStats)
