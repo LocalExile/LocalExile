@@ -17,7 +17,7 @@ public static class HeistLocker
     public readonly record struct Region(int X, int Y, int Width, int Height)
     {
         public bool Holds(int x, int y, int width, int height) =>
-            x >= X && y >= Y && x + width <= X + Width && y + height <= Y + Height;
+            x >= X && y >= Y && (long)x + width <= (long)X + Width && (long)y + height <= (long)Y + Height;
     }
 
     public static Dictionary<uint, Region> Regions { get; private set; } = [];
@@ -61,7 +61,8 @@ public static class HeistLocker
         if (ItemsOf(player).Items(PlayerInventories.Cursor).FirstOrDefault() is not { } held
             || RegionOf(held.Item.TypeHash) is not { } region) return false;
         var shape = ShapeOf(held.Item) ?? new(1, 1, "");
-        if (region.Holds((int)place.X, (int)place.Y, shape.Width, shape.Height)) return false;
+        if (place.X <= int.MaxValue && place.Y <= int.MaxValue
+            && region.Holds((int)place.X, (int)place.Y, shape.Width, shape.Height)) return false;
         module.Log($"{PlayerOf(player).Character} <= 0x002a place item {held.Id} in the Heist Locker at ({place.X}, {place.Y}): refused (outside its tab region)");
         return true;
     }

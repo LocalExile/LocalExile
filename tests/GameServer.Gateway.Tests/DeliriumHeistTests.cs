@@ -273,7 +273,7 @@ public class DeliriumHeistTests
     }
 
     [Fact]
-    public async Task Heist_locker_0x00fc_quick_moves_blueprints_and_stacks_markers_in_layout_regions()
+    public async Task Heist_locker_0x00fc_quick_moves_and_0x002a_enforces_layout_regions()
     {
         Assert.Equal(8, ClientPackets.Find(InstanceHeist.LockerMoveId)?.FixedLength);
         var decoded = InstanceHeist.ReadLockerMove([0x00, 0xfc, 0x00, 0x00, 0x00, 0x2a, 0x01, 0x01]);
@@ -290,6 +290,7 @@ public class DeliriumHeistTests
         player.Connection.Outbox = (bytes, _) => { sent.Add(bytes); return Task.CompletedTask; };
         var items = Game.ItemsOf(player);
         const byte lockerRow = 56;
+        uint lockerInvId = PlayerInventories.InventoryId(lockerRow);
 
         var bpItem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Heist/HeistBlueprintMines")!);
         var bp = items.Add(PlayerInventories.MainInventory, 0, 0, bpItem);
@@ -330,31 +331,16 @@ public class DeliriumHeistTests
         Assert.True(await GameEvents.AnyPacket(player, InstanceHeist.LockerMoveId, IntoPkt(storedBp.Id, into: false)));
         Assert.Single(items.Items(PlayerInventories.MainInventory), i => i.Id == bp.Id);
         Assert.DoesNotContain(items.Items(lockerRow), i => i.Id == bp.Id);
-    }
 
-    [Fact]
-    public async Task Heist_locker_0x002a_enforces_blueprint_layout_regions_and_rejects_non_heist_items()
-    {
-        using var host = new ModHost("Modules", _ => { }, modules: true) { Wanted = () => new HashSet<string>(["Game", "Heist"]) };
-        host.Start(watch: false);
-
-        using var fixture = new TriggeredSummonTests.Fixture();
-        var player = fixture.Player;
-        player.LeagueModule = new(new League("heist-place", "Standard", false, false), new HashSet<string>(["Game", "Heist"]));
-        var items = Game.ItemsOf(player);
-        const byte lockerRow = 56;
-        uint lockerInvId = PlayerInventories.InventoryId(lockerRow);
-
-        var bpMines = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Heist/HeistBlueprintMines")!);
-        items.Add(PlayerInventories.Cursor, 0, 0, bpMines);
-
-        // ContractsBunker (0, 0) and out-of-bounds (22, 6) are outside BlueprintsMines (11, 6, 11, 6); (11, 6) is allowed.
+        // Manual 0x002a drops enforce HeistStorageLayout regions, guard uint overflow, and reject non-Heist items.
+        items.Add(PlayerInventories.Cursor, 0, 0, bpItem);
         Assert.True(await GameEvents.AnyInventoryPlace(player, new InstanceItems.PlaceItem(lockerInvId, 0, 0, 0, 0, 0, 0)));
         Assert.True(await GameEvents.AnyInventoryPlace(player, new InstanceItems.PlaceItem(lockerInvId, 22, 6, 0, 0, 0, 0)));
+        Assert.True(await GameEvents.AnyInventoryPlace(player, new InstanceItems.PlaceItem(lockerInvId, int.MaxValue, 6, 0, 0, 0, 0)));
+        Assert.True(await GameEvents.AnyInventoryPlace(player, new InstanceItems.PlaceItem(lockerInvId, uint.MaxValue, 6, 0, 0, 0, 0)));
         Assert.False(await GameEvents.AnyInventoryPlace(player, new InstanceItems.PlaceItem(lockerInvId, 11, 6, 0, 0, 0, 0)));
-        Assert.Null(GameEvents.FirstInventoryRefusal(player, lockerRow, bpMines));
+        Assert.Null(GameEvents.FirstInventoryRefusal(player, lockerRow, bpItem));
 
-        // Non-Heist items and quest contracts are refused in row 56.
         var scroll = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/CurrencyIdentification")!);
         var questContract = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Heist/QuestContracts/HeistContractTutorial")!);
         Assert.NotNull(GameEvents.FirstInventoryRefusal(player, lockerRow, scroll));
@@ -610,12 +596,12 @@ public class DeliriumHeistTests
     }
 
     [Fact]
-    public async Task AreaEnvironments_preserves_delirium_fog_across_breach_ritual_and_pause_transitions()
+    public async Task Delirium_environments_pause_and_volatile_pods_work_together()
     {
         using var fixture = new TriggeredSummonTests.Fixture();
-        var peer = await OpenDeliriumPlayer("DeliriumEnv", 424242, 0x33, 1000);
+        var peer = await OpenDeliriumPlayer("DeliriumEnv", 424242, 0x33, 2000);
         using var context = peer.Context;
-        var (encounter, _, player, listener, writer, reader, capture, drain, key, _) = peer;
+        var (encounter, instance, player, listener, writer, reader, capture, drain, key, _) = peer;
 
         try
         {
@@ -642,6 +628,10 @@ public class DeliriumHeistTests
             await AreaEnvironments.Clear(player, "ritual", -1e-7f);
             Assert.Equal(InstanceEnvironments.Data((fogRow, 2f)), AreaEnvironments.BuildPacket(player));
 
+            // Fallback rows still transmit a fade-out if a layer was cleared by a hot-reload.
+            await AreaEnvironments.Clear(player, "ritual", -1e-7f, fallbackRows: [ritualRow]);
+            Assert.Equal(InstanceEnvironments.Data((fogRow, 2f)), AreaEnvironments.BuildPacket(player));
+
             // Escape-menu pause emits EncounterPause(true) then EncounterPause(false) and keeps OuterElapsed frozen.
             float elapsedBeforePause = state.OuterElapsed;
             player.Clock.Stop();
@@ -665,44 +655,7 @@ public class DeliriumHeistTests
             Assert.Equal(byte.MaxValue, compacted.Count);
             Assert.Contains(compacted, r => r.DistanceOffset == 999f);
 
-            player.Closed = true;
-            writer.Dispose();
-            await drain;
-
-            byte[] wire = capture.ToArray();
-            new ConnectionCiphers(key, true).Receive.Process(wire);
-            byte[] emptyEnv = InstanceEnvironments.Data();
-            Assert.True(wire.AsSpan().IndexOf(emptyEnv) < 0, "0x00df must never clear Delirium fog while active");
-            Assert.True(wire.AsSpan().IndexOf(InstanceEnvironments.Data((fogRow, 2f), (ritualRow, -1e-7f))) >= 0);
-            Assert.True(wire.AsSpan().IndexOf(AfflictionRuleset.EncounterPause(0f, paused: true)!) >= 0);
-            Assert.True(wire.AsSpan().IndexOf(AfflictionRuleset.EncounterPause(0f, paused: false)!) >= 0);
-        }
-        finally
-        {
-            Program.InGame.TryRemove(player, out _);
-            player.Closed = true;
-            writer.Dispose();
-            reader.Dispose();
-            listener.Stop();
-        }
-    }
-
-    [Fact]
-    public async Task Delirium_volatile_pod_proximity_spawns_and_detonates_chasing_affliction_volatile()
-    {
-        using var fixture = new TriggeredSummonTests.Fixture();
-        var peer = await OpenDeliriumPlayer("DeliriumVolatile", 515151, 0x44, 2000);
-        using var context = peer.Context;
-        var (encounter, instance, player, listener, writer, reader, _, drain, _, _) = peer;
-
-        try
-        {
-            Assert.NotEmpty(encounter.BeforeEnterMessages(player));
-            var state = encounter.For(player);
-            player.Walk.Place(state.MirrorX, state.MirrorY, Game.AreaTime(player));
-            await encounter.OnTick(player, 0.1);
-            Assert.Equal(DeliriumMirrorEncounter.MirrorStage.Active, state.Stage);
-
+            // Volatile pod spawns visible, pops on proximity into chasing AfflictionVolatile cores, and detonates cleanly.
             int podX = Math.Clamp(state.MirrorX + 4, 4, player.Layout.GridW - 5);
             int podY = Math.Clamp(state.MirrorY, 4, player.Layout.GridH - 5);
             double t0 = Game.AreaTime(player);
@@ -711,7 +664,6 @@ public class DeliriumHeistTests
             var sm = instance.World.MonsterOrigins[podId].Object.StateMachine!;
             Assert.Equal(1, sm.SharedStates[sm.IndexOf("visible")]);
 
-            // Step into pod proximity: pod pops and spawns chasing AfflictionVolatile cores at MovementSpeed 24.
             player.Walk.Place(podX + 1, podY, t0);
             await DeliriumVolatiles.Tick(player, state, t0 + 0.05, 0.05f, activeLifetime: true);
             var pod = Assert.Single(state.Volatiles.Pods);
@@ -721,7 +673,6 @@ public class DeliriumHeistTests
             Assert.Equal(24.0, core.Speed);
             Assert.True(player.Area.Monsters.ContainsKey(core.Id));
 
-            // Advance past arming + pod removal delay while within contact radius: core detonates, damages player, and cleans up.
             uint lifeBefore = player.PlayerLife;
             double detonateTime = t0 + DeliriumVolatiles.PodRemoveDelaySeconds + 0.1;
             await DeliriumVolatiles.Tick(player, state, detonateTime, 0.1f, activeLifetime: true);
@@ -735,6 +686,14 @@ public class DeliriumHeistTests
             player.Closed = true;
             writer.Dispose();
             await drain;
+
+            byte[] wire = capture.ToArray();
+            new ConnectionCiphers(key, true).Receive.Process(wire);
+            byte[] emptyEnv = InstanceEnvironments.Data();
+            Assert.True(wire.AsSpan().IndexOf(emptyEnv) < 0, "0x00df must never clear Delirium fog while active");
+            Assert.True(wire.AsSpan().IndexOf(InstanceEnvironments.Data((fogRow, 2f), (ritualRow, -1e-7f))) >= 0);
+            Assert.True(wire.AsSpan().IndexOf(AfflictionRuleset.EncounterPause(0f, paused: true)!) >= 0);
+            Assert.True(wire.AsSpan().IndexOf(AfflictionRuleset.EncounterPause(0f, paused: false)!) >= 0);
         }
         finally
         {

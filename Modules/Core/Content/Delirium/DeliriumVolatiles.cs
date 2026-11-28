@@ -426,10 +426,12 @@ public static class DeliriumVolatiles
         cm.ActionGeneration++;
         cm.Walk.Teleport(at.X, at.Y, now);
 
-        await SendWorldRecord(player, core.Id,
-            [.. InstanceProtocol.ActionEnded(core.Id),
-             .. InstanceEntities.StatsUpdate(core.Id, [(Stat.HideMiniLifeBar, 1)]),
-             .. InstanceProtocol.LifeUpdate(core.Id, 0)],
+        await SendWorldRecords(player, core.Id,
+            () => [
+                InstanceProtocol.ActionEnded(core.Id),
+                InstanceEntities.StatsUpdate(core.Id, [(Stat.HideMiniLifeBar, 1)]),
+                InstanceProtocol.LifeUpdate(core.Id, 0),
+            ],
             $"0x01b1 AfflictionVolatile 0x{core.Id:x} detonates");
 
         var instance = player.Instance;
@@ -469,7 +471,6 @@ public static class DeliriumVolatiles
             monster.Life = 0;
             monster.NoRewards = true;
             monster.ActionGeneration++;
-            player.Area.MonstersVersion++;
         }
         player.Instance.World.MonsterOrigins.TryRemove(id, out _);
     }

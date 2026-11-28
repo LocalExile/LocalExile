@@ -1132,7 +1132,7 @@ public sealed class RitualEncounter
 
         await Broadcast(player, RitualWire.AltarState(altar.Interactable, altar.Cell, Done), $"0x165 Ritual altar 0x{altar.Interactable:x} done");
         if (altar.Rune.Environment is int env)
-            await AreaEnvironments.Clear(player, "ritual", (float)RitualTables.EndEnvironmentSeconds, $"0xdf Ritual environment {env} off");
+            await AreaEnvironments.Clear(player, "ritual", (float)RitualTables.EndEnvironmentSeconds, $"0xdf Ritual environment {env} off", fallbackRows: [(ushort)env]);
         await Broadcast(player, RitualWire.Favours(state.Tribute, state.RerollsUsed, RitualFavours.BuildRows(state), state.Altars.Count, state.Completed),
             $"0x166 Ritual favours ({state.Completed}/{state.Altars.Count} done)");
         await Broadcast(player, RitualWire.Tribute(state.Tribute), $"0x167 Ritual tribute {state.Tribute}");

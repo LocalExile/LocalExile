@@ -53,8 +53,10 @@ public static class AreaEnvironments
     }
 
     /// <summary>Removes <paramref name="key"/> from the instance's active environment stack and broadcasts the remaining
-    /// active layers (optionally including a one-shot <paramref name="fadeOutSeconds"/> transition for the removed rows).</summary>
-    public static Task Clear(Player player, string key, float? fadeOutSeconds = null, string? log = null)
+    /// active layers (optionally including a one-shot <paramref name="fadeOutSeconds"/> transition for the removed rows,
+    /// falling back to <paramref name="fallbackRows"/> if the stack was reset across a module reload).</summary>
+    public static Task Clear(Player player, string key, float? fadeOutSeconds = null, string? log = null,
+        IReadOnlyList<ushort>? fallbackRows = null)
     {
         if (player.Instance is not { } instance) return Task.CompletedTask;
         byte[]? packet = null;
@@ -69,10 +71,15 @@ public static class AreaEnvironments
                 stack.Layers.RemoveAt(i);
                 break;
             }
-            if (removed is null && fadeOutSeconds is not null) return Task.CompletedTask;
-            (ushort Row, float Seconds)[]? fade = fadeOutSeconds is float fadeSecs && removed is { Length: > 0 }
-                ? removed.Select(e => (e.Row, fadeSecs)).ToArray()
-                : null;
+            (ushort Row, float Seconds)[]? fade = null;
+            if (fadeOutSeconds is float fadeSecs)
+            {
+                if (removed is { Length: > 0 })
+                    fade = removed.Select(e => (e.Row, fadeSecs)).ToArray();
+                else if (fallbackRows is { Count: > 0 })
+                    fade = fallbackRows.Where(r => r != 0).Select(r => (r, fadeSecs)).ToArray();
+                if (fade is not { Length: > 0 }) return Task.CompletedTask;
+            }
             packet = BuildPacketLocked(stack, fade);
         }
         return Broadcast(player, packet, log ?? $"0x00df clear area environment ({key})");

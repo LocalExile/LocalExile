@@ -492,10 +492,16 @@ public sealed class DeliriumMirrorEncounter
     {
         foreach (var peer in Clients(player))
         {
-            if (pausePacket is not null)
-                await PlayerOf(peer).Send((byte[])pausePacket.Clone(), pausedNow ? "0x02c9 Delirium fog paused" : "0x02c9 Delirium fog resumed");
-            if (hideTimerPacket is not null)
-                await PlayerOf(peer).Send((byte[])hideTimerPacket.Clone(), "0x0163 hide Delirium fog timer");
+            try
+            {
+                if (pausePacket is not null)
+                    await PlayerOf(peer).Send((byte[])pausePacket.Clone(), pausedNow ? "0x02c9 Delirium fog paused" : "0x02c9 Delirium fog resumed");
+                if (hideTimerPacket is not null)
+                    await PlayerOf(peer).Send((byte[])hideTimerPacket.Clone(), "0x0163 hide Delirium fog timer");
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+            {
+            }
         }
     }
 
@@ -780,7 +786,7 @@ public sealed class DeliriumMirrorEncounter
 
         var hideTimer = InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Affliction);
         if (AfflictionRuleset.FogEnvironmentRow is { } fogRow)
-            await AreaEnvironments.Clear(player, "delirium", -2f, "0x00df blend out Delirium fog");
+            await AreaEnvironments.Clear(player, "delirium", -2f, "0x00df blend out Delirium fog", fallbackRows: [fogRow]);
         foreach (var peer in Clients(player))
         {
             await PlayerOf(peer).Send((byte[])hideTimer.Clone(), "0x0163 hide Delirium fog timer (encounter ended)");
