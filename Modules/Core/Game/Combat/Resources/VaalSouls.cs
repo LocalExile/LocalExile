@@ -223,10 +223,9 @@ public static partial class Game
 
     // Souls belong to the instance they were gained in (poewiki "Vaal skill"): leaving keeps the character's balance on
     // the instance it leaves; entering restores what it kept there, or starts at zero (town, hideout, a new instance).
-    static readonly int InstanceVaalSoulsSlot = Components.NewSlot();
-    static ConcurrentDictionary<string, VaalSoulState.Carried> InstanceVaalSouls(InstanceState instance) =>
-        instance.Components.GetOrAdd(InstanceVaalSoulsSlot,
-            () => new ConcurrentDictionary<string, VaalSoulState.Carried>(StringComparer.OrdinalIgnoreCase));
+    static readonly Store<InstanceState, ConcurrentDictionary<string, VaalSoulState.Carried>> InstanceVaalSouls = new();
+    static ConcurrentDictionary<string, VaalSoulState.Carried> InstanceVaalSoulsOf(InstanceState instance) =>
+        InstanceVaalSouls.GetValue(instance, _ => new ConcurrentDictionary<string, VaalSoulState.Carried>(StringComparer.OrdinalIgnoreCase));
     static uint SoulTotal(VaalSoulState.Carried state) => state.Budgets.Aggregate(0u, (n, b) => n + b.Current);
 
     // Same transfer policy as Rage: one successful ticket owns the prevention; loading time is frozen, no save schema.
@@ -236,9 +235,14 @@ public static partial class Game
         RefreshVaalSouls(player);
         var state = player.VaalSouls.Carry();
         player.VaalSoulsRetired = true;
-        if (player.Instance is { } left) InstanceVaalSouls(left)[CharacterName(player)] = state;
+        uint total = SoulTotal(state);
+        if (player.Instance is { } left)
+        {
+            if (total > 0) InstanceVaalSoulsOf(left)[CharacterName(player)] = state;
+            else if (InstanceVaalSouls.TryGetValue(left, out var stored)) stored.TryRemove(CharacterName(player), out _);
+        }
         if (GameServer.Core.Diagnostics.ServerTrace.Skills)
-            Console.WriteLine($"[gateway] Vaal souls kept on the instance left (area 0x{player.Layout.Hash:x}): {SoulTotal(state)}");
+            Console.WriteLine($"[gateway] Vaal souls kept on the instance left (area 0x{player.Layout.Hash:x}): {total}");
         foreach (var (old, entry) in CarriedVaalSouls)
             if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedVaalSouls.TryRemove(old, out _);
         double prevention = Math.Max(0, player.VaalPreventionUntil - VaalResourceTime(player));
@@ -253,7 +257,8 @@ public static partial class Game
         if (!CarriedVaalSouls.TryRemove(new KeyValuePair<uint, SoulTransfer>(player.Ticket, entry))) return;
         if (DateTime.UtcNow - entry.At <= TimeSpan.FromMinutes(5))
         {
-            var kept = player.Instance is { } here && InstanceVaalSouls(here).TryRemove(CharacterName(player), out var stored)
+            var kept = player.Instance is { } here && InstanceVaalSouls.TryGetValue(here, out var byCharacter)
+                && byCharacter.TryRemove(CharacterName(player), out var stored)
                 ? stored : null;
             if (kept is not null) player.VaalSouls.Restore(kept);
             if (GameServer.Core.Diagnostics.ServerTrace.Skills)

@@ -63,6 +63,7 @@ public static partial class Game
 
         void ColdSnapEachSecond(GameArea area, DamageGround ground, double at)
         {
+            if (Player.Closed || Player.LeavingArea || Player.Paused || Player.PlayerLife == 0 || InTown(Player)) return;
             var snap = coldSnapGrounds.FirstOrDefault(s => ReferenceEquals(s.Ground, ground));
             if (snap is not { EachSecond: true } || at < snap.NextFrenzy) return;
             var centre = ground.CurrentCentre;
@@ -168,7 +169,7 @@ public static partial class Game
                 * damageMore;
             int start = SkillArea.Radius(Math.Max(1, Own(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius)), Get, spell: true);
             int end = Math.Max(start, SkillArea.Radius(Math.Max(1, Own(Stat.ActiveSkillBaseTertiaryAreaOfEffectRadius)), Get, spell: true));
-            if (duration <= 0 || start <= 0) return;
+            if (duration <= 0 || start <= 0 || Own(Stat.BaseColdDamageToDealPerMinute) <= 0) return;
             bool vaal = SkillsFor(Player).EffectId(gem.Effect) == "VaalColdSnap";
             // The worn skin's ground (SkillArtVariations cold_snap: Default, BigHands, Azurite, ProtoVaal, Overseer,
             // Blighted, Delirium), MiscAnimatedArtVariations by skill_art_variation; the default skin's when it has none.
