@@ -45,6 +45,8 @@ public static partial class Game
                 if (publish) postPublish = () => SendOwnAuraChanges(player);
                 return true;
             }
+            if (CancelCorruptingFeverLocked(player, activeBuff)) return true;
+            if (CancelPlagueBearerLocked(player, activeBuff)) return true;
             if (activeBuff is { Row: HungerOfGhorrRow } && activeBuff.Source == player.Id)
             {
                 ClearGhorrHunger(player);

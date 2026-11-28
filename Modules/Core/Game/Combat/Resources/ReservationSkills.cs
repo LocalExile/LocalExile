@@ -444,6 +444,7 @@ public static partial class Game
         if (catChanged) await SendOwnAuraChanges(player);
         await TickCooldownTriggers(player, now);
         TickBanner(player, now);
+        await TickInstantBuffSkills(player, now);
         await DrainTwisterGains(player);
         await DrainCatCryLosses(player);
         await PresentSiphoningCharges(player);

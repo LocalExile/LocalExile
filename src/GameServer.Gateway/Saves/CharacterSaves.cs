@@ -867,7 +867,8 @@ public static class CharacterSaves
             if (local.GetValueOrDefault(Stat.LocalHasXAbyssSockets) > 0 && !local.ContainsKey(Stat.LocalHasNoSockets))
                 item = AbyssJewels.EquipmentSockets(item, t, catalog, local, new Random(item.TypeHash.GetHashCode()));
         }
-        return ImpossibleEscapeCatalogue.Migrate(item, catalog.Mods);
+        item = ImpossibleEscapeCatalogue.Migrate(item, catalog.Mods);
+        return RadiusJewelCatalogue.Migrate(item, catalog.Mods);
     }
 
     /// <summary>The mod again, by Id, or by an "0x…" hash when Mods.dat was not loaded at save time.</summary>

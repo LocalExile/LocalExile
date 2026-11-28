@@ -675,26 +675,19 @@ public sealed partial class MercenaryModule
             }
             if (entityId == 0 || !player.Area.Monsters.TryGetValue(entityId, out var monster) || monster.Dead) return;
 
-            // Update monster's server-side mods, MaxLife, MaxES, and ActiveCompanion unique count
+            // Update monster's server-side mods, MaxLife, MaxES, Kit, Actor.Skills, and ActiveCompanion unique count
             monster.Mods = computed.Mods;
             monster.MaxLife = computed.MaxLife;
             if (monster.Life > monster.MaxLife) monster.Life = monster.MaxLife;
+            IReadOnlyList<GrantedSkill>? updatedSkills = null;
+            ushort[] removedSkillIds = [];
             if (activeComp is not null)
             {
                 activeComp.Computed = computed;
                 activeComp.ShieldPool.SetMaximum(computed.MaxEnergyShield);
                 if (player.Companion is { } ac && ac.EntityId == entityId)
-                {
                     ac.EquippedUniqueCount = computed.EquippedUniqueCount;
-                    if (equipmentChanged)
-                        RebuildCompanionKitAndAuras(player, activeComp, kind, build);
-                    else if (activeComp.SharedAuras.Length > 0)
-                        SyncCompanionSharedAuras(player, ac, activeComp.SharedAuras, AreaTime(player), scaleByLuminary: true);
-                }
-                else if (equipmentChanged)
-                {
-                    RebuildCompanionKitAndAuras(player, activeComp, kind, build);
-                }
+                (updatedSkills, removedSkillIds) = RebuildCompanionKitAndAuras(player, activeComp, kind, build);
             }
 
             // Diff against last sent snapshot so unchanged equipment/stats/life do not spam the wire
@@ -713,6 +706,13 @@ public sealed partial class MercenaryModule
                 var dummyObj = new MonsterObject(0, 0, monster.Life, variety.ComponentsOrBase) { Equipped = looks };
                 if (InstanceEntities.MonsterEquipmentUpdate(entityId, dummyObj) is { } equipUpdate)
                     await SendWorldRecord(player, entityId, equipUpdate, $"0x02bc mercenary 0x{entityId:x} equipment update");
+            }
+
+            if (updatedSkills is { Count: > 0 } && (equipmentChanged || statsChanged || removedSkillIds.Length > 0))
+            {
+                await SendWorldRecord(player, entityId,
+                    InstanceEntities.PlayerSkillsChange(entityId, updatedSkills, removedSkillIds),
+                    $"0x02bc mercenary 0x{entityId:x} skills update ({updatedSkills.Count} skills)");
             }
 
             if (statsChanged)

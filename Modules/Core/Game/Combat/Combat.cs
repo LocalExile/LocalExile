@@ -544,6 +544,7 @@ public static partial class Game
         int defaultOtherWarcries = (ancestralTargets > 0 ? 1 : 0) + (warcryTriggers?.Count ?? 0);
         int defaultTotalWarcries = (cryExerted ? 1 : 0) + defaultOtherWarcries + (defaultRallying.HasValue ? 1 : 0);
         PhaseRunOnSkillUse(player, use.SkillId, duration);
+        WitheringStepOnSkillUse(player, use.SkillId);
         SpiritBurstOnSkillUse(player, target, begun);
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
         byte[][] actionRecords = [InstanceProtocol.ActionStarted(player.Id, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(player.Id)];
@@ -1450,7 +1451,7 @@ public static partial class Game
             await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana} (disabled skill, cost back)");
             return false;
         }
-        if (gem.Name is not null && SelfBuffRefused(player, gem.Effect) is { } refused)
+        if (gem.Name is not null && SelfBuffRefused(player, gem.Effect, skillId) is { } refused)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: {refused}");
             return false;
@@ -1803,7 +1804,11 @@ public static partial class Game
                 RecordNonInstantSpellUseLocked(player, gem.Effect, AreaTime(player));
             NoteGemAttackUse(player, skillId, gem.Effect);
         }
-        if (gem.Name is not null) PhaseRunOnSkillUse(player, skillId);
+        if (gem.Name is not null)
+        {
+            PhaseRunOnSkillUse(player, skillId);
+            WitheringStepOnSkillUse(player, skillId);
+        }
         using var pactScope = pactSpell is null ? null : new GhorrCastScope(pactSpell);
         using var beidatScope = beidatSpell is null ? null : new BeidatCastScope(beidatSpell);
         var intensity = CaptureIntensityCast(player, skillId, paidIntensity);
@@ -2249,7 +2254,7 @@ public static partial class Game
 
     public static async Task FrostblinkAreas(Player player,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
-        CooldownUseTicket? use)
+        CooldownUseTicket? use, Func<bool>? triggeredCurrent = null)
     {
         var own = SupportedSkill(player, gem.Id).Stats;
         var playerStats = CharacterPlayerStats(player);
@@ -2258,15 +2263,16 @@ public static partial class Game
         int groundRadius = SkillRadius(player, 16, own, spell: true, gem.Effect, playerStats);
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
         var crit = CaptureSkillCriticalRoll(player, gem.Id);
-        var sacrifice = new SacrificeUse(player, gem.Id, gem.Effect, gem.Gem);
+        var sacrifice = new SacrificeUse(player, gem.Id, gem.Effect, gem.Gem, triggered: triggeredCurrent is not null);
         if (use?.Current(player) != true) return;
         double until = AreaTime(player) + duration;
         const string art = "Metadata/Effects/Spells/ground_effects_v3/chilled/chilled_grd.ao";
         AddChilledGroundLocked(player, from, until, groundRadius, art);
-        AddChilledGroundLocked(player, to, until, groundRadius, art);
-        foreach (var centre in new[] { from, to })
+        if (to != from) AddChilledGroundLocked(player, to, until, groundRadius, art);
+        foreach (var centre in to != from ? new[] { from, to } : new[] { from })
             await AreaSkillHit(player, gem.Id, gem, centre, centre,
-                immediate: true, cooldownUse: use, criticalRoll: crit, sacrifice: sacrifice);
+                immediate: true, cooldownUse: use, criticalRoll: crit, sacrifice: sacrifice,
+                triggeredCurrent: triggeredCurrent);
     }
 
     static async Task FrostblinkWintryBlastCast(Player player, ushort skillId,
@@ -2401,6 +2407,7 @@ public static partial class Game
             started = aura;
             ClampReservedResources(player);
             PhaseRunOnSkillUse(player, skillId);
+            WitheringStepOnSkillUse(player, skillId);
         }
         player.Pools = PoolsFor(player, player.Pools.Level);
         player.EnergyShield.SetMaximum(player.Pools.EnergyShield);

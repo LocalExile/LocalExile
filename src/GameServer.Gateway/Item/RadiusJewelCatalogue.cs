@@ -363,8 +363,9 @@ public static class RadiusJewelCatalogue
                 }
             }
         }
-        if (radius == 0 && EntryOf(item, mods) is { Radius: > 0 } entry) radius = entry.Radius;
-        if (radius <= 0) return null;
+        bool validRing = RingRadii(ring).Outer > 0;
+        if (radius == 0 && !validRing && EntryOf(item, mods) is { Radius: > 0 } entry) radius = entry.Radius;
+        if (radius <= 0 && !validRing) return null;
         (uint From, uint To)? swap = null;
         if (physicalToCold && coldToPhysical)
             swap = (Stat.PhysicalDamagePlusPct, Stat.ColdDamagePlusPct);
@@ -465,6 +466,51 @@ public static class RadiusJewelCatalogue
 
     public static bool IsRadius(Item item, ModCatalog mods) => ReadConversion(item, mods) is not null;
 
+    /// <summary>Legacy Thread of Hope saves carried Intuitive Leap's <c>JewelUniqueAllocateDisconnectedPassives</c>
+    /// (with its 800 base disc radius) or an implicit ring mod from older <c>/radius_jewel</c> output. Rewrites them
+    /// to <c>AllocateDisconnectedPassivesDonutUnique__1</c> and an explicit ring mod while preserving rolled values
+    /// and any corrupted implicits; all other items (including Intuitive Leap) are returned unchanged.</summary>
+    public static Item Migrate(Item item, ModCatalog mods)
+    {
+        bool hasRing = false, needsMigration = false;
+        foreach (var itemMod in item.Mods)
+        {
+            if (mods.ByHash(itemMod.Hash) is not { } row) continue;
+            if (row.Id == "JewelUniqueAllocateDisconnectedPassives") needsMigration = true;
+            if (row.Stats.Any(stat => stat.Id == Stat.LocalJewelVariableRingRadiusValue))
+            {
+                hasRing = true;
+                if (itemMod.Section == ModSection.Implicit) needsMigration = true;
+            }
+        }
+        if (!hasRing || !needsMigration) return item;
+        var donut = mods.ById("AllocateDisconnectedPassivesDonutUnique__1");
+        bool changed = false;
+        var rewritten = new List<ItemMod>(item.Mods.Count);
+        foreach (var itemMod in item.Mods)
+        {
+            if (mods.ByHash(itemMod.Hash) is { } row)
+            {
+                if (row.Id == "JewelUniqueAllocateDisconnectedPassives" && donut is not null)
+                {
+                    int allocate = itemMod.Values.Count > 0 && itemMod.Values[0] != 0 ? itemMod.Values[0] : 1;
+                    rewritten.Add(new ItemMod(itemMod.Section, donut.Hash, [allocate]));
+                    changed = true;
+                    continue;
+                }
+                if (itemMod.Section == ModSection.Implicit
+                    && row.Stats.Any(stat => stat.Id == Stat.LocalJewelVariableRingRadiusValue))
+                {
+                    rewritten.Add(itemMod with { Section = ModSection.Explicit });
+                    changed = true;
+                    continue;
+                }
+            }
+            rewritten.Add(itemMod);
+        }
+        return changed ? item with { Mods = rewritten } : item;
+    }
+
     /// <summary>The stat list with every move applied. Cold Steel is a simultaneous swap; the other conversions
     /// remove each source and add its value (times the factor) to the target, merging an existing target.</summary>
     public static IReadOnlyList<(uint Key, int Value)> Convert(IReadOnlyList<(uint Key, int Value)> stats,
@@ -546,18 +592,14 @@ public static class RadiusJewelCatalogue
         bool hasRadius = false;
         if (entry.VariantKeepsConversionMod && chosen is not null)
         {
-            // Thread of Hope prints the chosen ring first, then the allocation rule and the resistance penalty.
+            // Thread of Hope carries its ring size, donut allocation rule and resistance penalty as explicit mods
+            // (matching retail: no implicits, so Divine Orbs reroll Variable rings and Vaal Orbs / The Gulf add
+            // corrupted implicits without replacing the ring).
             if (items.Mods.ById(chosen.ModId) is not { Stats.Count: > 0 } ring) return null;
-            mods.Add(CreateMod(ring, chosen.Value, ModSection.Implicit));
+            mods.Add(CreateMod(ring, chosen.Value));
             hasRadius |= ring.Stats.Any(stat => stat.Id == Stat.LocalJewelEffectBaseRadius);
             if (items.Mods.ById(entry.ConversionMod) is not { Stats.Count: > 0 } common) return null;
-            // Thread of Hope's ring value supplies the radius; the allocate mod's 800 base would make the client
-            // draw a filled disc instead of the annulus.
-            var commonMod = CreateMod(common);
-            var commonValues = commonMod.Values.ToArray();
-            int baseRadiusAt = common.Stats.ToList().FindIndex(stat => stat.Id == Stat.LocalJewelEffectBaseRadius);
-            if (baseRadiusAt >= 0 && baseRadiusAt < commonValues.Length) commonValues[baseRadiusAt] = 0;
-            mods.Add(commonMod with { Values = commonValues });
+            mods.Add(CreateMod(common));
             hasRadius |= common.Stats.Any(stat => stat.Id == Stat.LocalJewelEffectBaseRadius);
         }
         else

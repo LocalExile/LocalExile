@@ -42,6 +42,8 @@ public static class SkillArea
             : effect == "Brandsurge" ? 26
             : effect == "EarthquakeAltX" ? 18
             : effect == "TectonicSlamAltX" ? 15
+            : effect == Game.WitheringStepEffect ? Game.WitheringStepBaseRadius
+            : effect == Game.PlagueBearerEffect ? Game.PlagueBearerBaseRadius
             : GatewayProjectileSkillProfiles.IsMoltenStrike(effect) ? 9 : 12;
 
     static readonly uint[] MoreArea =

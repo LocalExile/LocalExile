@@ -101,8 +101,14 @@ public static partial class Game
         bool additionalAllowed = Get(Stat.CannotInflictAdditionalPoisons) == 0;
         int extraOnFreshTarget = additionalAllowed ? Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies) : 0;
         int extraWithWeapon = additionalAllowed && !spell && !settings.Secondary ? settings.AdditionalWithWeapon : 0;
+        int stacksBefore = target.Poisons.Stacks(now);
         if (!ApplyHitPoisonsLocked(target.Poisons, now, perSecond, seconds, extraOnFreshTarget, doubleChance, random, extraWithWeapon, poisonSkill)) return false;
-        if (playerOwned) InflictedLocked(player, target, AilmentType.Poison, now + seconds / target.RecipientDebuffRate);
+        int addedStacks = Math.Max(1, target.Poisons.Stacks(now) - stacksBefore);
+        if (playerOwned)
+        {
+            PlagueBearerOnPoisonInflictedLocked(player, perSecond, seconds, addedStacks);
+            InflictedLocked(player, target, AilmentType.Poison, now + seconds / target.RecipientDebuffRate);
+        }
         ReservationPoisonLocked(player, now);
         return true;
     }
