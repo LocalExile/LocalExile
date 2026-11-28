@@ -302,8 +302,7 @@ Large accepted **38129** (Damage and Energy Shield, distance 1808) after the Mas
 item socketed. The server refused swapping the Massive item for the Large one while 23507/48477 remained (refund
 first); after the refund the swap and 38129 allocation succeeded. Small ring node **5875** (distance 862) is inside the
 960-1320 small ring's inner hole and is refused. The -10% all-resistance roll changed `/resistances`
-**268/221/221 -> 258/211/211**. The explicit-ring item drew a filled disc in the client; base radius 0 plus the implicit
-ring value draws the annulus with the inner hole (items 1162/1161 in cell 3 during the checks). Unnatural Instinct in
+**268/221/221 -> 258/211/211**. Using `AllocateDisconnectedPassivesDonutUnique__1` (no `local_jewel_effect_base_radius`) with the explicit ring mod (`JewelRingRadiusValuesUnique__1` for Small..Very Large, `JewelRingRadiusValuesUnique__2` for Massive) draws the annulus with the inner hole, lets Divine Orbs reroll Variable rings without restoring an 800 disc radius, and lets Vaal Orbs / The Gulf add corrupted implicits without overwriting the ring. Unnatural Instinct in
 cell 3 changed life **5520 -> 5685**, mana **2355 -> 2326** and ES
 **277 -> 285**: the three allocated Intelligence smalls were suppressed (-30 Int) while three unallocated Life/Energy
 Shield smalls granted +9% maximum Life and +15% maximum Energy Shield. The items were returned to the inventory.
@@ -497,10 +496,11 @@ item cannot be taken out while one of them still depends on it.
 **Thread of Hope** (Crimson, Variable): the same allocation bypass, but only for passives in the selected ring, plus
 `-(10-20)% to all Elemental Resistances` (a global mod). The five variants are Small Ring, Medium Ring, Large Ring, Very
 Large Ring and Massive Ring (Uber); `RingRadii` maps the selected `local_jewel_variable_ring_radius_value` to the
-`PassiveJewelRadii` inner/outer rows, and `NodesInRing` uses the inclusive-inner/inclusive-outer check. The ring value
-is created as an **implicit** mod: the client's passive-tree art reads it there to draw the annulus, while the explicit
-allocate mod's `local_jewel_effect_base_radius` 800 would otherwise draw a filled disc. The tooltip order is ring,
-resistance, allocate. Following the wiki, Thread of Hope does not enable jewel sockets in the ring (Intuitive Leap
+`PassiveJewelRadii` inner/outer rows, and `NodesInRing` uses the inclusive-inner/inclusive-outer check. All three mods
+(ring size `JewelRingRadiusValuesUnique__1`/`__2`, donut allocation `AllocateDisconnectedPassivesDonutUnique__1`, and
+`AllResistancesUnique__6`) are **explicit**, matching retail: there is no `local_jewel_effect_base_radius` stat to draw
+a filled disc, Divine Orbs reroll Variable rings (1-4) while keeping Massive (5), and Vaal Orbs / The Gulf add corrupted
+implicits without replacing the ring. Following the wiki, Thread of Hope does not enable jewel sockets in the ring (Intuitive Leap
 does). Implemented with the same removal refusal as Intuitive Leap.
 
 **Unnatural Instinct** (Viridian, Small, limit 1): allocated small passives in radius grant nothing; unallocated small
