@@ -22,12 +22,12 @@ Production paths remain relative to the repository root.
 dotnet run --project scripts/re/passive-graphs -- Client/Content.ggpk data/passive-skill-graphs.json
 ```
 
-The `passive-graphs` manifest entry is version 7 and depends on `tables`.
+The `passive-graphs` manifest entry is version 8 and depends on `tables`.
 It writes two ignored analysis artifacts:
 
 - `data/passive-skill-graphs.json`: revision, `analysisOnly: true`, source descriptions, hashes, roots, orbit sizes and
   sorted undirected adjacency for the ordinary and derived Phrecia graphs and, from version 7, the Atlas tree
-  (`atlas`: 1029 nodes, root 29045). Version 5 also exports each group's `x`/`y`
+  (`atlas`: 1029 nodes, root 29045), and from version 8 the Genesis Tree (`brequel`: 134 nodes). Version 5 also exports each group's `x`/`y`
   and each node's `orbit`/`orbitIndex`, which the Gateway uses only to compute jewel radii (no graph is installed).
 - `data/phrecia-passive-skillgraph.psg`: the matching merged graph, referenced by `mergedGraphFile` in the JSON.
   This file is not installed or consumed by gameplay.
