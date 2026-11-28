@@ -138,6 +138,8 @@ public static partial class Game
         TryGainElusiveLocked(player, critical: false, kill: true, now);
         Func<uint, int>? skill = skillStats is { Count: > 0 } own ? key => own.GetValueOrDefault(key) : null;
         ChargesOf(player).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons, skill));
+        // Only an existing projectile session can hold Cold Snap grounds; a kill never starts one.
+        if (player.ProjectileRuntime is { Active: true } projectiles) projectiles.ColdSnapFrenzyOnKill(m, now);
         SpiritChargeOnKill(player, AreaTime(player));
         SelfBuffsOnKill(player);
         CurseCharges(player, m, death: true, now);
@@ -398,6 +400,8 @@ public static partial class Game
         double castSeconds = WarcryCastSeconds(player, effect, playerStats, own);
         double until = AreaTime(player) + castSeconds;
         int epoch = player.ProjectileEpoch;
+        var bonespire = !triggered && skillId != 0 && Own(Stat.SupportTriggerSeizeTheFleshOnWarcryChancePct) > 0
+            ? SupportedSkill(player, skillId) : null;
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own, DurationKinds(player, effect))
             * SkillDurationModifiers.CallToArmsMore(Player);
         bool suppressBuffs = Own(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
@@ -435,6 +439,8 @@ public static partial class Game
             }
             else if (effectId == "BattlemagesCry")
                 GrantBattlemagesCryExertsLocked(player, skillId, own, playerStats);
+            if (bonespire is not null)
+                TriggerBonespireLocked(player, skillId, bonespire, here, now);
             var warriors = skillId != 0 && IsGeneralsCry(player, effect)
                 ? GeneralsCryReleased(player, skillId, here, radius, epoch)
                 : Task.CompletedTask;

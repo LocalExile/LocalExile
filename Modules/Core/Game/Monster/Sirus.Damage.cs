@@ -61,7 +61,7 @@ static partial class Sirus
                     int damage = (int)Math.Min(int.MaxValue, Math.Floor(earned)); e.DotCarry[slot] = earned - damage;
                     lifeDamage += type == DamageType.Chaos
                         ? DamagePlayerChaosOverTime(p, damage, now, stats)
-                        : IncomingResourceDefences.DamageOverTime(p.EnergyShield, damage, Get(IncomingResourceDefences.BypassStat), now, ref p.NonChaosDotBypassCarry);
+                        : DamagePlayerNonChaosOverTime(p, type, damage, now, Get);
                 }
                 uint lifeAfter = VaalImmortalCallLife(p, (uint)Math.Max(0, (long)p.PlayerLife - lifeDamage), now);
                 RecordRechargeLifeDamage(p, (long)p.PlayerLife - lifeAfter, now, stats);
@@ -77,20 +77,22 @@ static partial class Sirus
                     int MinionStat(uint key) => g.Player.GetValueOrDefault(key);
                     bool elementalImmune = g.Definition.IsGolem && (MinionStat(global::Stat.GolemImmunityToElementalDamage) > 0
                         || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && MinionStat(global::Stat.ElementalGolemImmunityToElementalDamage) > 0);
-                    double total = 0;
+                    double total = 0, elemental = 0;
                     foreach (var type in DamageTypes.ConversionOrder)
                     {
                         if (elementalImmune && DamageTypes.IsElemental(type)) continue;
                         var res = MonsterHitResistance(g.Monster, type, default);
-                        total += DamageModel.Mitigate(hit[type].Min, res.Value, res.Maximum);
+                        double taken = DamageModel.Mitigate(hit[type].Min, res.Value, res.Maximum);
+                        total += taken;
+                        if (DamageTypes.IsElemental(type)) elemental += taken;
                     }
-                    double amount = total * seconds + carry.GetValueOrDefault((p, g.Id));
-                    int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); carry[(p, g.Id)] = amount - damage;
+                    carry[(p, g.Id)] = carry.GetValueOrDefault((p, g.Id))
+                        .Apply(g.Monster, total * seconds, elemental * seconds, out int damage, out bool healed);
                     int incoming = damage;
                     damage = g.ShieldPool.Damage(damage, bypass: false, now);
                     PublishEnergyShieldLocked(p, g);
                     g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
-                    if (incoming > 0) p.Minions.OutputQueue.Add(new([], "Sirus ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life,
+                    if (incoming > 0 || healed) p.Minions.OutputQueue.Add(new([], "Sirus ground changes minion life", g.Id, g.Monster, PlayerMinions.OutputKind.Life,
                         DeathKind: DotDeathKind(g.Monster, g.Monster.Life)));
                     if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
                 }

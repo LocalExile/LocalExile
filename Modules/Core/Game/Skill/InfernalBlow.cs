@@ -150,10 +150,11 @@ public static partial class Game
         int ExplosionStat(uint key) => key == Stat.ElementalDamagePlusPct
             ? Get(key) + Get(Stat.ElementalDamageWithAttackSkillsPlusPct) : Get(key);
         double raw = (corpse.MaxLifeWithoutParty ?? corpse.MaxLife) * (double)percent / 100;
-        var packet = PlayerHitDamage.Resolve(DamagePacket.Of(DamageType.Fire, raw, raw), ExplosionStat,
-            DamageStats.Conversion(stats, Stats, attack: null), spell: false, area: true, secondary: true,
-            supportModifiers: use.Source.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value)));
-        ReleaseSkillCorpseExplosion(session, corpseId, corpse, at, now, radius, packet,
+        var conversion = DamageStats.Conversion(stats, Stats, attack: null);
+        var supports = use.Source.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value));
+        DamagePacket Resolve(DamagePacket basis) => PlayerHitDamage.Resolve(basis, ExplosionStat, conversion,
+            spell: false, area: true, secondary: true, supportModifiers: supports);
+        ReleaseSkillCorpseExplosion(session, corpseId, corpse, at, now, radius, DamagePacket.Of(DamageType.Fire, raw, raw), Resolve,
             Penetration.Of(stats, Stats, attack: false), Get(Stat.CannotPenetrateOrIgnoreElementalResistances), "Infernal Blow");
     }
 

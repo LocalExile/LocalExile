@@ -124,7 +124,7 @@ public sealed partial class ReservationCurseSummonTests
             var target = new SpawnedMonster("Madness poison", new(100, 100, 1), 100, 8, 100000)
                 { Hostile = true };
             Assert.True(Game.TryPoisonOnHitLocked(player, target, raw, false, false, playerStats, null, poison,
-                schedule.At, new AspectRoll(0), out double dps, out double seconds));
+                schedule.At, new AspectRoll(0), default(SkillPoisonStats), out double dps, out double seconds));
             // The lethal mutation earns a source snapshot. Publication may follow a toggle or item removal.
             var corpse = new SpawnedMonster("Madness corpse", new(100, 100, 1), 100, 8, 1000)
                 { Variety = new MonsterCatalog().Find("Metadata/Monsters/Zombies/Zombie") };

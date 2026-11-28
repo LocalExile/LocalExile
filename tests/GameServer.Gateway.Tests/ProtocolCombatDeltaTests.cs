@@ -56,20 +56,23 @@ public sealed class ProtocolCombatDeltaTests
             await Game.OnClientMessages([(InstanceProtocol.ChannelEndId, endReq)], [], player);
 
             // 3. Divine Ire channel emits live Stat.DivineTempestCurrentNumberOfStages (0x233f) and clears on end.
-            int divineIreEffect = Program.Skills.EffectRow("DivineIre");
-            Assert.True(Game.IsDivineIre(player, divineIreEffect));
-            player.ChannelSkill = 0x0105;
-            player.ChannelSkillSequence = 0x0009;
-            player.ActionCount = 42;
-            player.NextChannelHitAt = Game.AreaTime(player) + 10;
-            player.LastChannelUpdateAt = Game.AreaTime(player);
-            // Force Running() to exit immediately after start stage publication (zero real-time wait).
-            player.PlayerLife = 0;
-            await Game.RunChannel(player, 0x0105, (0x0105, divineIreEffect, "Divine Ire", 1, 0, 0u), 42, (112, 100));
+            TestRequirements.Waive(player);
+            var gem = Program.Items.FindGem("Divine Ire")!.Value;
+            var staff = ItemCatalog.Create(Program.Items.Find("Gnarled Branch")!) with
+            {
+                Sockets = [new(SocketColour.White, ItemCatalog.Create(gem.Type) with { GemVariant = gem.Variant.Index })],
+                Links = [1],
+            };
+            Game.ItemsOf(player).Put(PlayerInventories.Weapon1, new(1, 0, 0, staff));
+            ushort divineIre = Game.GemSkillEffects(player).Single(g => Game.IsDivineIre(player, g.Effect)).Id;
+            Assert.True(await Game.CastGemSkill(player, divineIre, (112, 100), (132, 100), sequence: 0x0009));
+            await Game.OnClientMessages([(InstanceProtocol.ChannelEndId, endReq)], [], player);
+            var flushed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Game.ProjectilesFor(player).Enqueue(() => { flushed.SetResult(); return Task.CompletedTask; });
+            await flushed.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
             // The first channel's finally can run after the next release.
             await Game.EmitPredictiveChannelFinished(player, 0, 0x0007);
-            await Game.EmitPredictiveChannelFinished(player, player.ChannelGeneration, 0x0009);
 
             byte[] sent = wire.FinishAndDecrypt();
             byte[] expectedShrineUpdate = InstanceEntities.ShrineUpdate(shrineId, (byte)accel.Row, player.Id, claimed: true);
@@ -91,6 +94,7 @@ public sealed class ProtocolCombatDeltaTests
             await ShrineManager.LeaveArea(player);
             player.Closed = true;
             Program.InGame.TryRemove(player, out _);
+            PlayerInventories.Forget(player.Character.Name!);
             ShrineRegistry.RegisterDefaults();
         }
     }

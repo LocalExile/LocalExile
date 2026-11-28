@@ -76,6 +76,8 @@ public static class MercenaryTables
     static Dictionary<uint, string> WordsByHashData = [];
     static HashSet<string> DisabledUniquesData = new(StringComparer.OrdinalIgnoreCase);
     static Dictionary<string, AreaMeta> AreasById = new(StringComparer.OrdinalIgnoreCase);
+    static IReadOnlyDictionary<int, IReadOnlyList<(int Dx, int Dy)>> PartyOffsetsData =
+        new Dictionary<int, IReadOnlyList<(int Dx, int Dy)>>();
 
     public static AreaMeta? AreaOf(string areaId) => AreasById.TryGetValue(areaId, out var meta) ? meta : null;
     public static bool IsTownOrHideout(string areaId) => AreaOf(areaId) is { } m && (m.IsTown || m.IsHideout);
@@ -99,9 +101,14 @@ public static class MercenaryTables
     public static IReadOnlyList<Class> Classes => ClassesData;
     public static IReadOnlyList<Build> Builds => BuildsData;
 
+    /// <summary>The MinimapIcons row of MercenaryEncounter (the encounter Mercenary's map icon), or -1.</summary>
+    public static int EncounterIconRow { get; private set; } = -1;
+
     /// <summary>Builds this module's game data at startup (before the Gateway listens), not on first use.</summary>
     public static void LoadGameData()
     {
+        EncounterIconRow = ClientTables.TableOrEmpty("MinimapIcons").FirstOrDefault(r => r.TextOrNull("Id") == "MercenaryEncounter")
+            is { Table: not null } icon ? icon.Index : -1;
         var tagNames = LoadTagNames();
         ClassesData = LoadClasses(tagNames);
         BuildsData = LoadBuilds();
@@ -117,6 +124,7 @@ public static class MercenaryTables
             .Where(r => r.TextOrNull("Id") == "MeleeAtAnimationSpeed").Select(r => r.Index).DefaultIfEmpty(-1).First();
         WarrantTypeHash = Program.Items.Find("Metadata/Items/MapFragments/MercenaryWarrant")?.Hash ?? 0;
         AreasById = LoadAreas();
+        PartyOffsetsData = LoadPartyOffsets();
         var itemClasses = ClientTables.TableOrEmpty("ItemClasses");
         foreach (var r in itemClasses)
         {
@@ -139,9 +147,10 @@ public static class MercenaryTables
     public static IReadOnlyList<Class> Eligible(bool infamous = false) =>
         [.. Classes.Where(c => c.Path.Length > 0 && c.Supported && BuildsOf(c.Row, infamous).Count > 0)];
 
-    /// <summary>The builds one class draws from.</summary>
+    /// <summary>The builds one class draws from. A build that can wield nothing is an unfinished row (3.29's Bladereach,
+    /// Crit1HShadowSpectral: no weapons, no extra stats, only the "Do Nothing" skill) and is never drawn.</summary>
     public static IReadOnlyList<Build> BuildsOf(int classRow, bool infamous = false) =>
-        [.. Builds.Where(b => b.ClassRow == classRow && b.Infamous == infamous)];
+        [.. Builds.Where(b => b.ClassRow == classRow && b.Infamous == infamous && b.WieldableItemClasses.Length > 0)];
 
     /// <summary>One eligible class and one of its builds, drawn uniformly from <paramref name="rng"/>; null when no class is
     /// eligible.</summary>
@@ -400,6 +409,44 @@ public static class MercenaryTables
     public static Build? BuildOf(int row) => Builds.FirstOrDefault(b => b.Row == row);
     public static Build? BuildByHash(ushort hash16) => Builds.FirstOrDefault(b => b.Hash16 == hash16);
     public static SkillRow? SkillOf(int row) => SkillRowsData.GetValueOrDefault(row);
+
+    /// <summary>Where a class's party members stand, in cells from the Mercenary: its camp room (<c>MercenaryClasses.TerrainFeature</c>
+    /// → <c>ExtraTerrainFeatures.ArmFiles</c>, Witch1.arm …) puts a MercenarySpawnMarkerPartyMember on each side of its
+    /// MercenarySpawnMarker, 15 to 26 cells away. Empty without the room.</summary>
+    public static IReadOnlyList<(int Dx, int Dy)> PartyOffsets(int classRow) =>
+        PartyOffsetsData.TryGetValue(classRow, out var offsets) ? offsets : [];
+
+    static IReadOnlyDictionary<int, IReadOnlyList<(int Dx, int Dy)>> LoadPartyOffsets()
+    {
+        if (!File.Exists(GameServer.Data.Ggpk.GamePack.DefaultFile))
+            return new Dictionary<int, IReadOnlyList<(int Dx, int Dy)>>();
+        const string Marker = "Metadata/Terrain/Leagues/Mercenaries/Objects/MercenarySpawnMarker";
+        var armByFeature = new Dictionary<int, string>();
+        foreach (var room in ClientTables.TableOrEmpty("ExtraTerrainFeatures"))
+            if (room.Texts("ArmFiles").FirstOrDefault() is { } arm)
+                armByFeature[room.Index] = arm;
+        var offsets = new Dictionary<int, IReadOnlyList<(int Dx, int Dy)>>();
+        try
+        {
+            var pack = GameServer.Data.Ggpk.GamePack.Default;
+            foreach (var kind in ClientTables.TableOrEmpty("MercenaryClasses"))
+            {
+                if (kind.IntOrNull("TerrainFeature") is not int feature
+                    || !armByFeature.TryGetValue(feature, out var arm)
+                    || pack.TryRead(arm) is not { } bytes) continue;
+                var doodads = GameServer.Data.Terrain.RoomFile.Parse(GameServer.Data.Terrain.TerrainText.Decode(bytes)).Doodads;
+                if (doodads.FirstOrDefault(d => d.Type == Marker) is not { } main) continue;
+                var members = doodads.Where(d => d.Type == Marker + "PartyMember")
+                    .Select(d => ((int)MathF.Round(d.X - main.X), (int)MathF.Round(d.Y - main.Y))).ToArray();
+                if (members.Length > 0) offsets[kind.Index] = members;
+            }
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException)
+        {
+            return new Dictionary<int, IReadOnlyList<(int Dx, int Dy)>>();
+        }
+        return offsets;
+    }
     public static SkillRow? SkillByHash(ushort hash16) => hash16 == 0 ? null : SkillRowsData.Values.FirstOrDefault(s => s.Hash16 == hash16);
     public static SupportRow? SupportOf(int row) => SupportRowsData.GetValueOrDefault(row);
     public static SupportRow? SupportByHash(ushort hash16) => hash16 == 0 ? null : SupportRowsData.Values.FirstOrDefault(s => s.Hash16 == hash16);

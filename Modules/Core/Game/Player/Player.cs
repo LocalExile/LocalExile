@@ -82,7 +82,7 @@ public static partial class Game
                     ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency,
                     IsHerald: IsHeraldAura(effectId),
                     ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual)
-                    { FixedManaReservation = reservation.FixedMana };
+                    { FixedManaReservation = reservation.FixedMana, FixedLifeReservation = reservation.FixedLife };
                 candidate = WithCasterAuraStamps(player, candidate, CharacterStatSources(player).Stats);
                 candidates.Add(stanceSource ? candidate with { StanceOwner = new object() } : candidate);
             }
@@ -423,8 +423,13 @@ public static partial class Game
             // too (live 2026-11-13: the globe stayed below full after a cast with no rate).
             bool active = player.EnergyShield.Recharging || Get(Stat.KeystoneEldritchBattery) != 0
                 && player.EnergyShield.RechargeReady(AreaTime(player), Get);
-            int rate = player.PlayerLife == 0 || player.TrapDegenPerSecond > 0 || player.IncomingAilments.Bleeding(AreaTime(player)) ? 0 : (int)Math.Round(
-                EnergyShield.PredictionPerMinute(player.Pools.EnergyShield, Get, active));
+            double now = AreaTime(player);
+            bool zeroed = player.PlayerLife == 0 || player.TrapDegenPerSecond > 0 || player.IncomingAilments.Bleeding(now);
+            double lifeToEs = zeroed ? 0 : PanelStats.LifeRegeneration(
+                PanelStats.WhileMoving(Get, player.Walk.Moving(now)),
+                player.Pools.Life, player.Pools.EnergyShield, LifeRegenerationKeystoneFactor(Get)).EnergyShield;
+            int rate = zeroed ? 0 : (int)Math.Round(
+                EnergyShield.PredictionPerMinute(player.Pools.EnergyShield, Get, active) + lifeToEs);
             SetStats(player, player.Id, [(Stat.EnergyShieldRecoveryPerMinute, rate)]);
             return null;
         }, "0x01b3 player energy shield recovery rate", sync: "energy-shield");
@@ -1164,11 +1169,11 @@ public static partial class Game
     // The game clock excludes pause; scheduling/network delays change the step size, never the per-second rate.
     static void StartResourceRecovery(Player player, PlayerUpdatesState updates)
     {
-        double lifeCarry = 0, manaCarry = 0, burnCarry = 0, trapCarry = 0, flaskCarry = 0, last = updates.Schedule.Now(player);
-        double lifeRate = 0, manaRate = 0, burnPerSecond = 0, preventedPerSecond = 0, lifeRegenFactor = 1;
-        bool zealotsOath = false, convertLifeRegen = false, vaalPact = false;
+        double lifeCarry = 0, manaCarry = 0, burnCarry = 0, trapCarry = 0, elementalHealingCarry = 0, flaskCarry = 0, last = updates.Schedule.Now(player);
+        double lifeRate = 0, esFromLifeRate = 0, manaRate = 0, burnPerSecond = 0, preventedPerSecond = 0, lifeRegenFactor = 1;
+        bool zealotsOath = false, convertLifeRegen = false, vaalPact = false, piousEsActive = false;
         double? periodicRegenStart = null;
-        double periodicRegenPerSecond = 0;
+        double periodicLifePerSecond = 0, periodicEsPerSecond = 0, piousScaledFactor = 0, piousWardBreakFactor = 0;
         Dictionary<uint, int> recoveryStats = [];
         int RecoveryStat(uint key) => recoveryStats.GetValueOrDefault(key);
         var cachedRf = player.RighteousFire;
@@ -1223,21 +1228,70 @@ public static partial class Game
                 if (rates.Stale || rf != cachedRf)
                 {
                     rates.Stale = false; ratesRead = true;
-                    recoveryStats = CharacterPlayerStatsCore(player, out lifeRate);
+                    recoveryStats = CharacterPlayerStatsCore(player, out lifeRate, out esFromLifeRate);
                     manaRate = PanelStats.ManaPerMinute(
                         PanelStats.WhileMoving(RecoveryStat, player.Walk.Moving(AreaTime(player))), player.Pools.Mana) / 60;
                     player.PetrifiedBlood.RefreshThreshold(LowLifeThresholdPct(recoveryStats));
                     preventedPerSecond = PreventedDamageRecovery.PerSecond(
                         PanelStats.WhileMoving(RecoveryStat, player.Walk.Moving(AreaTime(player))));
                     lifeRegenFactor = LifeRegenerationKeystoneFactor(RecoveryStat);
+                    zealotsOath = PanelStats.ZealotsOath(RecoveryStat);
+                    if (zealotsOath) lifeRate = 0;
+                    bool lifeBlocked = PanelStats.LifeRegenerationBlocked(RecoveryStat);
+                    bool esAllowed = EnergyShield.ConversionAllowed(RecoveryStat);
+                    convertLifeRegen = zealotsOath && esAllowed && !lifeBlocked;
                     // The influenced body armour suffix: its id says ten seconds, its text "Every 4 seconds".
                     int periodic = RecoveryStat(Stat.VirtualGainLifeRegenerationPerMinutePctFor1SecondEvery4Seconds)
                         + RecoveryStat(Stat.GuardianGainLifeRegenerationPerMinutePctFor1SecondEvery10Seconds);
                     periodicRegenStart = periodic > 0 && player.PlayerLife > 0 ? periodicRegenStart ?? now : null;
-                    periodicRegenPerSecond = player.PlayerMaxLife * (double)periodic / 6000
-                        * PanelStats.LifeRegenerationMultiplier(RecoveryStat) * lifeRegenFactor;
-                    zealotsOath = PanelStats.ZealotsOath(RecoveryStat);
-                    convertLifeRegen = zealotsOath && EnergyShield.ConversionAllowed(RecoveryStat);
+                    if (periodic > 0 && !lifeBlocked)
+                    {
+                        if (zealotsOath)
+                        {
+                            periodicLifePerSecond = 0;
+                            periodicEsPerSecond = convertLifeRegen
+                                ? player.Pools.EnergyShield * (double)periodic / 6000 * EnergyShield.RegenerationMultiplier(RecoveryStat)
+                                : 0;
+                        }
+                        else
+                        {
+                            double periodicBeforeRecovery = player.PlayerMaxLife * (double)periodic / 6000
+                                * Math.Max(0, 1 + RecoveryStat(Stat.LifeRegenerationRatePlusPct) / 100.0) * lifeRegenFactor;
+                            periodicLifePerSecond = periodicBeforeRecovery
+                                * Math.Max(0, 1 + RecoveryStat(Stat.LifeRecoveryRatePlusPct) / 100.0) * PanelStats.MapRecoveryMultiplier(RecoveryStat);
+                            if (esAllowed)
+                            {
+                                int sharePct = RecoveryStat(Stat.XPctLifeRegenerationAppliesToEnergyShield);
+                                double shareRate = sharePct > 0
+                                    ? player.Pools.EnergyShield * (periodic * Math.Min(sharePct, 100) / 100.0) / 6000 * EnergyShield.RegenerationMultiplier(RecoveryStat)
+                                    : 0;
+                                double piousRate = PanelStats.PiousPathActive(RecoveryStat)
+                                    ? periodicBeforeRecovery * Math.Max(0, 1 + RecoveryStat(Stat.EnergyShieldRecoveryRatePlusPct) / 100.0) * PanelStats.MapRecoveryMultiplier(RecoveryStat)
+                                    : 0;
+                                periodicEsPerSecond = shareRate + piousRate;
+                            }
+                            else periodicEsPerSecond = 0;
+                        }
+                    }
+                    else
+                    {
+                        periodicLifePerSecond = 0;
+                        periodicEsPerSecond = 0;
+                    }
+                    if (!zealotsOath && PanelStats.PiousPathActive(RecoveryStat) && !lifeBlocked && esAllowed)
+                    {
+                        double esRec = Math.Max(0, 1 + RecoveryStat(Stat.EnergyShieldRecoveryRatePlusPct) / 100.0);
+                        double lifeRec = Math.Max(0, 1 + RecoveryStat(Stat.LifeRecoveryRatePlusPct) / 100.0);
+                        piousEsActive = true;
+                        piousWardBreakFactor = lifeRegenFactor * esRec;
+                        piousScaledFactor = lifeRec > 0 ? lifeRegenFactor * esRec / lifeRec : 0;
+                    }
+                    else
+                    {
+                        piousEsActive = false;
+                        piousWardBreakFactor = 0;
+                        piousScaledFactor = 0;
+                    }
                     vaalPact = RecoveryStat(Stat.KeystoneVaalPact) != 0;
                     burnPerSecond = rf is null ? 0 : DamageModel.Mitigate(RighteousFireBaseDps(player, rf, self: true),
                         Resistance(player, DamageType.Fire), MaxResistance(player, DamageType.Fire));
@@ -1261,7 +1315,7 @@ public static partial class Game
                     ClearPlayerDecay(player);
                     ClearCorruptedBlood(player);
                     ClearEssenceAuraExposure(player);
-                    lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0;
+                    lifeCarry = manaCarry = burnCarry = trapCarry = elementalHealingCarry = flaskCarry = 0;
                     player.NonChaosDotBypassCarry = player.NonChaosDotTakenCarry =
                         player.ChaosDotBypassCarry = 0;
                     FortificationOf(player).Clear();
@@ -1316,10 +1370,11 @@ public static partial class Game
                     burnCarry += (InGracePeriod(player) ? 0 : burnPerSecond * player.ElementalAilments.DamageTakenFactor(now))
                         * seconds * takenFactor;
                     int burnWhole = (int)Math.Truncate(burnCarry); burnCarry -= burnWhole;
-                    int lifeBurn = IncomingResourceDefences.DamageOverTime(player.EnergyShield, burnWhole,
+                    bool healsElemental = ConvertsElementalDamageToHealing(DamageType.Fire, IncomingStat);
+                    int lifeBurn = healsElemental ? 0 : IncomingResourceDefences.DamageOverTime(player.EnergyShield, burnWhole,
                         IncomingStat(IncomingResourceDefences.BypassStat), now, ref player.NonChaosDotBypassCarry);
-                    // Physical trap degeneration shares received Focus and non-chaos DoT bypass with the other sources.
-                    trapCarry += player.TrapDegenPerSecond * seconds * trapTakenFactor;
+                    double elementalDegen = healsElemental ? player.Degens.Elemental : 0;
+                    trapCarry += Math.Max(0, player.TrapDegenPerSecond - elementalDegen) * seconds * trapTakenFactor;
                     int trapWhole = (int)Math.Truncate(trapCarry); trapCarry -= trapWhole;
                     int lifeTrap = IncomingResourceDefences.DamageOverTime(player.EnergyShield, trapWhole,
                         IncomingStat(IncomingResourceDefences.BypassStat), now, ref player.NonChaosDotBypassCarry);
@@ -1329,9 +1384,11 @@ public static partial class Game
                     uint esCeiling = recoveryCeilingPct < 100
                         ? (uint)((long)player.EnergyShield.Maximum * recoveryCeilingPct / 100) : player.EnergyShield.Maximum;
                     player.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
-                    double periodicLife = periodicRegenStart is double start ? periodicRegenPerSecond
-                        * (PeriodicRegenSeconds(now - start) - PeriodicRegenSeconds(recoveryFrom - start)) : 0;
-                    player.EnergyShield.Gain(leeched.EnergyShield + (convertLifeRegen ? lifeRate * seconds + periodicLife : 0), esCeiling);
+                    double periodicWindow = periodicRegenStart is double start
+                        ? PeriodicRegenSeconds(now - start) - PeriodicRegenSeconds(recoveryFrom - start) : 0;
+                    double periodicLife = periodicLifePerSecond * periodicWindow;
+                    double periodicEs = periodicEsPerSecond * periodicWindow;
+                    player.EnergyShield.Gain(leeched.EnergyShield + esFromLifeRate * seconds + periodicEs, esCeiling);
                     double fortificationLife = FortificationOf(player).TakeRecovery(AreaTime(player));
                     if (convertLifeRegen) player.EnergyShield.Gain(fortificationLife, esCeiling);
                     double wardBreakLife = player.WardBreak.TakeRecovery(now) * (noRegeneration ? 0 : mapRecovery);
@@ -1341,6 +1398,9 @@ public static partial class Game
                     double preventedLife = PreventedDamageOf(player).Take(recoveryFrom, now, preventedPerSecond);
                     if (convertLifeRegen) player.EnergyShield.Gain(preventedLife, esCeiling);
                     if (convertLifeRegen) player.EnergyShield.Gain(unhingedHitLife, esCeiling);
+                    if (piousEsActive)
+                        player.EnergyShield.Gain((fortificationLife + preventedLife + unhingedHitLife) * piousScaledFactor
+                            + wardBreakLife * piousWardBreakFactor, esCeiling);
                     double recoupLife = player.LifeRecoup.Take(now) * mapRecovery;
                     AdvanceShieldRecoupLocked(player, now, RecoveryStat, mapRecovery, esCeiling);
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
@@ -1352,10 +1412,16 @@ public static partial class Game
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
                     // conversions under Zealot's Oath above still apply (the stats are not removed).
                     if (vaalPact) { nonFlaskLife = leeched.Life; life = 0; }
+                    double elementalHealing = healsElemental && !player.Immune && !LifeRecovery.NonLeechBlocked(RecoveryStat)
+                        ? burnWhole + elementalDegen * seconds * trapTakenFactor : 0;
+                    elementalHealingCarry = elementalHealing > 0 ? elementalHealingCarry + elementalHealing : 0;
+                    double wholeHealing = Math.Truncate(elementalHealingCarry);
+                    elementalHealingCarry -= wholeHealing;
+                    nonFlaskLife += wholeHealing;
                     // Only the base regeneration rate is known to the client; every other source reaches it by the update.
-                    lifeUnpredicted = instantLifeChanged || life > 0 || leeched.Life > 0 || recoupLife > 0 || lifeRecharge > 0
-                        || periodicLife > 0 || fortificationLife > 0 || wardBreakLife > 0
-                        || unhingedHitLife > 0 || preventedLife > 0;
+                    lifeUnpredicted = instantLifeChanged || wholeHealing > 0 || life > 0 || leeched.Life > 0 || recoupLife > 0 || lifeRecharge > 0
+                        || (!zealotsOath && (periodicLife > 0 || fortificationLife > 0 || wardBreakLife > 0
+                            || unhingedHitLife > 0 || preventedLife > 0));
                     AdvanceTincturesLocked(player, now, seconds, recoveryStats, out double tinctureManaDrain,
                         out double tinctureLifeDrain, ref deactivatedTinctures);
                     uint afterNonFlask = PetrifiedBlood.RecoverLife(player, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1, ceilingPct: recoveryCeilingPct);
@@ -1403,7 +1469,7 @@ public static partial class Game
                     {
                         DeactivateAllTincturesOnDeathLocked(player, now, recoveryStats, ref deactivatedTinctures);
                         ailmentDeathEpoch = player.IncomingHitEpoch; dead = true;
-                        lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0; manaAfter = manaBefore;
+                        lifeCarry = manaCarry = burnCarry = trapCarry = elementalHealingCarry = flaskCarry = 0; manaAfter = manaBefore;
                     }
                     else
                     {
@@ -1751,7 +1817,8 @@ public static partial class Game
     static readonly uint[] WhileMovingInputs = [Stat.EvasionRatingPlusPctWhileMoving,
         Stat.LifeRegenerationRatePerMinutePctWhileMoving, Stat.ManaRegenerationRatePlusPctWhileMoving];
     static readonly uint[] WhileMovingFinals = [Stat.EvasionRating, Stat.LifeRecoveryPerMinute,
-        Stat.TotalLifeRecoveryPerMinuteFromRegeneration, Stat.ManaRecoveryPerMinute, Stat.TotalManaRecoveryPerMinuteFromRegeneration];
+        Stat.TotalLifeRecoveryPerMinuteFromRegeneration, Stat.ManaRecoveryPerMinute, Stat.TotalManaRecoveryPerMinuteFromRegeneration,
+        Stat.EnergyShieldRecoveryPerMinute, Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration];
 
     public static Task SendWhileMovingStats(Player player) =>
         !player.Pools.WhileMovingStats ? Task.CompletedTask : Send(player, [], null, atGate: () =>

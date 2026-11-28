@@ -209,6 +209,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   ascendancy passives (`Noble Blood`, `Oath of Fealty`, `Golden Glory`, `Loyal Bodyguard`, `Bestowed Knighthood`,
   `Legendary Arms` + unique-slot nodes).
   Supports roll 3.29 endgame counts from area level 68 with one tier per support by level.
+  Guaranteed campaign zones ignore the level gate with no Rucksack; other encounters carry a 2x2 currency/Trarthan
+  gem Rucksack, show the `MercenaryEncounter` map icon, and exclude the empty Bladereach build.
+  Infamous encounters roll at 20% (1.5x to 2x in T1-T16 maps) with an Infamous modifier from level 68 and at least
+  one unique item.
   Verified live on 3.29.3d.
   Docs: [league encounters](../docs/game/league-encounters.md).
 - Ritual: maps and Act 2 campaign altars, waves, Tribute, Favour window, Vessels, Scarabs, Atlas, and Omens.

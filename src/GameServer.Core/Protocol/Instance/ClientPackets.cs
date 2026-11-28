@@ -264,6 +264,7 @@ public static class ClientPackets
         P(InstanceShop.OpenMysteryBoxId, InstanceShop.OpenMysteryBoxLength),
         P(InstancePvp.LeaveQueueId, 2),
         P(InstancePvp.WithdrawId, 2),
+        P(InstanceHeist.LockerMoveId, InstanceHeist.LockerMoveLength),
         P(InstanceHeist.RevealBlueprintId, InstanceHeist.RevealBlueprintLength),
         P(InstanceHeist.ConfirmBlueprintId, InstanceHeist.ConfirmBlueprintLength),
         // Remaining exact fixed-length C→S instance opcodes from 3.29.3c (Agents/docs/protocol/c2s.json), excluding
@@ -281,7 +282,7 @@ public static class ClientPackets
             0x02a1, 0x02fd }.Select(id => P(id, 6, name: $"0x{id:x4}")),
         .. new ushort[] { 0x002e, 0x0107, 0x0152, 0x017c, 0x017f, 0x0180, 0x0185, 0x01da,
             0x01dc, 0x01e0, 0x0216, 0x02d6 }.Select(id => P(id, 7, name: $"0x{id:x4}")),
-        .. new ushort[] { 0x00ef, 0x00f0, 0x00f1, 0x00f2, 0x00fa, 0x00fb, 0x00fc, 0x00ff, 0x0100,
+        .. new ushort[] { 0x00ef, 0x00f0, 0x00f1, 0x00f2, 0x00fa, 0x00fb, 0x00ff, 0x0100,
             0x0102, 0x0104, 0x0105, 0x0108, 0x0109, 0x010d, 0x01ec }.Select(id => P(id, 8, name: $"0x{id:x4}")),
         P(InstanceVillage.RecombinatorQuickMoveId, InstanceVillage.RecombinatorQuickMoveLength),
         .. new ushort[] { 0x00f4, 0x0106, 0x010a }.Select(id => P(id, 9, name: $"0x{id:x4}")),

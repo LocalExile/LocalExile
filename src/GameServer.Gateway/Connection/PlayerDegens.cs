@@ -5,21 +5,30 @@
 /// </summary>
 public sealed class PlayerDegens
 {
-    readonly Dictionary<object, double> _shares = new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<object, (double Total, double Elemental)> _shares = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>All the shares together.</summary>
     public double Total { get; private set; }
 
+    /// <summary>The share belonging to elemental damage.</summary>
+    public double Elemental { get; private set; }
+
     /// <summary>One source's share; setting 0 (or less) removes it.</summary>
     public double this[object source]
     {
-        get => _shares.GetValueOrDefault(source);
-        set
+        get => _shares.GetValueOrDefault(source).Total;
+        set => Set(source, value, 0);
+    }
+
+    public void Set(object source, double amount, double elemental)
+    {
+        if (amount > 0) _shares[source] = (amount, Math.Clamp(elemental, 0, amount));
+        else _shares.Remove(source);
+        Total = Elemental = 0;
+        foreach (var share in _shares.Values)
         {
-            if (value > 0) _shares[source] = value;
-            else _shares.Remove(source);
-            Total = 0;
-            foreach (double share in _shares.Values) Total += share;
+            Total += share.Total;
+            Elemental += share.Elemental;
         }
     }
 }

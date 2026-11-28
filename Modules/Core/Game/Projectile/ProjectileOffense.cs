@@ -13,6 +13,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     int CriticalMultiplier, string Label)
 {
     public bool WeaponAttack { get; init; }
+    internal bool FiresWandProjectiles { get; init; }
     internal bool DirectAttackContact { get; init; }
     public GameServer.Core.Protocol.Instance.Item? SkeletonWeaponContactSource { get; init; }
     /// <summary>Whether an attack hit counts as a projectile attack (false for non-projectile rains and secondary explosions).</summary>
@@ -48,7 +49,9 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     /// <summary>The poison damage and duration its hits deal, captured at release (MonsterPoisons); the default poisons
     /// nothing.</summary>
     public MonsterPoisons.Settings Poison { get; init; }
-    /// <summary>Essence Drain's debuff, put on every monster a projectile hit leaves alive (MonsterEssenceDrains.cs).</summary>
+    /// <summary>The poison rules a Crucible weapon tree granted the released skill by name (SkillPoisonStats): its
+    /// whole hit can poison, and its poisons may deal 100% more damage. The default grants neither.</summary>
+    public SkillPoisonStats PoisonSkill { get; init; }
     public MonsterEssenceDrain.Cast? EssenceDrain { get; init; }
 
     public DamageOverTime? TrarthusBurn { get; init; }
@@ -63,6 +66,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public GroundBladeSpec? GroundBlade { get; init; }
     internal Game.UnearthCorpse? Unearth { get; init; }
     public Game.ExplosiveFuseSpec? ExplosiveFuse { get; init; }
+    internal Game.ExplosiveFuses? ExplosiveBlast { get; init; }
     public Game.EnsnareSpec? Ensnare { get; init; }
     internal Game.ElectrocutionSpec? Electrocution { get; init; }
     internal Game.VenomGyreCapture? VenomGyre { get; init; }
@@ -89,8 +93,11 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public int Effect { get; init; } = -1;
     public ushort SourceSkill { get; init; }
     public Game.LinkedTriggerSource? CriticalTrigger { get; init; }
+    internal Game.SupportedGem? KineticFluxDriver { get; init; }
+    internal Game.SupportedGem? VoidstormDriver { get; init; }
     public long? RampageEpoch { get; init; }
     public RampageCatalog.SkillLevel? RampageSkill { get; init; }
+    internal double RampageAddedEffectiveness { get; init; } = 1;
     public int Level { get; init; } = 1;
     /// <summary>The skill's gem type, for the art its worn skill effects pick.</summary>
     public uint Gem { get; init; }

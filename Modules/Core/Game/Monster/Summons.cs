@@ -260,7 +260,7 @@ public static partial class Game
                 ? Math.Max(0, GolemStat(playerStats, attribute)) / step : 0;
             value += (long)PerAttribute(Stat.Strength, Stat.NumberOfZombiesAllowedPlus1PerXStrength)
                 + PerAttribute(Stat.Intelligence, Stat.NumberOfZombiesAllowedPlus1PerXIntelligenceFromFoulbornBaron);
-            value = (long)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.NumberOfZombiesAllowedPlusPct) / 100d), 0, 200);
+            value = (long)Math.Clamp(value * Math.Max(0, 100L + GolemStat(playerStats, Stat.NumberOfZombiesAllowedPlusPct)) / 100, 0, 200);
         }
         if (definition.Family == "Skeleton")
             value += GolemStat(playerStats, Stat.NumberOfSkeletonsAllowedPer2Old) / 2;
@@ -405,6 +405,8 @@ public static partial class Game
                 Stat.NumberOfMageSkeletonsToSummon }.Sum(n => GolemStat(gem.Stats, n)));
         if (definition.Family == "RagingSpirit")
             return random.Next(100) < Math.Clamp(GolemStat(gem.Stats, Stat.SummonedRagingSpiritChanceToSpawnAdditionalMinionPct), 0, 100) ? 2 : 1;
+        if (definition.Family == "Hiveborn")
+            return Math.Max(1, GolemStat(gem.Stats, Stat.GraftSkillTulSummonNumberOfDemonsToSummon));
         return Math.Max(1, GolemStat(gem.Stats, Stat.NumberOfMonstersToSummon));
     }
 

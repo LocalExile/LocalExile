@@ -25,8 +25,10 @@ using GameServer.Core.World;
 public static class AilmentPanelStats
 {
     /// <summary>The hit's context: which rows it fills (<paramref name="Hand"/>: main_hand, off_hand, spell,
-    /// secondary), whether it is a spell and whether it is a melee hit.</summary>
-    public readonly record struct Context(string Hand, bool Spell, bool Melee = false)
+    /// secondary), whether it is a spell and whether it is a melee hit. <paramref name="Skill"/> is the hit
+    /// ActiveSkills Id (<c>artillery_ballista</c>) for the stats a Crucible tree names after one skill
+    /// (<see cref="SkillPoisonStats"/>); null leaves them out, as they name no skill then.</summary>
+    public readonly record struct Context(string Hand, bool Spell, bool Melee = false, string? Skill = null)
     {
         public bool Attack => Hand is "main_hand" or "off_hand";
         public IReadOnlyDictionary<uint, int>? WeaponStats { get; init; }
@@ -116,6 +118,7 @@ public static class AilmentPanelStats
         Add("ignite", DamageType.Fire, ignite, IgnitePercent);
         if (igniteOnly) return rows;
         Add("poison", DamageType.Chaos, get(Stat.AllDamageCanPoison) != 0
+            || context.Skill is not null && SkillPoisonStats.Of(context.Skill, get).AllDamage
             || context.Attack && (context.WeaponStats?.GetValueOrDefault(Stat.LocalAllDamageCanPoison) ?? 0) != 0
             || tinctureWeapon && get(Stat.AllDamageWithTincturedWeaponsCanPoison) != 0
             ? DamageTypes.ConversionOrder : [DamageType.Physical, DamageType.Chaos], PoisonPercent);

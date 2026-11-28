@@ -82,7 +82,6 @@ public static partial class Game
             sources.Add((definition.ActiveSkillsRow, VaalSoulCost.Capacity(required, definition.StoredUses)));
         }
         player.VaalSouls.Reconcile(sources);
-        if (player.PlayerLife == 0) player.VaalSouls.ClearBalance();
         cache.Inputs = inputs;
         cache.FrameStats = stats;
         cache.HasCandidates = hasCandidates;
@@ -124,7 +123,7 @@ public static partial class Game
         // its duration (the buff's cannot_gain_souls); its state is a cheap table read, not a stat build.
         bool held = VaalImmortalCallActive(player, now);
         var stats = held || player.VaalPreventionUntil > VaalResourceTime(player) ? null : CharacterPlayerStats(player);
-        if (stats is null || stats.GetValueOrDefault(Stat.HasSoulGainPrevention) != 0)
+        if (stats is null || SoulGainPreventedByStats(stats))
         {
             Console.WriteLine($"[gateway] Vaal soul not gained from monster 0x{id:x}: " +
                 $"{(held ? "Vaal Immortal Call" : "soul gain prevention")} (t={VaalResourceTime(player):0.000})");
@@ -141,6 +140,10 @@ public static partial class Game
         return true;
     }
 
+    static bool SoulGainPreventedByStats(IReadOnlyDictionary<uint, int> stats) =>
+        stats.GetValueOrDefault(Stat.HasSoulGainPrevention) != 0
+        || stats.GetValueOrDefault(Stat.CannotGainSouls) != 0 || stats.GetValueOrDefault(Stat.VirtualCannotGainSouls) != 0;
+
     sealed class HitSoulCooldown { public double NextAt = double.NegativeInfinity; }
     static readonly RuleTable<Player, HitSoulCooldown> HitSoulCooldowns = new();
 
@@ -149,7 +152,7 @@ public static partial class Game
     {
         if (player.Closed || player.LeavingArea || player.VaalSoulsRetired || player.Paused || player.PlayerLife == 0
             || InTown(player) || player.VaalPreventionUntil > VaalResourceTime(player)
-            || VaalImmortalCallActive(player, now) || playerStats.GetValueOrDefault(Stat.HasSoulGainPrevention) != 0
+            || VaalImmortalCallActive(player, now) || SoulGainPreventedByStats(playerStats)
             || playerStats.GetValueOrDefault(Stat.PreventVaalSoulsOnHit) != 0) return;
 
         var cooldown = HitSoulCooldowns.GetOrCreateValue(player);
@@ -222,13 +225,28 @@ public static partial class Game
             ? SendWorldRecord(player, player.Id, [], null, atGate: () => VaalSoulPresentation(player))
             : Task.CompletedTask;
 
-    // Same transfer policy as Rage: one successful ticket owns the balance; loading time is frozen, no save schema.
+    // Souls belong to the instance they were gained in (poewiki "Vaal skill"): leaving keeps the character's balance on
+    // the instance it leaves; entering restores what it kept there, or starts at zero (town, hideout, a new instance).
+    static readonly Store<InstanceState, ConcurrentDictionary<string, VaalSoulState.Carried>> InstanceVaalSouls = new();
+    static ConcurrentDictionary<string, VaalSoulState.Carried> InstanceVaalSoulsOf(InstanceState instance) =>
+        InstanceVaalSouls.GetValue(instance, _ => new ConcurrentDictionary<string, VaalSoulState.Carried>(StringComparer.OrdinalIgnoreCase));
+    static uint SoulTotal(VaalSoulState.Carried state) => state.Budgets.Aggregate(0u, (n, b) => n + b.Current);
+
+    // Same transfer policy as Rage: one successful ticket owns the prevention; loading time is frozen, no save schema.
     public static void CarryVaalSouls(Player player, uint ticket)
     {
         if (player.VaalSoulsRetired || player.Closed) return;
         RefreshVaalSouls(player);
         var state = player.VaalSouls.Carry();
         player.VaalSoulsRetired = true;
+        uint total = SoulTotal(state);
+        if (player.Instance is { } left)
+        {
+            if (total > 0) InstanceVaalSoulsOf(left)[CharacterName(player)] = state;
+            else if (InstanceVaalSouls.TryGetValue(left, out var stored)) stored.TryRemove(CharacterName(player), out _);
+        }
+        if (GameServer.Core.Diagnostics.ServerTrace.Skills)
+            Console.WriteLine($"[gateway] Vaal souls kept on the instance left (area 0x{player.Layout.Hash:x}): {total}");
         foreach (var (old, entry) in CarriedVaalSouls)
             if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedVaalSouls.TryRemove(old, out _);
         double prevention = Math.Max(0, player.VaalPreventionUntil - VaalResourceTime(player));
@@ -241,10 +259,16 @@ public static partial class Game
         if (player.Closed || player.VaalSoulsRetired || !CarriedVaalSouls.TryGetValue(player.Ticket, out var entry)
             || entry.Character != CharacterName(player)) return;
         if (!CarriedVaalSouls.TryRemove(new KeyValuePair<uint, SoulTransfer>(player.Ticket, entry))) return;
-        if (DateTime.UtcNow - entry.At <= TimeSpan.FromMinutes(5) && player.PlayerLife > 0)
+        if (DateTime.UtcNow - entry.At <= TimeSpan.FromMinutes(5))
         {
-            player.VaalSouls.Restore(entry.State);
-            player.VaalPreventionUntil = VaalResourceTime(player) + entry.PreventionRemaining;
+            var kept = player.Instance is { } here && InstanceVaalSouls.TryGetValue(here, out var byCharacter)
+                && byCharacter.TryRemove(CharacterName(player), out var stored)
+                ? stored : null;
+            if (kept is not null) player.VaalSouls.Restore(kept);
+            if (GameServer.Core.Diagnostics.ServerTrace.Skills)
+                Console.WriteLine($"[gateway] Vaal souls on entering area 0x{player.Layout.Hash:x}: " +
+                (kept is null ? "new instance, 0" : $"restored {SoulTotal(kept)}") + $" (had {SoulTotal(entry.State)} on leaving)");
+            if (player.PlayerLife > 0) player.VaalPreventionUntil = VaalResourceTime(player) + entry.PreventionRemaining;
         }
     }
 }

@@ -33,6 +33,14 @@ public static partial class Game
     static double GolemElementalReductionFactor(MonsterModEffects effects) =>
         (100 - Math.Clamp(effects[Stat.AdditionalElementalDamageReductionPct], 0, DamageModel.DamageReductionCap)) / 100d;
 
+    internal static bool RecoverMinionElementalDamageAsLife(SpawnedMonster minion, long amount)
+    {
+        if (amount <= 0 || minion.Life >= minion.MaxLife || minion.Life == 0
+            || LifeRecovery.NonLeechBlocked(stat => minion.Effects[stat])) return false;
+        minion.Life = (uint)Math.Min((long)minion.MaxLife, minion.Life + amount);
+        return true;
+    }
+
     static void QueueGolemDotPacket(Player player, GolemState.Golem golem, byte[] packet, string? log = null) =>
         player.Minions.OutputQueue.Add(new(packet, log, golem.Id, golem.Monster, WorldId: golem.Id));
 
@@ -61,6 +69,13 @@ public static partial class Game
         int whispers = MinionWhispersDamageLocked(player, golem, from, to, chaosFactor);
         if (ignoresDots) fire = bleed = poison = 0;
 
+        bool healed = false;
+        if (m.Effects[Stat.BaseElementalDamageHeals] != 0 && (fire > 0 || legion > 0))
+        {
+            healed = RecoverMinionElementalDamageAsLife(m, (long)fire + legion);
+            fire = legion = 0;
+            fireAt = null;
+        }
         double? lastDamageAt = null;
         foreach (double? at in new[] { fireAt, bleedAt, poisonAt })
             if (at is double value && (lastDamageAt is not double last || value > last))
@@ -77,12 +92,10 @@ public static partial class Game
             lifeDamage += golem.ShieldPool.Damage(ActorScale.Saturate((long)poison + whispers),
                 m.Mods.Effects[Stat.ChaosDamageDoesNotBypassEnergyShield] == 0, lastDamageAt!.Value);
 
-        if (lifeDamage > 0)
-        {
-            m.Life = (uint)Math.Max(0, (long)m.Life - lifeDamage);
-            player.Minions.OutputQueue.Add(new([], "golem damage over time", golem.Id, m, PlayerMinions.OutputKind.Life,
+        if (lifeDamage > 0) m.Life = (uint)Math.Max(0, (long)m.Life - lifeDamage);
+        if (lifeDamage > 0 || healed)
+            player.Minions.OutputQueue.Add(new([], "golem life from damage over time", golem.Id, m, PlayerMinions.OutputKind.Life,
                 DeathKind: DotDeathKind(m, m.Life)));
-        }
         if (m.Life == 0 || !GolemCurrent(player, golem))
         {
             if (m.Life == 0 && GolemCurrent(player, golem)) GolemDieLocked(player, golem, to);

@@ -560,6 +560,8 @@ public static partial class Game
             ActualCaster = totem is null ? null : TotemCasterStats(playerStats), FromTotem = totem is not null,
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId, Gem = gem.Gem,
             HitPacket = true, ActionSequence = sequence,
+            VoidstormDriver = Own(VoidstormTrigger) > 0 && !spell && totem is null && from is null && !fromMirage
+                && sacrifice?.Triggered != true && !SkillsFor(player).HasType(gem.Effect, "InbuiltTrigger") ? admittedGem : null,
             SkillStats = new Dictionary<uint, int>(own), FirstHit = new(),
             FreezingPulseFalloff = SkillsFor(player).EffectId(gem.Effect) is
                 "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale",
@@ -573,13 +575,16 @@ public static partial class Game
             Spider = hitInputs is null ? null : CaptureSpiderDamage(player, hitInputs,
                 AddedEffectiveness(player, gem.Effect, gem.Level), context: false, local: local,
                 bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off,
-                required: trackTrajectoryDamage, extraIncreased: exertedIncreased),
+                required: trackTrajectoryDamage, extraIncreased: exertedIncreased, forMarkedTarget: true),
             SpiderArea = areaHitInputs is null ? null : CaptureSpiderDamage(player, areaHitInputs,
                 AddedEffectiveness(player, gem.Effect, gem.Level), context: false, local: local,
                 bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off,
-                required: trackTrajectoryDamage, extraIncreased: exertedIncreased),
+                required: trackTrajectoryDamage, extraIncreased: exertedIncreased, forMarkedTarget: true),
             MirageSource = totem is null && Own(Stat.SupportMirageArcherBaseDuration) > 0 ? SupportedSkill(player, skillId) : null,
             CriticalTrigger = spell ? null : CaptureCriticalTriggerSource(player, skillId),
+            KineticFluxDriver = !spell && totem is null && from is null && sacrifice?.Triggered != true
+                && (Own(Stat.SupportKineticInstabilityChanceToCreateInstabilityOnCriticalStrikePct) > 0
+                    || Own(Stat.SupportKineticInstabilityChanceToCreateInstabilityOnKillPct) > 0) ? admittedGem : null,
             Penetration = Penetration.Of(playerStats, Stats, !spell, own, local), ResistanceMods = HitResistMods(playerStats, own),
             ImpaleSettings = WeaponImpaleSettings(playerStats, Stats, !spell, own, attackSource),
             CriticalImpaleSettings = WeaponImpaleSettings(playerStats, Stats, !spell, own, attackSource, critical: true),
@@ -591,6 +596,7 @@ public static partial class Game
                 WithIgniteSpread(ignite, playerStats, own, spell, hand))),
             Poison = WithOverheat(player, skillId, PoisonSettingsFrom(ailmentRows, hand, Get, local,
                 projectileAttack: projectileDamage && !spell)),
+            PoisonSkill = hitInputs is null ? default : SkillPoisonStats.Of(hitInputs.ActiveSkill, Get),
             EssenceDrain = EssenceDrainCast(player, skillId, gem.Effect),
             GhorrDotMore = GhorrDotMore(player, skillId),
             Bleed = spell ? MonsterIgnites.Settings.None : WithOverheat(player, skillId, BleedSettings(ailmentRows, "main_hand", Get, local, melee: false,
@@ -722,6 +728,10 @@ public static partial class Game
         if (IsExplosiveArrow(SkillsFor(player).EffectId(gem.Effect)) && areaHitInputs is not null)
             use = use with { Payload = shot with { ExplosiveFuse = CaptureExplosiveFuse(context, areaHitInputs, playerStats, own, hand, local) } };
         use = definition.SpecializeRelease?.Invoke(context, use) ?? use;
+        if (ownerAttack && !rain && sacrifice?.Triggered != true && attackSource?.WieldingWand == true
+            && Get(Stat.SkillCanFireWandProjectiles) != 0 && Get(Stat.ProjectilesAreNotFired) == 0
+            && use.Payload is ProjectileOffense wandShot)
+            use = use with { Payload = wandShot with { FiresWandProjectiles = true } };
         if (use.Profile.SequentialDelay > 0 && use.CanEmit is null)
             use = use with
             {

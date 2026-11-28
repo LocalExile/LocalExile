@@ -105,6 +105,12 @@ public static partial class Game
                 + own.GetValueOrDefault(Stat.DischargeCooldownOverrideMs) : 0;
         if (dischargeCooldown > 0 && skills.CooldownMs(effect, supported.Level) <= 0)
             addedMilliseconds = ActorScale.Saturate(dischargeCooldown);
+        if (FindSpellslingerSupport(supported) is { } slinger)
+        {
+            int triggerCooldown = skills.CooldownMs(slinger.Gem.Effect, slinger.Gem.Level);
+            int nativeCooldown = skills.CooldownMs(effect, supported.Level);
+            addedMilliseconds = Math.Max(addedMilliseconds, triggerCooldown - nativeCooldown);
+        }
         if (SingleUseCooldown.ForSkill(skills, Stats, effect, supported.Level, playerStats, own, addedMilliseconds) is not { } plan)
             return null;
         if (dischargeCooldown > 0)
@@ -237,9 +243,15 @@ public static partial class Game
 
     public static bool TryBeginCooldownUseCore(Player player, int effect, SingleUseCooldown? plan, bool instant,
         Action sideEffects, out CooldownUseTicket? ticket, int? actionToken, bool reserve, double? requestedAt,
-        ushort? skillId, Func<bool>? admit = null, bool reserveAttack = false, bool triggered = false)
+        ushort? skillId, Func<bool>? admit = null, bool reserveAttack = false, bool triggered = false) =>
+        TryBeginCooldownUseCore(player, effect, plan, instant, sideEffects, out ticket, actionToken, reserve,
+            requestedAt, skillId, admit, reserveAttack, triggered, advanceProjectiles: true);
+
+    static bool TryBeginCooldownUseCore(Player player, int effect, SingleUseCooldown? plan, bool instant,
+        Action sideEffects, out CooldownUseTicket? ticket, int? actionToken, bool reserve, double? requestedAt,
+        ushort? skillId, Func<bool>? admit, bool reserveAttack, bool triggered, bool advanceProjectiles)
     {
-        using (ProjectileMutation(player, advance: !reserveAttack))
+        using (ProjectileMutation(player, advance: advanceProjectiles && !reserveAttack))
         {
             using var sourceAdmission = AscendancyPolicies.Enter(player, player.Character.MainAscendancy.Selection);
             ticket = null;

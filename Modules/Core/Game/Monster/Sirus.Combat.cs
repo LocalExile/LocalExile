@@ -74,7 +74,7 @@ static partial class Sirus
         readonly List<Patch> patches = [];
         readonly List<Quad> quads = [];
         readonly HashSet<(int, Player, uint)> struck = [];
-        readonly Dictionary<(Player, uint), double> carry = [];
+        readonly Dictionary<(Player, uint), ArenaHazards.GroundCarry> carry = [];
         int group, special, apparitionRotation;
         (int X, int Y) mazeCentre, corridorEnd;
         double specialUntil, lastGround;
