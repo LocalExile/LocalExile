@@ -131,6 +131,7 @@ public static partial class Game
         public required bool PenanceSpreads;
         public required bool PenanceExplodesOnDetach;
         internal PlacedAreaHit? Placement;
+        internal GemSourceLifetimes.SourceLifetime? SourceLifetime;
 
         public uint GroundObjectId;
         public uint AttachedMonsterId;
@@ -552,6 +553,7 @@ public static partial class Game
 
             var brand = CreateBrandLocked(state, skillId, effect, effectId!, family, supported, playerStats, place, now);
             brand.Placement = placement;
+            if (placement is null) brand.SourceLifetime = CaptureGemSourceLifetimeLocked(player, skillId, effect);
             state.Brands.Add(brand);
             Interlocked.Increment(ref _globalActiveBrandCount);
 
@@ -873,6 +875,11 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> playerStats, double now, WorldRecordBuilder bytes, bool attachOnGround = true)
     {
         if (now < brand.SteppedAt) return false;
+        if (brand.Placement is null && !RefreshBrandSourceLocked(player, brand))
+        {
+            RemoveBrandCleanlyLocked(player, state, brand, bytes);
+            return false;
+        }
         bool detached = false;
         if (brand.Attached && !BrandTargetPresent(player, brand))
         {
@@ -936,6 +943,22 @@ public static partial class Game
             brand.At = current.Walk.Position(now);
         else if (attachOnGround && !detached)
             TryAttachBrandLocked(player, session, state, brand, playerStats, now, bytes, excludeMonster: 0);
+        return true;
+    }
+
+    static bool RefreshBrandSourceLocked(Player player, ActiveBrand brand)
+    {
+        var live = SupportedSkill(player, brand.SkillId);
+        if (live.Effect != brand.Effect || !live.RequirementsMet || live.Host != brand.Gem.Host
+            || live.WornGrant != brand.Gem.WornGrant
+            || brand.SourceLifetime is { } lifetime && !player.GemSourceLifetimes.IsCurrent(lifetime)
+            || !ReferenceEquals(live.SourceGem is { } item ? PlayerInventories.GemIdentity(item) : null,
+                brand.Gem.SourceGem is { } previous ? PlayerInventories.GemIdentity(previous) : null)
+            || PlacedKind(live) is not (false, false) || live.Stats.GetValueOrDefault(Stat.IsTotem) != 0) return false;
+        // A new activation reads the current supports. The duration already granted at placement stays on the brand.
+        brand.Gem = live;
+        brand.Level = live.Level;
+        brand.Quality = live.Quality;
         return true;
     }
 
@@ -1737,6 +1760,7 @@ public static partial class Game
     {
         if (m.Invulnerable || MonsterBlocks(m, AreaRng(player), spell: true, now, gem.Stats)) return;
         if (SupportedHitInputsFor(player, skillId, capturedGem: gem) is not { } inputs) return;
+        var caster = inputs.Caster;
         if (placement is not null)
         {
             inputs = inputs with { Caster = TotemCasterStats(inputs.Caster) };
@@ -1760,13 +1784,15 @@ public static partial class Game
         var rolled = WithConditionalSupportDamageLocked(player, gem.Stats, attack: false, m,
             GameEvents.WithOutgoingDamage(player, playerStats, m, hit.Roll(AreaRng(player))), now);
 
-        int critChance = CriticalChanceOn(player, monsterId, SupportedCriticalChance(player, skillId),
-            SupportedCriticalChanceVsBlinded(player, skillId, release: false),
-            SupportedCriticalChanceVsGround(player, skillId, release: false));
+        int Chance(long extra) => SupportedCriticalChanceFor(player, gem, release: false, extra, null, 0, caster);
+        int blindedCrit = player.Pools.VsBlindedCriticalPct;
+        int critChance = CriticalChanceOn(player, monsterId, Chance(0), blindedCrit != 0 ? Chance(blindedCrit) : null,
+            SpellCriticalChanceVsGround(player, Chance, blindedCrit));
         bool critical = RollCriticalStrike(player, critChance, gem.Stats, attack: false, playerStats: playerStats);
         var hitRolls = critical ? multipliers.Critical : multipliers.Ordinary;
         rolled = hitRolls.ApplyDamageMultiplier(rolled, AreaRng(player));
-        int critMult = CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, skillId), now, playerStats, gem.Stats);
+        int critMult = CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, gem, hitWeapon: null, playerStats),
+            now, playerStats, gem.Stats);
 
         var pen = Penetration.Of(playerStats, Stats, attack: false, gem.Stats);
         if (extraPenetrationType is { } ep)

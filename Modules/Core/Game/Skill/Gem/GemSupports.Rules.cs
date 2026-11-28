@@ -1197,16 +1197,19 @@ public static partial class Game
         SupportedCriticalChanceFor(player, skillId, release, extraIncrease, weaponCritical, extraBaseCrit: 0);
 
     internal static int SupportedCriticalChanceFor(Player player, ushort skillId, bool release, long extraIncrease,
-        int? weaponCritical, int extraBaseCrit)
+        int? weaponCritical, int extraBaseCrit) => SupportedCriticalChanceFor(player, SupportedSkill(player, skillId),
+            release, extraIncrease, weaponCritical, extraBaseCrit, null);
+
+    static int SupportedCriticalChanceFor(Player player, SupportedGem gem, bool release, long extraIncrease,
+        int? weaponCritical, int extraBaseCrit, IReadOnlyDictionary<uint, int>? caster)
     {
-        var gem = SupportedSkill(player, skillId);
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
         if (!hitPlan.CanHit && gem.Stats.GetValueOrDefault(Stat.InfernalBoltBaseFireDamagePctMaximumLife) <= 0) return 0;
         // Inspiration: "Supported Skills have (6-11)% increased Critical Strike Chance per Inspiration Charge".
         if (player.SupportGems.InspirationCharges > 0
             && Stat.CriticalStrikeChancePlusPctPerRighteousCharge is var chargeCrit)
             extraIncrease += (long)gem.Stats.GetValueOrDefault(chargeCrit) * player.SupportGems.InspirationCharges;
-        var playerStats = FinalPlayerStats(player).ToDictionary(v => v.Item1, v => v.Item2);
+        var playerStats = caster ?? FinalPlayerStats(player).ToDictionary(v => v.Item1, v => v.Item2);
         int Own(uint name) => release && IsCriticalProhibition(name) ? 0
             : gem.Stats.GetValueOrDefault(name);
         int Player(uint name) => release && IsCriticalProhibition(name) ? 0
@@ -1355,11 +1358,13 @@ public static partial class Game
     public static int SupportedCriticalMultiplier(Player player, ushort skillId) =>
         SupportedCriticalMultiplier(player, skillId, hitWeapon: null);
 
-    static int SupportedCriticalMultiplier(Player player, ushort skillId, SkillCatalog.Unarmed? hitWeapon)
+    static int SupportedCriticalMultiplier(Player player, ushort skillId, SkillCatalog.Unarmed? hitWeapon) =>
+        SupportedCriticalMultiplier(player, SupportedSkill(player, skillId), hitWeapon, CharacterPlayerStats(player));
+
+    static int SupportedCriticalMultiplier(Player player, SupportedGem gem, SkillCatalog.Unarmed? hitWeapon,
+        IReadOnlyDictionary<uint, int> playerStats)
     {
-        var gem = SupportedSkill(player, skillId);
         long extra = (long)gem.Stats.GetValueOrDefault(Stat.BaseCriticalStrikeMultiplierPlus) + NightbladeCriticalMultiplier(player, gem.Stats);
-        var playerStats = CharacterPlayerStats(player);
         long Sum(uint key) => (long)playerStats.GetValueOrDefault(key) + gem.Stats.GetValueOrDefault(key);
         if (Sum(Stat.CriticalStrikeMultiplierPlusIfYouveBeenChannellingForAtLeast1Second) is long channelBonus and not 0
             && player.PaidChannel is { } channel && ReferenceEquals(channel.Rules, CombatLifetime) && channel.Rules.IsActive
