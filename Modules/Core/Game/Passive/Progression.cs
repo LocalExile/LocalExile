@@ -1737,6 +1737,10 @@ public static partial class Game
         // "X% increased maximum Life, Mana and Global Energy Shield" is one increase on each of the three pools
         // (PoB ModParser.lua:427 lists Life, Mana and EnergyShield for that one phrase).
         int allPoolsPct = Get(Stat.MaximumLifeManaAndEnergyShieldPlusPct);
+        // "+X% to Elemental Resistances while holding a Shield": despite the stat's "+%" name it is a flat
+        // resistance, as PoB's parse of the tree node shows (ModCache.lua:651, ElementalResist BASE 15 under the
+        // UsingShield condition), so it joins the three elemental resistances and not chaos.
+        int shieldElementalRes = weapons.Shield ? Get(Stat.ResistAllElementsPlusPctWhileHoldingShield) : 0;
         // The item tables also spell resistances without the base_ prefix (The Annihilating Light's -70% elemental,
         // the Cowl uniques' reduced single resistances); both spellings are the same character stat.
         int elementalRes = Get(Stat.ElementalDamageResistancePlusPct);
@@ -1907,11 +1911,11 @@ public static partial class Game
             DoubleBodyArmour: Get(Stat.DamageReductionRatingFromBodyArmourDoubled) != 0,
             NoBodyArmour: Get(Stat.GainNoArmourFromBodyArmour) != 0,
             MeleePhysicalDamagePct: Get(Stat.MeleePhysicalDamagePlusPct),
-            FireResistance: allRes + Get(Stat.BaseFireDamageResistancePct) + Get(Stat.FireDamageResistancePlusPct) + elementalRes
+            FireResistance: allRes + shieldElementalRes + Get(Stat.BaseFireDamageResistancePct) + Get(Stat.FireDamageResistancePlusPct) + elementalRes
                 + fireColdRes + fireLightningRes + fireChaosRes,
-            ColdResistance: allRes + Get(Stat.BaseColdDamageResistancePct) + Get(Stat.ColdDamageResistancePlusPct) + elementalRes
+            ColdResistance: allRes + shieldElementalRes + Get(Stat.BaseColdDamageResistancePct) + Get(Stat.ColdDamageResistancePlusPct) + elementalRes
                 + pairRes + fireColdRes + coldChaosRes,
-            LightningResistance: allRes + Get(Stat.BaseLightningDamageResistancePct) + Get(Stat.LightningDamageResistancePlusPct)
+            LightningResistance: allRes + shieldElementalRes + Get(Stat.BaseLightningDamageResistancePct) + Get(Stat.LightningDamageResistancePlusPct)
                 + elementalRes + pairRes + fireLightningRes + lightningChaosRes,
             ChaosResistance: Get(Stat.BaseChaosDamageResistancePct) + fireChaosRes + coldChaosRes + lightningChaosRes,
             FireMaxResistance: allMax + allElemMax + Get(Stat.BaseMaximumFireDamageResistancePct),
