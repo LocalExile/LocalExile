@@ -112,18 +112,7 @@ public static partial class Game
             // 3.29.3c 0x141d39ea0 / 0x141d39d10 / 0x141d399a0 / 0x141d3b790 / 0x141d39830: Flame Dash clamps to
             // [25, 60 * (100 + travel + maxTravel) / 100], checks layer-1 sight along direct travel, falls back with
             // the same layer-0-abort / layer-1-record trace as IceDash, and requires dx^2 + dy^2 >= 25.
-            var playerStats = CharacterPlayerStats(player);
-            int travel = GolemStat(playerStats, Stat.SkillTravelDistancePlusPct)
-                + GolemStat(playerStats, Stat.SkillMaximumTravelDistancePlusPct);
-            if (skill != 0)
-            {
-                var own = SupportedSkill(player, skill).Stats;
-                travel += GolemStat(own, Stat.SkillTravelDistancePlusPct)
-                    + GolemStat(own, Stat.SkillMaximumTravelDistancePlusPct);
-            }
-            return InstantLocationSkill.TryResolveLanding(player, from, aim, travel, allowTerrainFallback: true,
-                out var landing, minRange: 25, baseMaxRange: 60)
-                ? landing : from;
+            return FlameDashLanding(player, from, aim, skill, minRange: 25);
         }
         if (id is "Dash" or "DashHardMode")
         {
@@ -230,6 +219,20 @@ public static partial class Game
             return false;
         return !player.Blockers.Any(b => Math.Max(Math.Abs((long)landing.X - b.X), Math.Abs((long)landing.Y - b.Y))
             - b.Size < 2);
+    }
+
+    static (int X, int Y) FlameDashLanding(Player player, (int X, int Y) from, (int X, int Y) aim,
+        ushort skill, int minRange)
+    {
+        var stats = CharacterPlayerStats(player);
+        int travel = GolemStat(stats, Stat.SkillTravelDistancePlusPct) + GolemStat(stats, Stat.SkillMaximumTravelDistancePlusPct);
+        if (skill != 0)
+        {
+            var own = SupportedSkill(player, skill).Stats;
+            travel += GolemStat(own, Stat.SkillTravelDistancePlusPct) + GolemStat(own, Stat.SkillMaximumTravelDistancePlusPct);
+        }
+        return InstantLocationSkill.TryResolveLanding(player, from, aim, travel, allowTerrainFallback: true,
+            out var landing, minRange: minRange, baseMaxRange: 60) ? landing : from;
     }
 
     /// <summary>The least time after a movement spell before the resync goes out.</summary>

@@ -1859,7 +1859,7 @@ public static partial class Game
                 actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
                 swingAt: cooldownUse?.Attack?.At ?? swingAt, leap: leap, previousNextAttackAt: reservedNextAttackAt,
                 doubleStrikePairs: doubleStrikePairs, useDamageMore: vaalUse?.PactDamageMore
-                    ?? LyciaDamageMore(player, skillId, channelGeneration));
+                    ?? LyciaDamageMore(player, skillId, channelGeneration), movedByCast: movedByCast);
         return CompleteSupportedUse(true);
     }
 
@@ -2314,7 +2314,7 @@ public static partial class Game
         ushort skillId, (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
         int? channelGeneration = null, double? swingAt = null, LeapSlam.Use? leap = null, double? previousNextAttackAt = null,
-        DoubleStrikePairs? doubleStrikePairs = null, double useDamageMore = 1)
+        DoubleStrikePairs? doubleStrikePairs = null, double useDamageMore = 1, bool movedByCast = false)
     {
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return Task.CompletedTask;
@@ -2458,6 +2458,68 @@ public static partial class Game
             ? (Session: ProjectilesFor(player), Cast: stormCast) : ((ProjectileSession Session, int Cast)?)null;
         bool CanReleaseTimedSpell() => cooldownUse?.Current(player) ?? (actionToken is null || player.ActionCount == actionToken);
         if (doubleStrikePairs is { } pairs) return PlayDoubleStrikePairs(pairs);
+        if (movedByCast && spellRepeats > 0 && IsFlameDashEffect(effectId)
+            && supported.Stats.GetValueOrDefault(Stat.FlameDashRepeatsTargetPreviousLocation) != 0
+            && CastMs(player, gem.Effect, skillId) is int dashCast)
+            return PlayFlameDashRepeats(dashCast / 1000.0);
+
+        async Task PlayFlameDashRepeats(double castSeconds)
+        {
+            double start = swingAt ?? AreaTime(player);
+            double contact = castSeconds * Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject);
+            int action = actionToken ?? cooldownUse?.ActionToken ?? player.ActionCount;
+            int epoch = player.ProjectileEpoch;
+            var rules = CombatLifetime;
+            var previous = from;
+            var current = to;
+            if (!player.Connection.LockstepClient)
+                ResyncAfter(player, Math.Max(0, start + castSeconds * (1 + spellRepeats) - AreaTime(player)), gem.Name);
+
+            await HitLanding(previous, current, 0);
+            for (int repeat = 1; repeat <= spellRepeats; repeat++)
+            {
+                await AreaDelay(player, Math.Max(0, start + castSeconds * repeat + contact - AreaTime(player)));
+                await WhilePaused(player);
+                var landing = current;
+                bool moved = await SendWorldBatch(player, [], admission =>
+                {
+                    if (!CurrentGameWork || !ReferenceEquals(CombatLifetime, rules) || !player.ProjectileActive(epoch)) return null;
+                    using var mutation = ProjectileMutation(player);
+                    if (!PlayerStateAllowsAction(player) || player.ActionInterruptionGeneration != recoveryGeneration
+                        || !PlayerActionCurrent(player, action) || !CanReleaseTimedSpell()
+                        || !SameTriggerSource(supported, SupportedSkill(player, skillId))
+                        || GemSkillInstanceDisabled(player, gem.Effect, skillId) is not null) return null;
+                    double now = ProjectileWorldTime(player);
+                    if (player.Walk.Position(now) != current) return null;
+                    // The repeat targets the preceding segment's origin even if the first landing was shortened.
+                    landing = FlameDashLanding(player, current, previous, skillId, minRange: 0);
+                    if (landing == current) return null;
+                    var segment = FlameDashGroundSegment(player, skillId, gem.Effect, sequence, current, landing);
+                    player.Walk.Teleport(landing.X, landing.Y, now);
+                    PlaceFlameDashGround(player, current, landing, skillId, gem.Effect, now);
+                    var bytes = new WorldRecordBuilder(player, admission);
+                    bytes.World(player.Id, InstanceProtocol.Teleport(player.Id, landing.X, landing.Y),
+                        $"0x01b7 Flame Dash repeat ({current.X}, {current.Y}) -> ({landing.X}, {landing.Y})");
+                    bytes.World(player.Id, segment, "0x02c8 Flame Dash repeat burning ground");
+                    return bytes.Build();
+                });
+                if (!moved || landing == current) return;
+                (previous, current) = (current, landing);
+                await HitLanding(previous, current, repeat);
+            }
+
+            Task HitLanding((int X, int Y) origin, (int X, int Y) landing, int repeat)
+            {
+                var areas = repeat == 0 ? cascadeAreas : SpellCascadeAreas(player, gem.Effect, supported.Stats, origin, landing);
+                if (repeat > 0 && beidat is { ExtraAreas: > 0 })
+                    AppendBeidatAreas(player, gem.Effect, supported.Stats, origin, landing, beidat.ExtraAreas, areas);
+                return Task.WhenAll(areas.Prepend(landing).Select(centre => AreaSkillHitForUse(null, player, skillId, gem,
+                    origin, centre, immediate: repeat > 0, sequence: sequence, actionToken: action,
+                    cooldownUse: cooldownUse, criticalRoll: criticalRoll, targetId: repeat == 0 ? targetId : 0,
+                    repeat: repeat, swingAt: repeat == 0 ? swingAt : null, sacrifice: sacrifice,
+                    hitAndAilmentMore: (beidat?.More ?? 1) * useDamageMore)));
+            }
+        }
 
         async Task PlayDoubleStrikePairs(DoubleStrikePairs use)
         {
