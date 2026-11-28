@@ -21,6 +21,13 @@ public static class CharacterSaves
     /// in and its stat values.</summary>
     public sealed record SavedMod(string Id, ModSection Section, List<int> Values);
 
+    /// <summary>A Crucible weapon tree: the record the client draws (see <see cref="WeaponTree"/>), plus one
+    /// <see cref="SavedMod"/> per set bit of <see cref="NodeMask"/>, in slot order. Node mods keep their Id, so a save
+    /// made before game data moved still reads back by name; an unknown one stops the login instead of losing the tree.
+    /// A save without a tree predates Crucible support and carries none.</summary>
+    public sealed record SavedWeaponTree(uint BalanceRow, uint Progress, ushort NodeMask, ushort AllocatedMask,
+        ushort LeftMask, ushort RightMask, List<byte>? TierPicks = null, List<SavedMod>? Nodes = null);
+
     /// <summary>Mods: null in saves from before mods (the item gets its type's implicits again), else every mod.
     /// A missing defence roll keeps the old minimum (zero); raw 32 preserves the native special state. Saves from before
     /// influences, split and synthesised read as none of them.</summary>
@@ -43,6 +50,7 @@ public static class CharacterSaves
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public byte? RelicStyle { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ushort? ScryingAreaHash { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ChartData? Chart { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public SavedWeaponTree? WeaponTree { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Note { get; init; }
     }
 
@@ -697,7 +705,23 @@ public static class CharacterSaves
         i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed, i.AlternateQualityType,
         i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods), i.Vestigial, i.HeistBlueprint)
         { SkinTransferSource = i.SkinTransferSource is null ? null : ToSaved(i.SkinTransferSource, mods), MemoryStrands = i.MemoryStrands, Intangibility = i.Intangibility, RequiredLevel = i.RequiredLevel,
-            RelicStyle = i.RelicStyle, ScryingAreaHash = i.ScryingAreaHash, Chart = i.Chart, Note = i.Note };
+            RelicStyle = i.RelicStyle, ScryingAreaHash = i.ScryingAreaHash, Chart = i.Chart, Note = i.Note,
+            WeaponTree = i.WeaponTree is null ? null : ToSaved(i.WeaponTree, mods) };
+
+    /// <summary>A tree as the save holds it: one SavedMod per node, by Id so the tree survives a game-data refresh.</summary>
+    static SavedWeaponTree ToSaved(WeaponTree t, ModCatalog? mods) => new(t.BalanceRow, t.Progress, t.NodeMask,
+        t.AllocatedMask, t.LeftMask, t.RightMask, [.. t.TierPicks],
+        [.. t.Nodes.Select(m => new SavedMod(mods?.ByHash(m.Hash)?.Id ?? $"0x{m.Hash:x4}", m.Section, [.. m.Values]))]);
+
+    /// <summary>The tree again. A node the game data no longer knows stops the login through
+    /// <see cref="FromSaved(SavedMod, ModCatalog)"/>, so a stale save never loses its tree silently.</summary>
+    static WeaponTree FromSaved(SavedWeaponTree t, ModCatalog mods) => new()
+    {
+        BalanceRow = t.BalanceRow, Progress = t.Progress, NodeMask = t.NodeMask, AllocatedMask = t.AllocatedMask,
+        LeftMask = t.LeftMask, RightMask = t.RightMask,
+        TierPicks = t.TierPicks is { Count: 5 } tiers ? [.. tiers] : [0xff, 0xff, 0xff, 0xff, 0xff],
+        Nodes = t.Nodes is null ? [] : [.. t.Nodes.Select(m => FromSaved(m, mods))],
+    };
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
     /// <see cref="UnknownSavedItemException"/>: dropping it would lose it at the next save.</summary>
@@ -723,6 +747,7 @@ public static class CharacterSaves
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
             MemoryStrands = s.MemoryStrands, Intangibility = s.Intangibility,
             RelicStyle = s.RelicStyle, ScryingAreaHash = s.ScryingAreaHash, Note = s.Note,
+            WeaponTree = s.WeaponTree is null ? null : FromSaved(s.WeaponTree, catalog.Mods),
         };
         if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
         // Repair the missing base socket on old ordinary items only if the saved implicit still grants it.

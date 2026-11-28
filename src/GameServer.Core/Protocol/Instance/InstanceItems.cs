@@ -52,6 +52,10 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public byte Intangibility { get; init; }
     public byte? RelicStyle { get; init; }
 
+    /// <summary>A Crucible weapon tree, written as the Mods component's flag bit 7 record after the magic properties.
+    /// Null sends no tree; the client's reader never runs and the item shows none.</summary>
+    public WeaponTree? WeaponTree { get; init; }
+
     /// <summary>The AlternateQualityTypes row, for catalysts or map chisels. Null uses ordinary quality;
     /// an alternate type carries its amount in ObjectMagicProperties, not the ordinary Quality component.</summary>
     public byte? AlternateQualityType { get; init; }
@@ -242,11 +246,17 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // incubator; bit 5 synthetic; bit 6 incubator; bit 7 a 0x1c8 record; bit 10 vestigial), the base magic
                 // properties 0x142208700 (MagicProperties), u8, u8.
                 case "Mods":
+                    // A tree rides inside this component: flag bit 7 says a record follows the magic properties.
+                    WeaponTree? tree = WeaponTree;
                     w.U8(ItemLevel).U8((byte)Math.Clamp(RequiredLevel ?? LevelRequirementOf?.Invoke(this) ?? 0, 0, 255))
                         .U16((ushort)((Mirrored ? 0x2 : 0) | (Split ? 0x4 : 0) | (Synthesised ? 0x20 : 0) | (Foreseeing ? 0x100 : 0)
-                            | (RelicStyle is not null ? 0x10 : 0) | (Vestigial ? 0x400 : 0)));
+                            | (RelicStyle is not null ? 0x10 : 0) | (Vestigial ? 0x400 : 0) | (tree is not null ? 0x80 : 0)));
                     if (RelicStyle is byte relic) w.U8(relic);
-                    MagicProperties(w); w.U8(MemoryStrands).U8(Intangibility);
+                    // The tree record draws the tree; the same nodes must also sit in the hidden mod list, because that
+                    // is what the stat calculation reads (the tree record itself only renders).
+                    MagicProperties(w, tree is null ? Mods : [.. Mods, .. tree.AllocatedMods]);
+                    tree?.Write(w);
+                    w.U8(MemoryStrands).U8(Intangibility);
                     break;
                 case "Quality": w.U8(AlternateQualityType is null ? Quality : (byte)0); break; // 0x1424b5720
                 // The transformed original uses an unframed ordinary item payload.
@@ -310,8 +320,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// bit 5. A mod (0x142436e50): u16 Mods.dat HASH16 (unknown → "Deserialised a mod that we don't recognise"), then a
     /// signed compact (0x141e4c7e0) per stat of the row.
     /// </summary>
-    void MagicProperties(BlobWriter w) =>
-        global::GameServer.Core.Protocol.Instance.MagicProperties.Write(w, (byte)Rarity, Identified, Mods, nameWords: NameWords, u7a: FracturedCount,
+    void MagicProperties(BlobWriter w, IReadOnlyList<ItemMod> mods) =>
+        global::GameServer.Core.Protocol.Instance.MagicProperties.Write(w, (byte)Rarity, Identified, mods, nameWords: NameWords, u7a: FracturedCount,
             alternateQualityType: AlternateQualityType, alternateQuality: Quality);
 
     /// <summary>The item as inventories and other messages carry it (0x1421f2b40 / 0x1421f2c30): u16 big-endian length,

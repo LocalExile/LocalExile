@@ -97,7 +97,7 @@ public static class ItemModStats
         }
         var effect = Effect(item, mods);
         var rule = game?.ItemModifierValues(item, mods);
-        foreach (var mod in item.Mods)
+        foreach (var mod in AllMods(item))
             if (mods.ByHash(mod.Hash) is { } row)
             {
                 // A mod that displays an aura for other creatures ("Nearby Enemies have 50% increased Fire and Cold
@@ -132,6 +132,17 @@ public static class ItemModStats
                         else foreach (string target in targets) yield return (Stat.Of(target), value);
                     }
             }
+    }
+
+    /// <summary>Every mod the item has, plus the allocated nodes of a Crucible tree: the tree record only draws the
+    /// tree, so its effects travel as hidden mods (see <see cref="WeaponTree.AllocatedMods"/>). An item without a tree,
+    /// or with a tree whose nodes are all dark, hands back its own list unchanged, so a stat build allocates nothing
+    /// new for the many items that have none and the record is only copied when it adds a node.</summary>
+    static IReadOnlyList<ItemMod> AllMods(Item item)
+    {
+        if (item.WeaponTree is not { } tree) return item.Mods;
+        var allocated = tree.AllocatedMods;
+        return allocated.Count == 0 ? item.Mods : [.. item.Mods, .. allocated];
     }
 
     /// <summary>The item's own increased-effect stats, summed raw: explicit (every explicit modifier), prefix and

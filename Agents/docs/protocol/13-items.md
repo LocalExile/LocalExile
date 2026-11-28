@@ -657,6 +657,55 @@ Nothing in play creates these states yet: Conqueror's Orbs, Awakener's Orb, Beas
 so are the mechanics that read influence (Spirit Charges, Elder/Shaper conditions, `PanelStats`), influenced vendor sets,
 foil, Foulborn and vestigial items.
 
+## 2g. Crucible weapon trees
+
+A weapon from the Crucible league carries a passive tree. There is no item component for it: the tree travels **inside
+the `Mods` component**, behind flag bit 7 (`0x80`), as a record between the magic properties and the trailing
+memory-strands/intangibility bytes. Reader `0x1424bdb90` (release 3.29.3c; the code address is the same in 3.29.3d):
+
+```
+u32  balanceRow      WeaponPassiveTreeBalancePerItemLevel row, the item level clamped to 1..100
+u32  progress        tier i unlocks when progress >= Bar(i+1); a locked tier deallocates what it held
+u8   hasTree         always 1
+u16  nodeMask        which of the 16 slots carry a node
+u16  allocatedMask   which slots are allocated
+u16  leftMask        left-parent links, drawn as the connections
+u16  rightMask       right-parent links
+u8   tierPicks[5]    the node picked per tier, 0xff for a tier with nothing allocated
+repeat popcount(nodeMask):
+     u16 Mods.dat HASH16, then one signed compact per stat of the row
+```
+
+The node count is **not** sent: the client counts the set bits of `nodeMask` with a popcount table (`0x1431f5d10`) and
+reads exactly that many mods, in slot order. `WeaponPassiveSkills` gives a node its tier (the tier line in the
+tooltip), the rows it may spawn on (`NodeSpawnLocation`) and its `Type` (0 ordinary, 1 notable, 2 sell bonus).
+
+The 16 slots are five rows of a triangle, row L holding L slots at flat index `L*(L-1)/2 + k`; slot 15 is unused.
+The straight trunk is slots 0, 1, 3, 6, 10, i.e. `nodeMask = 1099` with both connection masks zero. The five
+`Bar1..Bar5` unlock thresholds start at `+0x150`; the application pass is `0x1424bcb60`, which lays the tree out
+(`0x1424bc620`), picks each tier's node (`0x1424bcd20`), attaches it (`0x1424bd2c0`), draws its connections
+(`0x1424bd5a0`) and allocates it (`0x1424bcea0`).
+
+Verified in the client (3.29.3d, a one-hand mace with a hand-written record):
+
+- **The record only draws the tree.** It never reaches the stat calculation: a fully allocated tree changed no character
+  stat. Allocated nodes must also be present as ordinary mods in the hidden list (magic properties bit 11, which the
+  client counts but does not print), and then their effects apply like any other mod. Tests pin the expansion.
+- **Allocation is a connected prefix.** A slot lights only when every parent above it is allocated too: allocating row 3
+  alone left all five nodes dark, and clearing the mask darkened every node. `tierPicks` alone lights nothing.
+- **A hole stops the tree.** With rows 1, 2, 4 and 5 present and row 3 missing, rows 4 and 5 were not drawn at all (not
+  even grey); with only row 3 present the tree and its tooltip entry disappeared. A tree may be shorter than five rows —
+  rows 1 to 3 drew three nodes and nothing else — but never have a gap.
+- **Node values must be the row's real values.** Writing 0 for a stat renders that node's tooltip line as the black `#`
+  placeholder, the same fallback a `Type` 2 sell-bonus node gets. Missing parents are the other way to get there.
+- `Type` 2 nodes render as `#` and cannot be allocated; rows 1 to 4 take `Type` 0 and row 5 takes `Type` 1.
+
+Nothing in play hands a weapon a tree yet: the Crucible encounter, its forge screen and the progress its monsters add
+are follow-ups. The rules that make a tree are in `Modules/Legacy/Crucible` (`CrucibleTrees.Generate` places one node per
+row from the weapon's pool and fills the rows above a pick so the allocation is always the prefix the client lights);
+the record, its save round trip and the hidden-mod expansion are in `InstanceWeaponTree.cs`, `InstanceItems.cs`,
+`CharacterSaves.cs` and `ItemModStats.cs`.
+
 ## 3. Inventories with items (S→C 0xc0) and changes (S→C 0xbf)
 
 0xc0 ([05](05-inventories-and-ui.md) §2) carries the items after the inventory header: compact count, then per item
