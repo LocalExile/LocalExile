@@ -631,7 +631,7 @@ public sealed class BreachEncounter
                 case Enraged:
                     await SyncMissedDeaths(runner, breach, atlas);
                     await SpawnWave(runner, encounter, breach, atlas, now);
-                    if (now - breach.Since < EnragedSeconds + 3.0) break;
+                    if (now - breach.Since < EnragedSeconds) break;
                     await SetState(runner, breach, ClosingEnraged, now);
                     await SendLine(members, row, breach, ClosingEnraged, atlas, "closing enraged");
                     changed = true;
