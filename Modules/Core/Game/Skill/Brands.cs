@@ -1620,6 +1620,12 @@ public static partial class Game
             var (spellSkillId, spellGem) = linked[idx];
             if (now < triggerState.ReadyAt.GetValueOrDefault(spellGem.Effect)) continue;
             if (GemSkillInstanceDisabled(player, spellGem.Effect, spellSkillId, triggered: true) is not null) continue;
+            var cooldown = CooldownForSkill(player, spellSkillId);
+            if (cooldown is { } available && SingleUseState(player, spellGem.Effect, spellSkillId) is { } stored)
+            {
+                stored.Refresh(now, available.RecoveryRate);
+                if (stored.SpentUses >= available.Uses) continue;
+            }
             bool Current() => session.Active && CurrentGameRules && ReferenceEquals(CombatLifetime, rules)
                 && !player.Closed && !player.LeavingArea && !player.Paused && player.PlayerLife > 0
                 && SameTriggerSource(liveBrand, SupportedSkill(player, brand.SkillId))
@@ -1627,19 +1633,40 @@ public static partial class Game
 
             var release = PrepareTriggeredPayload(player, session, spellSkillId, aim, Current, origin, brand.AttachedMonster);
             if (release is null) continue;
-            if (!PayMana(player, spellSkillId, out uint mana, out uint life))
+            int extraMs = spellGem.Stats.GetValueOrDefault(Stat.SpellCastTimeAddedToCooldownIfTriggered) != 0
+                ? catalog.CastTimeMs(spellGem.Effect) : 0;
+            uint mana, life;
+            if (cooldown is { } plan)
             {
-                brand.TriggerRotation = (idx + 1) % linked.Count;
-                return;
+                plan = plan with { BaseMilliseconds = ActorScale.Saturate((long)plan.BaseMilliseconds + extraMs) };
+                // On a delayed frame the brand still uses each scheduled activation time for recovery.
+                if (!TryBeginCooldownUseLocked(player, spellGem.Effect, plan, instant: true, () => { },
+                        out var ticket, null, true, null, spellSkillId, Current, reserveAttack: false, triggered: true, cooldownAt: now))
+                {
+                    if (CanPaySkillCost(player, spellSkillId)) continue;
+                    brand.TriggerRotation = (idx + 1) % linked.Count;
+                    return;
+                }
+                if (ticket?.TryExecute(player, spellGem.Effect) != true) continue;
+                // The brand casts without a player action packet, so publish the cooldown in both networking modes.
+                ticket.CommitNativeUse(player, spellSkillId, synchronizeProgress: true);
+                (mana, life) = ticket.Paid ?? (0u, 0u);
+                session.Enqueue(() => SendNativeCooldownRefresh(player));
             }
-            int cdMs = catalog.CooldownMs(spellGem.Effect, spellGem.Level);
-            if (spellGem.Stats.GetValueOrDefault(Stat.SpellCastTimeAddedToCooldownIfTriggered) != 0)
-                cdMs += catalog.CastTimeMs(spellGem.Effect);
-            if (cdMs > 0)
+            else
             {
-                double rate = Math.Max(0.05, 1 + (BrandStat(playerStats, "virtual_cooldown_speed_+%")
-                    + BrandStat(playerStats, "base_spell_cooldown_speed_+%") + BrandStat(spellGem.Stats, "base_cooldown_speed_+%")) / 100.0);
-                triggerState.ReadyAt[spellGem.Effect] = now + cdMs / 1000.0 / rate;
+                if (!PayMana(player, spellSkillId, out mana, out life))
+                {
+                    brand.TriggerRotation = (idx + 1) % linked.Count;
+                    return;
+                }
+                long cdMs = (long)catalog.CooldownMs(spellGem.Effect, spellGem.Level) + extraMs;
+                if (cdMs > 0)
+                {
+                    double rate = Math.Max(0.05, 1 + (BrandStat(playerStats, "virtual_cooldown_speed_+%")
+                        + BrandStat(playerStats, "base_spell_cooldown_speed_+%") + BrandStat(spellGem.Stats, "base_cooldown_speed_+%")) / 100.0);
+                    triggerState.ReadyAt[spellGem.Effect] = now + cdMs / 1000.0 / rate;
+                }
             }
             brand.TriggerRotation = (idx + 1) % linked.Count;
 

@@ -237,7 +237,13 @@ public static partial class Game
 
     public static bool TryBeginCooldownUseCore(Player player, int effect, SingleUseCooldown? plan, bool instant,
         Action sideEffects, out CooldownUseTicket? ticket, int? actionToken, bool reserve, double? requestedAt,
-        ushort? skillId, Func<bool>? admit = null, bool reserveAttack = false, bool triggered = false)
+        ushort? skillId, Func<bool>? admit = null, bool reserveAttack = false, bool triggered = false) =>
+        TryBeginCooldownUseLocked(player, effect, plan, instant, sideEffects, out ticket, actionToken, reserve,
+            requestedAt, skillId, admit, reserveAttack, triggered);
+
+    static bool TryBeginCooldownUseLocked(Player player, int effect, SingleUseCooldown? plan, bool instant,
+        Action sideEffects, out CooldownUseTicket? ticket, int? actionToken, bool reserve, double? requestedAt,
+        ushort? skillId, Func<bool>? admit, bool reserveAttack, bool triggered, double? cooldownAt = null)
     {
         using (ProjectileMutation(player, advance: !reserveAttack))
         {
@@ -324,7 +330,7 @@ public static partial class Game
             if (payer is ushort paying && !CanPaySkillCost(player, paying)) return false;
             if (plan is { } cooldown)
             {
-                double now = AreaTime(player);
+                double now = cooldownAt ?? AreaTime(player);
                 state = CooldownStateLocked(player, key, cooldown, now);
                 if (key == GuardCooldownKey && !state.Ready) return false;
                 var peers = SharedCooldownPeers(player, effect, key, cooldown, now);
