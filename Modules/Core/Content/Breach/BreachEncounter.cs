@@ -510,11 +510,12 @@ public sealed class BreachEncounter
         Stabiliser? stab = null;
         foreach (var b in encounter.Breaches)
         {
-            if (b.Gone) continue;
+            // The chests stay in the world after the Breach closes; only its stabilisers go.
             if (b.Chests.FirstOrDefault(c => c.Created && c.Id == use.TargetId) is { } foundChest)
             {
                 ownerBreach = b; chest = foundChest; break;
             }
+            if (b.Gone) continue;
             if (b.Stabilisers.FirstOrDefault(s => s.Created && s.Id == use.TargetId) is { } foundStab)
             {
                 ownerBreach = b; stab = foundStab; break;
