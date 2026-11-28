@@ -166,6 +166,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Valdo's Oubliette (live 2026-11-27: box, mods, name/layout/reward lines). Of the modifiers, the "contains …" bosses,
   inhabitants, extra packs, extra random mods, rare-mods-on-kill and the player/monster stat ones act; the daemons,
   apparitions, Maven, fatal timer, portal decay, solo mode, Void on death and league-completion requirements do not.
+- Voidborn Reliquary (Atlas module, `VoidbornReliquary`): the key's recipe opens `ClassicTreasury_Cosmic`, where a Relic
+  Vault (`ForgottenReliquaryCosmic`) drops one foil unique (item level 75) from world.db `voidborn_reliquary_outcomes`
+  (poewiki's trade-observed list, weighted by entries x `unique_weights`). Not checked live; the other reliquary keys'
+  vaults stay empty.
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability, Terrors bosses,
   Bestiary's additional red beasts/family lures/Shadowed Crow/capture copies and Sulphite's owner yield/Fumes.
   Delirium, Shaper/Elder influence, Legion, Abyss, Mercenary, Expedition, Incursion, Betrayal and Pandemonium inputs

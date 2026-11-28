@@ -134,6 +134,7 @@ public sealed class AtlasModule : IModule
         AstrolabesAndVaults.LoadData();
         AtlasAnomalies.LoadData();
         ValdoMaps.LoadData();
+        VoidbornReliquary.LoadData();
     }
 
     sealed class DeferCrucibleScope : IDisposable
@@ -157,6 +158,7 @@ public sealed class AtlasModule : IModule
         AstrolabesAndVaults.Register(module.Manifest.Id);
         AtlasAnomalies.Register(module.Manifest.Id);
         ValdoMaps.Register(module.Manifest.Id);
+        VoidbornReliquary.Register(module.Manifest.Id);
         ExtraPlayerMessages = player => AtlasFeature.Restore(player);
         GameEvents.MapOpening.Add(module.Manifest.Id, AtlasProgress.ApplyScry);
         GameEvents.AreaPopulated.Add(module.Manifest.Id, EldritchInfluence.OnAreaPopulated);
