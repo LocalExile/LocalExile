@@ -17,6 +17,7 @@ namespace GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class InstanceHeist
 {
+    public const ushort LockerMoveId = 0x00fc;
     public const ushort AlertLevelId = 0x0164;
     public const ushort RevealResultId = 0x023b;
     public const ushort SignContractId = 0x0279;
@@ -25,6 +26,7 @@ public static class InstanceHeist
     public const ushort ConfirmBlueprintId = 0x027e;
     public const ushort SetBlueprintCrewId = 0x027f;
 
+    public const int LockerMoveLength = 8;
     public const int AlertLevelLength = 7;
     public const int RevealResultLength = 5;
     public const int RevealBlueprintLength = 5;
@@ -47,6 +49,11 @@ public static class InstanceHeist
 
     public readonly record struct RevealBlueprintRequest(byte WingIndex, byte RoomTarget, byte RevealerRow);
     public readonly record struct SetBlueprintCrewRequest(byte WingIndex, byte[] Crew);
+
+    /// <summary>Parses C→S <c>0x00fc</c> (Ctrl + click into or out of the Heist Locker, 8 bytes):
+    /// <c>u32 BE itemId</c> (+2), <c>u8 fromExpanded</c> (+6), <c>u8 intoLocker</c> (+7).</summary>
+    public static InstanceItems.LeagueWindowMove ReadLockerMove(ReadOnlySpan<byte> payload) =>
+        new(BinaryPrimitives.ReadUInt32BigEndian(payload[2..]), payload[6] != 0, payload[7] != 0);
 
     /// <summary>Parses C→S <c>0x0279</c> (sign contract): <c>u16 BE 0x0279</c>, <c>u8 count</c>, <c>count × u8</c>.</summary>
     public static bool TryReadSignContract(ReadOnlySpan<byte> packet, out byte[] rogues)

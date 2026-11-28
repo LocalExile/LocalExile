@@ -231,8 +231,11 @@ public sealed class BreachEncounter
             await Send(player, InstanceProtocol.AddRuleset(row), $"0x001f ruleset ExpandingBrequelEncounterRules (row {row})");
             foreach (var breach in encounter.Breaches.Where(b => !b.Gone && b.Line >= 0))
                 await Send(player, LineFor(row, breach, breach.Line), $"0x02c9 Breach {breach.Index} ruleset (state {breach.State})");
-            if (encounter.EnvironmentOn && Override(true) is { } on)
-                await Send(player, on, "0x00df Breach environment override");
+            if (encounter.EnvironmentOn && EnvRow is { } onEnv)
+            {
+                AreaEnvironments.EnsureState(player, "breach", (onEnv, (float)EnvSeconds));
+                await AreaEnvironments.Sync(player, "0x00df Breach environment override");
+            }
         }
         finally { encounter.Gate.Release(); }
     }
@@ -273,9 +276,10 @@ public sealed class BreachEncounter
                     if (encounter.Breaches.Count(b => !b.Gone && b.Open) >= MaxOpen || !members.Any(m => Touches(m, breach))) break;
                     breach.TouchedAt = now;
                     // The environment first, then the state: the order Delirium's start sends them in.
-                    if (!encounter.EnvironmentOn && Override(true) is { } on)
+                    if (!encounter.EnvironmentOn && EnvRow is { } onEnv)
                     {
-                        await Broadcast(members, on, $"0x00df Breach environment override [{EnvRow} slot 0], {EnvSeconds:0.0} s");
+                        await AreaEnvironments.Set(runner, "breach", onEnv, (float)EnvSeconds,
+                            $"0x00df Breach environment override [{onEnv} slot 0], {EnvSeconds:0.0} s");
                         encounter.EnvironmentOn = true;
                     }
                     await SetState(runner, breach, Expanding, now);
@@ -319,7 +323,7 @@ public sealed class BreachEncounter
         }
         if (encounter.EnvironmentOn && !encounter.Breaches.Any(b => !b.Gone && b.Open))
         {
-            await Broadcast(members, InstanceEnvironments.Data(), "0x00df Breach environment override cleared");
+            await AreaEnvironments.Clear(runner, "breach", log: "0x00df Breach environment override cleared");
             encounter.EnvironmentOn = false;
             changed = true;
         }
@@ -362,9 +366,6 @@ public sealed class BreachEncounter
     /// <summary>This Breach's ruleset line in <paramref name="state"/>, as 0x2c9.</summary>
     static byte[] LineFor(byte row, Breach breach, int state) =>
         InstanceRulesets.Data(row, BreachRulesets.Body(breach.Index, breach.X, breach.Y, state, Math.Max(0, breach.Ramp - 1)));
-
-    /// <summary>The environment override (on: the BreachArtVariations row, slot 0) or the empty list that clears it.</summary>
-    static byte[]? Override(bool on) => !on ? InstanceEnvironments.Data() : EnvRow is { } env ? InstanceEnvironments.Data((env, EnvSeconds)) : null;
 
     /// <summary>A message that is about no object goes to every client of the area by itself, each its own copy: the
     /// writer encrypts the buffer it is given in place.</summary>

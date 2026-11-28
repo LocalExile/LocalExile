@@ -10,7 +10,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [Idols](../docs/game/idols.md).
 - Heist Locker is placed in each hideout and opens its native window (0x7b kind 0x37).
   The native window handler and visible state were verified through the real client.
-  Its placement supports the hideout editor; storage transfers were not added by this change.
+  Its placement supports the hideout editor; 0x00fc quick-move and 0x002a HeistStorageLayout region guards are wired.
   See [21](../docs/protocol/21-hideouts.md), Heist Locker.
 - Horticrafting Station (2026-10-27): placed beside the ordinary bench in every selected hideout; interaction opens
   the native recipe browser (0x7b kind 0x39).

@@ -31,7 +31,7 @@ public static class MirrorFogRegions
                 }
             }
 
-        var regions = new List<AfflictionRuleset.FogRegion>();
+        var regions = new List<(AfflictionRuleset.FogRegion Region, int Samples)>();
         var pending = new Queue<int>();
         int mirrorRegion = -1;
         long nearestDistance = long.MaxValue;
@@ -40,10 +40,11 @@ public static class MirrorFogRegions
             if (!occupied[start]) continue;
             pending.Enqueue(start);
             occupied[start] = false;
-            int minX = int.MaxValue, minY = int.MaxValue, maxX = 0, maxY = 0, originX = 0, originY = 0;
+            int minX = int.MaxValue, minY = int.MaxValue, maxX = 0, maxY = 0, originX = 0, originY = 0, samples = 0;
             long closest = long.MaxValue;
             while (pending.TryDequeue(out int index))
             {
+                samples++;
                 int x = index % width, y = index / width;
                 int cx = Cell(x), cy = Cell(y);
                 minX = Math.Min(minX, cx);
@@ -63,10 +64,15 @@ public static class MirrorFogRegions
                     }
             }
             if (closest < nearestDistance) (nearestDistance, mirrorRegion) = (closest, regions.Count);
-            regions.Add(new(minX, minY, maxX, maxY, originX, originY, MathF.Sqrt(closest)));
+            regions.Add((new(minX, minY, maxX, maxY, originX, originY, MathF.Sqrt(closest)), samples));
         }
         if (mirrorRegion >= 0)
-            regions[mirrorRegion] = regions[mirrorRegion] with { OriginX = mirrorX, OriginY = mirrorY, DistanceOffset = 0 };
-        return [.. regions];
+            regions[mirrorRegion] = (regions[mirrorRegion].Region with { OriginX = mirrorX, OriginY = mirrorY, DistanceOffset = 0 }, regions[mirrorRegion].Samples);
+
+        if (regions.Count > byte.MaxValue)
+            return [.. AfflictionRuleset.CompactRegions([.. regions.Select(r => r.Region)], i => regions[i].Samples)];
+
+        regions.Sort(static (a, b) => a.Region.DistanceOffset.CompareTo(b.Region.DistanceOffset));
+        return [.. regions.Select(r => r.Region)];
     }
 }
