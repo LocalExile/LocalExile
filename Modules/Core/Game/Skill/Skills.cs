@@ -1430,7 +1430,7 @@ public static partial class Game
         if (GolemStat(gem.Stats, Stat.CannotCastCurses) != 0) return "this curse is triggered by Hextouch";
         if (!triggered && CurseCatalog.Hex(SkillsFor(player).EffectId(effect)) && IsBaneLinkedHex(player, gem))
             return "this curse is triggered by Bane";
-        if (TravelSkillsExceptDashDisabled(player, effect, skillId) is { } travel) return travel;
+        if ((TravelSkillsExceptDashDisabled(player, effect, skillId) ?? TravelSkillsDisabledByMap(player, effect)) is { } travel) return travel;
         if (gem.Supports.Any(s => s.Effect.Added.Contains(36))
             && !TriggeredSpellExecutable(player, skillId, gem)
             && !CooldownTriggerExecutable(player, gem)

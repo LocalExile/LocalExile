@@ -119,6 +119,12 @@ public static partial class Game
         Gain(Stat.MapMonsterDebuffTimePassedPlusPct, Stat.DebuffTimePassedPlusPct);
         Gain(Stat.MapMonstersAddFrenzyChargeOnHitPct, Stat.AddFrenzyChargeOnSkillHitPct);
         Gain(Stat.MapMonstersAddPowerChargeOnHitPct, Stat.AddPowerChargeOnSkillHitPct);
+        Gain(Stat.MapMonstersAddEnduranceChargeOnHitPct, Stat.AddEnduranceChargeOnSkillHitPct);
+        Gain(Stat.MapMonstersAdditionalNumberOfProjecitles, Stat.NumberOfAdditionalProjectiles);
+        Gain(Stat.MapActorScalePlusPct, Stat.ActorScalePlusPct);
+        Gain(Stat.MapKillEnemyOnHitIfUnder20PctLife, Stat.KillEnemyOnHitIfUnder20PctLife);
+        if (mods.Get(Stat.MapMonsterNoDrops) != 0)
+            extra[Stat.MonsterNoDrops] = 1;
         Gain(Stat.MapMonsterChanceToGainEnduranceChargeWhenHitPct, Stat.ChanceToGainEnduranceChargeWhenHitPct);
         Gain(Stat.MapMonsterMaximumEnduranceCharges, Stat.MapMonsterMaximumEnduranceCharges);
         Gain(Stat.MapMonsterMaximumFrenzyCharges, Stat.MapMonsterMaximumFrenzyCharges);

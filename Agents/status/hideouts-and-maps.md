@@ -159,6 +159,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   The client still refuses them: on their own Atlas node it shows "The device requires a map" and sends no 0x00d8, and an
   ordinary node does not take them (live 2026-11-22; a WorldAreas HASH16 in MapKey flag bit 1 did not change it).
   Their fixed unique modifiers are not applied.
+- Valdo's Puzzle Box (Atlas module, `ValdoMaps`): right-click opens a foil, rare Valdo Map (tier 17, level 84) from
+  world.db `valdo_box_outcomes` (poewiki's trade-observed outcomes, weighted by the reward's `unique_weights`), with
+  4–7 MapSupporter modifiers and a 25% Void modifier (G). The device opens its layout without the Atlas tree; 90% of
+  monsters and every rare/unique dead raises a Singular Reliquary holding the Celestial foil unique and completes
+  Valdo's Oubliette (live 2026-11-27: box, mods, name/layout/reward lines). Of the modifiers, the "contains …" bosses,
+  inhabitants, extra packs, extra random mods, rare-mods-on-kill and the player/monster stat ones act; the daemons,
+  apparitions, Maven, fatal timer, portal decay, solo mode, Void on death and league-completion requirements do not.
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability, Terrors bosses,
   Bestiary's additional red beasts/family lures/Shadowed Crow/capture copies and Sulphite's owner yield/Fumes.
   Delirium, Shaper/Elder influence, Legion, Abyss, Mercenary, Expedition, Incursion, Betrayal and Pandemonium inputs

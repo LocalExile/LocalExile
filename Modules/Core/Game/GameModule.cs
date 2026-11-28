@@ -124,6 +124,7 @@ public sealed class GameModule : IModule, IDisposable
         global::MapScarabContent.LoadGameData();
         global::MapScarabPacks.LoadGameData();
         global::MapAllflame.LoadGameData();
+        global::MapStatMonsters.LoadGameData();
         global::MapInfluence.LoadGameData();
         global::StrongboxCatalog.LoadGameData();
         global::StrongboxMods.LoadGameData();
@@ -179,6 +180,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => Rules.ClearPlayerMonsterAurasAsync(player));
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => global::Sirus.Leaving(player));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Game.MapPlayerStatSources);
         InstanceEvents.AreaStats.Add(module.Manifest.Id, Rules.MapAreaStats);
         InstanceEvents.AreaDisplayStats.Add(module.Manifest.Id, Rules.MapAreaDisplayStats);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabContent.Describe);

@@ -571,6 +571,7 @@ public static class SaveRows
         "heist_blueprint", "deepwater_chart", "ritual_encounter",
         "incursion_temple", "expedition_saga", "mercenary_contract", "mercenary_locked",
         "memory_strands", "intangibility", "required_level", "relic_style", "scrying_area_hash", "skill_bar_gem_id", "custom_name",
+        "content_data", "map_key",
     ];
 
     static object?[] ItemValues(SavedItem i) =>
@@ -581,6 +582,7 @@ public static class SaveRows
         i.AlternateQualityType, i.Vestigial, JsonOf(i.HeistBlueprint), JsonOf(i.Chart), JsonOf(i.RitualEncounter),
         JsonOf(i.IncursionTemple), JsonOf(i.ExpeditionSaga), JsonOf(i.MercenaryContract), i.MercenaryLocked,
         i.MemoryStrands, i.Intangibility, i.RequiredLevel, i.RelicStyle, i.ScryingAreaHash, i.SkillBarGemId?.ToString("N"), i.CustomName,
+        JsonOf(i.ContentData), JsonOf(i.MapKey),
     ];
 
     static List<ItemRow> ReadItems(SaveDatabase db, Owner owner, long id, long? inventory)
@@ -647,6 +649,8 @@ public static class SaveRows
                     MercenaryContract = v.Json<MercenaryContractData?>("mercenary_contract"),
                     MercenaryLocked = v.Bool("mercenary_locked") == true,
                     CustomName = v.Text("custom_name"),
+                    ContentData = v.Json<Dictionary<string, string>>("content_data"),
+                    MapKey = v.Json<MapKeyData>("map_key"),
                     SkillBarGemId = v.Text("skill_bar_gem_id") is { } gemId
                         && Guid.TryParseExact(gemId, "N", out var parsedGemId) ? parsedGemId : null };
         }
