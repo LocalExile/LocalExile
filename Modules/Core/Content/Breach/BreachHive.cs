@@ -835,7 +835,7 @@ public sealed class BreachHive
             hive.EnvironmentOn = false;
         }
         await SendHiveRulesetUpdate(members, hive);
-        await ClearHiveMonsters(runner, hive);
+        await ClearMonsters(runner, hive.Monsters, hive.AllMonsterIds);
         foreach (var m in members)
             await PlayerOf(m).Tell("Failed to Defend Ailith.");
         Console.WriteLine($"[breach] Hive defense failed in {runner.Layout.Id} at wave {hive.Wave}/{hive.TotalWaves}");
@@ -880,12 +880,13 @@ public sealed class BreachHive
         }
     }
 
-    static async Task ClearHiveMonsters(Player runner, HiveState hive)
+    /// <summary>Removes the encounter's living monsters from the area (a failed defense) and forgets their ids.</summary>
+    internal static async Task ClearMonsters(Player runner, List<uint> monsters, HashSet<uint> allIds)
     {
         var area = runner.Area;
         using (HoldMonstersRemaining(runner))
         {
-            foreach (uint id in hive.Monsters)
+            foreach (uint id in monsters)
             {
                 if (!area.Monsters.TryGetValue(id, out var m) || m.Dead || m.Life == 0) continue;
                 m.Life = 0;
@@ -897,8 +898,8 @@ public sealed class BreachHive
                 await SendWorldRemoval(runner, id, null);
             }
         }
-        hive.Monsters.Clear();
-        hive.AllMonsterIds.Clear();
+        monsters.Clear();
+        allIds.Clear();
         await SendRemainingMonsters(runner);
     }
 

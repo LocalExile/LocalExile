@@ -507,6 +507,18 @@ public sealed class BreachFortress
                                 await SetObjectStates(runner, state.StabiliserId, StabiliserType, ("bomb_defence", 3));
                                 if (state.AilithId != 0) await SetMonsterStates(runner, state.AilithId, ("bomb_defence", 3));
                                 foreach (var m in members) await PlayerOf(m).Tell("Failed to Defend Ailith in the Hive Fortress.");
+                                // As BreachHive.FailDefense: Step stops at PhaseFailed, so nothing would clear these later.
+                                foreach (var pad in state.Skills)
+                                {
+                                    pad.Ready = false;
+                                    await SetObjectStates(runner, pad.Id, SkillObjectType, ("ready", 0));
+                                }
+                                if (state.EnvironmentOn)
+                                {
+                                    await Broadcast(members, InstanceEnvironments.Data(), "0x00df Fortress environment override cleared");
+                                    state.EnvironmentOn = false;
+                                }
+                                await BreachHive.ClearMonsters(runner, state.Monsters, state.AllMonsterIds);
                             }
                             await SendFortressRulesetUpdate(members, state);
                             dirty = true;
