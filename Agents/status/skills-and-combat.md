@@ -228,6 +228,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Cadence uses the swinging hand's radius and requires two compatible weapons.
 - Consecrated Path and its Endurance variant select a target near the aim, land at contact, and create timed ground.
 - Earthshatter and both variants resolve travelling fissures and spikes triggered by slams, warcries or the timer.
+- Bonespire Support raises bone spires on supported self-used warcries.
+  The player's slams detonate the spires and inflict bleeding.
 - Perforate resolves repeated Blood spikes and single-hit Sand rays.
   Duality adds spikes for four seconds after a stance change.
   Bloodshed always uses its slower, wider Blood sequence.
@@ -290,12 +292,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md).
 - Equipment-granted Bear Trap, Wintertide Brand, Decoy Totem, Smite, Frostblink, Summon Stone Golem, Convocation,
   Enduring Cry and Intimidating Cry use their existing skill actions. A restored golem retains its equipment source.
+- Bloodbond's Blood Offering consumes up to four corpses and grants minion damage and life regeneration
+  based on life sacrificed.
+  Spell Totem uses its own life, and support traps and mines can apply the offering.
+- A self-cast Bodyswap of Sacrifice moves to a living target at contact and resolves spell damage at both endpoints.
+  A selected damageable minion is destroyed and contributes a separate secondary explosion.
+  Totems, traps and mines use their own departure point, and linked triggers move the player.
 - Doryani's Touch uses the gloves' unarmed lightning damage and requires both hands to have no weapon.
 - Lightpoacher can earn Spirit Charges on kills with an equipped Abyss Jewel. An accepted skill use can spend a
   live charge to launch Spirit Burst.
 - Approaching Flames from Annihilation's Approach toggles Flame-Touched, its Adrenaline and its fire damage.
 - Owned minions: relics, chieftains and the 17 golems. Docs: [11](../docs/protocol/11-skills.md) §10h.
   Mindless Aggression and minion area mastery scale minions. Fresh Meat grants timed Adrenaline and Wakened Fury.
+  Ice Cyclone leaves chilled ground along the minion's path.
+  Flame Golem of the Meteor lands on clear terrain within its summoner's skill range.
 - Straight minion projectiles need a clear shot. The Wretched Defiler spectre fires its timed spiral and supports Spell Echo and Returning Projectiles.
 - Spectre roars grant native charges ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Itemised corpses raise native spectres ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
@@ -338,8 +348,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Explosive and Poisonous Concoction land area hits and spend charges for their attack bonuses. Bouncing chains along
   the ground.
 - Thunderstorm blinds inside the storm, grows while occupied, and releases Thunderburst on a timely full-stage exit.
+- Voidstorm from supported rain landings grows and blinds enemies until its owner enters and detonates it.
+- Windburst triggers after the owner walks the required distance and hits with a supported attack,
+  releasing piercing projectiles that burst at expiry.
+- Hiveborn Support summons temporary cold-attacking minions after the player's supported offering succeeds.
 - Kinetic Fusillade and Detonation refresh their capped hover queues and discharge in sequence.
   See [projectile skills](../docs/game/projectile-skills.md).
+- Kinetic Instability supports place Kinetic Flux on the linked wand attack's killing hit or, for Greater,
+  its critical hit.
 - Scourge Arrow and its Royale variant plant pods on release based on channel stages; Scourge Arrow of Menace plants
   a pod per arrow. See [projectile skills](../docs/game/projectile-skills.md).
 - Somatic Shell absorbs other hits and transfers on depletion. Its own skill damage bypasses existing shells.
@@ -548,6 +564,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Both Charged Dash gems channel in place, hit along the steered path and release a final wave. Only the base gem teleports.
   The normal gem moves to a legal landing; the Projection variant stays in place.
   Docs: [11](../docs/protocol/11-skills.md#charged-dash-projection-and-release).
+- Player-cast Flameblast gains paid stages and explodes at its aimed location on release. Celerity also explodes at
+  maximum stages, and Contraction loses radius as it stages.
+- Player-cast Lightning Tendrils follows the channel aim, with gem-specific strong pulses and Escalation radius growth.
+- Player-cast Blight applies independently expiring damage layers and Hinder in front of the player.
+  Atrophy reduces life regeneration during Hinder, and Contagion carries active Blight of Contagion layers.
+- Player-cast Scorching Ray steers while held and refreshes burn stages on targets it touches. The ordinary ray applies
+  Fire Exposure at its stage limit.
+- Player-cast Incinerate builds paid stages, widens and lengthens while held, and releases an igniting wave.
+  Expanse releases a wider-ranging, slower wave. Venting sustains a longer cone without a release wave.
+- Player-cast Storm Burst emits independently timed orbs that jump with the aim while held. Repulsion jumps away.
+  Releasing the channel detonates the active orbs with their remaining-jump multiplier.
+- Wither pulses follow the channel aim. Players and spell totems apply Hinder and separately expiring Withered stacks.
+- Channel-dependent item modifiers follow the player's active channel through release, interruption and skill removal.
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) §9a.

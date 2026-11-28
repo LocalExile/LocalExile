@@ -10,7 +10,7 @@ public static partial class Game
     public static int SpellRepeats(Player player, int effect, Func<uint, int> get) =>
         !SkillsFor(player).IsSpell(effect) || SkillsFor(player).IsAttack(effect) || Supports.Of(effect)?.Types.Contains(47) == true
             || SkillsFor(player).ActionHash(effect) == IceNovaRing.Action && SkillsFor(player).EffectId(effect) is not ("IceNova" or "IceNovaHardMode")
-            || get(Stat.DisableSkillRepeats) != 0 ? 0
+            || SkillsFor(player).EffectId(effect) == BodyswapSacrificeEffect || get(Stat.DisableSkillRepeats) != 0 ? 0
             : Math.Max(0, get(Stat.BaseSpellRepeatCount) + get(Stat.SkillRepeatCount)
                 + (get(Stat.SkillIsMined) != 0 ? get(Stat.SkillRepeatCountIfMined) : 0));
 

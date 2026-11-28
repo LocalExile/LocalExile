@@ -51,6 +51,9 @@ public sealed class PlayerWalk
     // which it holds; a walk set up before then, in the stop's own frame, does not take it (Walk).
     private (double Seconds, double From) _kept;
     private (double At, double Moving, int Teleports)? _travel;
+    private (double At, double Cells) _distance;
+
+    public bool TrackDistance { get; init; }
 
     // Joined: the next segment goes on along the same piece of the path (steps already due, split off by InFrame), so
     // this one's last cell is no waypoint (EndsPiece).
@@ -334,6 +337,7 @@ public sealed class PlayerWalk
         readonly (int X, int Y) _rest, _target;
         readonly double _restSince;
         readonly (double At, double Moving, int Teleports)? _travel;
+        readonly (double At, double Cells) _distance;
         readonly (double, double) _kept;
         readonly int _maxRange, _tolerance, _precision;
         readonly bool _reached, _goalReached, _walksThrough, _chargesThrough, _slides;
@@ -341,6 +345,7 @@ public sealed class PlayerWalk
         internal Snapshot(PlayerWalk w)
         {
             _travel = w._travel;
+            _distance = w._distance;
             (_segments, _rest, _target, _restSince, _kept, _maxRange, _tolerance, _precision, _reached, _goalReached, _walksThrough, _chargesThrough, _slides) =
                 (w._segments, w._rest, w._target, w._restSince, w._kept, w._maxRange, w._tolerance, w._precision, w.Reached, w._goalReached, w.WalksThrough, w.ChargesThrough, w.Slides);
         }
@@ -351,6 +356,7 @@ public sealed class PlayerWalk
                 (_segments, _rest, _target, _restSince, _kept, _maxRange, _tolerance, _precision);
             (w.Reached, w._goalReached, w.WalksThrough, w.ChargesThrough, w.Slides) = (_reached, _goalReached, _walksThrough, _chargesThrough, _slides);
             w._travel = _travel;
+            w._distance = _distance;
         }
     }
 
@@ -407,6 +413,7 @@ public sealed class PlayerWalk
             if (_travel is { } travel && At(now, out _) != (x, y))
                 _travel = (travel.At, travel.Moving, travel.Teleports + 1);
         }
+        else SettleDistance(now);
         Slides = false;
         _segments = EmptySegments;
         _rest = (x, y);
@@ -466,6 +473,37 @@ public sealed class PlayerWalk
     {
         if (_travel is { } travel && now > travel.At)
             _travel = (now, travel.Moving + MovingSeconds(travel.At, now), travel.Teleports);
+        SettleDistance(now);
+    }
+
+    /// <summary>Distance along the walked cells, excluding teleports and corrections.</summary>
+    public double TravelledCells(double now) => TrackDistance
+        ? _distance.Cells + PathDistance(_distance.At, Frame(now)) : 0;
+
+    private void SettleDistance(double now)
+    {
+        if (TrackDistance && now > _distance.At)
+            _distance = (now, _distance.Cells + PathDistance(_distance.At, now));
+    }
+
+    private double PathDistance(double from, double until)
+    {
+        if (until <= from) return 0;
+        double cells = 0;
+        foreach (var segment in _segments)
+        {
+            if (segment.End <= from) continue;
+            if (segment.T0 >= until) break;
+            int first = from <= segment.T0 ? 0 : (int)((from - segment.T0) / segment.Step);
+            int last = until >= segment.End ? segment.Cells.Length : (int)((until - segment.T0) / segment.Step);
+            if (first >= last) continue;
+            var a = first == 0 ? segment.From : segment.Cells[first - 1];
+            var b = segment.Cells[last - 1];
+            int x = Math.Abs(b.X - a.X), y = Math.Abs(b.Y - a.Y);
+            // Each piece is a Bresenham line, with one or two axes advancing at each step.
+            cells += Math.Max(x, y) + (Math.Sqrt(2) - 1) * Math.Min(x, y);
+        }
+        return cells;
     }
 
     /// <summary>Where the current walk ends.</summary>

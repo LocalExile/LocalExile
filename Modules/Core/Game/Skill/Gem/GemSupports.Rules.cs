@@ -67,7 +67,7 @@ public static partial class Game
                     or AvengingFlameEffect or SummonSacredWispEffect or ShockwaveEffect or VoidShockwaveEffect
                     or GoreShockwaveEffect or "DoryanisTouch" or ApproachingFlamesEffect
                     or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink" or CallOfSteelEffect
-                    or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry" or GuardianWeaponEffect
+                    or "SummonStoneGolem" or "Convocation" or BloodOfferingEffect or "EnduringCry" or "IntimidatingCry" or GuardianWeaponEffect
                 || TriggeredItemMinion(g) is not null
                 || g.EffectId == ShaperMemoryEffect
                 || SummonData.Find(g.EffectId) is { Family: "DoedresEffigy" or ItemHarbingerFamily }
@@ -1012,7 +1012,10 @@ public static partial class Game
             raw = raw.Scale(Math.Max(0, 1 + (long)traumaMeleeMore * traumaStacks / 100d));
         if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.SpellBaseFireDamagePctMaximumLife) is int lifePct and > 0)
         {
-            double fire = (long)player.PlayerMaxLife * lifePct / 100d;
+            uint life = skills.EffectId(gem.Effect) == BodyswapSacrificeEffect
+                ? projectileTotemLife ?? (placed.Trap || placed.Mine ? 1u : player.PlayerMaxLife)
+                : player.PlayerMaxLife;
+            double fire = (long)life * lifePct / 100d;
             raw = raw.Add(GameServer.Core.World.DamageType.Fire, new(fire, fire));
         }
         if (!attack && !secondary && Get(Stat.KeystoneBattlemage) != 0

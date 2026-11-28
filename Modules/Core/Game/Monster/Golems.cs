@@ -362,13 +362,13 @@ public static partial class Game
 
     internal static Task<bool> CastGolem(Player player,
         ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, int recovery, Func<bool> current,
-        bool triggered = false, bool atProxy = false)
+        bool triggered = false, bool atProxy = false, (int X, int Y)? casterAt = null)
     {
         int onslaughtMs = triggered ? 0 : GolemStat(SupportedSkill(player, source).Stats,
             Stat.LocalDisplaySocketedGolemSkillGrantsOnslaughtWhenSummoned);
         return RepeatSummonCast(player, source, recovery, current, triggered, async () =>
         {
-            uint id = await SummonGolem(player, source, definition, aim, current: current, atProxy: atProxy);
+            uint id = await SpawnGolem(player, source, definition, aim, current: current, atProxy: atProxy, casterAt: casterAt);
             if (id == 0) return false;
             if (onslaughtMs > 0)
             {
@@ -384,12 +384,21 @@ public static partial class Game
         });
     }
 
-    public static async Task<uint> SummonGolem(Player player,
+    public static Task<uint> SummonGolem(Player player,
         ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, double life = 1, bool arrival = false,
         Func<bool>? current = null, double summonedSecondsRemaining = 0,
         GolemState.MinionResourceSnapshot? resources = null, bool legacyArrival = false,
         GolemState.Golem? replacingOld = null, GemSourceLifetimes.SourceLifetime? retainedSource = null,
-        bool claimActivation = true, bool atProxy = false)
+        bool claimActivation = true, bool atProxy = false) =>
+        SpawnGolem(player, source, definition, aim, life, arrival, current, summonedSecondsRemaining,
+            resources, legacyArrival, replacingOld, retainedSource, claimActivation, atProxy);
+
+    static async Task<uint> SpawnGolem(Player player,
+        ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, double life = 1, bool arrival = false,
+        Func<bool>? current = null, double summonedSecondsRemaining = 0,
+        GolemState.MinionResourceSnapshot? resources = null, bool legacyArrival = false,
+        GolemState.Golem? replacingOld = null, GemSourceLifetimes.SourceLifetime? retainedSource = null,
+        bool claimActivation = true, bool atProxy = false, (int X, int Y)? casterAt = null)
     {
         if (replacingOld is null && Monsters.Find(definition.Variety) is { Supported: true } preVariety)
         {
@@ -464,8 +473,18 @@ public static partial class Game
         }
         var at = !arrival && (atProxy || definition.Kind == "Flame" && definition.Special)
             ? aim : NextToPlayer(player, Math.Clamp(variety.ObjectSize - 1, 0, 127));
+        var placement = MonsterPlacement.Proposed;
+        if (!arrival && Own(Stat.GolemCanSummonedWithinRange) != 0)
+        {
+            var from = casterAt ?? (atProxy ? aim : player.Walk.Position(preparedNow));
+            var landing = RangedGolemLanding(player, from, aim, Own(Stat.GolemSummonDistancePlus),
+                Math.Clamp(variety.ObjectSize - 1, -1, 127));
+            if (landing is null) return 0;
+            at = landing.Value;
+            placement = MonsterPlacement.Established;
+        }
         uint id = await SpawnMonster(player, variety, level, MonsterRarity.Normal, at.X, at.Y,
-            friendly: true, mods: mods, unrisen: false, extraStats: MinionStats,
+            friendly: true, mods: mods, unrisen: false, extraStats: MinionStats, placement: placement,
             ownedSkills: probe.Skills, ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
             ownedEnergyShield: energyShield,
             damagedLife: wireLife,
@@ -527,6 +546,29 @@ public static partial class Game
         await RefreshGolemBuffs(player);
         SaveGolems(player);
         return id;
+    }
+
+    static (int X, int Y)? RangedGolemLanding(Player player, (int X, int Y) from, (int X, int Y) aim,
+        int range, int bodySize)
+    {
+        range = Math.Max(0, range);
+        double dx = (double)aim.X - from.X, dy = (double)aim.Y - from.Y;
+        double distance = Math.Sqrt(dx * dx + dy * dy);
+        if (distance > range)
+            aim = (from.X + (int)(dx * range / distance), from.Y + (int)(dy * range / distance));
+
+        double rangeSquared = (double)range * range;
+        int clearance = Math.Max(0, bodySize);
+        var layout = player.Layout;
+        bool Floor(int x, int y)
+        {
+            double xFromCaster = (double)x - from.X, yFromCaster = (double)y - from.Y;
+            return xFromCaster * xFromCaster + yFromCaster * yFromCaster <= rangeSquared
+                && layout.WalkableFor(x, y, clearance) && !player.Barrier.Contains((x, y));
+        }
+        var blockers = bodySize < 0 ? [] : player.MonsterPlacementBlockers(0);
+        return CollisionEscape.Clear(aim, layout.GridW, layout.GridH, Floor, blockers, clearance)
+            ? aim : CollisionEscape.Find(aim, layout.GridW, layout.GridH, Floor, blockers, moverSize: clearance);
     }
 
     // dies: the body of a summon that ended in play stays for SummonBodySeconds with its life at 0 (RemoveMinionBodiesLocked

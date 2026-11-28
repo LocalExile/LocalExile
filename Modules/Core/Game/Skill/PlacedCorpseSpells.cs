@@ -50,19 +50,21 @@ public static partial class Game
             WorldRecords(id, () => [InstanceProtocol.RemoveObject(id)], remove: true);
         }
 
-        void ApplyCorpseExplosion(ushort skill, uint life, (int X, int Y) at, int radius, double now,
-            PlacedAreaHit? placement = null, double more = 1)
+        internal void ApplyCorpseExplosion(ushort skill, uint life, (int X, int Y) at, int radius, double now,
+            PlacedAreaHit? placement = null, double more = 1, bool minionExplosion = false, bool totem = false)
         {
             var owner = CharacterPlayerStats(Player);
             var supported = SupportedSkill(Player, skill);
             var device = placement?.Device;
-            var caster = device is { } proxy ? proxy.Offense?.Caster ?? TotemCasterStats(owner) : owner;
+            bool playerHit = device is null && !totem;
+            var caster = device?.Offense?.Caster ?? (playerHit ? owner : TotemCasterStats(owner));
             var own = device?.Own ?? supported.Stats;
             var combined = MergeSkillStats(caster, own);
             int Get(uint stat) => GolemStat(combined, stat);
             int perMille = Get(Stat.CorpseExplosionMonsterLifePermillageFire);
             // Some effects, including Royale Cremation, store the same base as a whole percent.
-            double fraction = perMille != 0 ? perMille / 1000d : Get(Stat.CorpseExplosionMonsterLifePct) / 100d;
+            double fraction = minionExplosion ? Get(Stat.SkillMinionExplosionLifePct) / 100d
+                : perMille != 0 ? perMille / 1000d : Get(Stat.CorpseExplosionMonsterLifePct) / 100d;
             double basis = life * fraction;
             if (basis <= 0) return;
             var packet = DamagePacket.Of(DamageType.Fire, basis, basis);
@@ -91,14 +93,13 @@ public static partial class Game
                 int chaos = MonsterHitChaosDamage(monster, resisted, spell: false, now, damage,
                     device is null ? 0 : BearTrapDamageTaken(monster, now));
                 if (ApplyTypedMonsterHitLocked(Player, monster, damage, chaos,
-                        playerStats: device is null ? caster : null, allyAt: device is null ? null : at) is not { } accepted) continue;
+                        playerStats: playerHit ? caster : null, allyAt: playerHit ? null : at) is not { } accepted) continue;
                 if (device?.Mine == true) LeechPlacedMineHitLocked(Player, monster, resisted, spell: false, damage, now, owner, id);
                 if (accepted.StageStarts)
                 {
                     CommitProjectileBossStage(this, id, monster, Runtime.Now);
                     accepted = accepted with { StageStarts = false };
                 }
-                bool playerHit = device is null;
                 if (!monster.Dead && damage > 0)
                 {
                     bool previousSecondary = Player.Reservations.Secondary;
@@ -113,7 +114,8 @@ public static partial class Game
                     finally { Player.Reservations.Secondary = previousSecondary; }
                 }
                 if (!playerHit) OwnedKillLocked(monster, accepted.Life);
-                CommitAcceptedHitLocked(Player, id, monster, accepted, damage, now, "corpse explosion", playerKill: playerHit);
+                CommitAcceptedHitLocked(Player, id, monster, accepted, damage, now,
+                    minionExplosion ? "Bodyswap minion explosion" : "corpse explosion", playerKill: playerHit);
             }
         }
     }

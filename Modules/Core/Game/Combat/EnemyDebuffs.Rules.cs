@@ -466,10 +466,18 @@ public static partial class Game
         Timed(ref m.UnnervedUntil, ref m.UnnerveShownUntil, ref m.UnnerveBuff, UnnervedBuffRow, null);
         Timed(ref m.CrushedUntil, ref m.CrushShownUntil, ref m.CrushBuff, CrushedBuffRow, null);
         Timed(ref m.MaimedUntil, ref m.MaimShownUntil, ref m.MaimBuff, MaimedBuffRow, null);
-        double hinderUntil = Math.Max(m.HinderedUntil, m.TotemHinderedUntil);
+        double hinderUntil = Math.Max(Math.Max(m.HinderedUntil, m.TotemHinderedUntil), BlightHinder(m, now).Until);
+        if (m.WitherHinders is { } witherHinders)
+        {
+            witherHinders.RemoveAll(h => !living || h.Until <= now);
+            if (witherHinders.Count == 0) m.WitherHinders = null;
+            else hinderUntil = Math.Max(hinderUntil, witherHinders.Max(h => h.Until));
+        }
         if (!Timed(ref hinderUntil, ref m.HinderShownUntil, ref m.HinderBuff, HinderedBuffRow, null))
             m.HinderedUntil = m.TotemHinderedUntil = double.NegativeInfinity;
         Timed(ref m.CoveredInAshUntil, ref m.CoveredInAshShownUntil, ref m.CoveredInAshBuff, CoveredInAshBuffRow, null);
+        Timed(ref m.CoveredInFrostUntil, ref m.CoveredInFrostShownUntil, ref m.CoveredInFrostBuff,
+            CoveredInFrostBuffRow, CoveredInFrostBuffValues);
         StepDebilitateLocked(player, id, m, now);
         PresentFireExposureLocked(player.Area, id, m, now, counts);
         for (int i = 1; i < ExposureTypes.Length; i++)
@@ -559,7 +567,11 @@ public static partial class Game
         void Next(double until) { if (until > now && until < wake) wake = until; }
         Next(m.TauntedUntil); Next(m.IntimidatedUntil); Next(m.UnnervedUntil); Next(m.CrushedUntil);
         Next(m.MaimedUntil); Next(m.HinderedUntil); Next(m.TotemHinderedUntil);
+        Next(BlightHinder(m, now).Until);
+        if (m.WitherHinders is { } hinders)
+            foreach (var hinder in hinders) Next(hinder.Until);
         Next(m.CoveredInAshUntil); Next(m.DebilitatedUntil);
+        Next(m.CoveredInFrostUntil);
         foreach (double until in m.ExposureUntil) Next(until);
         foreach (var stack in m.Withered) Next(stack.Until);
         foreach (var curse in m.Curses.All.Values) { Next(curse.Until); Next(curse.AmplifiesAt); }

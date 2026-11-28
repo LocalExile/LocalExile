@@ -276,7 +276,7 @@ public static partial class Game
         int maimPct = now < m.MaimedUntil ? -30 : 0;
         // The totem notable's local stat specifies 25%. The common 30% Hinder can expire independently.
         int timedHinder = Math.Max(m.HinderedUntil > now ? 30 : 0, m.TotemHinderedUntil > now ? 25 : 0);
-        int hinderPct = Math.Max(SpiderHinder(m, now), timedHinder);
+        int hinderPct = Math.Max(Math.Max(Math.Max(SpiderHinder(m, now), timedHinder), WitherHinder(m, now)), BlightHinder(m, now).Slow);
         int lowLife = MonsterOnLowLife(m) ? m.Effects[Stat.MovementVelocityPlusPctWhenOnLowLife] : 0;
         int totalPct = basePct + maimPct - hinderPct + lowLife;
         bool debilitated = now < m.DebilitatedUntil;
@@ -367,6 +367,9 @@ public static partial class Game
         if (sourceSkill != 0 && !spell && (ownHit ?? playerHit) && m.Hostile
             && skill?.GetValueOrDefault(Stat.TriggerPrismaticBurstOnHitPctChance) is > 0 and var burstChance)
             TriggerPrismaticBurstLocked(player, sourceSkill, sourceEffect, m.Walk.Position(now), now, playerStats, burstChance);
+        if (sourceSkill != 0 && !spell && owned && m is { Hostile: true, EntranceGrace: false, Invulnerable: false }
+            && skill?.GetValueOrDefault(WindburstDistanceStat) is > 0 and var movementMetres)
+            TriggerWindburstLocked(player, sourceSkill, sourceEffect, m.Walk.Position(now), now, movementMetres, playerStats);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, owned, random);
         if (ownHit ?? playerHit) ItemMarksOnHitLocked(player, m, now);
