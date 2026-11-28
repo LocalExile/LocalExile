@@ -257,12 +257,16 @@ public static class ItemModStats
         Func<string, bool> statExists) => Sum([item], mods, local: true, subject: subject, statExists: statExists);
 
     /// <summary>A shield's block chance: the base type's from ShieldTypes.dat plus the shield's own local added block
-    /// ("+X% Chance to Block" is a local modifier). A local no-block modifier (Kongming's Stratagem) removes it.</summary>
+    /// ("+X% Chance to Block" is a local modifier), that sum raised by the shield's own local increased block
+    /// ("X% increased Chance to Block", the Adamant prefix's local_block_chance_+% ). Path of Building computes the
+    /// same item value: Item.lua:2411 floors (base + local BASE) * (1 + local INC / 100). A local no-block modifier
+    /// (Kongming's Stratagem) removes it.</summary>
     public static int ShieldBlock(ItemCatalog items, Item item, ItemCatalog.BaseType type)
     {
         var local = Local(item, items.Mods);
-        return local.GetValueOrDefault(Stat.LocalNoBlockChance) != 0 ? 0
-            : items.ShieldBlock(type) + local.GetValueOrDefault(Stat.LocalAdditionalBlockChancePct);
+        if (local.GetValueOrDefault(Stat.LocalNoBlockChance) != 0) return 0;
+        long flat = items.ShieldBlock(type) + local.GetValueOrDefault(Stat.LocalAdditionalBlockChancePct);
+        return (int)(flat * Math.Max(0, 100 + local.GetValueOrDefault(Stat.LocalBlockChancePlusPct)) / 100);
     }
 
     /// <summary>An item's attribute requirements after its own local modifiers: the base's requirement raised or lowered
