@@ -527,11 +527,15 @@ public static class PanelStats
     /// applies the rate / 60 times the client tick duration. The display totals alone do not drive that stepping.
     /// </summary>
     public static List<(uint Stat, int Value)> Recovery(Func<uint, int> get, uint maxLife, uint maxMana,
-        double lifeRegenerationFactor = 1)
+        double lifeRegenerationFactor = 1) =>
+        Recovery(get, maxLife, maxMana, lifeRegenerationFactor, 0);
+
+    public static List<(uint Stat, int Value)> Recovery(Func<uint, int> get, uint maxLife, uint maxMana,
+        double lifeRegenerationFactor, uint maxEnergyShield)
     {
         var result = new List<(uint, int)>();
-        var (regeneration, _) = LifeRegeneration(get, maxLife);
-        double life = regeneration * lifeRegenerationFactor;
+        var (regeneration, _) = LifeRegeneration(get, maxLife, maxEnergyShield, lifeRegenerationFactor);
+        double life = get(Stat.KeystoneVaalPact) != 0 ? 0 : regeneration;
         if (life != 0)
         {
             result.Add((Stat.TotalLifeRecoveryPerMinuteFromRegeneration, RecoveryValue(life)));
@@ -559,11 +563,16 @@ public static class PanelStats
     public static double MapRecoveryMultiplier(Func<uint, int> get) =>
         Math.Max(0, 1 + get(Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal) / 100.0);
 
+    /// <summary>Whether Life regeneration is disabled by <c>no_life_regeneration</c>, <c>cannot_recover_life</c>, or the
+    /// map's no-regeneration modifier. Vaal Pact blocks committing non-leech recovery to Life, not the stats themselves.</summary>
+    public static bool LifeRegenerationBlocked(Func<uint, int> get) =>
+        get(Stat.MapPlayersNoRegenerationIncludingEs) != 0 || get(Stat.NoLifeRegeneration) != 0
+        || get(Stat.CannotRecoverLife) != 0;
+
     /// <summary>Ordinary Life regeneration increases and recovery increases are distinct multiplicative buckets.
     /// Shared with the expiry-aware Fortification recovery writer so its added source follows the same rules.</summary>
     public static double LifeRegenerationMultiplier(Func<uint, int> get) =>
-        get(Stat.MapPlayersNoRegenerationIncludingEs) != 0 || get(Stat.NoLifeRegeneration) != 0
-            || get(Stat.CannotRecoverLife) != 0 ? 0 :
+        LifeRegenerationBlocked(get) ? 0 :
         Math.Max(0, 1 + get(Stat.LifeRegenerationRatePlusPct) / 100.0)
         * Math.Max(0, 1 + get(Stat.LifeRecoveryRatePlusPct) / 100.0) * MapRecoveryMultiplier(get);
 
@@ -581,13 +590,52 @@ public static class PanelStats
     public static bool ZealotsOath(Func<uint, int> get) =>
         get(Stat.KeystoneZealotsOath) != 0 || get(Stat.RegenerateEnergyShieldInsteadOfLife) != 0;
 
-    /// <summary>Life regeneration per minute, split into the part applied to Life and the part applied to Energy
-    /// Shield by Zealot's Oath. An ES recovery prohibition drops the converted part; it never falls back to Life.</summary>
-    public static (double Life, double EnergyShield) LifeRegeneration(Func<uint, int> get, uint maxLife)
+    /// <summary>Whether Pious Path's Consecrated Ground Life-regeneration-to-Energy-Shield mirror is active.</summary>
+    public static bool PiousPathActive(Func<uint, int> get) =>
+        get(Stat.RecoverEsAsWellAsLifeFromLifeRegeneration) != 0
+        || get(Stat.ConsecratedGroundAlliesRecoverEsAsWellAsLifeFromLifeRegeneration) != 0
+            && get(Stat.OnConsecratedGround) != 0;
+
+    /// <summary>Life regeneration per minute, split into the part applied to Life and the part converted or mirrored to
+    /// Energy Shield (Zealot's Oath, <c>x%_life_regeneration_applies_to_energy_shield</c>, and Inquisitor Pious Path).
+    /// Under Zealot's Oath, percentage life regeneration scales off <paramref name="maxEnergyShield"/> and uses ES
+    /// regeneration/recovery multipliers; Pious Path mirrors active Life regeneration (based on <paramref name="maxLife"/>
+    /// and Life regeneration rate/keystone multipliers) and stops when Zealot's Oath sets Life regeneration to 0.</summary>
+    public static (double Life, double EnergyShield) LifeRegeneration(Func<uint, int> get, uint maxLife) =>
+        LifeRegeneration(get, maxLife, 0, 1);
+
+    public static (double Life, double EnergyShield) LifeRegeneration(Func<uint, int> get, uint maxLife,
+        uint maxEnergyShield, double lifeRegenerationFactor = 1)
     {
-        double life = LifePerMinute(get, maxLife);
-        bool oath = ZealotsOath(get);
-        return (oath ? 0 : life, oath && EnergyShield.ConversionAllowed(get) ? life : 0);
+        if (LifeRegenerationBlocked(get)) return (0, 0);
+        double flatLife = get(Stat.BaseLifeRegenerationRatePerMinute)
+            + (double)get(Stat.LifeRegenerationPerMinutePer1PctUncappedFireDamageResistance)
+                * Math.Max(0, get(Stat.UncappedFireDamageResistancePct));
+        int pctLife = get(Stat.LifeRegenerationRatePerMinutePct);
+        bool esAllowed = EnergyShield.ConversionAllowed(get);
+        if (ZealotsOath(get))
+        {
+            double converted = esAllowed
+                ? (flatLife + maxEnergyShield * pctLife / 100.0) * EnergyShield.RegenerationMultiplier(get)
+                : 0;
+            return (0, converted);
+        }
+        double lifeBeforeRecovery = (flatLife + maxLife * pctLife / 100.0)
+            * Math.Max(0, 1 + get(Stat.LifeRegenerationRatePlusPct) / 100.0) * lifeRegenerationFactor;
+        double life = lifeBeforeRecovery * Math.Max(0, 1 + get(Stat.LifeRecoveryRatePlusPct) / 100.0) * MapRecoveryMultiplier(get);
+        double es = 0;
+        if (esAllowed)
+        {
+            int sharePct = get(Stat.XPctLifeRegenerationAppliesToEnergyShield);
+            if (sharePct > 0)
+            {
+                double share = Math.Min(sharePct, 100) / 100.0;
+                es += (flatLife * share + maxEnergyShield * (pctLife * share) / 100.0) * EnergyShield.RegenerationMultiplier(get);
+            }
+            if (PiousPathActive(get))
+                es += lifeBeforeRecovery * Math.Max(0, 1 + get(Stat.EnergyShieldRecoveryRatePlusPct) / 100.0) * MapRecoveryMultiplier(get);
+        }
+        return (life, es);
     }
 
     /// <summary>

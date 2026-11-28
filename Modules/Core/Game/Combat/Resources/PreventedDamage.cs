@@ -18,7 +18,9 @@ public sealed class PreventedDamageRecovery
     /// <summary>The share of the window's damage regenerated per second: a regeneration, so its increases and
     /// prohibitions apply (PoB's pseudo recoup scales it by them).</summary>
     public static double PerSecond(Func<uint, int> get) =>
-        get(RegenStat) / 1000.0 * PanelStats.LifeRegenerationMultiplier(get);
+        get(RegenStat) / 1000.0 * (PanelStats.ZealotsOath(get)
+            ? (PanelStats.LifeRegenerationBlocked(get) || !EnergyShield.ConversionAllowed(get) ? 0 : EnergyShield.RegenerationMultiplier(get))
+            : PanelStats.LifeRegenerationMultiplier(get));
 
     public void Add(double now, double amount)
     {
