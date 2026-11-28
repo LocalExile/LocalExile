@@ -15,6 +15,11 @@ public sealed partial class MercenaryModule
         public int Y { get; set; }
         public bool Paid { get; set; }
         public List<MercenaryEquipment.Worn> Equipment { get; set; } = [];
+        /// <summary>One of the Trarthan Scarab of Infamy's two companions: it stands idle beside the main Mercenary, as that one
+        /// does, and only joins the fight when the duel starts (<see cref="StartDuel"/>); a Rogue Exile's wild one fights at once.</summary>
+        public bool Escort { get; set; }
+        public string Name { get; set; } = "";
+        public int Difficulty { get; set; }
     }
 
     /// <summary>Mercenary blueprint encoded onto a <c>MercenaryWarrant</c> rematch item.</summary>
@@ -80,7 +85,11 @@ public sealed partial class MercenaryModule
         lock (run) { if (run.WildsPlanned) return; run.WildsPlanned = true; }
         var points = new List<(int X, int Y)>();
         if (run.Stage != Stage.None && stats.GetValueOrDefault(Stat.MapMercanaryAccompaniedByParty) > 0)
-            points.AddRange([(run.X + 8, run.Y), (run.X - 8, run.Y)]);
+        {
+            // Retail stands the two on the class's camp party markers (15-26 cells off); 20 either side without them.
+            var offsets = MercenaryTables.PartyOffsets(run.Class) is { Count: >= 2 } camp ? camp : [(20, 0), (-20, 0)];
+            points.AddRange(offsets.Take(2).Select(o => (run.X + o.Dx, run.Y + o.Dy)));
+        }
         int chance = stats.GetValueOrDefault(Stat.MapExileAccompaniedByWildMercenaryChancePct);
         if (chance > 0)
             foreach (var monster in player.Area.Monsters.Values.Where(m => !m.Dead && m.PackId == 0
@@ -91,24 +100,44 @@ public sealed partial class MercenaryModule
                     var at = monster.Walk.Position(AreaTime(player)); points.Add((at.X + 8, at.Y));
                 }
         int difficulty = Math.Max(0, stats.GetValueOrDefault(Stat.MapWildMercenaryRewardAndDifficultyPerWildMercenary)) * points.Count;
-        foreach (var aim in points)
+        // The first points are the main Mercenary's two escorts (the Trarthan Scarab of Infamy): idle until the duel.
+        int escorts = run.Stage != Stage.None && stats.GetValueOrDefault(Stat.MapMercanaryAccompaniedByParty) > 0 ? 2 : 0;
+        for (int index = 0; index < points.Count; index++)
         {
-            if (MercenaryTables.Pick(rng, stats.GetValueOrDefault(Stat.MapMercenariesAreInfamous) > 0) is not { } pick
+            var aim = points[index];
+            bool escort = index < escorts;
+            // The wiki (Trarthan Scarab of Infamy): only the main Mercenary is made Infamous; the wild ones are "random
+            // mercenaries" with the rewards of regular ones, so they roll Infamous at the ordinary chance.
+            bool infamous = rng.Next(10000) < InfamousChanceBasisPoints(MapRunOf(player)?.Area.Tier ?? 0,
+                stats.GetValueOrDefault(Stat.MapMercenaryInfamousChancePlusPct));
+            if (MercenaryTables.Pick(rng, infamous) is not { } pick
                 || Monsters.Find(pick.Kind.Path) is not { Supported: true } variety) continue;
             var at = player.Layout.Near(aim);
-            var equipment = MercenaryEquipment.Roll(pick.Kind, pick.Build, area.Level, rng,
-                stats.GetValueOrDefault(Stat.MapMercenaryAllUniqueItems) > 0, UniquesFor(player));
+            var equipment = MercenaryEquipment.WithInfamousModifier(MercenaryEquipment.Roll(pick.Kind, pick.Build, area.Level, rng,
+                stats.GetValueOrDefault(Stat.MapMercenaryAllUniqueItems) > 0, UniquesFor(player)), pick.Build, area.Level, rng);
             var fallback = MercenaryGear.Of(pick.Kind, pick.Build, area.Level, new Random(unchecked(area.Seed * 397 ^ pick.Build.Row)));
             var wildIdentity = MercenaryTables.RollIdentity(pick.Build, area.Level, rng);
             string wildName = MercenaryTables.FormatName(wildIdentity.FirstNameHash32, wildIdentity.SecondNameHash32) ?? pick.Build.Name;
-            uint id = await SpawnMonster(player, variety, area.Level, MonsterRarity.Unique, at.X, at.Y, instanceOwned: true,
-                ownedLooks: MercenaryEquipment.Looks(equipment, fallback), extraMods: MercenaryEquipment.Effects(equipment, difficulty),
-                ownedKit: KitOf(player, variety, pick.Build, area.Level, area.Seed), shape: o => o with
-                {
-                    Name = wildName, MercenaryBuild = pick.Build.Hash16, StateMachine = States(variety, MercenaryWire.DuelStates), HasDialogue = false, NpcFlags = 0,
-                });
+            // An escort is created as the main Mercenary is (its team, scripted, no AI) but in Mercenary.ot's encounter_state 8,
+            // "Party Member idle", not the pre-duel state 1 the main one talks in; it joins the duel in state 2 (JoinEscorts).
+            uint id = escort
+                ? await SpawnMonster(player, variety, area.Level, MonsterRarity.Unique, at.X, at.Y, friendly: true, instanceOwned: true,
+                    scripted: true, ownedLooks: MercenaryEquipment.Looks(equipment, fallback), shape: o => o with
+                    {
+                        Name = wildName, Team = MercenaryWire.MercenaryTeam, MercenaryBuild = pick.Build.Hash16,
+                        StateMachine = States(variety, MercenaryWire.PartyIdleStates), HasDialogue = false, NpcFlags = 0, InteractionFlags = 0,
+                    })
+                : await SpawnMonster(player, variety, area.Level, MonsterRarity.Unique, at.X, at.Y, instanceOwned: true,
+                    ownedLooks: MercenaryEquipment.Looks(equipment, fallback), extraMods: MercenaryEquipment.Effects(equipment, difficulty),
+                    ownedKit: KitOf(player, variety, pick.Build, area.Level, area.Seed), shape: o => o with
+                    {
+                        Name = wildName, MercenaryBuild = pick.Build.Hash16, StateMachine = States(variety, MercenaryWire.DuelStates), HasDialogue = false, NpcFlags = 0,
+                    });
             if (id == 0) continue;
-            lock (run) run.Wilds.Add(new Wild { Body = id, Class = pick.Kind.Row, Build = pick.Build.Row, X = at.X, Y = at.Y, Equipment = equipment });
+            if (escort && player.Area.Monsters.TryGetValue(id, out var idle) && States(variety, MercenaryWire.PartyIdleStates) is { } waiting)
+                idle.States = waiting;
+            lock (run) run.Wilds.Add(new Wild { Body = id, Class = pick.Kind.Row, Build = pick.Build.Row, X = at.X, Y = at.Y, Equipment = equipment,
+                Escort = escort, Name = wildName, Difficulty = difficulty });
         }
         context.Log($"{player.Layout.Id}: {run.Wilds.Count}/{points.Count} wild mercenaries, {difficulty}% increased difficulty");
     }
@@ -130,7 +159,7 @@ public sealed partial class MercenaryModule
             if (MercenaryTables.ClassOf(wild.Class) is not { } kind) continue;
             ushort buildHash = MercenaryTables.BuildOf(wild.Build)?.Hash16 ?? 0;
             bool Matches(KeyValuePair<uint, SpawnedMonster> p, bool matchBuild) =>
-                !used.Contains(p.Key) && !p.Value.Dead && p.Value.Variety?.Id == kind.Path && p.Value.Hostile && p.Key != run.Body
+                !used.Contains(p.Key) && !p.Value.Dead && p.Value.Variety?.Id == kind.Path && (p.Value.Hostile || wild.Escort) && p.Key != run.Body
                 && (!matchBuild || buildHash != 0 && player.Instance.World.MonsterOrigins.TryGetValue(p.Key, out var origin) && origin.Object.MercenaryBuild == buildHash);
             var found = player.Area.Monsters.FirstOrDefault(p => Matches(p, true));
             if (found.Value is null) found = player.Area.Monsters.FirstOrDefault(p => Matches(p, false));
