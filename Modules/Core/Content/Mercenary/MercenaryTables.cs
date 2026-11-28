@@ -373,6 +373,25 @@ public static class MercenaryTables
     public static Build? BuildOf(int row) => Builds.FirstOrDefault(b => b.Row == row);
     public static Build? BuildByHash(ushort hash16) => Builds.FirstOrDefault(b => b.Hash16 == hash16);
     public static SkillRow? SkillOf(int row) => SkillRowsData.GetValueOrDefault(row);
+
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<int, IReadOnlyList<(int Dx, int Dy)>> PartyOffsetsByClass = new();
+
+    /// <summary>Where a class's party members stand, in cells from the Mercenary: its camp room (<c>MercenaryClasses.TerrainFeature</c>
+    /// → <c>ExtraTerrainFeatures.ArmFiles</c>, Witch1.arm …) puts a MercenarySpawnMarkerPartyMember on each side of its
+    /// MercenarySpawnMarker, 15 to 26 cells away. Empty without the room.</summary>
+    public static IReadOnlyList<(int Dx, int Dy)> PartyOffsets(int classRow) => PartyOffsetsByClass.GetOrAdd(classRow, row =>
+    {
+        const string Marker = "Metadata/Terrain/Leagues/Mercenaries/Objects/MercenarySpawnMarker";
+        int feature = ClientTables.TableOrEmpty("MercenaryClasses").FirstOrDefault(r => r.Index == row) is { Table: not null } kind
+            ? kind.IntOrNull("TerrainFeature") ?? -1 : -1;
+        string? arm = ClientTables.TableOrEmpty("ExtraTerrainFeatures").FirstOrDefault(r => r.Index == feature) is { Table: not null } room
+            ? room.Texts("ArmFiles").FirstOrDefault() : null;
+        if (arm is null || GameServer.Data.Ggpk.GamePack.Default.TryRead(arm) is not { } bytes) return [];
+        var doodads = GameServer.Data.Terrain.RoomFile.Parse(GameServer.Data.Terrain.TerrainText.Decode(bytes)).Doodads;
+        if (doodads.FirstOrDefault(d => d.Type == Marker) is not { } main) return [];
+        return [.. doodads.Where(d => d.Type == Marker + "PartyMember")
+            .Select(d => ((int)MathF.Round(d.X - main.X), (int)MathF.Round(d.Y - main.Y)))];
+    });
     public static SkillRow? SkillByHash(ushort hash16) => hash16 == 0 ? null : SkillRowsData.Values.FirstOrDefault(s => s.Hash16 == hash16);
     public static SupportRow? SupportOf(int row) => SupportRowsData.GetValueOrDefault(row);
     public static SupportRow? SupportByHash(ushort hash16) => hash16 == 0 ? null : SupportRowsData.Values.FirstOrDefault(s => s.Hash16 == hash16);

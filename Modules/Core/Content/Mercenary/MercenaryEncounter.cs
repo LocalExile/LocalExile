@@ -605,9 +605,42 @@ public sealed partial class MercenaryModule
             run.Stage = Stage.Duel;
             run.Body = id;
         }
+        await JoinEscorts(player, run);
         Save(player, run);
         context.Log($"{player.Layout.Id}: mercenary 0x{old:x} duels as 0x{id:x} (offer={run.ChosenOffer})");
         return true;
+    }
+
+    /// <summary>The Trarthan Scarab of Infamy's two escorts join the duel as it starts: each idle body gives way to a hostile
+    /// one with its kit, where it stood (the wiki: they fight with the main Mercenary and go on if it is beaten).</summary>
+    async Task JoinEscorts(Player player, Run run)
+    {
+        Wild[] escorts;
+        lock (run) escorts = [.. run.Wilds.Where(w => w.Escort && !w.Paid)];
+        foreach (var wild in escorts)
+        {
+            if (MercenaryTables.ClassOf(wild.Class) is not { } kind || MercenaryTables.BuildOf(wild.Build) is not { } build
+                || Monsters.Find(kind.Path) is not { Supported: true } variety) continue;
+            var at = player.Area.Monsters.TryGetValue(wild.Body, out var idle) ? idle.Walk.Position(AreaTime(player)) : (wild.X, wild.Y);
+            var looks = MercenaryEquipment.Looks(wild.Equipment, MercenaryGear.Of(kind, build, run.Level,
+                new Random(unchecked(run.Seed * 397 ^ build.Row))));
+            uint id = await SpawnMonster(player, variety, run.Level, MonsterRarity.Unique, at.X, at.Y, instanceOwned: true,
+                ownedLooks: looks, extraMods: MercenaryEquipment.Effects(wild.Equipment, wild.Difficulty),
+                ownedKit: KitOf(player, variety, build, run.Level, run.Seed), shape: o => o with
+                {
+                    Name = wild.Name, MercenaryBuild = build.Hash16,
+                    StateMachine = States(variety, MercenaryWire.DuelStates), HasDialogue = false, NpcFlags = 0,
+                });
+            if (id == 0) continue;
+            await Remove(player, wild.Body);
+            lock (run)
+            {
+                wild.Body = id;
+                wild.X = at.X;
+                wild.Y = at.Y;
+                wild.Escort = false;
+            }
+        }
     }
 
     // ---- Duel Resolution (Win & Loss) -----------------------------------------------------------------------------------------
