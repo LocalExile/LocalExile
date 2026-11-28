@@ -743,6 +743,8 @@ public static class UtilityFlasks
                 // The flask's reduced skill mana cost: the finished cost reads it
                 // off the character's stats, and the running flasks reach those only here.
                 Stat.BaseManaCostMinusPct => stat,
+                // Recovery flasks supply this flag only while their paid effect is active.
+                Stat.EnergyShieldRechargeNotDelayedByDamage => stat,
                 _ when ActorScale.IsInput(stat) || PanelOnly.Contains(stat) || ElementalAilmentInputs.Contains(stat)
                     || HandedFlag(stat) => stat,
                 _ => null,
