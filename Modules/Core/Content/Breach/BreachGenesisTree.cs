@@ -103,22 +103,10 @@ public static partial class BreachGenesisTree
         uint TypeHash,
         int BaseHivebloodCost);
 
-    /// <summary>A Wombgift currently planted in one of the 4 Genesis Tree wombs.</summary>
-    public sealed class PlantedWombgift
-    {
-        public int SubTree { get; set; }
-        public string BaseItemId { get; set; } = "";
-        public byte ItemLevel { get; set; } = 68;
-        public int HivebloodInvested { get; set; }
-        public int HivebloodRequired { get; set; }
-        [JsonIgnore] public bool Ready => HivebloodRequired > 0 && HivebloodInvested >= HivebloodRequired;
-    }
-
     /// <summary>Persisted per-account/league Genesis Tree state.</summary>
     public sealed class SavedTreeState
     {
         public List<ushort> Allocated { get; set; } = [];
-        public Dictionary<int, PlantedWombgift> Slots { get; set; } = [];
         public int TotalHarvested { get; set; }
     }
 
@@ -623,11 +611,6 @@ public static partial class BreachGenesisTree
                 refusal = "node is not allocated";
                 return false;
             }
-            if (node.IsWomb && state.Slots.ContainsKey(node.SubTree))
-            {
-                refusal = "cannot refund a womb while a Wombgift is planted in it";
-                return false;
-            }
 
             // Verify every remaining allocated node in this sub-tree stays reachable from its implicit start/womb roots.
             if (Adjacency.Count > 0)
@@ -707,156 +690,6 @@ public static partial class BreachGenesisTree
         if (AttachFruitComponent is { } attach)
             item = attach(item, ilvl);
         return item;
-    }
-
-    // ---- Planting, growing & harvesting ----
-
-    /// <summary>Plants a Wombgift from the player's inventory (Main, Expanded, Cursor, or Wombgift Locker) into its
-    /// matching allocated womb slot on the Genesis Tree.</summary>
-    public static async Task<string?> PlantWombgiftAsync(Player player, byte sourceRow, uint itemId)
-    {
-        var items = ItemsOf(player);
-        var invItem = items.Items(sourceRow).FirstOrDefault(i => i.Id == itemId);
-        if (invItem is null) return "Wombgift not found in inventory";
-        if (FindFruit(invItem.Item.TypeHash) is not { } fruit) return "item is not a Wombgift";
-
-        var state = LoadState(player);
-        if (!WombNodeBySubTree.ContainsKey(fruit.SubTree))
-            return "no womb node configured for this Wombgift";
-        if (state.Slots.ContainsKey(fruit.SubTree))
-            return "womb slot already contains a Wombgift";
-
-        int required = RequiredHivebloodFor(fruit, invItem.Item.ItemLevel);
-        bool committed = false;
-        Saves.Atomically(() =>
-        {
-            if (items.Remove(sourceRow, itemId) is null) return;
-            committed = MutateState(player, s =>
-            {
-                if (s.Slots.ContainsKey(fruit.SubTree)) return false;
-                s.Slots[fruit.SubTree] = new PlantedWombgift
-                {
-                    SubTree = fruit.SubTree,
-                    BaseItemId = fruit.BaseItemId,
-                    ItemLevel = invItem.Item.ItemLevel,
-                    HivebloodInvested = 0,
-                    HivebloodRequired = required,
-                };
-                return true;
-            }, out _);
-        });
-
-        if (!committed) return "failed to plant Wombgift";
-        await PlayerOf(player).Send(
-            InstanceItems.InventoryChange(PlayerInventories.InventoryId(sourceRow), items.NextRevision(sourceRow), [itemId], []),
-            $"0x00bf inventory {PlayerInventories.InventoryId(sourceRow)}: planted Wombgift {itemId}");
-        await SyncStateAsync(player, $"planted {fruit.BaseItemId}");
-        return null;
-    }
-
-    /// <summary>Retrieves an unharvested Wombgift from <paramref name="subTree"/> back into the player's main
-    /// inventory (right-click on planted Wombgift).</summary>
-    public static async Task<string?> RetrieveWombgiftAsync(Player player, int subTree)
-    {
-        var state = LoadState(player);
-        if (!state.Slots.TryGetValue(subTree, out var planted)) return "no Wombgift planted in this womb";
-
-        var returned = CreateWombgift(player, planted.BaseItemId, planted.ItemLevel, Random.Shared);
-        if (returned is null) return "could not recreate Wombgift item";
-
-        var items = ItemsOf(player);
-        var shape = ShapeOf(returned) ?? new(1, 1, BreachLocker.WombgiftItemClass);
-        if (items.FreeCell(PlayerInventories.MainInventory, shape.Width, shape.Height, ShapeOf) is not { } cell)
-            return "no room in inventory";
-
-        InventoryItem? placed = null;
-        Saves.Atomically(() =>
-        {
-            if (!MutateState(player, s => s.Slots.Remove(subTree), out _)) return;
-            placed = items.Add(PlayerInventories.MainInventory, cell.X, cell.Y, returned);
-        });
-        if (placed is null) return "failed to retrieve Wombgift";
-
-        await PlayerOf(player).Send(
-            InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
-                items.NextRevision(PlayerInventories.MainInventory), [], [placed]),
-            $"0x00bf inventory 1: retrieved Wombgift {placed.Id}");
-        await SyncStateAsync(player, $"retrieved Wombgift from sub-tree {subTree}");
-        return null;
-    }
-
-    /// <summary>Feeds Hiveblood into the Wombgift planted in <paramref name="subTree"/>. When <paramref name="instantGrow"/>
-    /// is true (Ctrl+click) or feeding reaches <see cref="PlantedWombgift.HivebloodRequired"/>, immediately harvests and
-    /// delivers the birthed rewards.</summary>
-    public static async Task<(string? Error, IReadOnlyList<Item> Rewards)> FeedOrGrowAsync(
-        Player player, int subTree, int? maxSpend = null, bool instantGrow = false, Random? rng = null)
-    {
-        var state = LoadState(player);
-        if (!state.Slots.TryGetValue(subTree, out var planted))
-            return ("no Wombgift planted in this womb", []);
-
-        int remaining = Math.Max(0, planted.HivebloodRequired - planted.HivebloodInvested);
-        if (remaining > 0)
-        {
-            int available = BreachHiveblood.Balance(player);
-            if (available <= 0)
-                return ("no Hiveblood to offer", []);
-
-            int toSpend = instantGrow
-                ? remaining
-                : Math.Min(remaining, Math.Min(available, maxSpend ?? remaining));
-            if (instantGrow && available < remaining)
-                return ("insufficient Hiveblood", []);
-            if (toSpend <= 0)
-                return ("insufficient Hiveblood", []);
-
-            if (!await BreachHiveblood.TrySpendAsync(player, toSpend, countTowardTreeQuests: true, reason: $"grow sub-tree {subTree}"))
-                return ("insufficient Hiveblood", []);
-
-            MutateState(player, s =>
-            {
-                if (!s.Slots.TryGetValue(subTree, out var slot)) return false;
-                slot.HivebloodInvested += toSpend;
-                return true;
-            }, out state);
-        }
-
-        if (state.Slots.TryGetValue(subTree, out var afterFeed) && afterFeed.Ready)
-            return await HarvestAsync(player, subTree, rng);
-
-        await SyncStateAsync(player, $"fed Wombgift in sub-tree {subTree}");
-        return (null, []);
-    }
-
-    /// <summary>Harvests a fully grown Wombgift in <paramref name="subTree"/>, evaluating all allocated passive stats
-    /// for that branch, delivering items to inventory (or dropping at the player's feet in the Monastery if full), and
-    /// setting <c>ChayulaFirstFruitGrown</c> (LQF 1622) on the first harvest.</summary>
-    public static async Task<(string? Error, IReadOnlyList<Item> Rewards)> HarvestAsync(Player player, int subTree, Random? rng = null)
-    {
-        rng ??= Random.Shared;
-        var state = LoadState(player);
-        if (!state.Slots.TryGetValue(subTree, out var planted))
-            return ("no Wombgift planted in this womb", []);
-        if (!planted.Ready)
-            return ("Wombgift is not fully grown yet", []);
-
-        var stats = CollectSubTreeStats(state, subTree);
-        var rewards = await RollRewardsAsync(player, subTree, planted.ItemLevel, stats, rng);
-
-        MutateState(player, s =>
-        {
-            if (!s.Slots.Remove(subTree)) return false;
-            s.TotalHarvested++;
-            return true;
-        }, out _);
-
-        await DeliverRewardsAsync(player, rewards);
-
-        if (!player.Character.LeagueQuestFlags.Contains(BreachHub.LqfFirstFruitGrown))
-            await SetLeagueQuestFlags(player, [BreachHub.LqfFirstFruitGrown]);
-
-        await SyncStateAsync(player, $"harvested sub-tree {subTree} ({rewards.Count} items)");
-        return (null, rewards);
     }
 
     static async Task DeliverRewardsAsync(Player player, IReadOnlyList<Item> rewards, bool dropAtTree = false)
