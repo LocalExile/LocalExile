@@ -559,6 +559,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Brand system: Storm Brand (+ Indecision), Armageddon Brand (+ Volatility, Recall), Penance Brand (+ Dissipation,
   Conduction), Wintertide Brand, Arcanist Brand, Brand Recall and Brandsurge with attachment, limits, Swiftbrand
   cadence, `ActiveSigil`/`magma_pustule`/`immolation_brand_burn` buffs and `SigilDisplay` counters.
+  A delayed frame settles activations and Wintertide damage through each brand's actual expiration.
   Base Penance Brand and Brand Recall were exercised against Amarissa in Predictive and Lockstep on the
   3.29.3d DX12 client. Conduction currently spreads only from its attached monster to two nearby targets.
   Arcanist Brand requires a supported trigger executor for each linked spell.
