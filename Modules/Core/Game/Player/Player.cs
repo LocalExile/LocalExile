@@ -140,6 +140,7 @@ public static partial class Game
     public static async Task PlayerEnteredArea(Player player)
     {
         player.Connection.PlayerSent = true;
+        ReconcileDeathAura(player);
         if (player.Layout.Hash == StashCatalog.MenagerieHub && !player.Character.LeagueQuestFlags.Contains(Quests.League.VisitedMenagerie))
             await SetLeagueQuestFlags(player, [Quests.League.VisitedMenagerie]);
         await Send(player, [], "0x01c1 passive buffs (entering the area)", atGate: () => PassiveBuffAuras.Presentation(player));

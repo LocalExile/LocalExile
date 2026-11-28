@@ -419,7 +419,10 @@ public static partial class Game
             }
             if (auras.Length > 0 && player.PlayerLife > 0 && !InTown(player))
                 foreach (var aura in auras)
-                    if (inAura(aura.Aura.SkillId)) ApplyCurseLocked(player, m, aura.Aura.SkillId, now, true, aura.Gem, playerStats);
+                    // A hex aura's own aura-effect term (The Sundered Will's chaos share, stamped by WithCasterAuraStamps)
+                    // adds to its curse effect: the line reads "Auras from Chaos Skills", not "Non-Curse Auras".
+                    if (inAura(aura.Aura.SkillId)) ApplyCurseLocked(player, m, aura.Aura.SkillId, now, true, aura.Gem, playerStats,
+                        aura.Aura.PerAuraEffectPct, 1);
             if (m.HasCurses)
             {
                 if (m.Curses.All.Count > 0)
