@@ -669,7 +669,7 @@ public sealed class BreachFortress
                 if (Monsters.Find(spawn.Variety.ToString()) is not { Supported: true } variety) continue;
                 uint id = await SpawnMonster(runner, BreachEncounter.Risen(variety), level, spawn.Rarity, spawn.X, spawn.Y,
                     alone: false, extraMods: extra, bulk: true);
-                if (id != 0) state.Monsters.Add(id);
+                if (id != 0) { state.Monsters.Add(id); state.AllMonsterIds.Add(id); }
             }
         }
         await SendRemainingMonsters(runner);
