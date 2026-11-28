@@ -236,8 +236,8 @@ public sealed partial class MercenaryModule
     // sizes and chances here are this server's. Common entries are left out for Infamous ones; Exalted needs level 68.
     static readonly (string Id, int Weight, int Min, int Max, bool Common)[] RucksackCurrency =
     [
-        ("UpgradeToMagic", 100, 2, 8, true), ("AddModToMagic", 80, 2, 6, true), ("Identification", 100, 3, 10, true),
-        ("Portal", 60, 2, 5, true), ("ArmourQuality", 60, 2, 6, true), ("WeaponQuality", 50, 2, 5, true),
+        // No Scroll of Wisdom (CurrencyIdentification): left out of the pool by choice.
+        ("UpgradeToMagic", 100, 2, 8, true), ("AddModToMagic", 80, 2, 6, true), ("Portal", 60, 2, 5, true), ("ArmourQuality", 60, 2, 6, true), ("WeaponQuality", 50, 2, 5, true),
         ("RerollMagic", 70, 2, 6, true), ("RerollSocketColours", 50, 3, 8, true), ("RerollSocketNumbers", 40, 2, 6, false),
         ("UpgradeRandomly", 30, 1, 4, false), ("UpgradeToRare", 30, 1, 3, false), ("RerollSocketLinks", 25, 1, 4, false),
         ("ConvertToNormal", 20, 1, 3, false), ("PassiveRefund", 15, 1, 2, false), ("RerollImplicit", 12, 1, 3, false),
