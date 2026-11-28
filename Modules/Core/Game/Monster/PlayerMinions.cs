@@ -316,12 +316,16 @@ public static partial class Game
             amount = (int)Math.Min(int.MaxValue, minion.Monster.MaxLife * (long)blast.LifePct / 100);
             var packet = DamagePacket.Of(blast.Type, amount, amount);
             var ownerStats = PlayerStatValues(player);
+            var rng = AreaRng(player);
             foreach (var (id, m) in player.Area.Monsters.ToArray())
             {
                 if (!m.Hostile || m.Dead || m.Life == 0 || Dist(m.Walk.Position(now), at) > blast.Radius) continue;
-                int damage = MonsterTakesRolled(m, packet, spell: false, now: now);
+                int physical = PoachersAddedPhysical(m, now).Roll(rng);
+                var contact = packet.Add(DamageType.Physical, new(physical, physical));
+                var resisted = MitigateMonsterHit(m, contact, now);
+                int damage = MonsterTakesMitigated(m, resisted, spell: false, now);
                 var cull = MinionIgniteKillRule(ownerStats, m, now);
-                int chaosDamage = blast.Type == DamageType.Chaos ? damage : 0;
+                int chaosDamage = MonsterHitChaosDamage(m, resisted, spell: false, now, damage);
                 if (ApplyMonsterHitLocked(player, m, damage, rampageSource: null, playerStats: null, allyAt: at,
                     cull: cull, cullPlayer: null, chaosDamage: chaosDamage) is not { } hit) continue;
                 if (hit.StageStarts)

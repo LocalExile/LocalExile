@@ -913,9 +913,10 @@ public static partial class Game
                 + (prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeMultiplierPlusVsFocusedTarget) : 0)) / 100.0;
         bool fullLife = g.Monster.Life >= g.Monster.MaxLife;
         int extraDoubleDamage = MinionDoubleDamageChanceLocked(player, g, fullLife, now);
-        var rolled = GolemRollHit(a.Attack.Damage.Scale(factor), effects, a.Attack.Spell, AreaRng(player),
-            fullLife, SkeletonWeaponTripleDamage(player, g, a, now), extraDoubleDamage);
         MinionHitProfiles.TryGetValue(a, out var profile);
+        var hitPacket = MinionHitAgainst(a, profile, target, now);
+        var rolled = GolemRollHit(hitPacket.Scale(factor), effects, a.Attack.Spell, AreaRng(player),
+            fullLife, SkeletonWeaponTripleDamage(player, g, a, now), extraDoubleDamage);
         bool ignoreElemental = g.Shield > 0
             && g.Monster.Mods.Effects[Stat.HitsIgnoreEnemyElementalResistancesWhileHasEnergyShield] != 0;
         var resistanceMods = new HitResistances.Mods(

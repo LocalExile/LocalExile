@@ -70,9 +70,11 @@ public static partial class Game
             var modifiers = supported.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value)).ToList();
             var types = Supports.Of(supported.Effect)?.Types.ToHashSet() ?? [];
             double multiplier = placement?.DamageMore ?? more;
-            var hit = PlayerHitDamage.Resolve(packet, Get, conversion, spell: false, area: true, projectile: false,
+            DamagePacket ResolveHit(DamagePacket damage) => PlayerHitDamage.Resolve(damage, Get, conversion,
+                spell: false, area: true, projectile: false,
                 supportModifiers: modifiers, skillTypes: types, secondary: true).Scale(multiplier);
-            if (hit.IsZero) return;
+            var hit = ResolveHit(packet);
+            double addedEffectiveness = SkillsFor(Player).DamageCoefficients(supported.Effect, supported.Level).Added / 10000d;
             var rng = AreaRng(Player);
             var penetration = Penetration.Of(caster, Stats, false, own);
             var ailmentRows = AilmentPanelStats.Compute(new("secondary", false), packet, conversion, Get);
@@ -85,7 +87,10 @@ public static partial class Game
                 if (monster is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false, OwnerId: null }
                     || MonsterAsleep(Player, id) || Dist(monster.Walk.Position(now), at) > radius
                     || !MonsterPresent(Player, id, monster)) continue;
-                var resisted = MitigateMonsterHit(monster, hit.Roll(rng), now, penetration, Get(Stat.CannotPenetrateOrIgnoreElementalResistances));
+                var added = PoachersAddedPhysical(monster, now).Scale(addedEffectiveness);
+                var contact = added.IsZero ? hit : ResolveHit(packet.Add(DamageType.Physical, added));
+                if (contact.IsZero) continue;
+                var resisted = MitigateMonsterHit(monster, contact.Roll(rng), now, penetration, Get(Stat.CannotPenetrateOrIgnoreElementalResistances));
                 int damage = device is null ? MonsterTakesMitigated(monster, resisted, spell: false, now, random: rng)
                     : MonsterTakesTrapOrMineHit(monster, resisted, spell: false, now, rng);
                 int chaos = MonsterHitChaosDamage(monster, resisted, spell: false, now, damage,

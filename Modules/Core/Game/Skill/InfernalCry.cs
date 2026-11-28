@@ -83,10 +83,12 @@ public static partial class Game
                 var stats = CharacterPlayerStats(Player);
                 int StatValue(uint key) => ActorScale.Add(key, stats.GetValueOrDefault(key), mark.Stats.GetValueOrDefault(key));
                 double raw = (corpse.MaxLifeWithoutParty ?? corpse.MaxLife) * (double)mark.LifePercent / 100;
-                var packet = PlayerHitDamage.Resolve(DamagePacket.Of(DamageType.Fire, raw, raw), StatValue,
-                    DamageStats.Conversion(stats, Stats, attack: null), spell: false, area: true, secondary: true,
-                    supportModifiers: mark.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value)));
-                ReleaseSkillCorpseExplosion(this, death.Entity, corpse, death.At, now, mark.Radius, packet,
+                var conversion = DamageStats.Conversion(stats, Stats, attack: null);
+                var supports = mark.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value));
+                DamagePacket Resolve(DamagePacket basis) => PlayerHitDamage.Resolve(basis, StatValue, conversion,
+                    spell: false, area: true, secondary: true, supportModifiers: supports);
+                ReleaseSkillCorpseExplosion(this, death.Entity, corpse, death.At, now, mark.Radius,
+                    DamagePacket.Of(DamageType.Fire, raw, raw), Resolve,
                     Penetration.Of(stats, Stats, attack: false, skill: mark.Stats),
                     StatValue(Stat.CannotPenetrateOrIgnoreElementalResistances), "Infernal Cry");
             });

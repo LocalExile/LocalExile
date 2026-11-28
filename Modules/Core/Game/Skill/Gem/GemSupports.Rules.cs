@@ -838,6 +838,7 @@ public static partial class Game
         public bool Armed { get; init; }
         public bool Claw { get; init; }
         public double ReleaseAilmentMore { get; init; } = 1;
+        public double AddedDamageEffectiveness { get; init; } = 1;
     }
 
     static int PlayerMinionDamageShare(IReadOnlyDictionary<uint, int> stats) =>
@@ -970,6 +971,8 @@ public static partial class Game
         bool secondary = plan.Kind == SkillHitKind.Secondary;
         var attackWeapon = attack ? weapon ?? WeaponFor(player) : null;
         var coefficients = SkillsFor(player).DamageCoefficients(gem.Effect, gem.Level);
+        double addedDamageEffectiveness = attackWeapon is not null && !secondary ? coefficients.Added / 10000d
+            : AddedEffectiveness(player, gem.Effect, gem.Level);
         int attackAccuracy = attackWeapon is null || secondary ? 0 : WeaponAccuracyFor(player, weapon, caster, gem.Stats, gem.Effect);
         var spellBase = secondary || attackWeapon is null
             ? plan.SpellBaseWith(Get) : GameServer.Core.World.DamagePacket.Empty;
@@ -1007,7 +1010,7 @@ public static partial class Game
             : attackWeapon is not null
             ? SupportedAttackDamage.Raw(attackWeapon, Get, new(attackAccuracy),
                 coefficients.Base, coefficients.Added, melee: types.Contains(19) && !SkillsFor(player).RequiresShield(gem.Effect))
-            : DamageStats.RawAdded(spellBase, Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
+            : DamageStats.RawAdded(spellBase, Get, spell: true, addedDamageEffectiveness);
         if (traumaMeleeMore != 0 && traumaStacks > 0)
             raw = raw.Scale(Math.Max(0, 1 + (long)traumaMeleeMore * traumaStacks / 100d));
         if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.SpellBaseFireDamagePctMaximumLife) is int lifePct and > 0)
@@ -1103,6 +1106,7 @@ public static partial class Game
             WieldingWand: attackWeapon?.WieldingWand == true, WieldingBow: attackWeapon?.Bow == true, Secondary: secondary)
         {
             FrozenStats = new Dictionary<uint, int>(stats),
+            AddedDamageEffectiveness = addedDamageEffectiveness,
             WeaponIncreased = attackWeapon is not null && !secondary ? SupportedAttackDamage.WeaponIncrease(attackWeapon, Get,
                 gem.Stats.GetValueOrDefault(Stat.BaseProjectileSpeedPlusPct))
                 : !attack && !secondary && Get(Stat.SpellStaffDamagePlusPct) is int staff and not 0
@@ -1124,9 +1128,14 @@ public static partial class Game
 
     // The supported hit from inputs already worked out (GemSkills reads one gem's inputs once for its hit and ailment rows).
     public static GameServer.Core.World.DamagePacket SupportedHitFrom(SupportedHitInputs inputs, bool suppress,
-        long additionalIncreased = 0)
+        long additionalIncreased = 0) => SupportedHitFrom(inputs, suppress, default(DamageRange), additionalIncreased);
+
+    static DamagePacket SupportedHitFrom(SupportedHitInputs inputs, bool suppress,
+        DamageRange addedPhysical, long additionalIncreased = 0)
     {
-        var hit = PlayerHitDamage.Resolve(inputs.Raw, WeaponAttributeDamage.Read(inputs.Armed, inputs.Get), inputs.Conversion, spell: !inputs.Attack && !inputs.Secondary,
+        var raw = addedPhysical.IsZero ? inputs.Raw : inputs.Raw.Add(DamageType.Physical,
+            addedPhysical.Scale(inputs.AddedDamageEffectiveness));
+        var hit = PlayerHitDamage.Resolve(raw, WeaponAttributeDamage.Read(inputs.Armed, inputs.Get), inputs.Conversion, spell: !inputs.Attack && !inputs.Secondary,
             melee: inputs.Melee, area: inputs.Area, projectile: inputs.Projectile,
             supportModifiers: inputs.Modifiers, skillTypes: inputs.Types,
             wieldingBow: inputs.WieldingBow, wieldingWand: inputs.WieldingWand, retaliation: inputs.Attack && inputs.Types.Contains(120),

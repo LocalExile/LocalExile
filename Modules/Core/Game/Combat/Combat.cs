@@ -877,7 +877,7 @@ public static partial class Game
         int rating = accuracy ?? PlayerAccuracy(player, playerStats);
         // The swinging hand's rating: an off-hand swing uses its own local accuracy (accuracy-scaled added damage).
         var hit = AttackHitConverted(weapon, TargetHitStats(playerStats, contact), weapon.Melee, conversion, new(rating),
-            additionalIncreased + modifiers.HitIncrease);
+            additionalIncreased + modifiers.HitIncrease, PoachersAddedPhysical(target, at));
         if (modifiers.HitMore != 1) hit = hit.Scale(modifiers.HitMore);
         long ailmentIncrease = additionalIncreased + modifiers.AilmentIncrease;
         var ignite = DefaultAttackIgnite(player, playerStats, weapon, ailmentIncrease, conversion, rating);
@@ -4076,7 +4076,7 @@ public static partial class Game
                         double targetEffectiveness = AddedEffectiveness(player, admittedGem.Effect, admittedGem.Level);
                         sweepSpider = CaptureSpiderDamage(player, capturedInputs, targetEffectiveness, context: true, local: local,
                             bow: false, offHand: hand == AttackHand.Off, required: HasLocalTargetDamage(bothOff?.LocalSources),
-                            extraIncreased: exertedIncreased);
+                            extraIncreased: exertedIncreased, forMarkedTarget: true);
                         if (sweepSpider is not null && !spell && shield is null)
                         {
                             if (hand != AttackHand.Off)
@@ -4143,22 +4143,25 @@ public static partial class Game
                     // The target's condition is chosen before accuracy, crit RNG, on-hit hooks and the hit's own Blind.
                     var profile = Blinded(player, id) && blindedProfile is not null
                         ? blindedProfile : sweepProfile;
-                    if (sweepSpider is { } spider)
+                    double hitAt = ProjectileWorldTime(player);
+                    var addedPhysical = PoachersAddedPhysical(m, hitAt);
+                    if (sweepSpider is { } spider && (spider.HasTargetConditions || !addedPhysical.IsZero))
                     {
-                        double hitAt = ProjectileWorldTime(player);
                         int webs = m.SpiderWebs.Count(hitAt);
                         bool maimed = m.MaimedUntil > hitAt, lowLife = EnemyOnLowLife(m);
                         bool targetIgnited = m.Ignites.IgnitedAt(hitAt), bleeding = m.Bleeds.IgnitedAt(hitAt);
                         bool close = spider.Melee && spider.Stats.GetValueOrDefault(global::Stat.MeleeDamagePlusPctAtCloseRange) != 0
                             && InCloseRange(player, m, hitAt);
                         bool blinded = Blinded(player, id, hitAt);
-                        var conditionalDamage = ContactDamage(player, m, hitAt, spider.Stats, spider.Local);
+                        var conditionalDamage = ContactDamage(player, m, hitAt, spider.Stats, spider.Local)
+                            with { AddedPhysical = addedPhysical };
                         var woven = SpiderDamageProfile(spider, webs, blinded, targetIgnited, bleeding,
                             lowLife, maimed, close, conditionalDamage);
                         var conditionalHit = mainHandMore == 1 ? woven.Hit : woven.Hit.Scale(mainHandMore);
                         if (sweepOffSpider is { } off)
                             conditionalHit = conditionalHit.Add(SpiderDamageProfile(off, webs, blinded, targetIgnited, bleeding,
-                                lowLife, maimed, close, ContactDamage(player, m, hitAt, off.Stats, off.Local)).Hit);
+                                lowLife, maimed, close, ContactDamage(player, m, hitAt, off.Stats, off.Local)
+                                    with { AddedPhysical = addedPhysical }).Hit);
                         double contactMore = ruthless * dualWieldMore;
                         if (contactMore != 1) conditionalHit = conditionalHit.Scale(contactMore);
                         if (scaledBlastChaos > 0) conditionalHit = conditionalHit.Add(DamageType.Chaos, new(scaledBlastChaos, scaledBlastChaos));

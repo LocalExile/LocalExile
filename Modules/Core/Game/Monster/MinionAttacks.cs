@@ -1,7 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
-using DamageModel = GameServer.Core.World.DamageModel;
+using GameServer.Core.World;
 
 /// <summary>A fighting minion's target this AI step: the hostile monster and where it stands, whether it is in reach, and
 /// the cell the minion walks to so it is.</summary>
@@ -9,6 +9,17 @@ public readonly record struct MinionTarget(uint Id, SpawnedMonster Monster, (int
 
 public static partial class Game
 {
+    sealed record FriendlyAttackDamage(DamagePacket Raw, MonsterModEffects Mods, byte Level, double Effectiveness);
+    static readonly RuleTable<MonsterAttack, FriendlyAttackDamage> FriendlyAttackDamageInputs = new();
+
+    static DamagePacket FriendlyHitAgainst(MonsterAttack attack, SpawnedMonster target, double now)
+    {
+        var added = PoachersAddedPhysical(target, now);
+        if (added.IsZero || !FriendlyAttackDamageInputs.TryGetValue(attack, out var source) || source.Effectiveness == 0)
+            return attack.Damage;
+        return source.Mods.Hit(source.Raw.Add(DamageType.Physical, added.Scale(source.Effectiveness)), source.Level);
+    }
+
     // A fighting minion reaches a monster's edge: its attack's distance (MaximumAttackDistance, as a monster's reach of the
     // player) plus the target's body.
     static double MinionReach(MonsterAttack a, SpawnedMonster target) => a.Range + Math.Max(0, LivingCollision.Size(target));
@@ -78,7 +89,13 @@ public static partial class Game
         }
         if (MonsterBlocks(t, random, spell: false)) return null;
         var supported = BeastSupportedAttack(player, id, m, a, now);
-        var offense = supported?.Attack.Damage ?? a.Damage;
+        DamagePacket offense;
+        if (supported is not null)
+        {
+            MinionHitProfiles.TryGetValue(supported, out var profile);
+            offense = MinionHitAgainst(supported, profile, t, now);
+        }
+        else offense = FriendlyHitAgainst(a, t, now);
         // A minion the player summoned takes his minion modifiers; a shrine's ally is not his to scale (GGG: "You are not
         // considered to be summoning them").
         int Flat(string bound) => player.Minions.Owns(id) && Stats.Key($"non_golem_minion_global_{bound}_added_physical_damage") is uint key

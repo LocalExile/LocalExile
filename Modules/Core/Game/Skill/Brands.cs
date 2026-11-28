@@ -880,9 +880,12 @@ public static partial class Game
                     if (Dist(m.Walk.Position(now), kill.At) > 22) continue;
                     var packet = DamagePacket.Of(DamageType.Chaos, chaosDmg, chaosDmg);
                     var mitigated = DamageModel.Mitigate(packet, type => MonsterHitResistance(m, type, default, now));
-                    int dmg = (int)Math.Floor(mitigated.Components.Sum(c => c.Range.Min) * MonsterDamageTaken(m, false, now, false, true, true));
-                    if (dmg <= 0 || ApplyTypedMonsterHitLocked(player, m, dmg, dmg) is not { } hit) continue;
-                    CommitAcceptedHitLocked(player, id, m, hit, dmg, now, "branded enemy explosion", playerKill: true);
+                    int chaos = (int)Math.Floor(mitigated.Components.Sum(c => c.Range.Min) * MonsterDamageTaken(m, false, now, false, true, true));
+                    int physical = PoachersAddedPhysical(m, now).Roll(AreaRng(player));
+                    int damage = physical == 0 ? chaos : ActorScale.Saturate((long)chaos + MonsterTakesMitigated(m,
+                        DamagePacket.Of(DamageType.Physical, physical, physical), spell: false, now));
+                    if (damage <= 0 || ApplyTypedMonsterHitLocked(player, m, damage, chaos) is not { } hit) continue;
+                    CommitAcceptedHitLocked(player, id, m, hit, damage, now, "branded enemy explosion", playerKill: true);
                 }
             }
         }
@@ -1625,7 +1628,8 @@ public static partial class Game
         };
         if (SkillsFor(player).IsBrand(gem.Effect) && BrandMonsterMarks.TryGetValue(m, out var bm) && bm.AttachedCount > 0)
             brandSpecific += BrandStat(playerStats, "sigil_attached_target_damage_+%");
-        var hit = SupportedHitFrom(inputs, suppress: true, additionalIncreased: vsBlinded + brandSpecific);
+        var hit = SupportedHitFrom(inputs, suppress: true, additionalIncreased: vsBlinded + brandSpecific,
+            addedPhysical: PoachersAddedPhysical(m, now));
         if (hitMore != 1.0) hit = hit.Scale(hitMore);
 
         var rolled = WithConditionalSupportDamageLocked(player, gem.Stats, attack: false, m,

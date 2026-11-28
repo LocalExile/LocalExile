@@ -6,12 +6,17 @@ public static class SpellHit
 {
     public static DamagePacket Resolve(SkillHitPlan plan, StatCatalog catalog,
         IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
-        DamageConversion conversion, double addedEffectiveness = 1)
+        DamageConversion conversion, double addedEffectiveness = 1) =>
+        Resolve(plan, player, own, conversion, addedEffectiveness, default);
+
+    internal static DamagePacket Resolve(SkillHitPlan plan, IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int> own, DamageConversion conversion, double addedEffectiveness, DamageRange addedPhysical)
     {
         // Added damage does not create a hit for a beam, aura or another spell without extracted hit damage.
         if (plan.Kind != SkillHitKind.Spell || !plan.CanHit) return DamagePacket.Empty;
         int Get(uint key) => own.TryGetValue(key, out int value) ? value : player.GetValueOrDefault(key);
-        var hit = SpellDamage.Packet(plan.SpellBaseWith(Get), Get, addedEffectiveness, conversion);
+        var spellBase = plan.SpellBaseWith(Get).Add(DamageType.Physical, addedPhysical.Scale(addedEffectiveness));
+        var hit = SpellDamage.Packet(spellBase, Get, addedEffectiveness, conversion);
         return new SkillDamageContext(plan.Kind, player).Hit(hit);
     }
 }

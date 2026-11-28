@@ -34,6 +34,7 @@ public static partial class Game
         bool bleeding, bool lowLife, bool maimed, TargetContact contact)
     {
         if (contact != default) return true;
+        if (!source.HasTargetConditions) return false;
         int Get(uint key) => source.Stats.GetValueOrDefault(key);
         bool attack = source.Attack && !source.Secondary;
         return blinded && Get(PlayerHitDamage.VsBlindedDamageStat) != 0
@@ -80,6 +81,7 @@ public static partial class Game
     internal readonly record struct TargetContact(long HitIncrease, long AilmentIncrease, int ColdHitIncrease,
         int LightningHitIncrease, int OpportunisticMore, int PoisonMore, int LeechImmuneMore)
     {
+        internal DamageRange AddedPhysical { get; init; }
         internal double AilmentMore => DamageFactor(OpportunisticMore) * DamageFactor(PoisonMore);
         internal double HitMore => AilmentMore * DamageFactor(LeechImmuneMore);
     }

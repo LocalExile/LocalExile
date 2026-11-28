@@ -59,7 +59,8 @@ public static partial class Game
                 var target = TargetModifiers(Get, lowLife, contact: contact);
                 increased += SpiderDamageIncrease(Get, webs);
                 var woven = SpiderRawDamage(receipt.Raw, Get, webs);
-                var hit = PlayerHitDamage.Resolve(woven, HitStat, conversion, spell: false, area: true,
+                var hit = PlayerHitDamage.Resolve(woven.Add(DamageType.Physical, contact.AddedPhysical),
+                    HitStat, conversion, spell: false, area: true,
                     secondary: true, additionalIncreased: increased + target.HitIncrease);
                 var rows = AilmentPanelStats.Compute(new("secondary", false), woven, conversion, TargetStat,
                     increased + target.AilmentIncrease);
@@ -87,11 +88,13 @@ public static partial class Game
                     int webs = target.SpiderWebs.Count(now);
                     bool ignited = target.Ignites.IgnitedAt(now), bleeding = target.Bleeds.IgnitedAt(now);
                     bool lowLife = EnemyOnLowLife(target), isBlinded = Blinded(player, id, now);
-                    var profile = contactDamage || webs > 0 || ignited || bleeding
+                    var added = PoachersAddedPhysical(target, now);
+                    var profile = !added.IsZero || contactDamage || webs > 0 || ignited || bleeding
                         || lowLife && (Get(DamageVsLowLifePerFrenzy) != 0 || HasLowLifeDamage(Get))
                         ? Profile(isBlinded ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0,
                             webs, ignited, bleeding, lowLife,
-                            contactDamage ? ContactDamage(player, target, now, playerStats) : default)
+                            (contactDamage ? ContactDamage(player, target, now, playerStats) : default)
+                            with { AddedPhysical = added })
                         : isBlinded ? blinded : normal;
                     int critChance = Get(Stat.GlobalCannotCrit) != 0 ? 0
                         : CriticalChanceFinal.Project(Get(AddedBaseCriticalStrike.Generic), Get(Stat.CriticalStrikeChancePlusPct), Get, _ => 0);

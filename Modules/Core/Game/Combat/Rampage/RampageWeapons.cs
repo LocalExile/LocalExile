@@ -23,12 +23,16 @@ public static partial class Game
         if (!RampageEffectCurrent(player, job.Epoch)) return;
         if (!player.Area.Monsters.TryGetValue(job.Actor, out var daemon)) return;
         emitter = session.ActorKey(job.Actor, daemon);
-        var packet = RampageSpellPacket(player, job.Tier.Skill.Row, job.Level);
+        int effect = job.Tier.Skill.Row;
+        double multiplier = RampageMinionDamageFactor(StatSourceValues(player));
+        var packet = SkillsFor(player).HitDamage(effect, job.Level).Scale(multiplier);
+        double addedEffectiveness = AddedEffectiveness(player, effect, job.Level) * multiplier;
         session.Schedule(ProjectileRuntime.Time(job.At), () => RampageEffectCurrent(player, job.Epoch), () =>
             new ProjectileUse(profile, new(player.Id, player.ProjectileEpoch), emitter, 1,
                 new(job.Origin.X, job.Origin.Y), new(job.Origin.X + 100, job.Origin.Y))
             { Payload = new ProjectileOffense(packet, true, 10000, own.SpellCriticalChance, 150, job.Tier.Skill.Id)
-                { RampageEpoch = job.Epoch, RampageSkill = own, Effect = job.Tier.Skill.Row, Level = job.Level,
+                { RampageEpoch = job.Epoch, RampageSkill = own, Effect = effect, Level = job.Level,
+                    RampageAddedEffectiveness = addedEffectiveness,
                     NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(CharacterPlayerStats(player)) } });
     }
 
@@ -79,9 +83,9 @@ public static partial class Game
             var variety = swing.Actor.Variety!;
             var baseDamage = Monsters.BaseDamage(variety, (byte)swing.Plan.Level) ?? (1, 1);
             var sources = StatSourceValues(player);
-            int inc = Stat.MinionDamagePlusPct is var key ? sources.GetValueOrDefault(key) : 0;
+            double multiplier = RampageMinionDamageFactor(sources);
             var packet = DamagePacket.Of(DamageType.Physical, baseDamage.Item1, baseDamage.Item2)
-                .Scale(Math.Max(0, 100L + inc) / 100.0);
+                .Scale(multiplier);
             int accuracyInc = Stat.MinionAccuracyRatingPlusPct is var ak ? sources.GetValueOrDefault(ak) : 0;
             int accuracy = (int)Math.Clamp((long)(Monsters.BaseAccuracy((byte)swing.Plan.Level) ?? 0) * Math.Max(0L, 100L + accuracyInc) / 100, 0, int.MaxValue);
             if (swing.Plan.Weapon == RampageCatalog.WeaponKind.Bow)
@@ -99,6 +103,7 @@ public static partial class Game
                         new(from.X, from.Y), new(to.X, to.Y))
                     { Payload = new ProjectileOffense(packet, false, accuracy, 500, 150, "Rampage bow")
                         { RampageEpoch = swing.Plan.Epoch,
+                            RampageAddedEffectiveness = multiplier,
                             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(CharacterPlayerStats(player)) } });
             }
             else
@@ -106,7 +111,8 @@ public static partial class Game
                 if (RampageEffectCurrent(player, swing.Plan.Epoch))
                     player.RampageWorld.Strikes.Add(new(ProjectileWorldTime(player) + .25, swing.Plan.Epoch,
                         swing.Id, swing.Actor, swing.TargetId, swing.Target, packet,
-                        swing.Plan.Weapon == RampageCatalog.WeaponKind.TwoHandedSword, accuracy));
+                        swing.Plan.Weapon == RampageCatalog.WeaponKind.TwoHandedSword, accuracy)
+                        { AddedEffectiveness = multiplier });
             }
         }
         RampageWorld.Strike[] contacts;
@@ -126,7 +132,8 @@ public static partial class Game
                 && Dist(p.Value.Walk.Position(now), at) <= (strike.Area ? 20 : 12)).ToArray();
             foreach (var target in targets)
                 await RampageOwnedHit(player, strike.Epoch,
-                    target.Key, target.Value, strike.Damage, null, "Rampage weapon", attack: true, accuracy: strike.Accuracy);
+                    target.Key, target.Value, strike.Damage, null, "Rampage weapon", attack: true, accuracy: strike.Accuracy,
+                    addedEffectiveness: strike.AddedEffectiveness);
         }
     }
 }

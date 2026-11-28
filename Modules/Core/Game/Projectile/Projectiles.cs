@@ -911,7 +911,9 @@ public static partial class Game
                 if (!shot.Spell && !RampageAttackHits(Player, contact.Target.Id, target, shot.Accuracy, contact.At / (double)ProjectileRuntime.QuantaPerSecond, random))
                     return ProjectileHitResult.Miss;
                 if (MonsterBlocks(target, random, shot.Spell)) return ProjectileHitResult.Blocked;
-                var raw = shot.Hit.Scale(contact.Multiplier).Roll(random);
+                double hitAt = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
+                var added = PoachersAddedPhysical(target, hitAt).Scale(shot.RampageAddedEffectiveness);
+                var raw = shot.Hit.Add(DamageType.Physical, added).Scale(contact.Multiplier).Roll(random);
                 bool crit = random.Next(10000) < shot.CriticalChance
                     + BrittleCriticalChance(target, contact.At / (double)ProjectileRuntime.QuantaPerSecond);
                 var (ownedDamage, _) = MonsterDamage(target, raw, crit, !shot.Spell, default);
@@ -949,19 +951,24 @@ public static partial class Game
             if (MonsterBlocks(target, random, shot.Spell, at, shot.SkillStats)) return ProjectileHitResult.Blocked;
             // Select the profile only for an accepted contact, before this hit can apply Blind or other ailments.
             TargetContact conditional = default;
+            var addedPhysical = shot.Spider is not null || shot.ExplosiveBlast is not null
+                ? PoachersAddedPhysical(target, at) : default;
             if (shot.Spider is { } spider)
             {
-                conditional = ContactDamage(Player, target, at, spider.Stats, spider.Local);
-                long trajectoryIncrease = (long)shot.DamageIncreasePerChain * contact.Projectile.CompletedChains
-                    + (long)shot.DamageIncreasePerPierce * contact.Projectile.EnemiesPierced;
-                conditional = conditional with
+                if (spider.HasTargetConditions)
                 {
-                    HitIncrease = conditional.HitIncrease + trajectoryIncrease,
-                };
+                    conditional = ContactDamage(Player, target, at, spider.Stats, spider.Local);
+                    long trajectoryIncrease = (long)shot.DamageIncreasePerChain * contact.Projectile.CompletedChains
+                        + (long)shot.DamageIncreasePerPierce * contact.Projectile.EnemiesPierced;
+                    conditional = conditional with { HitIncrease = conditional.HitIncrease + trajectoryIncrease };
+                }
+                conditional = conditional with { AddedPhysical = addedPhysical };
             }
             shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),
                 target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
                 conditional, areaContact: contact.IsArea);
+            if (contact.IsArea && !addedPhysical.IsZero && shot.ExplosiveBlast is { } blast)
+                shot = shot with { AreaHit = blast.ExplosionHit(addedPhysical) };
             var steel = shot.LancingSteelHits;
             if (steel?.Targets.Contains(contact.Target) == true)
                 shot = shot.ScaleDamage(steel.RepeatMultiplier);

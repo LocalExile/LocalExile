@@ -333,7 +333,8 @@ public static partial class Game
         return new(normal, additionalIncreased == 0 ? normal : Profile(additionalIncreased), inputs.Caster, spell)
         {
             Spider = CaptureSpiderDamage(player, inputs, AddedEffectiveness(player, gem.Effect, gem.Level), context: true,
-                local: inputs.Attack ? MainHandLocalSources(player) : null),
+                local: inputs.Attack ? MainHandLocalSources(player) : null, bow: false, offHand: false,
+                forMarkedTarget: true),
             WeaponLocal = inputs.Attack ? inputs.WeaponStats : null,
         };
     }
@@ -1071,11 +1072,12 @@ public static partial class Game
                 ? Blinded(player, id, now) ? captured.Blinded : captured.Normal
                 : new PlacedSkills.DamageProfile(placed.Damage, MonsterIgnites.Settings.None,
                     MonsterIgnites.Settings.None, MonsterPoisons.Settings.None);
-            if (offenseSnapshot?.Spider is { } spider)
+            var addedPhysical = PoachersAddedPhysical(m, now);
+            if (offenseSnapshot?.Spider is { } spider && (spider.HasTargetConditions || !addedPhysical.IsZero))
                 profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(player, id, now),
                     m.Ignites.IgnitedAt(now), m.Bleeds.IgnitedAt(now), EnemyOnLowLife(m), m.MaimedUntil > now,
                     spider.Melee && TargetAccuracy.InCloseRange(Dist(centre, m.Walk.Position(now))),
-                    ContactDamage(player, m, now, spider.Stats));
+                    ContactDamage(player, m, now, spider.Stats) with { AddedPhysical = addedPhysical });
             double targetMore = burningMorePct != 0 && BurningTarget(player, m, now)
                 ? Math.Max(0, 1 + burningMorePct / 100d) : 1;
             var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,

@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Diagnostics;
+using DamageConversion = GameServer.Core.World.DamageConversion;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageType = GameServer.Core.World.DamageType;
 
@@ -108,8 +109,8 @@ public static partial class Game
     }
 
     static void ReleaseSkillCorpseExplosion(ProjectileSession session, uint corpseId, SpawnedMonster corpse,
-        (int X, int Y) at, double now, int radius, DamagePacket packet, Penetration.PerType penetration, int cannotPenetrate,
-        string skill)
+        (int X, int Y) at, double now, int radius, DamagePacket basis, Func<DamagePacket, DamagePacket> resolveHit,
+        Penetration.PerType penetration, int cannotPenetrate, string skill)
     {
         var player = session.Player;
         if (!corpse.CorpseConsumed)
@@ -119,11 +120,15 @@ public static partial class Game
             session.WorldRecords(corpseId, () => [InstanceProtocol.RemoveObject(corpseId)],
                 $"{skill} consumes corpse", remove: true);
         }
+        var packet = resolveHit(basis);
+        var rng = AreaRng(player);
         foreach (var (id, enemy) in player.Area.MonstersNear(at, radius))
         {
             if (!enemy.Hostile || enemy.Dead || enemy.Life == 0 || Dist(at, enemy.Walk.Position(now)) > radius)
                 continue;
-            var resisted = MitigateMonsterHit(enemy, packet, now, penetration, cannotPenetrate);
+            var added = PoachersAddedPhysical(enemy, now);
+            var contact = added.IsZero ? packet : resolveHit(basis.Add(DamageType.Physical, added)).Roll(rng);
+            var resisted = MitigateMonsterHit(enemy, contact, now, penetration, cannotPenetrate);
             int damage = MonsterTakesMitigated(enemy, resisted, false, now);
             if (ApplyTypedMonsterHitLocked(player, enemy, damage,
                 MonsterHitChaosDamage(enemy, resisted, spell: false, now, damage), allyAt: at) is not { } hit)
@@ -248,21 +253,43 @@ public static partial class Game
         bool removeCorpse;
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return false;
         double now = AreaTime(player);
+        var rng = AreaRng(player);
+        DamageConversion? elementalConversion = null;
         foreach (var (id, m) in player.Area.Monsters.ToArray())
         {
             if (!m.Hostile || m.Dead || m.Life == 0 || ReferenceEquals(m, corpse)) continue;
             if (Dist(m.Walk.Position(now), at) > radius) continue;
-            var resisted = GameServer.Core.World.DamageModel.Mitigate(packet, t => MonsterHitResistance(m, t, default, now));
+            var added = PoachersAddedPhysical(m, now);
+            var legacyContact = packet;
+            var elementalContact = elementalPacket;
+            if (!added.IsZero)
+            {
+                if (physical > 0 || chaos > 0)
+                {
+                    int rolled = added.Roll(rng);
+                    legacyContact = packet.Add(DamageType.Physical, new(rolled, rolled));
+                }
+                else
+                {
+                    elementalConversion ??= DamageStats.Conversion(playerStats, Stats, attack: null);
+                    var addedPacket = PlayerHitDamage.Resolve(DamagePacket.Of(DamageType.Physical, added), Get,
+                        elementalConversion, spell: false, area: true, secondary: true);
+                    elementalContact = elementalPacket.Add(addedPacket.Roll(rng));
+                }
+            }
+            var resisted = GameServer.Core.World.DamageModel.Mitigate(legacyContact, t => MonsterHitResistance(m, t, default, now));
             int damage = MonsterTakesMitigated(m, resisted, false, now);
             int bypass = MonsterHitChaosDamage(m, resisted, false, now, damage);
-            if (!elementalPacket.IsZero)
+            if (!elementalContact.IsZero)
             {
-                var mitigated = MitigateMonsterHit(m, elementalPacket, now, elementalPenetration,
+                var mitigated = MitigateMonsterHit(m, elementalContact, now, elementalPenetration,
                     playerStats.GetValueOrDefault(Stat.CannotPenetrateOrIgnoreElementalResistances),
                     playerStats.GetValueOrDefault(Stat.ElementalDamageResistedByLowestElementalResistance) != 0);
                 int witheredElemental = WitheredElementalHitTaken(m, player.Id, now, playerStats);
-                damage = (int)Math.Min(int.MaxValue, (long)damage + MonsterTakesMitigated(m, mitigated, false, now,
-                    additionalElementalTakenPct: witheredElemental));
+                int elementalDamage = MonsterTakesMitigated(m, mitigated, false, now, additionalElementalTakenPct: witheredElemental);
+                damage = (int)Math.Min(int.MaxValue, (long)damage + elementalDamage);
+                if (!added.IsZero && physical == 0 && chaos == 0)
+                    bypass = MonsterHitChaosDamage(m, mitigated, false, now, elementalDamage, new HitTakenRules(0, witheredElemental, false));
             }
             if (ApplyTypedMonsterHitLocked(player, m, damage, bypass, allyAt: at) is not { } hit) continue;
             hits.Add((id, m, hit));
@@ -325,7 +352,8 @@ public static partial class Game
         if (!corpse.CursedAtDeath || !corpse.Hostile || player.Closed || player.LeavingArea || player.PlayerLife == 0
             || HardcoreProgressBlocked(player)) return;
         int chance = CharacterPlayerStats(player).GetValueOrDefault(Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct);
-        if (!GameServer.Core.World.RandomRolls.Chance(chance, 100, AreaRng(player))) return;
+        var rng = AreaRng(player);
+        if (!GameServer.Core.World.RandomRolls.Chance(chance, 100, rng)) return;
 
         double factor = MinionAreaDamageFactor(source, DamageType.Chaos, skill);
         double radius = 22 * Math.Sqrt(Math.Max(0, 1 + source.Effects[Stat.BaseSkillAreaOfEffectPlusPct] / 100d));
@@ -351,22 +379,27 @@ public static partial class Game
                     if (!player.Closed && !player.LeavingArea) await SendWorldRemoval(player, effect, null);
                 });
             }
-            if (factor <= 0) continue;
             double raw = dead.MaxLife * .25 * factor;
             var packet = DamagePacket.Of(DamageType.Chaos, raw, raw);
             foreach (var (targetId, target) in player.Area.MonstersNear(at, radius))
             {
                 if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable
                     || Dist(target.Walk.Position(now), at) > radius) continue;
-                int damage = MonsterTakesRolled(target, packet, spell: false, now: now);
-                if (damage <= 0 || ApplyTypedMonsterHitLocked(player, target, damage, damage, allyAt: at) is not { } hit) continue;
+                var added = PoachersAddedPhysical(target, now);
+                int physical = added.IsZero ? 0 : added.Scale(MinionAreaDamageFactor(source, DamageType.Physical, skill)).Roll(rng);
+                var contact = packet.Add(DamageType.Physical, new(physical, physical));
+                if (contact.IsZero) continue;
+                var resisted = MitigateMonsterHit(target, contact, now);
+                int damage = MonsterTakesMitigated(target, resisted, spell: false, now);
+                int chaosDamage = MonsterHitChaosDamage(target, resisted, spell: false, now, damage);
+                if (damage <= 0 || ApplyTypedMonsterHitLocked(player, target, damage, chaosDamage, allyAt: at) is not { } hit) continue;
                 if (hit.StageStarts)
                 {
                     CommitBossStage(player, targetId, target, now);
                     hit = hit with { StageStarts = false };
                 }
                 CommitMinionHitLocked(player, targetId, target, hit, damage, now, "minion chaos kill explosion");
-                if (hit.Life == 0 && target.CursedAtDeath && GameServer.Core.World.RandomRolls.Chance(chance, 100, AreaRng(player)))
+                if (hit.Life == 0 && target.CursedAtDeath && GameServer.Core.World.RandomRolls.Chance(chance, 100, rng))
                     pending.Enqueue((targetId, target));
             }
         }

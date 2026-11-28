@@ -172,7 +172,8 @@ public static partial class Game
         int Get(uint name) => GolemStat(stats, name);
         var inputs = SupportedHitInputsFor(player, skillId, area: false, totem: totem);
         if (inputs is null) return;
-        var hit = new SkillDamageContext(SkillHitKind.Spell, caster).Hit(SupportedHitFrom(inputs, suppress: false));
+        var damageContext = new SkillDamageContext(SkillHitKind.Spell, caster);
+        var hit = damageContext.Hit(SupportedHitFrom(inputs, suppress: false));
         var criticalRoll = CaptureSkillCriticalRoll(player, skillId);
         var penetration = Penetration.Of(caster, Stats, false, skill.Stats);
         var resistance = HitResistMods(caster, skill.Stats);
@@ -186,8 +187,11 @@ public static partial class Game
             if (!player.Area.Monsters.TryGetValue(id, out var m) || m.Dead || m.Life == 0) return;
             if (m.Invulnerable || MonsterBlocks(m, AreaRng(player), spell: true)) return;
             double more = damageMore * Math.Max(0, 1 + remaining * (Get(Stat.ArcDamagePlusPctFinalForEachRemainingChain) / 100d));
+            var addedPhysical = PoachersAddedPhysical(m, now);
+            var contactHit = addedPhysical.IsZero ? hit : damageContext.Hit(
+                SupportedHitFrom(inputs, suppress: false, addedPhysical: addedPhysical));
             var rolled = WithConditionalSupportDamageLocked(player, skill.Stats, false, m,
-                GameEvents.WithOutgoingDamage(player, caster, m, hit.Scale(more).Roll(AreaRng(player), extraRolls)), now);
+                GameEvents.WithOutgoingDamage(player, caster, m, contactHit.Scale(more).Roll(AreaRng(player), extraRolls)), now);
             int chance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId),
                 SupportedCriticalChanceVsBlinded(player, skillId, false), SupportedCriticalChanceVsGround(player, skillId, false));
             bool crit = RollCriticalStrike(player, chance, skill.Stats, attack: false, skillRoll: criticalRoll, playerStats: caster);

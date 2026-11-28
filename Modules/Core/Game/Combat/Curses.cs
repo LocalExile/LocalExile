@@ -34,6 +34,12 @@ public static partial class Game
         return target.Curses[stat];
     }
 
+    static DamageRange PoachersAddedPhysical(SpawnedMonster target, double now)
+    {
+        int max = ProjectileCurseStat(target, Stat.MaximumAddedPhysicalDamageTaken, now);
+        return max <= 0 ? default : new(target.Curses[Stat.MinimumAddedPhysicalDamageTaken], max);
+    }
+
     static bool ExternalTemporalChains(Player player, string effect) => effect == "TemporalChains"
         && GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, effect));
 

@@ -959,8 +959,8 @@ public static partial class Game
         var caster = TotemCasterStats(ownerStats);
         var blind = BlindHitInput.Capture(caster, skill.Stats);
         bool attack = SkillsFor(player).IsAttack(skill.Effect);
-        var hit = new SkillDamageContext(attack ? SkillHitKind.Attack : SkillHitKind.Spell, caster)
-            .Hit(SupportedHitFrom(inputs, suppress: false));
+        var damageContext = new SkillDamageContext(attack ? SkillHitKind.Attack : SkillHitKind.Spell, caster);
+        var hit = damageContext.Hit(SupportedHitFrom(inputs, suppress: false));
         if (damageMore != 1) hit = hit.Scale(damageMore);
         if (hit.IsZero) return;
         var accuracy = attack ? SupportedAccuracy(player, totem.SkillId) : default;
@@ -986,8 +986,15 @@ public static partial class Game
             if (attack && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(
                 AttackHitChanceAt(player, id, m, now, accuracy, caster), now, player.AttackAccuracyRandom)) return;
             if (MonsterBlocks(m, AreaRng(player), spell: !attack)) return;
+            var addedPhysical = PoachersAddedPhysical(m, now);
+            var contactHit = hit;
+            if (!addedPhysical.IsZero)
+            {
+                contactHit = damageContext.Hit(SupportedHitFrom(inputs, suppress: false, addedPhysical: addedPhysical));
+                if (damageMore != 1) contactHit = contactHit.Scale(damageMore);
+            }
             var rolled = WithConditionalSupportDamageLocked(player, skill.Stats, attack, m,
-                GameEvents.WithOutgoingDamage(player, caster, m, hit.Roll(AreaRng(player))), now);
+                GameEvents.WithOutgoingDamage(player, caster, m, contactHit.Roll(AreaRng(player))), now);
             var hex = hexblast ? HexblastHex(m, now) : null;
             if (hex is not null)
                 rolled = rolled.Scale(Math.Max(0, 1 + skill.Stats.GetValueOrDefault(Stat.HexblastHitDamagePlusPctFinalIfHexed) / 100d));

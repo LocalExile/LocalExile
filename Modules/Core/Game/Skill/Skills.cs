@@ -331,9 +331,16 @@ public static partial class Game
     // Resolve conversion history and modifiers from raw local/added damage, then apply Rage once.
     public static DamagePacket AttackHitConverted(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats,
         bool melee, GameServer.Core.World.DamageConversion? conversion, AttackAccuracyProfile accuracy, long additionalIncreased = 0)
+        => AttackHitConverted(weapon, stats, melee, conversion, accuracy, additionalIncreased, default);
+
+    static DamagePacket AttackHitConverted(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats,
+        bool melee, GameServer.Core.World.DamageConversion? conversion, AttackAccuracyProfile accuracy, long additionalIncreased,
+        DamageRange addedPhysical)
     {
         var Get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon), name => RageStat(stats, name));
-        var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get, accuracy, melee: melee), SupportedAttackDamage.HitModifiers(weapon, Get, accuracy.Rating),
+        var raw = SupportedAttackDamage.Raw(weapon, Get, accuracy, melee: melee);
+        if (!addedPhysical.IsZero) raw = raw.Add(DamageType.Physical, addedPhysical);
+        var hit = PlayerHitDamage.Resolve(raw, SupportedAttackDamage.HitModifiers(weapon, Get, accuracy.Rating),
             conversion ?? new(), spell: false, melee: melee, projectile: !melee, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand,
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get));
