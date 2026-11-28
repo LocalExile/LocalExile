@@ -92,6 +92,7 @@ public static partial class Game
     const int PenanceMaxEnergy = 20;
     const double ArmageddonMeteorDelaySeconds = 0.6;
     const double BrandMinActivationSeconds = 0.033;
+    const double BrandsurgeStepSeconds = 0.5;
     const int MaxBrandActivationsPerStep = 32;
 
     static readonly string[] WintertideDotSupportMore =
@@ -377,7 +378,9 @@ public static partial class Game
     {
         var own = gem.Stats;
         int baseMs = BrandStat(own, "base_sigil_repeat_frequency_ms");
-        if (baseMs <= 0) return 0.5;
+        if (baseMs <= 0)
+            return Math.Max(BrandMinActivationSeconds,
+                BrandsurgeTimeFor(overchargeElapsed, 0.5, overchargeFasterPctPerSec) - overchargeElapsed);
         long increased = (long)BrandStat(playerStats, "sigil_repeat_frequency_+%") + BrandStat(own, "sigil_repeat_frequency_+%");
         if (BrandStat(own, "additive_cast_speed_modifiers_apply_to_sigil_repeat_frequency") != 0)
             increased += CastSpeedPct(playerStats) + BrandStat(own, "base_cast_speed_+%")
@@ -399,11 +402,33 @@ public static partial class Game
         if (attachedFraction >= 0.75)
             more *= Math.Max(0.05, 1 + (BrandStat(playerStats, "combined_brand_activation_rate_+%_final_if_75%_attached_duration_expired")
                 + BrandStat(own, "from_quality_brand_activation_rate_+%_final_if_75%_attached_duration_expired")) / 100.0);
-        if (overchargeElapsed > 0 && overchargeFasterPctPerSec > 0)
-            more *= 1 + overchargeElapsed * overchargeFasterPctPerSec / 100.0;
-
         double rate = Math.Max(0.05, (1 + increased / 100.0) * more);
-        return Math.Max(BrandMinActivationSeconds, baseMs / 1000.0 / rate);
+        double due = BrandsurgeTimeFor(overchargeElapsed, baseMs / 1000.0 / rate, overchargeFasterPctPerSec);
+        return Math.Max(BrandMinActivationSeconds, due - overchargeElapsed);
+    }
+
+    // Elapsed time in units of unaccelerated time. Each half-second has one more increment than the previous one.
+    static double BrandsurgeProgress(double elapsed, int fasterPct)
+    {
+        if (elapsed <= 0 || fasterPct <= 0) return elapsed;
+        double bonus = fasterPct / 100.0;
+        double steps = Math.Floor(elapsed / BrandsurgeStepSeconds);
+        double boundary = steps * BrandsurgeStepSeconds;
+        return boundary * (1 + bonus * (steps + 1) / 2) + (elapsed - boundary) * (1 + bonus * (steps + 1));
+    }
+
+    static double BrandsurgeTimeFor(double elapsed, double remaining, int fasterPct)
+    {
+        if (fasterPct <= 0) return elapsed + remaining;
+        double progress = BrandsurgeProgress(elapsed, fasterPct) + remaining;
+        if (progress <= 0) return progress;
+        double bonus = fasterPct / 100.0;
+        // Solve the sum of complete half-seconds for the last boundary, then take the fraction of the next step.
+        double quadratic = BrandsurgeStepSeconds * bonus / 2;
+        double linear = BrandsurgeStepSeconds + quadratic;
+        double steps = Math.Floor(2 * progress / (linear + Math.Sqrt(linear * linear + 4 * quadratic * progress)));
+        double boundary = steps * BrandsurgeStepSeconds;
+        return boundary + (progress - BrandsurgeProgress(boundary, fasterPct)) / (1 + bonus * (steps + 1));
     }
 
     public static int BrandRecallCooldownBonusPct(Player player, IReadOnlyDictionary<uint, int> playerStats)
@@ -706,6 +731,14 @@ public static partial class Game
                 if (Dist(brand.At, to) > 100 && Dist(brand.At, here) > 100) continue;
                 if (!StepBrandLocked(player, session, state, brand, playerStats, now, bytes, attachOnGround: false)
                     || !state.Brands.Contains(brand)) continue;
+                if (brand.Attached && double.IsFinite(brand.NextActivationAt))
+                {
+                    double remaining = brand.NextActivationAt - now;
+                    if (brand.Overcharged)
+                        remaining = BrandsurgeProgress(brand.NextActivationAt - brand.OverchargedAt, brand.OverchargeFasterActivationPctPerSec)
+                            - BrandsurgeProgress(now - brand.OverchargedAt, brand.OverchargeFasterActivationPctPerSec);
+                    brand.NextActivationAt = now + BrandsurgeTimeFor(0, Math.Max(0, remaining), fasterAct);
+                }
                 brand.Overcharged = true;
                 brand.OverchargedAt = now;
                 brand.OverchargeSkillId = skillId;
@@ -971,24 +1004,17 @@ public static partial class Game
         bool finite = !attached || !brand.InfiniteAttachedDuration;
         if (finite)
         {
-            double elapsed = until - from;
-            double accel = brand.Overcharged ? Math.Max(0, brand.OverchargeFasterDurationPctPerSec) / 100.0 : 0;
-            double overFrom = accel > 0 ? Math.Max(0, from - brand.OverchargedAt) : 0;
-            double overUntil = accel > 0 ? Math.Max(0, until - brand.OverchargedAt) : 0;
-            double spent = elapsed + (overUntil - overFrom) * (overUntil + overFrom) * accel / 2;
-            if (spent >= remaining)
+            double spent = until - from;
+            if (brand.Overcharged)
             {
-                double beforeSurge = accel > 0 ? Math.Max(0, brand.OverchargedAt - from) : elapsed;
-                if (remaining <= beforeSurge)
-                    until = from + remaining;
-                else
-                {
-                    double overBudget = remaining - beforeSurge;
-                    double rate = 1 + overFrom * accel;
-                    // Solve the integral of a linearly increasing duration rate for the expiry time.
-                    until = from + beforeSurge + 2 * overBudget / (rate + Math.Sqrt(rate * rate + 2 * accel * overBudget));
-                }
+                int faster = brand.OverchargeFasterDurationPctPerSec;
+                double start = from - brand.OverchargedAt;
+                spent = BrandsurgeProgress(until - brand.OverchargedAt, faster) - BrandsurgeProgress(start, faster);
+                if (spent >= remaining)
+                    until = brand.OverchargedAt + BrandsurgeTimeFor(start, remaining, faster);
             }
+            else if (spent >= remaining)
+                until = from + remaining;
             remaining = Math.Max(0, remaining - spent);
         }
         if (brand.WintertidePrimaryDps > 0 && brand.AttachedMonster is { } target && until > from)
