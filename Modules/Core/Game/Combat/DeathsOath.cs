@@ -115,15 +115,20 @@ public static partial class Game
         SkillsFor(player).EffectStats(grant.Effect, grant.Level)
             .GroupBy(p => p.Item1).ToDictionary(p => p.Key, p => p.Sum(v => v.Item2));
 
-    // Base chaos per second from the skill (base_chaos_damage_to_deal_per_minute), the player's increases that apply to
-    // a chaos area spell's damage over time, then the damage over time multipliers.
+    // Base chaos per second from the skill (base_chaos_damage_to_deal_per_minute), scaled by non-curse enemy aura effect
+    // (including The Sundered Will's chaos aura share), the player's applicable increases, then DoT multipliers.
     static double DeathAuraDps(IReadOnlyDictionary<uint, int> stats, IReadOnlyDictionary<uint, int> own)
     {
         double Get(uint key) => (double)stats.GetValueOrDefault(key) + own.GetValueOrDefault(key);
         double basis = own.GetValueOrDefault(Stat.BaseChaosDamageToDealPerMinute) / 60d;
+        double auraEffect = stats.GetValueOrDefault(Stat.NonCurseAuraEffectPlusPct)
+            + stats.GetValueOrDefault(Stat.AuraEffectPlusPct)
+            + (stats.GetValueOrDefault(Stat.NumberOfActiveLinks) > 0
+                ? stats.GetValueOrDefault(Stat.NonCurseAuraEffectPlusPctWhileLinked) : 0)
+            + ChaosDamageAuraEffectPct(stats);
         double increased = Get(Stat.DamagePlusPct) + Get(Stat.SpellDamagePlusPct) + Get(Stat.ChaosDamagePlusPct)
             + Get(Stat.DamageOverTimePlusPct) + Get(Stat.ChaosDamageOverTimePlusPct) + Get(Stat.AreaDamagePlusPct);
-        double dps = basis * Math.Max(0, 100 + increased) / 100;
+        double dps = basis * Math.Max(0, 100 + auraEffect) / 100 * Math.Max(0, 100 + increased) / 100;
         return dps * Math.Max(0, 100 + Get(Stat.DotMultiplierPlus) + Get(Stat.ChaosDotMultiplierPlus)) / 100;
     }
 

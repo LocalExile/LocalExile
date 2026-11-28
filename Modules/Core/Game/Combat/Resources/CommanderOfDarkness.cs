@@ -17,13 +17,18 @@ static partial class Game
     // The Sundered Will: increases and reductions to chaos damage (chaos_damage_+%) also apply to the effect of auras
     // from chaos skills at additive_chaos_damage_modifiers_apply_to_chaos_aura_effect_at_%_value of their value (two
     // rings add), the result capped at 150% (and at -150% for reductions).
-    static int ChaosDamageAuraEffectPct(Player player, AuraCatalog.Aura aura, IReadOnlyDictionary<uint, int> sources)
+    internal static int ChaosDamageAuraEffectPct(IReadOnlyDictionary<uint, int> sources)
     {
         int share = sources.GetValueOrDefault(Stat.AdditiveChaosDamageModifiersApplyToChaosAuraEffectAtPctValue);
-        if (share == 0 || !SkillsFor(player).HasType(aura.Effect, "Chaos")) return 0;
+        if (share == 0) return 0;
         long value = (long)sources.GetValueOrDefault(Stat.ChaosDamagePlusPct) * share / 100;
         return (int)Math.Clamp(value, -150, 150);
     }
+
+    static int ChaosDamageAuraEffectPct(Player player, AuraCatalog.Aura aura, IReadOnlyDictionary<uint, int> sources) =>
+        SkillsFor(player).HasType(aura.Effect, "Chaos")
+            && (SkillsFor(player).IsAura(aura.Effect) || CurseCatalog.Hex(aura.EffectId))
+            ? ChaosDamageAuraEffectPct(sources) : 0;
 
     internal static AuraCatalog.Aura WithCasterAuraStamps(Player player, AuraCatalog.Aura aura, IReadOnlyDictionary<uint, int> sources)
     {
