@@ -75,18 +75,13 @@ internal static class DeepwaterExtraction
 
     // ---- the plan ----
 
-    /// <summary>The run's start devices: the Bathysphere on the ground at cell 0's <c>bathysphere</c> point (H), and a
-    /// Chart's backup capsule beside it, or a Voyage's entry capsule beside it and a capsule at every other cell's
-    /// <c>bathysphere</c> point (G: both places; the wiki only says the entry capsule can only call the Bathysphere).</summary>
+    /// <summary>The run's start devices: the Bathysphere on the ground at cell 0's <c>bathysphere</c> point (H), and for
+    /// a Voyage an entry capsule beside it plus a capsule at every other cell's <c>bathysphere</c> point. Individual 1×1
+    /// Charts (including the tutorial Chart) have only the starting Bathysphere — no Allflame Capsules.</summary>
     public static void Plan(Player player, DeepwaterRun run, (int X, int Y) start, Action<string> log)
     {
         var devices = new List<Device> { new() { Kind = Kind.Bathysphere, Id = player.TakeObjectId(), X = start.X, Y = start.Y, Landed = 2 } };
-        if (!run.Voyage)
-        {
-            var at = player.Layout.Near((start.X + BackupBeside, start.Y));
-            devices.Add(new() { Kind = Kind.Backup, Id = player.TakeObjectId(), X = at.X, Y = at.Y });
-        }
-        else
+        if (run.Voyage)
         {
             var at = player.Layout.Near((start.X + BackupBeside, start.Y));
             devices.Add(new() { Kind = Kind.Capsule, Entry = true, Id = player.TakeObjectId(), X = at.X, Y = at.Y });
@@ -95,8 +90,8 @@ internal static class DeepwaterExtraction
                     devices.Add(new() { Kind = Kind.Capsule, Id = player.TakeObjectId(), X = p.X, Y = p.Y });
         }
         lock (run.Gate) run.Devices.AddRange(devices);
-        log($"Allflame extraction: Bathysphere at ({start.X}, {start.Y}), " + (run.Voyage
-            ? $"entry capsule at ({devices[1].X}, {devices[1].Y}), {devices.Count(d => d.Kind == Kind.Capsule && !d.Entry)} cell capsules" : $"backup capsule at ({devices[^1].X}, {devices[^1].Y})"));
+        log($"Allflame extraction: Bathysphere at ({start.X}, {start.Y})" + (run.Voyage
+            ? $", entry capsule at ({devices[1].X}, {devices[1].Y}), {devices.Count(d => d.Kind == Kind.Capsule && !d.Entry)} cell capsules" : ""));
     }
 
     // ---- the objects ----
@@ -679,7 +674,14 @@ internal static class DeepwaterExtraction
             await SendCount(member);
         }
         if (deck is not null && sulphur > 0 && members.Contains(player)) await DropSulphur(module, player, sulphur);
+        // Update post-run quest/league flags first so the PseudoHub deck spawns Valerie and props in the new quest stage.
         if (run.OnEnd is { } ended) await ended(members, success);
+        if (deck is not null && run.OnDeckArrival is { } arrive)
+        {
+            foreach (var member in members)
+                if (!member.Closed && !member.LeavingArea)
+                    await arrive(member);
+        }
         return members;
     }
 

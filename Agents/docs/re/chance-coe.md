@@ -9,8 +9,9 @@ This change adds a validated `ItemRolls.Chance` entry point and hardens admissio
 magic outcome is unchanged.
 `CurrencyEffects.Chance` delegates to it.
 
-The local rule remains: a normal weapon or armour piece becomes rare (30%: 4-6 affixes and a rare name) or magic
-(2-4 affixes, at most two prefixes and two suffixes), identified.
+The local rule remains: a modifiable normal non-magic-only item (weapon, armour, jewellery, jewel, map — excluding
+flasks and tinctures) becomes rare (30%: 4-6 affixes and a rare name) or magic (2-4 affixes, at most two prefixes and
+two suffixes), identified.
 New refusals before rolling/spending: corrupted/mirrored items, unsupported/unknown or `Unmodifiable` bases, missing
 Mods, and empty pools (previously `Roll` could spend an orb and leave an item with no affixes when the data was
 missing).

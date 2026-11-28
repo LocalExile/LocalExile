@@ -68,7 +68,8 @@ public sealed class PlayerMinions
         AreaTransitionObject? Transition = null, MonsterInfo? Kill = null, IReadOnlyList<AcceptedCharges>? Charges = null, byte? InventoryRow = null, IReadOnlyList<uint>? ItemIds = null, (int X, int Y)? At = null, (ushort Row, byte Level)? MonsterType = null,
         RighteousFireRingReceipt? RighteousFireRing = null, uint? WorldId = null, bool CreatesObject = false, bool RemovesObject = false, byte DeathKind = 0);
     public sealed record AcceptedCharges(bool KillEvent, bool Critical, MonsterRarity Rarity, string? Effect,
-        IReadOnlyDictionary<uint, int>? Skill, bool Primary, double At, bool Killed = false, bool Frozen = false);
+        IReadOnlyDictionary<uint, int>? Skill, bool Primary, double At, bool Killed = false, bool Frozen = false,
+        int Poisons = 0, bool Bleeding = false, bool Marked = false, bool SelfBleeding = false, bool SelfPoisoned = false);
     public sealed record FlaskReward(MonsterRarity Rarity, IReadOnlyDictionary<uint, double>? CritGains = null);
     public readonly List<Output> OutputQueue = [];
     public readonly List<FlaskReward> FlaskRewards = [];

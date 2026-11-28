@@ -9,7 +9,20 @@ namespace GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class InstanceRulesets
 {
-    public const ushort DataId = 0x2c9, ActionId = 0x2ca;
+    public const ushort EventId = 0x1e, AttachId = InstanceProtocol.AddRulesetId, DataId = 0x2c9, ActionId = 0x2ca;
+
+    /// <summary>S→C 0x1f: attaches the ruleset of <c>Rulesets.dat</c> row <paramref name="row"/> to the instance.</summary>
+    public static byte[] Attach(byte row, uint value = 0) => InstanceProtocol.AddRuleset(row, value);
+
+    /// <summary>S→C 0x1e (reader <c>0x1421a44a0</c>): dispatches a named event to every attached ruleset's slot 3
+    /// (<c>u16be 0x001e, u32be entityId, u16be byteLen, utf8[byteLen]</c>).</summary>
+    public static byte[] Event(string name, uint entityId = 0)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        byte[] utf8 = System.Text.Encoding.UTF8.GetBytes(name);
+        if (utf8.Length > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(name));
+        return new LoginWriter().U16(EventId).U32(entityId).U16((ushort)utf8.Length).Bytes(utf8).ToArray();
+    }
 
     /// <summary><c>Rulesets.dat</c> row 99 (<c>AtlasPrimordialBossInfluenceRules</c>): drives
     /// <c>atlas_primordial_influence_hud_display</c> (<c>0x140da2910</c>) via S→C 0x2c9 sub-id 0 (<c>0x141750170</c>).</summary>
