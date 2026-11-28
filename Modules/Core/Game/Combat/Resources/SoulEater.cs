@@ -146,9 +146,19 @@ public static partial class Game
         bool usingFlask = Stat.UsingFlask is var flaskKey && currentStats.GetValueOrDefault(flaskKey) != 0;
         int stacks = SoulEaterCount(player, now);
         bool auraChanged = active != (player.SoulEater.AuraBuff != 0);
-        bool statsChanged = auraChanged || stacks != player.SoulEater.SentStacks || usingFlask != player.SoulEater.SentUsingFlask;
+        bool stacksChanged = stacks != player.SoulEater.SentStacks;
+        bool usingFlaskChanged = usingFlask != player.SoulEater.SentUsingFlask;
         if (!active) player.SoulEater.Souls.Clear();
-        if (!statsChanged && player.SoulEater.Souls.Count == 0) return null;
+        if (!auraChanged && !stacksChanged && !usingFlaskChanged && player.SoulEater.Souls.Count == 0) return null;
+        // When Soul Eater itself is inactive and only using_flask toggled (e.g. an ordinary life/mana flask starting
+        // or ending), update the single client stat in place instead of rebuilding full stats + skills and logging 0/45.
+        if (!active && !auraChanged && !stacksChanged && player.SoulEater.Souls.Count == 0)
+        {
+            if (Stat.UsingFlask is var usingKey) SetStats(player, player.Id, [(usingKey, usingFlask ? 1 : 0)]);
+            player.SoulEater.SentUsingFlask = usingFlask;
+            return null;
+        }
+        bool statsChanged = auraChanged || stacksChanged || usingFlaskChanged;
         if (player.SoulEater.Souls.Count > 0)
         {
             // One line per soul, from the corpse to the player, as the official server's ServerBeamEffect.

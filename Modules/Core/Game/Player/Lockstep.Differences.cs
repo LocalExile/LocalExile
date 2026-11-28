@@ -58,6 +58,7 @@ public static partial class Game
         {
             _ = AreaFrames.Start(async () =>
             {
+                using var skillStats = new PlayerStatScope(player);
                 try { await OnUseObject(player, new(target, request.Skill, sequence, request.Flags), at); }
                 catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
                 finally { ReleaseIfRejected(); }
@@ -70,6 +71,7 @@ public static partial class Game
             return;
             async Task RunGroundMelee()
             {
+                using var skillStats = new PlayerStatScope(player);
                 try { await StartLockstepGroundMelee(player, request.Aim, request.Skill, sequence, request.Flags); }
                 catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
                 finally { ReleaseIfRejected(); }

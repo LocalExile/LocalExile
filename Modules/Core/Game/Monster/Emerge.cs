@@ -90,20 +90,19 @@ public static partial class Game
         {
             int index = v.ComponentsOrBase.ToList().IndexOf("Transitionable");
             byte state = MonsterEmerge.RisenState(v);
-            var messages = MonsterEmerge.RiseMessages(id, at, skill, m.NextSequence(), (byte)index, state);
-            await Send(player, messages[0], $"0x02bc monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
-            // The others in the instance see it rise too (it is theirs to hit as well).
-            ToOthers(player, id, [.. messages[0], .. messages[1]]);
+            var seq = m.NextSequence();
+            byte[] transition = InstanceEntities.TransitionableUpdate(id, (byte)index, state);
+            byte[] emergeStart = InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, skill, seq, 0x0800, id);
+            byte[] emergeEnd = InstanceProtocol.ActionEnded(id);
             // Predictive mode waits for 0x1ac in the pending-action gate (0x141e9afc0); lockstep starts directly.
             // Both modes complete Emerge with its clip, without an additional recovery tail (0x141e99d50).
             bool Still() { return !player.Closed && !m.Dead && player.Area.Monsters.GetValueOrDefault(id) == m; }
-            await Send(player, [],
-                $"0x01ab monster 0x{id:x} ({m.Label}) emerges at ({at.X}, {at.Y}): Emerge action 0x{skill:x4}, {seconds:0.00} s",
-                still: Still, atGate: () =>
-                {
-                    EmergeStartsLocked(player, m, seconds);
-                    return messages[1];
-                });
+            await SendWorldRecords(player, id, () =>
+            {
+                EmergeStartsLocked(player, m, seconds);
+                return [transition, emergeStart, emergeEnd];
+            }, $"0x01ab monster 0x{id:x} ({m.Label}) emerges at ({at.X}, {at.Y}): Transitionable → {state}, Emerge action 0x{skill:x4}, {seconds:0.00} s",
+            still: Still);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         {

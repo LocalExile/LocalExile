@@ -62,6 +62,21 @@ public static partial class Game
         return SendWorldRecord(player, id, bytes, log);
     }
 
+    /// <summary>Sends a private world-group record about <paramref name="player"/> (such as <c>0x02bc</c> player
+    /// experience or guard cooldown) into the area's frame delta strictly for <paramref name="player"/> when frames are
+    /// running, falling back to a direct send otherwise. Keeps party peers isolated while avoiding mid-frame writes.</summary>
+    public static Task SendOwnWorldRecord(Player player, byte[] bytes, string? log, Func<byte[]?>? atGate = null)
+    {
+        if (InAreaFrame(player))
+        {
+            if (atGate is not null) bytes = atGate() ?? [];
+            if (bytes.Length == 0) return Task.CompletedTask;
+            Program.ToArea(player, bytes, log, only: player);
+            return Task.CompletedTask;
+        }
+        return Send(player, bytes, log, atGate: atGate);
+    }
+
     /// <summary>S→C 0x2c8 to the player's client (InstanceProtocol.ActionData) as a world record of the object: data for the
     /// action the object runs, matched by its action type, skill id, sequence and sub-id.</summary>
     public static Task SendActionData(Player player, uint id, ushort actionType, ushort skillId, ushort sequence, byte subId,

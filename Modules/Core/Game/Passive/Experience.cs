@@ -74,7 +74,7 @@ public static partial class Game
     public static async Task<bool> PublishExperienceChange(Player player, ExperienceChange change, string why)
     {
         var updates = LevelUpdatesFor(player);
-        await Send(player, [], $"0x02bc current player experience ({why})", atGate: () =>
+        await SendOwnWorldRecord(player, [], $"0x02bc current player experience ({why})", atGate: () =>
         {
             lock (updates.Gate)
             {
