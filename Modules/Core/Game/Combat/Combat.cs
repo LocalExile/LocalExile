@@ -1288,6 +1288,7 @@ public static partial class Game
             if (beginAction) player.Walk.Order(from.X, from.Y, acceptedAt);
             player.Walk.Teleport(to.X, to.Y, acceptedAt);
             RecordAcceptedGemUseAt(player, effect, to, acceptedAt);
+            if (player.ProjectileRuntime is { Active: true } stormRuntime) stormRuntime.StormOrbOnLightningUse(effect, acceptedAt);
             if (CastingSpell(player, effect) && !SkillsFor(player).IsInstant(effect))
                 RecordNonInstantSpellUseLocked(player, effect, acceptedAt);
             receipt = new(player, CombatLifetime!, skillId, effect, source.Identity, action, player.ProjectileEpoch,
@@ -1725,6 +1726,12 @@ public static partial class Game
         if (!locationInstant && gem.Name is not null && placedAdmission is null)
         {
             RecordAcceptedGemUse(player, gem.Effect, to);
+            if (player.ProjectileRuntime is { Active: true } stormRuntime)
+            {
+                lock (LevelUpdatesFor(player).Gate)
+                    if (stormRuntime.HasStormOrb(player.Id) && !IsTotemSkill(player, skillId))
+                        stormRuntime.StormOrbOnLightningUse(gem.Effect, AreaTime(player));
+            }
             if (spell && cooldownUse?.Instant != true && !SkillsFor(player).IsInstant(gem.Effect)
                 && !IsTotemSkill(player, skillId))
                 RecordNonInstantSpellUseLocked(player, gem.Effect, AreaTime(player));

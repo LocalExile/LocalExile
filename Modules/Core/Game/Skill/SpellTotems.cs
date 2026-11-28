@@ -22,6 +22,7 @@ public static partial class Game
             || (ArcProxyEffect(SkillsFor(player).EffectId(effect)) || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
                 || ShockNovaEffect(SkillsFor(player).EffectId(effect)) || GlacialCascadeEffect(SkillsFor(player).EffectId(effect))
                 || BladefallEffect(SkillsFor(player).EffectId(effect)) || FrostBombEffect(SkillsFor(player).EffectId(effect))
+                || OrbOfStormsEffect(SkillsFor(player).EffectId(effect))
                 || IsPurifyingFlame(SkillsFor(player).EffectId(effect)) || IsWaveOfConviction(SkillsFor(player).EffectId(effect))
                 || IsGroundBladeBlast(SkillsFor(player).EffectId(effect)) || IsBladeBlastOfUnloading(SkillsFor(player).EffectId(effect))
                 || IsBladeVortex(SkillsFor(player).EffectId(effect)) || SkillsFor(player).EffectId(effect) == VaalBladeVortexEffect
@@ -246,6 +247,8 @@ public static partial class Game
             double range = TotemTargetRange(player, totem.SkillId);
             var gem = GemSkillEffects(player).First(g => g.Id == totem.SkillId);
             string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
+            if (effect == "OrbOfStorms" && player.ProjectileRuntime is { Active: true } stormRuntime
+                && stormRuntime.HasStormOrb(totem.Id)) continue;
             bool daggerDetonation = effect == BladeBlastDaggerDetonation;
             bool warchief = effect == VaalAncestralWarchiefEffect;
             if (warchief && !VaalWarchiefInRange(player, totem, now)) continue;
@@ -483,7 +486,7 @@ public static partial class Game
                 });
                 continue;
             }
-            if (BladefallEffect(effect) || FrostBombEffect(effect) || IsPurifyingFlame(effect) || IsWaveOfConviction(effect)
+            if (BladefallEffect(effect) || FrostBombEffect(effect) || OrbOfStormsEffect(effect) || IsPurifyingFlame(effect) || IsWaveOfConviction(effect)
                 || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect))
             {
                 bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
@@ -495,7 +498,16 @@ public static partial class Game
                     else if (FrostBombEffect(effect))
                         session.ReleaseFrostBomb(gem.Effect, SupportedSkill(player, totem.SkillId).Stats, at, Current,
                             impact => TotemNovaLocked(player, session, totem, impact.Centre, impact.Radius, sequence,
-                                damageMore: impact.HitMore, durationAilmentMore: effect == ForthcomingFrostBomb ? impact.AilmentMore : null));
+                                damageMore: impact.HitMore, ailmentDamageMore: effect == ForthcomingFrostBomb ? impact.AilmentMore : null));
+                    else if (OrbOfStormsEffect(effect))
+                    {
+                        var own = SupportedSkill(player, totem.SkillId).Stats;
+                        double more = Math.Max(0, 1 + own.GetValueOrDefault(Stat.SupportTotemDamagePlusPctFinal) / 100d);
+                        session.ReleaseStormOrb(totem.Id, gem.Effect, totem.SkillId, own,
+                            at, Current, (centre, reach, ids, struck) => TotemNovaLocked(player, session, totem, centre, reach,
+                                sequence, damageMore: more, targetFilter: (id, _) => ids.Contains(id), onHit: struck,
+                                ailmentDamageMore: more));
+                    }
                     else if (IsPurifyingFlame(effect))
                         SchedulePurifyingFlame(player, session, gem.Effect, SupportedSkill(player, totem.SkillId).Stats,
                             TotemCasterStats(CharacterPlayerStats(player)), totem.At, at, Current,

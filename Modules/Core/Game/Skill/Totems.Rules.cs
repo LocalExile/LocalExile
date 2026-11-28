@@ -950,7 +950,7 @@ public static partial class Game
         Func<(int X, int Y), bool>? covers = null, double damageMore = 1, bool spellImpale = false, int extraCriticalIncrease = 0,
         int extraShockChance = 0, CascadePulse? cascade = null, long baseChaos = 0,
         Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null, SkillCriticalRoll? sharedCritical = null,
-        uint hexblastTarget = 0, double? durationAilmentMore = null)
+        uint hexblastTarget = 0, double? ailmentDamageMore = null)
     {
         var skill = SupportedSkill(player, totem.SkillId);
         if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true) is not { } inputs) return;
@@ -974,7 +974,7 @@ public static partial class Game
             .ForWeapon(weaponLocal);
         bool hexblast = hexblastTarget != 0;
         bool splash = false;
-        bool specificAilments = hexblast || durationAilmentMore.HasValue;
+        bool specificAilments = hexblast || ailmentDamageMore.HasValue;
         var ignite = specificAilments ? SupportedIgnite(player, totem.SkillId, spell: true, caster, capturedInputs: inputs) : default;
         var poison = specificAilments ? SupportedPoison(player, totem.SkillId, spell: true, caster, capturedInputs: inputs) : default;
         void Contact(uint id, SpawnedMonster m)
@@ -1019,11 +1019,12 @@ public static partial class Game
             if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: totem.At) is not { } accepted) return;
             onHit?.Invoke(id);
             if (!attack) ArcaneSurgeOnSpellHitLocked(player, ownerStats, m);
-            LeechFromTotemHitLocked(player, m, directDamage, now, ownerStats);
+            if (skill.Stats.GetValueOrDefault(Stat.DamageCannotBeReflectedOrLeechIfUsedByOtherObject) == 0)
+                LeechFromTotemHitLocked(player, m, directDamage, now, ownerStats);
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
             if (hitSummon)
                 HitSummonsOnHitLocked(player, m, skill.Stats, totem.SkillId, now, AreaRng(player), playerConsumesCorpse: false);
-            double ailmentMore = durationAilmentMore ?? (hex is null ? 1
+            double ailmentMore = ailmentDamageMore ?? (hex is null ? 1
                 : Math.Max(0, 1 + skill.Stats.GetValueOrDefault(Stat.HexblastAilmentDamagePlusPctFinalIfHexed) / 100d));
             if (!m.Dead && damage > 0)
             {

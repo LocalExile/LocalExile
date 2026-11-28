@@ -4,7 +4,7 @@ public static partial class Game
 {
     static bool TimedAreaSpellEffect(string? effect) =>
         CorpseDamageSpell(effect) || CremationEffect(effect) || BladefallEffect(effect)
-        || FrostBombEffect(effect) || IsBladeVortex(effect) || effect is "BallLightningAltY" or VaalBladeVortexEffect;
+        || FrostBombEffect(effect) || OrbOfStormsEffect(effect) || IsBladeVortex(effect) || effect is "BallLightningAltY" or VaalBladeVortexEffect;
 
     public sealed partial class ProjectileSession
     {
@@ -71,6 +71,18 @@ public static partial class Game
                 if (effect == "BallLightningAltY")
                 {
                     ReleaseStaticBall(gem.Effect, source.Stats, aim, Current, (at, radius, time) => Hit(at, radius, time));
+                    return;
+                }
+                if (OrbOfStormsEffect(effect))
+                {
+                    ReleaseStormOrb(Player.Id, gem.Effect, gem.Id, source.Stats, aim, Current, (centre, reach, targets, struck) =>
+                    {
+                        var task = AreaSkillHitForUse(null, Player, gem.Id, gem, centre, centre, immediate: true,
+                            sequence: sequence, sacrifice: sacrifice, triggeredCurrent: Current, scheduledSession: this,
+                            contactTargets: targets, radiusOverride: reach, onHit: struck, hitAndAilmentMore: more * beidatMore);
+                        if (!task.IsCompleted) throw new InvalidOperationException("Orb of Storms contact must not yield.");
+                        task.GetAwaiter().GetResult();
+                    });
                     return;
                 }
                 if (BladefallEffect(effect))

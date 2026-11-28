@@ -414,9 +414,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Blood Rage: attack speed, physical attack life leech, Frenzy Charge chance on kill and its physical degeneration;
   a kill refreshes it (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Auras, reservation, Pride, heralds (Herald of Thunder's bolts drawn in the worn skin; walls block them) and
-  permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) Â§13.
-- Auras, reservation, Pride, heralds and permanent spell buffs, including Mana-Infused Staff's fixed reservation and block wave. Docs: [11](../docs/protocol/11-skills.md) Â§13.
-- Auras, reservation, Pride, heralds and permanent spell buffs, including Mana-Infused Staff's block wave and Spellslinger's linked spell reservations and wand-release triggers. Docs: [11](../docs/protocol/11-skills.md) Â§13.
+  permanent spell buffs, including Mana-Infused Staff's fixed reservation and block wave and Spellslinger's linked reservations and wand triggers. Docs: [11](../docs/protocol/11-skills.md) Â§13.
 - Animated equipment, including Self Reflection. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Animated Guardian keeps its equipment on death and is unavailable in that non-hideout instance.
 - Summons: quality, source recovery, spell repeats, and enemy-seeking undamageable Skitterbots; mines and traps
@@ -558,6 +556,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   and the gem’s beam or burst, with independent hit and damaging ailment multipliers.
 - Player-cast Stormbind paints runes that Hinder until they expire or explode. Rune Blast spends mana to improve
   them and detonates a connected field on release. The Teleportation variant can land on the targeted rune.
+- Orb of Storms splits periodic and lightning-use bolts. Squalls strikes on placement and moves to a struck enemy.
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) §9a.

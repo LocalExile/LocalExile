@@ -376,6 +376,7 @@ public static partial class Game
             ClearElectrocutionArrows();
             ClearVenomGyre();
             ClearStormRain();
+            ClearStormOrbs();
             ClearThunderstorms();
             ClearStormbindRunes();
             ClearFusillades();
