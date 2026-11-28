@@ -8,6 +8,35 @@ namespace GameServer.Gateway.Tests;
 public sealed class BatchHudStatsCombatTests
 {
     [Fact]
+    public void Supreme_ostentation_publishes_requirement_stats_no_requirement_reaches()
+    {
+        using var fixture = new MinionUtilityTests.Fixture();
+        var player = new Player(new(1, "1_1_1", 300, 300, 100, 100, null, []), 1, 1)
+        {
+            Character = { Name = "Ostentation_" + Guid.NewGuid().ToString("N"), ClassRow = 1 },
+            Connection = { PlayerSent = true },
+            Instance = new(),
+            PlayerLife = 100,
+            LeagueModule = new(new League("ostentation-test", "Standard", false, false), new HashSet<string>(["Game"])),
+        };
+        player.Clock.Stop();
+        using var statHook = GameEvents.PlayerStatSources.Add("Game", (p, s) =>
+        {
+            if (ReferenceEquals(p, player)) s[Stat.KeystoneSupremeProdigy] = 1;
+            return s;
+        });
+        player.Pools = Game.PoolsFor(player, 1);
+        IReadOnlyDictionary<uint, int> stats;
+        using (new Game.PlayerStatScope(player, fresh: true))
+            stats = Game.CharacterPlayerStats(player);
+        Assert.True(player.Pools.IgnoreAttributeRequirements);
+        Assert.True(stats[Stat.Strength] < 1000);
+        foreach (uint key in new[] { Stat.VirtualStrengthForRequirements, Stat.VirtualDexterityForRequirements,
+                     Stat.VirtualIntelligenceForRequirements })
+            Assert.Equal(10000, stats[key]);
+    }
+
+    [Fact]
     public async Task Player_hud_stats_minion_counters_and_removable_buff_cancel_behave_per_client_contract()
     {
         using var fixture = new MinionUtilityTests.Fixture();
