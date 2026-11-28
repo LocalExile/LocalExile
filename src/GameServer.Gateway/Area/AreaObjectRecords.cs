@@ -92,6 +92,28 @@ public sealed class AreaObjectRecords(GameArea area)
 
     public bool Has(uint id) { lock (objects) return objects.ContainsKey(id); }
 
+    /// <summary>Snapshots all retained 0x02bb creates (<c>id</c>, <c>typeHash</c>, raw create blob) so modules can rebuild
+    /// area-bound state after a hot-reload without duplicating entities.</summary>
+    public List<(uint Id, uint TypeHash, byte[] Blob)> SnapshotCreates()
+    {
+        var result = new List<(uint, uint, byte[])>();
+        lock (objects)
+        {
+            foreach (var (id, records) in objects)
+            {
+                if (records.Count == 0) continue;
+                var bytes = records[0].Bytes.AsSpan();
+                if (bytes.Length < 18 || BinaryPrimitives.ReadUInt16BigEndian(bytes) != InstanceEntities.CreateObjectId)
+                    continue;
+                uint typeHash = BinaryPrimitives.ReadUInt32BigEndian(bytes[12..]);
+                int blobLen = BinaryPrimitives.ReadUInt16BigEndian(bytes[16..]);
+                if (bytes.Length < 18 + blobLen) continue;
+                result.Add((id, typeHash, bytes.Slice(18, blobLen).ToArray()));
+            }
+        }
+        return result;
+    }
+
     /// <summary>A joining client is written the area's objects as the others have them.</summary>
     public void Join(Player player)
     {
