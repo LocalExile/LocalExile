@@ -1976,6 +1976,9 @@ public static partial class Game
         if (spellCastMs is int frozenCast && IsFrozenLegionEffect(SkillsFor(player).EffectId(gem.Effect)))
             return CompleteSupportedUse(ScheduleFrozenLegion(player, gem, from, to, sequence, frozenCast,
                 recoveryGeneration, swingAt, cooldownUse, Current));
+        if (spellCastMs is int bladeCast && SkillsFor(player).EffectId(gem.Effect) == EnergyBladeEffect)
+            return CompleteSupportedUse(ScheduleEnergyBlade(player, skillId, gem.Effect, bladeCast,
+                recoveryGeneration, swingAt, Current));
         // The self buffs a player casts by hand: the guards, Phase Run, Blood Rage.
         if (gem.Name is not null && await CastSelfBuff(player, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsRighteousFire(gem.Effect))

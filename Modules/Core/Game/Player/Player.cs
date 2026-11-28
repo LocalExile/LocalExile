@@ -275,6 +275,13 @@ public static partial class Game
         ClearSteelBuffsOnDeath(player);
         ClearSmokeMineSpeed(player);
         ClearResonance(player);
+        bool bladeEnded = false;
+        if (CurrentEnergyBlade(player) is not null)
+        using (ProjectileMutation(player, advance: false))
+        {
+            bladeEnded = ClearEnergyBlade(player);
+            if (bladeEnded) EnergyBladeChanged(player);
+        }
         EndTimedSkillBuffs(player);
         player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
@@ -304,6 +311,7 @@ public static partial class Game
                 $"0x0017 death XP penalty chat ({xpPenaltyPct}%)");
         int deaths = player.PlayerDeaths;
         await SendPlayerDeathPresentation(player, label, deathEpoch, deaths, deathKind);
+        if (bladeEnded) await PublishEnergyBlade(player);
         await GameEvents.RunPlayerDied(player, xpBefore - xpAfter);
         await GameEvents.RunPlayerDeath(new PlayerDiedContext(player, deathKind, deaths, player.Character.Hardcore, xpBefore - xpAfter));
     }

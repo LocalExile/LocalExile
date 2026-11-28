@@ -112,6 +112,7 @@ public static partial class Game
     sealed class SelfBuffSet
     {
         public SelfBuff? PhaseRun, PhaseRunDamage, BloodRage;
+        public EnergyBladeState? EnergyBlade;
     }
     static readonly RuleTable<Player, SelfBuffSet> SelfBuffs = new();
 
@@ -131,6 +132,7 @@ public static partial class Game
         PhaseRunBuffRow = BuffRow("new_phase_run", 467);
         PhaseRunDamageBuffRow = BuffRow("new_phase_run_damage", 468);
         BloodRageBuffRow = BuffRow("blood_rage", 11);
+        EnergyBladeBuffRow = BuffRow("storm_blade", 1942);
     }
 
     // Under the Monsters lock (WithSupportGemBuffs): the running self buffs' stats, from the accepted cast on.
@@ -143,6 +145,12 @@ public static partial class Game
         AddPlagueBearerStats(player, stats);
         if (!SelfBuffs.TryGetValue(player, out var set)) return stats;
         double now = AreaTime(player);
+        if (set.EnergyBlade is { } blade)
+        {
+            stats[Stat.WieldingStormBlades] = 1;
+            stats[Stat.StormBladeEnergyShieldPlusPctFinal] = blade.ShieldMore;
+            stats[Stat.AttackSpeedPlusPct] = ActorScale.Saturate((long)stats.GetValueOrDefault(Stat.AttackSpeedPlusPct) + blade.AttackSpeed);
+        }
         AddRunning(set.PhaseRun);
         AddRunning(set.PhaseRunDamage);
         if (AddRunning(set.BloodRage))

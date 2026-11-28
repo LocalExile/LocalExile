@@ -27,6 +27,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Withering Step grants Elusive and Phasing, Withers each enemy once per use, and holds Blink recovery while active.
 - Plague Bearer stores damage from the caster's poisons and spends it on a moving chaos aura that returns to incubation when depleted.
 - Corrupting Fever applies stacking Corrupted Blood on the caster's hits and refreshes after enough Life is spent.
+- Energy Blade transforms active swords, preserving their gem sockets. Its lightning damage tracks the reduced maximum Energy Shield.
 - Ambush teleports to a reachable enemy, inflicts Blind and exclusively exerts one one-handed melee attack.
 - Mana per final Strength (#287). Docs: [11](../docs/protocol/11-skills.md) Â§4.
 - Player Actor scale (#299). Docs: [04](../docs/protocol/04-player-entity.md#41a-player-actor-scale-299).

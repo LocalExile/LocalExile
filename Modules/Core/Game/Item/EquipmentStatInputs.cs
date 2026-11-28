@@ -16,8 +16,10 @@ public static partial class Game
     {
         equipment ??= ItemsOf(player).EquipmentSnapshot();
         if (equipment is StatEquipment) return equipment;
-        if (!GameEvents.ItemStatSources.Any) return equipment;
-        var result = new List<(byte Row, InventoryItem Item)>(equipment);
+        var effective = EnergyBladeEquipment(player, equipment);
+        if (!GameEvents.ItemStatSources.Any)
+            return ReferenceEquals(equipment, effective) ? equipment : new StatEquipment(effective);
+        var result = new List<(byte Row, InventoryItem Item)>(effective);
         var ids = equipment.Select(e => e.Item.Id).ToHashSet();
         foreach (var (owner, run) in GameEvents.ItemStatSources.Subscribers(player))
             GameEventOwners.Guard(owner, nameof(GameEvents.ItemStatSources), () =>
