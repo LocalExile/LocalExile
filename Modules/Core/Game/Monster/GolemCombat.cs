@@ -1236,6 +1236,11 @@ public static partial class Game
             }
             landings = targets;
         }
+        bool spiral = p.SpiralAngle != 0 && profile.Count > 1 && !nova;
+        double flightCells = p.Lobbed ? distance : nova || spiral ? maxRange : distance;
+        var presentation = MonsterProjectilePresentation(SkillsFor(player).Clips(p.Metadata), flightCells / profile.Speed);
+        if (a.Attack.Release?.Point is { } launch)
+            presentation = (presentation ?? new ProjectilePresentation()) with { LaunchHeight = launch.HeightSteps };
         var offense = new ObjectProjectileOffense(a.Id, (s, contact) =>
         {
             if (!CurrentGameWork || player.Area.Monsters.GetValueOrDefault(contact.Target.Id) is not { Hostile: true } victim) return ProjectileHitResult.Miss;
@@ -1244,8 +1249,8 @@ public static partial class Game
             bool hit = ResolveGolemHitLocked(player, g, a, contact.Target.Id, victim, at, more, !contact.IsArea);
             if (hit) s.Enqueue(() => PublishMinionOutcomes(player));
             return hit ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
-        }) { Quiet = true, Presentation = MonsterProjectilePresentation(SkillsFor(player).Clips(p.Metadata), distance / profile.Speed) };
-        if (p.SpiralAngle != 0 && profile.Count > 1 && !nova)
+        }) { Quiet = true, Presentation = presentation };
+        if (spiral)
         {
             int total = Math.Clamp(profile.Count, 2, 256);
             double spanRad = p.SpiralAngle * (Math.PI / 180.0);
