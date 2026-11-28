@@ -298,6 +298,7 @@ public static partial class Game
         ApplyIgniteFirePenaltyLocked(target, settings, now);
         if (playerIgnite && target.Hostile)
         {
+            AlchemistGroundOnAilmentLocked(player, target, DamageType.Fire, now);
             player.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
             RecoverLifeOnIgniteLocked(player, freshRecovery, includeExisting: true);
             HerEmbraceOnIgniteLocked(player, now);

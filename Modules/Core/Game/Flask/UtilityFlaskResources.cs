@@ -26,7 +26,7 @@ public static partial class Game
         if (local.GetValueOrDefault(Stat.LocalFlaskGainChargesConsumedAsVaalSoulsOnUse) == 0
             || player.VaalSoulsRetired || player.VaalPreventionUntil > VaalResourceTime(player)
             || VaalImmortalCallActive(player, now)
-            || CharacterPlayerStats(player).GetValueOrDefault(Stat.HasSoulGainPrevention) != 0) return false;
+            || SoulGainPreventedByStats(CharacterPlayerStats(player))) return false;
         RefreshVaalSouls(player);
         int gained = 0;
         while (gained < spent && player.VaalSouls.Gain()) gained++;

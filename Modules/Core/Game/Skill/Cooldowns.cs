@@ -15,7 +15,7 @@ public static partial class Game
         var sources = GemSkillEffects(player).Where(g => g.Effect == effect).ToArray();
         if (sources.Length == 0)
         {
-            if (skills.CooldownMs(effect, level) <= 0 || !IsDashEffect(skills.EffectId(effect))) return null;
+            if (skills.CooldownMs(effect, level) <= 0 || !IsDashMovementEffect(skills.EffectId(effect))) return null;
             var fallback = SingleUseCooldown.ForSkill(skills, Stats, effect, level,
                 CharacterPlayerStats(player), skills.EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2));
             return WithMapCooldown(player, fallback is { } dash ? dash with { SharedGroup = 9 } : null);
@@ -105,6 +105,12 @@ public static partial class Game
                 + own.GetValueOrDefault(Stat.DischargeCooldownOverrideMs) : 0;
         if (dischargeCooldown > 0 && skills.CooldownMs(effect, supported.Level) <= 0)
             addedMilliseconds = ActorScale.Saturate(dischargeCooldown);
+        if (FindSpellslingerSupport(supported) is { } slinger)
+        {
+            int triggerCooldown = skills.CooldownMs(slinger.Gem.Effect, slinger.Gem.Level);
+            int nativeCooldown = skills.CooldownMs(effect, supported.Level);
+            addedMilliseconds = Math.Max(addedMilliseconds, triggerCooldown - nativeCooldown);
+        }
         if (SingleUseCooldown.ForSkill(skills, Stats, effect, supported.Level, playerStats, own, addedMilliseconds) is not { } plan)
             return null;
         if (dischargeCooldown > 0)
@@ -142,7 +148,7 @@ public static partial class Game
         int group = skills.CooldownGroup(effect, level);
         if (group == GuardCooldownGroup && !skills.IsVaal(effect)) return GuardCooldownKey;
         string? id = skills.EffectId(effect);
-        return group >= 0 && (IsDashEffect(id) || IsSummonBeastialCompanionEffect(id)
+        return group >= 0 && (IsDashMovementEffect(id) || IsSummonBeastialCompanionEffect(id)
             || id is TwisterEffect or CatStealthCryEffect) ? -1 - group : effect;
     }
 
@@ -202,7 +208,8 @@ public static partial class Game
             }
             player.SingleUseCooldowns[key] = state;
         }
-        state.Refresh(now, key == GuardCooldownKey && !state.FullyRecovered ? state.Rate : plan.RecoveryRate);
+        if (key == GuardCooldownKey && !state.FullyRecovered) state.Refresh(now, state.Rate);
+        else state.RefreshForPlan(now, plan.RecoveryRate);
         state.Capacity(plan.Uses);
         return state;
     }
@@ -237,9 +244,15 @@ public static partial class Game
 
     public static bool TryBeginCooldownUseCore(Player player, int effect, SingleUseCooldown? plan, bool instant,
         Action sideEffects, out CooldownUseTicket? ticket, int? actionToken, bool reserve, double? requestedAt,
-        ushort? skillId, Func<bool>? admit = null, bool reserveAttack = false, bool triggered = false)
+        ushort? skillId, Func<bool>? admit = null, bool reserveAttack = false, bool triggered = false) =>
+        TryBeginCooldownUseCore(player, effect, plan, instant, sideEffects, out ticket, actionToken, reserve,
+            requestedAt, skillId, admit, reserveAttack, triggered, advanceProjectiles: true);
+
+    static bool TryBeginCooldownUseCore(Player player, int effect, SingleUseCooldown? plan, bool instant,
+        Action sideEffects, out CooldownUseTicket? ticket, int? actionToken, bool reserve, double? requestedAt,
+        ushort? skillId, Func<bool>? admit, bool reserveAttack, bool triggered, bool advanceProjectiles, double? cooldownAt = null)
     {
-        using (ProjectileMutation(player, advance: !reserveAttack))
+        using (ProjectileMutation(player, advance: advanceProjectiles && !reserveAttack))
         {
             using var sourceAdmission = AscendancyPolicies.Enter(player, player.Character.MainAscendancy.Selection);
             ticket = null;
@@ -324,11 +337,11 @@ public static partial class Game
             if (payer is ushort paying && !CanPaySkillCost(player, paying)) return false;
             if (plan is { } cooldown)
             {
-                double now = AreaTime(player);
+                double now = cooldownAt ?? AreaTime(player);
                 state = CooldownStateLocked(player, key, cooldown, now);
                 if (key == GuardCooldownKey && !state.Ready) return false;
                 var peers = SharedCooldownPeers(player, effect, key, cooldown, now);
-                state.Refresh(now, cooldown.RecoveryRate);
+                state.RefreshForPlan(now, cooldown.RecoveryRate);
                 state.Capacity(cooldown.Uses);
                 if (reserve && IsFrozenLegionEffect(effectId))
                     frozenLegionUses = Math.Max(0, state.Uses - state.SpentUses);
@@ -467,7 +480,8 @@ public static partial class Game
         foreach (var (key, state) in player.SingleUseCooldowns.ToArray())
         {
             if (!plans.TryGetValue(key, out var plan)) continue; // Removal does not reset a spent use.
-            state.Refresh(now, plan?.RecoveryRate ?? state.Rate);
+            if (plan is { } updated) state.RefreshForPlan(now, updated.RecoveryRate);
+            else state.Refresh(now, state.Rate);
             if (plan is { } current) state.Capacity(current.Uses);
             player.SkillReadyAt[key] = now + state.RemainingSeconds;
             if (plan is null && key != GuardCooldownKey) player.SingleUseCooldowns.Remove(key); // Unsupported mechanics retain the legacy path.
@@ -487,7 +501,7 @@ public static partial class Game
             if (!player.ClientSkillIds.Contains(id) || !player.SingleUseCooldowns.TryGetValue(key, out var state)
                 || key < 0 && key != GuardCooldownKey && state.NativeSkillId != id) continue;
             state.Refresh(now, state.Rate);
-            if (!state.NeedsNativeRefresh) continue;
+            if (!state.NativeRefreshDue(player.Connection.ServerFrame)) continue;
             updates.Add(new(id, state.Held ? state.TotalBaseMilliseconds / 1000f
                     : state.FullyRecovered ? 0 : (float)(state.RemainingBaseMilliseconds / 1000),
                 state.TotalBaseMilliseconds / 1000f, state.Held ? 0f : (float)state.Rate, state.SpentUses));
@@ -504,15 +518,15 @@ public static partial class Game
         if (player.SingleUseCooldowns.Count == 0) return Task.CompletedTask;
         bool dirty = false;
         foreach (var s in player.SingleUseCooldowns.Values)
-            if (s.NeedsNativeRefresh) { dirty = true; break; }
+            if (s.NativeRefreshDue(player.Connection.ServerFrame)) { dirty = true; break; }
         if (!dirty) return Task.CompletedTask;
         int epoch;
         epoch = player.ProjectileEpoch;
         Func<byte[]?> build = () => NativeCooldownRefresh(player, epoch, () => GemSkillEffects(player)
             .Where(g => CooldownFor(player, g.Effect, g.Level, g.Quality) is not null)
             .Select(g => (g.Id, g.Effect)).ToArray());
-        // Queue behind same-frame world records (such as S->C 0x01ce instant actions) for this player alone so
-        // 0x02bc never overtakes 0x01ce on the wire and exhausts the client's stored uses before CanExecute runs.
+        // Follow world-record order. An action executed at the lockstep delimiter may also defer its cooldown correction
+        // to the next frame so the client can consume the use first.
         if (InAreaFrame(player))
         {
             if (build() is { Length: > 0 } bytes)

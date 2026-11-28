@@ -24,8 +24,7 @@ public static partial class Game
         double multiplier = Math.Max(0, 1 + penalty / 100d);
         foreach (var row in GemSkillEffects(player))
         {
-            string? effect = SkillsFor(player).EffectId(row.Effect);
-            if (effect is null || !CurseCatalog.Hex(effect)) continue;
+            if (CurseCatalog.HexFamily(SkillsFor(player).EffectId(row.Effect)) is not { } effect) continue;
             var hex = SupportedSkill(player, row.Id);
             if (!hex.RequirementsMet || hex.Host != grant.Host || hex.SourceGem is null) continue;
             int radius = CurseRadius(player, row.Id, true, hex, effigy.Player);

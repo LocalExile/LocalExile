@@ -124,8 +124,11 @@ public static partial class Game
         flags["_while_onslaught_is_active"] = onslaught;
         flags["_while_have_onslaught"] = onslaught;
         flags["_during_onslaught"] = onslaught;
-        flags["_while_channelling"] = player.ChannelSkill != 0;
-        flags["_while_not_channelling"] = player.ChannelSkill == 0;
+        // ChannelSkill also hands ordinary casts and placements to the action dispatcher.
+        // The payment check here reads combat state only. Skill qualification itself builds item stats.
+        bool channelling = player.PaidChannel is { } payment && ChannelPaymentActionCurrent(player, payment, now);
+        flags["_while_channelling"] = channelling;
+        flags["_while_not_channelling"] = !channelling;
         flags["_while_you_have_active_physical_aegis"] = physicalAegis.Active;
         flags["_while_you_have_depleted_physical_aegis"] = physicalAegis.Depleted;
         bool unhinged = alive && Unhinged(player);

@@ -1908,7 +1908,8 @@ session client; every integer draw replayed with `AnimationVariantSelector.Nativ
 u32 BE y) every ~80 ms while the button is held, and **C→S 0x199** (2 bytes) when it is let go (live captures
 2026-10-23). A channelled spell that stands still sends the same 10 bytes as **C→S 0x198** instead (Winter Orb, live
 2026-11-09: same class and handler, and unregistered it was dropped as an unknown message, so the silence below ended
-the channel one second in); both forms refresh the channel's liveness. The updates do not identify the network mode:
+the channel one second in). A stationary Predictive channel can hold the same aim until release. Its 0x198 is
+sent when the aim changes. The updates do not identify the network mode:
 a native Predictive Cyclone sends 0x25 followed by 0x197 (3.29.3c). The 0x197 cell is where the channel is aimed now
 (the cursor), not the player's cell: the first one, ~90 ms
 after the start, is already at the 0x1ab target 45–60 cells away, then it drifts as the cursor and camera move
@@ -1918,7 +1919,7 @@ it, an order re-aimed on each update, at the movement speed with the gem's `cycl
 The hits run on the server's own timer (`RunChannel`, started with the channel): the first sweep lands as the channel
 starts, then one sweep around the player's current cell every `SupportedAttackSeconds` (the skill's own speed, its
 supports and the player's attack speed, as the tooltip shows), paying the cost each time, until 0x199, any other action,
-running out of mana, death or travel, or when the client's 0x197 updates stop for a second
+running out of mana, death or travel. A moving Predictive channel also ends if its 0x197 updates stop for a second
 (`LastChannelUpdateAt`, `Player.ChannelSkill`, `NextChannelHitAt`). One sweep resolves its damage
 and multiplier once and rolls them per monster; every monster gets its hit, life update and death packet before the
 sweep's deaths run their loot, experience and quest work (`AreaSkillHit`). Before, a sweep recalculated the whole skill
@@ -1932,7 +1933,7 @@ The sweep centre is sampled from the current walk after queued sends, rather tha
 Pause still rejects contacts, and each timer revalidates that its gem remains available before charging the next sweep.
 A freeze or a stun's hit recovery (`PlayerActionBlocked`) suspends the timer: no stage is paid or swept until it ends.
 A stage already paid when one lands is refused at its hit commit.
-The 0x197 updates are dropped while the player is blocked, so an interruption longer than a second ends the channel.
+Blocked 0x197 updates are dropped. A moving Predictive channel can then reach its one-second silence limit.
 
 **Storm Call** (`StormCall.cs`, `StormCallMarkers.cs`): each landing (the aim, a Spell Cascade area, a Spell Echo
 repeat) sets a marker that strikes its area when the skill duration ends, and that strike also calls down every other

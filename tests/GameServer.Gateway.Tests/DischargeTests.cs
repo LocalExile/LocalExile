@@ -48,4 +48,17 @@ public sealed class DischargeTests
         session.Admit(2, [new ChargeEvent.Spend(ChargeType.Power, 5, "Discharge")], Get, () => default, alive: true, new Random(1));
         Assert.Equal(1, session.Effective(ChargeType.Power));
     }
+
+    [Fact]
+    public void TriggeredDischargeHasAPayload()
+    {
+        // A trigger support (Cast On Critical Strike, Cast when Damage Taken) pays and then releases the spell only when
+        // it has a payload; Discharge was missing from the triggered area spells, so it paid and dropped the cast.
+        using var fixture = new TriggeredSummonTests.Fixture();
+        foreach (var name in new[] { "Discharge", "Discharge of Misery" })
+        {
+            ushort skill = Assert.Single(fixture.Equip((name, 1), ("Cast when Damage Taken Support", 1)));
+            Assert.True(Game.TriggerPayloadAvailable(fixture.Player, Game.SupportedSkill(fixture.Player, skill)), name);
+        }
+    }
 }

@@ -203,7 +203,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [league encounters](../docs/game/league-encounters.md).
 - Bestiary: maps use their mission and Bestiary Atlas rules, including Bestial Rage on spawned beasts.
 - Abyss: pit, crack arms, wave, reward chest per instance. [Docs](../docs/game/league-encounters.md)
-- Mercenaries & Luminary: Act 3+ campaign and map encounters (`0xa1`/`0xa2`, `0x7b` `0x60`/`0x61`, `0x010c`), Take Item/Rucksack, Rematch Warrants, temporary recruits, persistent 3-slot permanent roster (`Mercenary1..3`), full `CanMercenaryEquipItem` validation, companion AI/auras/taunt/recoup/death/revive, and all Scion Luminary ascendancy passives (`Noble Blood`, `Oath of Fealty`, `Golden Glory`, `Loyal Bodyguard`, `Bestowed Knighthood`, `Legendary Arms` + unique-slot nodes). Verified live on 3.29.3d.
+- Mercenaries & Luminary: Act 3+ campaign and map encounters (`0xa1`/`0xa2`, `0x7b` `0x60`/`0x61`, `0x010c`),
+  Take Item/Rucksack, Rematch Warrants, temporary recruits, persistent 3-slot permanent roster (`Mercenary1..3`),
+  full `CanMercenaryEquipItem` validation, companion AI/auras/taunt/recoup/death/revive, and all Scion Luminary
+  ascendancy passives (`Noble Blood`, `Oath of Fealty`, `Golden Glory`, `Loyal Bodyguard`, `Bestowed Knighthood`,
+  `Legendary Arms` + unique-slot nodes).
+  Supports roll 3.29 endgame counts from area level 68 with one tier per support by level.
+  Guaranteed campaign zones ignore the level gate with no Rucksack; other encounters carry a 2x2 currency/Trarthan
+  gem Rucksack, show the `MercenaryEncounter` map icon, and exclude the empty Bladereach build.
+  Infamous encounters roll at 20% (1.5x to 2x in T1-T16 maps) with an Infamous modifier from level 68 and at least
+  one unique item.
+  Verified live on 3.29.3d.
   Docs: [league encounters](../docs/game/league-encounters.md).
 - Ritual: maps and Act 2 campaign altars, waves, Tribute, Favour window, Vessels, Scarabs, Atlas, and Omens.
   Docs: [league encounters](../docs/game/league-encounters.md).

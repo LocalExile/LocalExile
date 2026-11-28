@@ -91,6 +91,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadPassiveGrantedSkillsRulesData();
         // Combat, skills and projectiles.
         Rules.LoadOwnAurasData();
+        global::SkillPoisonStats.LoadData();
         global::StationaryCollision.LoadStationaryCollisionData();
         Rules.LoadProjectilesData();
         Rules.LoadPlacedSkillsData();
@@ -243,7 +244,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapBeyond.Leave(conn); return Task.CompletedTask; });
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapBeyond.PlayerStats);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapBeyond.Describe);
-        module.Lifetime.Own(IncomingResourceDefences.HandOverFinalTaken([MapBeyond.BossLessDamageStat]));
+        module.Lifetime.Own(IncomingResourceDefences.HandOverFinalTaken([MapBeyond.BossLessDamageStat, Stat.SoulLinkGrantsDamageTakenPlusPctFinal]));
         module.Lifetime.Own(IncomingResourceDefences.HandOverOverTimeMoreStat(Stat.PassiveMasteryDamageTakenOverTimePlusPctFinal));
         module.Lifetime.Own(EnergyShield.HandOverRechargeMoreStat(Stat.UniqueSoullessEleganceEnergyShieldRechargeRatePlusPctFinal));
         module.Lifetime.Own(MonsterModEffects.HandOverMore(Rules.AtlasMoreLife, Rules.AtlasMoreDamage));
@@ -261,6 +262,7 @@ public sealed class GameModule : IModule, IDisposable
         Program.SetGameLogic(new GameLogic(module.Lifetime));
         module.Lifetime.Own(Rules.InstallJoining());
         string id = module.Manifest.Id;
+        GameEvents.PlayerLeaving.Add(id, Rules.EndOutgoingPlayerLinksOnLeave);
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.LeaveArea(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaTotems(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndRejuvenationTotemAura(player); return Task.CompletedTask; });

@@ -300,8 +300,12 @@ public static partial class Game
         AlternateAilmentsOnBlockLocked(m, playerStats, now);
         if (RandomRolls.Chance(playerStats(Stat.ChillAttackersFor4SecondsOnBlockPctChance), 100, random))
             InflictedLocked(player, m, m.Ailments.WithoutDamage(Kind.Chill, 4, now, playerStats, Target, area));
-        if (RandomRolls.Chance(playerStats(Stat.ShockAttackersFor4SecondsOnBlockPctChance), 100, random))
-            InflictedLocked(player, m, m.Ailments.WithoutDamage(Kind.Shock, 4, now, playerStats, Target, area));
+        if (RandomRolls.Chance(playerStats(Stat.ShockAttackersFor4SecondsOnBlockPctChance), 100, random)
+            && m.Ailments.WithoutDamage(Kind.Shock, 4, now, playerStats, Target, area) is { } shock)
+        {
+            InflictedLocked(player, m, shock);
+            player.ProjectileRuntime?.GalvanicOnShock(m, now);
+        }
     }
 
     /// <summary>The area of effect modifier a hit's shock spreads by (SkillArea.Modifier): the player's panel total
@@ -401,13 +405,16 @@ public static partial class Game
 
     /// <summary>Maim's relative walk factor and the movement_velocity_+% the client should hold. Maim adds -30 into the
     /// monster's existing increased/reduced movement bucket; it never overwrites the speed roll or another modifier.</summary>
-    public static (double Factor, int Pct) MaimedMovementFactor(SpawnedMonster m, double now)
+    public static (double Factor, int Pct) MaimedMovementFactor(SpawnedMonster m, double now) => MaimedMovementFactor(m, now, 0);
+
+    static (double Factor, int Pct) MaimedMovementFactor(SpawnedMonster m, double now, int groundHinder)
     {
         int basePct = m.Effects.MovementPct;
         int maimPct = now < m.MaimedUntil ? -30 : 0;
         // The totem notable's local stat specifies 25%. The common 30% Hinder can expire independently.
         int timedHinder = Math.Max(m.HinderedUntil > now ? 30 : 0, m.TotemHinderedUntil > now ? 25 : 0);
-        int hinderPct = Math.Max(SpiderHinder(m, now), timedHinder);
+        int hinderPct = Math.Max(Math.Max(groundHinder, Math.Max(SpiderHinder(m, now), timedHinder)),
+            Math.Max(WitherHinder(m, now), BlightHinder(m, now).Slow));
         int lowLife = MonsterOnLowLife(m) ? m.Effects[Stat.MovementVelocityPlusPctWhenOnLowLife] : 0;
         int totalPct = basePct + maimPct - hinderPct + lowLife;
         bool debilitated = now < m.DebilitatedUntil;
@@ -440,19 +447,19 @@ public static partial class Game
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
-        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true) =>
+        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true, SkillPoisonStats poisonSkill = default) =>
         AilmentsOnHitLocked(player, targetId, m, mitigated, spell, critical, criticalMultiplier, playerStats, skill,
             now, random, default(AttackAilmentGains), reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
-            attackerSize, attackerHasReversedStat);
+            attackerSize, attackerHasReversedStat, poisonSkill);
 
     public static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, AttackAilmentGains attackGains, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
-        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true) =>
+        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true, SkillPoisonStats poisonSkill = default) =>
         AilmentsOnHitLocked(player, targetId, m, mitigated, spell, critical, criticalMultiplier, playerStats, skill,
             now, random, attackGains, false, 0, reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
-            attackerSize, attackerHasReversedStat);
+            attackerSize, attackerHasReversedStat, poisonSkill: poisonSkill);
 
     static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
@@ -460,10 +467,11 @@ public static partial class Game
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
-        bool? ownHit = null, bool playerAilmentOwned = true) =>
+        SkillPoisonStats poisonSkill = default, bool? ownHit = null, bool playerAilmentOwned = true) =>
         AilmentsOnHitLocked(player, targetId, m, mitigated, spell, critical, criticalMultiplier, playerStats, skill,
             now, random, attackGains, false, 0, reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
-            attackerSize, attackerHasReversedStat, sourceEffect: sourceEffect, ownHit: ownHit, playerAilmentOwned: playerAilmentOwned);
+            attackerSize, attackerHasReversedStat, sourceEffect: sourceEffect, ownHit: ownHit, poisonSkill: poisonSkill,
+            playerAilmentOwned: playerAilmentOwned);
 
     static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
@@ -472,6 +480,7 @@ public static partial class Game
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
         bool areaHit = false, int glacialFreezeMore = 0, int sourceEffect = -1, bool? ownHit = null,
+        SkillPoisonStats poisonSkill = default,
         int weaponWitherChance = 0, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         bool meleeAttack = false, bool closeRangeBowKnockback = false, bool playerAilmentOwned = true)
     {
@@ -499,6 +508,9 @@ public static partial class Game
         if (sourceSkill != 0 && !spell && (ownHit ?? playerHit) && m.Hostile
             && skill?.GetValueOrDefault(Stat.TriggerPrismaticBurstOnHitPctChance) is > 0 and var burstChance)
             TriggerPrismaticBurstLocked(player, sourceSkill, sourceEffect, m.Walk.Position(now), now, playerStats, burstChance);
+        if (sourceSkill != 0 && !spell && owned && m is { Hostile: true, EntranceGrace: false, Invulnerable: false }
+            && skill?.GetValueOrDefault(WindburstDistanceStat) is > 0 and var movementMetres)
+            TriggerWindburstLocked(player, sourceSkill, sourceEffect, m.Walk.Position(now), now, movementMetres, playerStats);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, owned, random);
         if (ownHit ?? playerHit) ItemMarksOnHitLocked(player, m, now);
@@ -572,6 +584,7 @@ public static partial class Game
         long criticalEffect = critical && Player(Stat.KeystoneElementalOverload) == 0
             ? (long)Player(Stat.NonDamagingAilmentEffectPlusPctWithCriticalStrikes)
                 + Skill(Stat.NonDamagingAilmentEffectPlusPctWithCriticalStrikes) : 0;
+        var galvanic = playerHit ? player.ProjectileRuntime?.GalvanicShockBonus() ?? default : default;
         int Attacker(uint name)
         {
             int value = Player(name) + PanelStats.Of(name, Skill);
@@ -586,7 +599,10 @@ public static partial class Game
                 _ => 0,
             };
             if (effect != 0) value = ActorScale.Saturate(value + effect);
-            if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock + extraShockChance);
+            if (name == Stat.ChanceToShockPct)
+                value = ActorScale.Saturate((long)value + frozenShock + extraShockChance + galvanic.Chance);
+            if (name == Stat.VirtualShockDurationPlusPct)
+                value = ActorScale.Saturate((long)value + galvanic.Duration);
             if (name == Stat.ChanceToFreezePct) value = ActorScale.Saturate((long)value + projectileFreezeChance);
             if (!tinctureWeapon) return value;
             return name switch
@@ -629,6 +645,7 @@ public static partial class Game
             else if (effect.Kind == Kind.Shock)
             {
                 player.RecentEvents.Record(StatConditions.ShockedEnemy, now);
+                if (playerHit) player.ProjectileRuntime?.GalvanicOnShock(m, now);
                 if (playerHit && m.Hostile && !m.Dead && m.Life > 0
                     && Player(Stat.CreateHeraldOfThunderStormOnShockingEnemy) != 0)
                     ReservationShockLocked(player, now);
@@ -697,22 +714,22 @@ public static partial class Game
         int poisonStacksBefore = m.Poisons.Stacks(now);
         double poisonUntilBefore = m.Poisons.Until;
         if (TryPoisonOnHitLocked(player, m, mitigated, spell, critical, playerStats, skill, poison, now, random,
-                out double poisonDps, out double poisonSeconds, playerAilmentOwned))
-        {
-            player.Area.ActivePoisonMonsters.Add(targetId);
-            if (m.Poisons.Stacks(now) > poisonStacksBefore || m.Poisons.Until > poisonUntilBefore)
-                ShowPoisonBuff(player, targetId, m, PoisonBuffToShow(player, m, now));
-            if (playerHit && Player(Stat.PoisonReflectedToSelf) != 0 && Player(Stat.CannotBePoisoned) == 0
-                && Player(Stat.ImmuneToPoison) == 0
-                // Golden Rule's reflected-poison source stops adding player stacks at 100; this is not an incoming cap.
-                && player.IncomingAilments.PoisonStacks(now) < 100)
+            poisonSkill, out double poisonDps, out double poisonSeconds, playerAilmentOwned))
             {
-                int accepted = m.Poisons.Stacks(now) - poisonStacksBefore;
-                for (int i = 0; i < accepted && player.IncomingAilments.PoisonStacks(now) < 100; i++)
-                    player.IncomingAilments.ApplyPoison(now, poisonDps, poisonSeconds, reflected: true, victim: Player);
+                player.Area.ActivePoisonMonsters.Add(targetId);
+                if (owned) AlchemistGroundOnAilmentLocked(player, m, DamageType.Chaos, now);
+                if (m.Poisons.Stacks(now) > poisonStacksBefore || m.Poisons.Until > poisonUntilBefore)
+                    ShowPoisonBuff(player, targetId, m, PoisonBuffToShow(player, m, now));
+                if (playerHit && Player(Stat.PoisonReflectedToSelf) != 0 && Player(Stat.CannotBePoisoned) == 0
+                    && Player(Stat.ImmuneToPoison) == 0
+                    // Golden Rule's reflected-poison source stops adding player stacks at 100; this is not an incoming cap.
+                    && player.IncomingAilments.PoisonStacks(now) < 100)
+                {
+                    int accepted = m.Poisons.Stacks(now) - poisonStacksBefore;
+                    for (int i = 0; i < accepted && player.IncomingAilments.PoisonStacks(now) < 100; i++)
+                        player.IncomingAilments.ApplyPoison(now, poisonDps, poisonSeconds, reflected: true, victim: Player);
+                }
             }
-        }
-        // Fleeing (MonsterFlee): its own draws (AreaRng(player)), so a projectile's reaction draws stay in order.
         int fleeChance = MonsterFlee.Chance(spell, Player, Skill);
         if (owned && m.Bleeds.IgnitedAt(now))
             fleeChance = ActorScale.Saturate((long)fleeChance + Player(Stat.PctChanceToCauseBleedingEnemiesToFleeOnHit));
@@ -824,9 +841,11 @@ public static partial class Game
         double trap = BearTrapWalkFactor(m, now);
         double snare = EnsnaredWalkFactor(m, now);
         if (!m.RuleAilments.Idle) packets.AddRange(AlternateAilmentBuffs(id, $"monster 0x{id:x} ({m.Label})", m.RuleAilments, now));
+        int groundHinder = Math.Max(StormbindHinder(player.Area, m, now),
+            Math.Max(VoidSphereHinder(player.Area, m, now), TornadoHinder(player.Area, m, now)));
         bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
         bool lowLifeMove = MonsterOnLowLife(m) && m.Effects[Stat.MovementVelocityPlusPctWhenOnLowLife] != 0;
-        if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1 && trap == 1 && snare == 1
+        if (elementalIdle && groundHinder == 0 && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1 && trap == 1 && snare == 1
             && m.Effects[Stat.ActionSpeedMinusPct] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown && !lowLifeMove) return;
         if (!elementalIdle)
         {
@@ -838,7 +857,7 @@ public static partial class Game
             }
         }
         double action = MonsterActionFactor(m, now, freeze: false);
-        var (walk, increasedMovementPct) = MonsterWalkModifiers(m, now, action, vines, trap, snare);
+        var (walk, increasedMovementPct) = MonsterWalkModifiers(m, now, action, vines, trap, snare, groundHinder);
         int movementPct = MonsterClientMovementPct(m.Effects, increasedMovementPct);
         if (walk != a.WalkFactor)
         {
@@ -864,7 +883,7 @@ public static partial class Game
             a.SentActionSpeed = speed;
             SetStats(player, id, [(key, speed)]);
         }
-        bool maimed = TimedWalkDebuff(now, m) || SpiderHinder(m, now) != 0
+        bool maimed = groundHinder != 0 || TimedWalkDebuff(now, m) || SpiderHinder(m, now) != 0
             || lowLifeMove || trap != 1 || snare != 1;
         bool maimShown = m.MaimedMovementShown;
         bool movementChanged = maimed
@@ -882,11 +901,11 @@ public static partial class Game
         }
     }
 
-    static (double Factor, int Pct) MonsterWalkModifiers(SpawnedMonster m, double now, double action, double vines, double trap, double snare)
+    static (double Factor, int Pct) MonsterWalkModifiers(SpawnedMonster m, double now, double action, double vines, double trap, double snare, int groundHinder = 0)
     {
         // Maim changes movement only. Bear Trap's movement multiplier also enters the client's movement_velocity stat.
         bool speedFloored = m.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0;
-        var movement = MaimedMovementFactor(m, now);
+        var movement = MaimedMovementFactor(m, now, groundHinder);
         double lessMove = trap * snare * (now < m.CoveredInAshUntil ? .8 : 1);
         if (lessMove != 1 && !(speedFloored && lessMove < 1))
             movement = (movement.Factor * lessMove, (int)Math.Round((100 + movement.Pct) * lessMove - 100));

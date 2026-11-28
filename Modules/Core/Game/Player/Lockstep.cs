@@ -13,6 +13,10 @@ public static partial class Game
             && player.LockstepSkill.Channel == player.ChannelSkillSequence
             && (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill
                 || CurrentChargedDash(player) is not null
+                || CurrentDivineIre(player) is not null
+                || CurrentStormbind(player) is not null
+                || ActiveWitherChannel(player) is not null
+                || ActiveAimedPulseChannel(player) is not null
                 || IsBladeFlurryChannelling(player, player.ChannelSkill, player.ChannelGeneration, player.ActionCount));
 
     // C→S 0x18e, 0x18f, 0x192, 0x195 and 0x196, which a client sends only in lockstep. They only change what the player asks
@@ -26,10 +30,11 @@ public static partial class Game
         if (id == InstanceProtocol.LockstepMoveStartId)
         {
             var click = InstanceProtocol.ReadLockstepMoveStart(bytes);
-            // An object interaction owns this press. A ground pickup releases it once the item is gone.
+            // An object interaction owns this press. A ground pickup releases it once the item is gone; a stationary
+            // interactable (chest/stash/waypoint/transition) releases it once the walk-up/interaction finishes.
             bool move = SkillsFor(player).ActionName(click.SkillId) == "Move";
             if (move && (click.Flags & InstanceTransfer.InitialPressFlag) == 0 && player.LockstepInteractionTarget is uint used
-                && !player.Instance.Ground.WasTaken(used)) return;
+                && LockstepInteractionActive(player, used)) return;
             player.LockstepInteractionTarget = null;
             (int X, int Y) aim = (here.X + click.Dx, here.Y + click.Dy);
             player.LockstepUse = null;
@@ -96,15 +101,33 @@ public static partial class Game
             else
             {
                 player.LockstepUse = new(target, skill, 0, flags);
-                if (skill == 0x266)
-                {
-                    bool npc;
-                    lock (player.Npcs) npc = player.Npcs.ContainsKey(target);
-                    if (npc || player.Instance.Ground.Get(target) is not null)
-                        player.LockstepInteractionTarget = target;
-                }
+                if (skill == 0x266 && IsLockstepInteractable(player, target))
+                    player.LockstepInteractionTarget = target;
             }
         }
+    }
+
+    static bool IsLockstepInteractable(Player player, uint target)
+    {
+        lock (player.Npcs) if (player.Npcs.ContainsKey(target)) return true;
+        if (player.Instance.Ground.Get(target) is not null) return true;
+        if (target == player.StashObject || target == player.GuildStashObject || target == player.CraftingBenchObject) return true;
+        if (player.Layout.Waypoint is not null && target == WaypointCatalog.ObjectId) return true;
+        if (player.Layout.AreaTransitions.Any(t => t.Id == target)) return true;
+        if (player.QuestChests.ContainsKey(target)) return true;
+        return false;
+    }
+
+    static bool LockstepInteractionActive(Player player, uint target)
+    {
+        if (player.Instance.Ground.WasTaken(target)) return false;
+        lock (player.Npcs) if (player.Npcs.ContainsKey(target)) return true;
+        if (player.Instance.Ground.Get(target) is not null) return true;
+        if (target == player.StashObject || target == player.GuildStashObject || target == player.CraftingBenchObject) return true;
+        if (player.Layout.Waypoint is not null && target == WaypointCatalog.ObjectId) return true;
+        if (player.Layout.AreaTransitions.Any(t => t.Id == target)) return true;
+        double now = player.Connection.LockstepFrame?.Start ?? AreaTime(player);
+        return player.LockstepUse?.TargetId == target || player.Walk.Moving(now);
     }
 
     // A channelled skill starts once and runs until the release; anything else repeats while the button stays down.
@@ -203,8 +226,7 @@ public static partial class Game
                 sequence = NextLockstepSequence(player);
             }
             StepWalkers(player, frameStart);
-            player.Connection.LockstepTrail.Enqueue((frameStart, player.Walk.Position(frameStart)));
-            if (player.Connection.LockstepTrail.Count > 150) player.Connection.LockstepTrail.Dequeue();
+            RecordLockstepTrail(player, frameStart);
             var channelAimAtRelease = player.LockstepSkill.Aim;
             if (player.LockstepSkill.ChannelReleased() is { } channel)
             {
@@ -212,6 +234,9 @@ public static partial class Game
                 {
                     AimChargedDash(player, channelAimAtRelease, at);
                     AimBladeFlurry(player, channelAimAtRelease);
+                    AimDivineIre(player, channelAimAtRelease);
+                    AimStormbind(player, channelAimAtRelease);
+                    AimPulseChannel(player, channelAimAtRelease);
                 }
                 ended = channel;
                 player.LockstepChannelAimPending = false;
@@ -255,7 +280,8 @@ public static partial class Game
                 // Only the skill's own readiness reaches the target and pending-request clean-up below: a Move taken
                 // inside a totem placement's hold does not touch the held skill's request.
                 if (skillFree && player.LockstepSkill.Target is { } aimedAt && aimedAt != player.Id
-                    && !(player.Area.Monsters.TryGetValue(aimedAt, out var m) && !m.Dead && m.Life > 0))
+                    && !(player.Area.Monsters.TryGetValue(aimedAt, out var m) && !m.Dead && m.Life > 0)
+                    && LivePlayerLinkTarget(player, aimedAt, player.LockstepSkill.Skill) is null)
                     player.LockstepSkill.LoseTarget();
                 // Actor's gate (0x141e941a0 -> 0x141e9479e / 0x141e947aa) lets only Move (0x2909 / 0xc266) cut in after
                 // an attack's contact or while its cancelled backswing lockout (+0x2a0) runs; non-Move uses (object
@@ -387,20 +413,14 @@ public static partial class Game
         return client;
     }
 
-    // A player Move due at `at`: placed and its start cell returned when the client takes it (LockstepTakesMove). The
-    // client admits a Move by vtable slot +0x130 (0x141949a20): dx*dx + dy*dy >= 9 from the walker's own cell, which
-    // 0x141e94900 runs before it ends the current action and before 0x141e95080 sets the pair. A refused Move is
-    // destroyed there: no position set, no search, and the action the player is in goes on (live 2026-11-04, the
-    // player's 0x1ab applied under trace-lockstep-tick.js with the path search hooked: 308 of 308 Moves within two
-    // cells untouched, 127 of them with a from cell other than the client's; every farther one searched). So none is
-    // sent and nothing is spent, the estimate's walk goes on as the client's does, and a held cursor stays due
-    // (LockstepHold: it is offered again once the walk stops short of it).
+    // A player Move due at `at`: placed from the walker's frame-start cell (matching how the lockstep client applies
+    // S→C 0x01ab at the start of frame N after stepping frames 0..N-1 from the TCP stream; rewinding `from` to
+    // LockstepClientCell rubberbands the client backward by RTT + 2 frames). The client admits a Move by vtable slot
+    // +0x130 (0x141949a20): dx*dx + dy*dy >= 9 from the walker's own cell.
     public static (int X, int Y)? PlaceLockstepPlayerMove(Player player, (int X, int Y) target, double at, bool fromClient = false)
     {
-        fromClient |= StrikeRunning(player, at);
-        var here = fromClient ? LockstepClientCell(player, at) : player.Walk.Position(at);
+        var here = player.Walk.Position(at);
         if (!LockstepTakesMove(here, target)) return null;
-        if (fromClient) PlaceEstimateOnClient(player, at);
         return player.Walk.Order(target.X, target.Y, at);
     }
 
@@ -477,6 +497,7 @@ public static partial class Game
             () => LockstepAttackCutIn(player, use.SkillId, use.Sequence))
         {
             InPlace = (use.Flags & 1) != 0,
+            AttackSeconds = () => LockstepAttackSeconds(player, use.SkillId, use.Sequence),
         };
         await SendWorldRecord(player, player.Id, [], $"0x01ab lockstep {what} 0x{use.SkillId:x4} on 0x{use.TargetId:x}",
             atGate: () =>
@@ -502,7 +523,6 @@ public static partial class Game
         }
         double at = player.Connection.LockstepFrame?.Start ?? ProjectileWorldTime(player);
         StepWalkers(player, at);
-        PlaceEstimateOnClient(player, at);
         var (here, aim) = PlaceLockstepAttack(player, attack, at);
         string walkUp = attack.Open ? $"walks up to ({player.Walk.Destination.X}, {player.Walk.Destination.Y})"
             : attack.Decided.Result is null ? "no path" : "swings at once";
@@ -598,6 +618,7 @@ public static partial class Game
         {
             GroundTarget = aim,
             GroundAttackSeconds = gem.Name is null ? () => LockstepAttackSeconds(player, skill, sequence) : null,
+            AttackSeconds = () => LockstepAttackSeconds(player, skill, sequence),
         };
         try
         {
@@ -616,7 +637,6 @@ public static partial class Game
                     }
                     double at = player.Connection.LockstepFrame?.Start ?? ProjectileWorldTime(player);
                     StepWalkers(player, at);
-                    PlaceEstimateOnClient(player, at);
                     var placed = PlaceLockstepAttack(player, attack, at);
                     return InstanceProtocol.ActionStarted(player.Id, placed.Here.X, placed.Here.Y, aim.X, aim.Y,
                         skill, sequence, flags);
@@ -699,11 +719,11 @@ public static partial class Game
         }
         else if (isAttack)
         {
-            // Keep the 1-frame Move-cancel safety margin for slow weapons, clamped to the attack's own duration so
-            // Move-cancel never extends past the swing or throttles fast repeating attacks / Multistrike.
+            // LockstepAttackCutIn already reads the clip's lock_cancelling keyframe (or contact) from client.db;
+            // hold directly to it (clamped to duration) without an extra +frameLen frame that makes Move-cancels sluggish.
             player.LockstepTotemHoldUntil = 0;
             double duration = LockstepAttackSeconds(player, requested, sequence);
-            player.LockstepBusyUntil = Math.Min(actualStart + duration, actualStart + frameLen + hold);
+            player.LockstepBusyUntil = Math.Min(actualStart + duration, actualStart + hold);
         }
         else
         {
@@ -839,6 +859,11 @@ public static partial class Game
         {
             double duration = seconds();
             player.NextAttackAt = AttackTiming.After(swingStart, player.NextAttackAt, duration);
+            player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, Math.Min(swingStart + duration, end + hold));
+        }
+        else if (attack.AttackSeconds is { } attackDuration)
+        {
+            double duration = attackDuration();
             player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, Math.Min(swingStart + duration, end + hold));
         }
         else

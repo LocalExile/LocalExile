@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Diagnostics;
+using DamageConversion = GameServer.Core.World.DamageConversion;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageType = GameServer.Core.World.DamageType;
 
@@ -118,8 +119,8 @@ public static partial class Game
     }
 
     static void ReleaseSkillCorpseExplosion(ProjectileSession session, uint corpseId, SpawnedMonster corpse,
-        (int X, int Y) at, double now, int radius, DamagePacket packet, Penetration.PerType penetration, int cannotPenetrate,
-        string skill)
+        (int X, int Y) at, double now, int radius, DamagePacket basis, Func<DamagePacket, DamagePacket> resolveHit,
+        Penetration.PerType penetration, int cannotPenetrate, string skill)
     {
         var player = session.Player;
         if (!corpse.CorpseConsumed)
@@ -129,11 +130,15 @@ public static partial class Game
             session.WorldRecords(corpseId, () => [InstanceProtocol.RemoveObject(corpseId)],
                 $"{skill} consumes corpse", remove: true);
         }
+        var packet = resolveHit(basis);
+        var rng = AreaRng(player);
         foreach (var (id, enemy) in player.Area.MonstersNear(at, radius))
         {
             if (!enemy.Hostile || enemy.Dead || enemy.Life == 0 || Dist(at, enemy.Walk.Position(now)) > radius)
                 continue;
-            var resisted = MitigateMonsterHit(enemy, packet, now, penetration, cannotPenetrate);
+            var added = PoachersAddedPhysical(enemy, now);
+            var contact = added.IsZero ? packet : resolveHit(basis.Add(DamageType.Physical, added)).Roll(rng);
+            var resisted = MitigateMonsterHit(enemy, contact, now, penetration, cannotPenetrate);
             int damage = MonsterTakesMitigated(enemy, resisted, false, now);
             if (ApplyTypedMonsterHitLocked(player, enemy, damage,
                 MonsterHitChaosDamage(enemy, resisted, spell: false, now, damage), allyAt: at) is not { } hit)
@@ -261,21 +266,43 @@ public static partial class Game
         bool removeCorpse;
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return false;
         double now = AreaTime(player);
+        var rng = AreaRng(player);
+        DamageConversion? elementalConversion = null;
         foreach (var (id, m) in player.Area.Monsters.ToArray())
         {
             if (!m.Hostile || m.Dead || m.Life == 0 || ReferenceEquals(m, corpse)) continue;
             if (Dist(m.Walk.Position(now), at) > radius) continue;
-            var resisted = GameServer.Core.World.DamageModel.Mitigate(packet, t => MonsterHitResistance(m, t, default, now));
+            var added = PoachersAddedPhysical(m, now);
+            var legacyContact = packet;
+            var elementalContact = elementalPacket;
+            if (!added.IsZero)
+            {
+                if (physical > 0 || chaos > 0)
+                {
+                    int rolled = added.Roll(rng);
+                    legacyContact = packet.Add(DamageType.Physical, new(rolled, rolled));
+                }
+                else
+                {
+                    elementalConversion ??= DamageStats.Conversion(playerStats, Stats, attack: null);
+                    var addedPacket = PlayerHitDamage.Resolve(DamagePacket.Of(DamageType.Physical, added), Get,
+                        elementalConversion, spell: false, area: true, secondary: true);
+                    elementalContact = elementalPacket.Add(addedPacket.Roll(rng));
+                }
+            }
+            var resisted = GameServer.Core.World.DamageModel.Mitigate(legacyContact, t => MonsterHitResistance(m, t, default, now));
             int damage = MonsterTakesMitigated(m, resisted, false, now);
             int bypass = MonsterHitChaosDamage(m, resisted, false, now, damage);
-            if (!elementalPacket.IsZero)
+            if (!elementalContact.IsZero)
             {
-                var mitigated = MitigateMonsterHit(m, elementalPacket, now, elementalPenetration,
+                var mitigated = MitigateMonsterHit(m, elementalContact, now, elementalPenetration,
                     playerStats.GetValueOrDefault(Stat.CannotPenetrateOrIgnoreElementalResistances),
                     playerStats.GetValueOrDefault(Stat.ElementalDamageResistedByLowestElementalResistance) != 0);
                 int witheredElemental = WitheredElementalHitTaken(m, player.Id, now, playerStats);
-                damage = (int)Math.Min(int.MaxValue, (long)damage + MonsterTakesMitigated(m, mitigated, false, now,
-                    additionalElementalTakenPct: witheredElemental));
+                int elementalDamage = MonsterTakesMitigated(m, mitigated, false, now, additionalElementalTakenPct: witheredElemental);
+                damage = (int)Math.Min(int.MaxValue, (long)damage + elementalDamage);
+                if (!added.IsZero && physical == 0 && chaos == 0)
+                    bypass = MonsterHitChaosDamage(m, mitigated, false, now, elementalDamage, new HitTakenRules(0, witheredElemental, false));
             }
             if (ApplyTypedMonsterHitLocked(player, m, damage, bypass, allyAt: at) is not { } hit) continue;
             hits.Add((id, m, hit));
@@ -331,6 +358,20 @@ public static partial class Game
         return removeCorpse;
     }
 
+    static void QueueExplosionEffect(Player player, (int X, int Y) at, string ao, string log)
+    {
+        uint effect = player.TakeObjectId();
+        var art = new EffectObject(at.X, at.Y, ao);
+        player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(effect,
+            InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob()), log,
+            WorldId: effect, CreatesObject: true));
+        player.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(effect), null, WorldId: effect));
+        SendAfter(player, ArtMs(ao) / 1000d, async () =>
+        {
+            if (!player.Closed && !player.LeavingArea) await SendWorldRemoval(player, effect, null);
+        });
+    }
+
     // A curse explosion uses the killing minion's damage and area. Chain kills follow the same minion outcome path.
     static void ResolveCursedMinionKillLocked(Player player, uint corpseId, SpawnedMonster corpse,
         SpawnedMonster source, IReadOnlyDictionary<uint, int>? skill, double now)
@@ -338,7 +379,8 @@ public static partial class Game
         if (!corpse.CursedAtDeath || !corpse.Hostile || player.Closed || player.LeavingArea || player.PlayerLife == 0
             || HardcoreProgressBlocked(player)) return;
         int chance = CharacterPlayerStats(player).GetValueOrDefault(Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct);
-        if (!GameServer.Core.World.RandomRolls.Chance(chance, 100, AreaRng(player))) return;
+        var rng = AreaRng(player);
+        if (!GameServer.Core.World.RandomRolls.Chance(chance, 100, rng)) return;
 
         double factor = MinionAreaDamageFactor(source, DamageType.Chaos, skill);
         double radius = 22 * Math.Sqrt(Math.Max(0, 1 + source.Effects[Stat.BaseSkillAreaOfEffectPlusPct] / 100d));
@@ -353,35 +395,74 @@ public static partial class Game
             player.Area.Monsters.Remove(id);
             player.Minions.OutputQueue.Add(new([], "minion kill explosion removes corpse", WorldId: id, RemovesObject: true));
             if (player.Connection.Connected && TakeExplosionArt(player, now))
-            {
-                uint effect = player.TakeObjectId();
-                var art = new EffectObject(at.X, at.Y, ChaosExplosionAo);
-                player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(effect,
-                    InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob()), "minion chaos kill explosion",
-                    WorldId: effect, CreatesObject: true));
-                SendAfter(player, ArtMs(ChaosExplosionAo) / 1000d, async () =>
-                {
-                    if (!player.Closed && !player.LeavingArea) await SendWorldRemoval(player, effect, null);
-                });
-            }
-            if (factor <= 0) continue;
-            double raw = dead.MaxLife * .25 * factor;
+                QueueExplosionEffect(player, at, ChaosExplosionAo, "minion chaos kill explosion");
+            double raw = factor <= 0 ? 0 : dead.MaxLife * .25 * factor;
             var packet = DamagePacket.Of(DamageType.Chaos, raw, raw);
             foreach (var (targetId, target) in player.Area.MonstersNear(at, radius))
             {
                 if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable
                     || Dist(target.Walk.Position(now), at) > radius) continue;
-                int damage = MonsterTakesRolled(target, packet, spell: false, now: now);
-                if (damage <= 0 || ApplyTypedMonsterHitLocked(player, target, damage, damage, allyAt: at) is not { } hit) continue;
+                var added = PoachersAddedPhysical(target, now);
+                int physical = added.IsZero ? 0 : added.Scale(MinionAreaDamageFactor(source, DamageType.Physical, skill)).Roll(rng);
+                var contact = packet.Add(DamageType.Physical, new(physical, physical));
+                if (contact.IsZero) continue;
+                var resisted = MitigateMonsterHit(target, contact, now);
+                int damage = MonsterTakesMitigated(target, resisted, spell: false, now);
+                int chaosDamage = MonsterHitChaosDamage(target, resisted, spell: false, now, damage);
+                if (damage <= 0 || ApplyTypedMonsterHitLocked(player, target, damage, chaosDamage, allyAt: at) is not { } hit) continue;
                 if (hit.StageStarts)
                 {
                     CommitBossStage(player, targetId, target, now);
                     hit = hit with { StageStarts = false };
                 }
-                CommitMinionHitLocked(player, targetId, target, hit, damage, now, "minion chaos kill explosion");
-                if (hit.Life == 0 && target.CursedAtDeath && GameServer.Core.World.RandomRolls.Chance(chance, 100, AreaRng(player)))
+                CommitMinionHitLocked(player, targetId, target, hit, damage, now, "minion chaos kill explosion", secondary: true);
+                if (hit.Life == 0 && target.CursedAtDeath && GameServer.Core.World.RandomRolls.Chance(chance, 100, rng))
                     pending.Enqueue((targetId, target));
             }
+        }
+    }
+
+    // Mon'tregul's Grasp: "Enemies Killed by Zombies' Hits Explode, dealing 50% of their Life as Fire Damage".
+    // Secondary fire area damage scaled by the killing zombie's modifiers/supports; does not chain.
+    static void ResolveZombieKillExplosionLocked(Player player, uint corpseId, SpawnedMonster corpse,
+        GolemState.Golem zombie, double now)
+    {
+        if (!corpse.Hostile || player.Closed || player.LeavingArea || player.PlayerLife == 0
+            || HardcoreProgressBlocked(player)) return;
+        var playerStats = CharacterPlayerStats(player);
+        int percent = playerStats.GetValueOrDefault(Stat.ZombieExplodeOnKillPctFireDamageToDeal);
+        if (percent <= 0) return;
+        if (corpse.CorpseConsumed || !ReferenceEquals(player.Area.Monsters.GetValueOrDefault(corpseId), corpse)) return;
+        var at = corpse.Walk.Position(now);
+        corpse.CorpseConsumed = true;
+        player.Area.Monsters.Remove(corpseId);
+        player.Minions.OutputQueue.Add(new([], "zombie kill explosion removes corpse", WorldId: corpseId, RemovesObject: true));
+        if (player.Connection.Connected && TakeExplosionArt(player, now))
+            QueueExplosionEffect(player, at, KillExplosionAo, "zombie fire kill explosion");
+        double factor = MinionAreaDamageFactor(zombie.Monster, DamageType.Fire, zombie.Own)
+            * MinionNecromancerCorpseDamage(zombie.Monster.Effects)
+            * (1 + 0.04 * (zombie.CombatCharges?.Held(ChargeType.Frenzy) ?? 0));
+        if (factor <= 0) return;
+        double raw = corpse.MaxLife * (percent / 100d) * factor;
+        var packet = DamagePacket.Of(DamageType.Fire, raw, raw);
+        var penetration = Penetration.Of(zombie.Monster.Effects.Stats, Stats, attack: false, zombie.Own);
+        double radius = MinionFireRadius(zombie, 22);
+        int cannotPenetrate = zombie.Monster.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances];
+        foreach (var (targetId, target) in player.Area.MonstersNear(at, radius))
+        {
+            if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable
+                || Dist(target.Walk.Position(now), at) > radius + LivingCollision.Size(target)) continue;
+            var mitigated = MitigateMonsterHit(target, packet, now, penetration, cannotPenetrateOrIgnore: cannotPenetrate);
+            int damage = MonsterTakesMitigated(target, mitigated, spell: false, now);
+            if (damage <= 0 || ApplyMonsterHitLocked(player, target, damage, allyAt: at,
+                cull: MinionIgniteKillRule(playerStats, target, now)) is not { } hit) continue;
+            if (hit.StageStarts)
+            {
+                CommitBossStage(player, targetId, target, now);
+                hit = hit with { StageStarts = false };
+            }
+            CommitMinionHitLocked(player, targetId, target, hit, damage, now, "zombie fire kill explosion",
+                source: zombie.Monster, skill: zombie.Own, fighter: zombie, secondary: true);
         }
     }
 

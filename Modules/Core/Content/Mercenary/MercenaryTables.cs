@@ -76,6 +76,8 @@ public static class MercenaryTables
     static Dictionary<uint, string> WordsByHashData = [];
     static HashSet<string> DisabledUniquesData = new(StringComparer.OrdinalIgnoreCase);
     static Dictionary<string, AreaMeta> AreasById = new(StringComparer.OrdinalIgnoreCase);
+    static IReadOnlyDictionary<int, IReadOnlyList<(int Dx, int Dy)>> PartyOffsetsData =
+        new Dictionary<int, IReadOnlyList<(int Dx, int Dy)>>();
 
     public static AreaMeta? AreaOf(string areaId) => AreasById.TryGetValue(areaId, out var meta) ? meta : null;
     public static bool IsTownOrHideout(string areaId) => AreaOf(areaId) is { } m && (m.IsTown || m.IsHideout);
@@ -99,9 +101,14 @@ public static class MercenaryTables
     public static IReadOnlyList<Class> Classes => ClassesData;
     public static IReadOnlyList<Build> Builds => BuildsData;
 
+    /// <summary>The MinimapIcons row of MercenaryEncounter (the encounter Mercenary's map icon), or -1.</summary>
+    public static int EncounterIconRow { get; private set; } = -1;
+
     /// <summary>Builds this module's game data at startup (before the Gateway listens), not on first use.</summary>
     public static void LoadGameData()
     {
+        EncounterIconRow = ClientTables.TableOrEmpty("MinimapIcons").FirstOrDefault(r => r.TextOrNull("Id") == "MercenaryEncounter")
+            is { Table: not null } icon ? icon.Index : -1;
         var tagNames = LoadTagNames();
         ClassesData = LoadClasses(tagNames);
         BuildsData = LoadBuilds();
@@ -117,6 +124,7 @@ public static class MercenaryTables
             .Where(r => r.TextOrNull("Id") == "MeleeAtAnimationSpeed").Select(r => r.Index).DefaultIfEmpty(-1).First();
         WarrantTypeHash = Program.Items.Find("Metadata/Items/MapFragments/MercenaryWarrant")?.Hash ?? 0;
         AreasById = LoadAreas();
+        PartyOffsetsData = LoadPartyOffsets();
         var itemClasses = ClientTables.TableOrEmpty("ItemClasses");
         foreach (var r in itemClasses)
         {
@@ -139,9 +147,10 @@ public static class MercenaryTables
     public static IReadOnlyList<Class> Eligible(bool infamous = false) =>
         [.. Classes.Where(c => c.Path.Length > 0 && c.Supported && BuildsOf(c.Row, infamous).Count > 0)];
 
-    /// <summary>The builds one class draws from.</summary>
+    /// <summary>The builds one class draws from. A build that can wield nothing is an unfinished row (3.29's Bladereach,
+    /// Crit1HShadowSpectral: no weapons, no extra stats, only the "Do Nothing" skill) and is never drawn.</summary>
     public static IReadOnlyList<Build> BuildsOf(int classRow, bool infamous = false) =>
-        [.. Builds.Where(b => b.ClassRow == classRow && b.Infamous == infamous)];
+        [.. Builds.Where(b => b.ClassRow == classRow && b.Infamous == infamous && b.WieldableItemClasses.Length > 0)];
 
     /// <summary>One eligible class and one of its builds, drawn uniformly from <paramref name="rng"/>; null when no class is
     /// eligible.</summary>
@@ -225,52 +234,79 @@ public static class MercenaryTables
         return rolled;
     }
 
+    /// <summary>The support count a skill rolls (<c>MercenarySupportCounts</c>: 0 Low, 1 Medium, 2 High, 3 None). From area
+    /// level 68 it is the wiki's endgame table: Low 2, Medium 2 (30%) or 3, High 4 (30%) or 5. [ESTIMATE] Below 68 "support
+    /// counts may be lower" with no numbers given, so the endgame count is capped at 1, 2 and 3 from levels 1, 24 and 45.</summary>
+    public static int SupportCount(int mode, int level, Random rng)
+    {
+        int endgame = mode switch
+        {
+            0 => 2,
+            1 => rng.Next(100) < 30 ? 2 : 3,
+            2 => rng.Next(100) < 30 ? 4 : 5,
+            _ => 0,
+        };
+        return Math.Min(endgame, level < 24 ? 1 : level < 45 ? 2 : level < 68 ? 3 : 5);
+    }
+
+    /// <summary>The weight of a support tier at <paramref name="level"/>. The wiki: lower tiers are more common at low levels
+    /// and less common high; at level 83 a three-tier support never rolls Tier I and rolls Tier III about 33% of the time.
+    /// [ESTIMATE] the other weights, and the levels a tier opens at (II from 35, III and Gilded from 65).</summary>
+    public static int SupportTierWeight(int tier, int level, bool threeTiers) => level switch
+    {
+        < 35 => tier == 1 ? 1 : 0,
+        < 65 => tier switch { 1 => 60, 2 => 40, _ => 0 },
+        < 83 => tier switch { 1 => 25, 2 => 45, _ => 30 },
+        _ => tier switch { 1 => threeTiers ? 0 : 25, 2 => 67, _ => 33 },
+    };
+
+    /// <summary>A support's tiers are rows that differ only by the Low / Mid / High end of their Id (LeechLow, LeechMid,
+    /// LeechHigh); a Gilded support is a single High row.</summary>
+    static string SupportStem(string id) =>
+        id.EndsWith("Low", StringComparison.Ordinal) || id.EndsWith("Mid", StringComparison.Ordinal) ? id[..^3]
+        : id.EndsWith("High", StringComparison.Ordinal) ? id[..^4] : id;
+
     static (List<int> Rows, List<ushort> Hashes) RollSupportsFor(SkillRow skill, int level, Random rng, int additionalSupportChancePct)
     {
         if (skill.SupportCountMode == 3 || skill.PossibleSupports.Length == 0) return ([], []);
-        int maxForLevel = level < 24 ? 1 : level < 45 ? 2 : level < 68 ? 3 : 4;
-        int baseCount = skill.SupportCountMode switch
-        {
-            0 => Math.Min(maxForLevel, rng.Next(1, 3)),
-            1 => Math.Min(maxForLevel, rng.Next(1, 4)),
-            2 => Math.Min(maxForLevel, rng.Next(2, 5)),
-            _ => 0,
-        };
+        int count = SupportCount(skill.SupportCountMode, level, rng);
         if (additionalSupportChancePct > 0 && rng.Next(100) < additionalSupportChancePct)
-            baseCount = Math.Min(5, baseCount + 1);
-        if (baseCount <= 0) return ([], []);
+            count = Math.Min(5, count + 1);
+        if (count <= 0) return ([], []);
 
-        int maxTier = level < 35 ? 1 : level < 65 ? 2 : 3;
-        var candidates = skill.PossibleSupports
-            .Select(r => SupportRowsData.TryGetValue(r, out var s) ? s : null)
-            .Where(s => s is not null && s.Hash16 != 0 && s.Tier <= maxTier)
-            .Cast<SupportRow>()
-            .ToArray();
-        if (candidates.Length == 0)
-            candidates = skill.PossibleSupports
-                .Select(r => SupportRowsData.TryGetValue(r, out var s) ? s : null)
-                .Where(s => s is not null && s.Hash16 != 0)
-                .Cast<SupportRow>()
-                .ToArray();
-        if (candidates.Length == 0) return ([], []);
+        // One tier per support, drawn by weight; a support with no tier open at this level is left out, unless none is open
+        // at all, when each support's lowest tier stands in (as the old roll did).
+        var groups = skill.PossibleSupports
+            .Select(r => SupportRowsData.TryGetValue(r, out var s) ? s : null).OfType<SupportRow>().Where(s => s.Hash16 != 0)
+            .GroupBy(s => SupportStem(s.Id)).Select(g => g.ToArray()).ToList();
+        var supports = new List<SupportRow>();
+        foreach (var rows in groups)
+        {
+            bool threeTiers = rows.Select(s => s.Tier).Distinct().Count() >= 3;
+            int total = rows.Sum(s => SupportTierWeight(s.Tier, level, threeTiers));
+            if (total <= 0) continue;
+            int roll = rng.Next(total);
+            supports.Add(rows.First(s => (roll -= SupportTierWeight(s.Tier, level, threeTiers)) < 0));
+        }
+        if (supports.Count == 0) supports = [.. groups.Select(rows => rows.MinBy(s => s.Tier)!)];
 
-        for (int i = candidates.Length - 1; i > 0; i--)
+        for (int i = supports.Count - 1; i > 0; i--)
         {
             int j = rng.Next(i + 1);
-            (candidates[i], candidates[j]) = (candidates[j], candidates[i]);
+            (supports[i], supports[j]) = (supports[j], supports[i]);
         }
 
-        List<int> rows = [];
+        List<int> picked = [];
         List<ushort> hashes = [];
         HashSet<int> families = [];
-        foreach (var supp in candidates)
+        foreach (var supp in supports)
         {
-            if (rows.Count >= baseCount) break;
+            if (picked.Count >= count) break;
             if (supp.SupportFamily is int fam && !families.Add(fam)) continue;
-            rows.Add(supp.Row);
+            picked.Add(supp.Row);
             hashes.Add(supp.Hash16);
         }
-        return (rows, hashes);
+        return (picked, hashes);
     }
 
     static IEnumerable<int> DrawRows(int[] rows, int count, int level, Random rng)
@@ -373,6 +409,44 @@ public static class MercenaryTables
     public static Build? BuildOf(int row) => Builds.FirstOrDefault(b => b.Row == row);
     public static Build? BuildByHash(ushort hash16) => Builds.FirstOrDefault(b => b.Hash16 == hash16);
     public static SkillRow? SkillOf(int row) => SkillRowsData.GetValueOrDefault(row);
+
+    /// <summary>Where a class's party members stand, in cells from the Mercenary: its camp room (<c>MercenaryClasses.TerrainFeature</c>
+    /// → <c>ExtraTerrainFeatures.ArmFiles</c>, Witch1.arm …) puts a MercenarySpawnMarkerPartyMember on each side of its
+    /// MercenarySpawnMarker, 15 to 26 cells away. Empty without the room.</summary>
+    public static IReadOnlyList<(int Dx, int Dy)> PartyOffsets(int classRow) =>
+        PartyOffsetsData.TryGetValue(classRow, out var offsets) ? offsets : [];
+
+    static IReadOnlyDictionary<int, IReadOnlyList<(int Dx, int Dy)>> LoadPartyOffsets()
+    {
+        if (!File.Exists(GameServer.Data.Ggpk.GamePack.DefaultFile))
+            return new Dictionary<int, IReadOnlyList<(int Dx, int Dy)>>();
+        const string Marker = "Metadata/Terrain/Leagues/Mercenaries/Objects/MercenarySpawnMarker";
+        var armByFeature = new Dictionary<int, string>();
+        foreach (var room in ClientTables.TableOrEmpty("ExtraTerrainFeatures"))
+            if (room.Texts("ArmFiles").FirstOrDefault() is { } arm)
+                armByFeature[room.Index] = arm;
+        var offsets = new Dictionary<int, IReadOnlyList<(int Dx, int Dy)>>();
+        try
+        {
+            var pack = GameServer.Data.Ggpk.GamePack.Default;
+            foreach (var kind in ClientTables.TableOrEmpty("MercenaryClasses"))
+            {
+                if (kind.IntOrNull("TerrainFeature") is not int feature
+                    || !armByFeature.TryGetValue(feature, out var arm)
+                    || pack.TryRead(arm) is not { } bytes) continue;
+                var doodads = GameServer.Data.Terrain.RoomFile.Parse(GameServer.Data.Terrain.TerrainText.Decode(bytes)).Doodads;
+                if (doodads.FirstOrDefault(d => d.Type == Marker) is not { } main) continue;
+                var members = doodads.Where(d => d.Type == Marker + "PartyMember")
+                    .Select(d => ((int)MathF.Round(d.X - main.X), (int)MathF.Round(d.Y - main.Y))).ToArray();
+                if (members.Length > 0) offsets[kind.Index] = members;
+            }
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException)
+        {
+            return new Dictionary<int, IReadOnlyList<(int Dx, int Dy)>>();
+        }
+        return offsets;
+    }
     public static SkillRow? SkillByHash(ushort hash16) => hash16 == 0 ? null : SkillRowsData.Values.FirstOrDefault(s => s.Hash16 == hash16);
     public static SupportRow? SupportOf(int row) => SupportRowsData.GetValueOrDefault(row);
     public static SupportRow? SupportByHash(ushort hash16) => hash16 == 0 ? null : SupportRowsData.Values.FirstOrDefault(s => s.Hash16 == hash16);

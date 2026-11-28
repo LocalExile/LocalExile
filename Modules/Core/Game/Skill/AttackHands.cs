@@ -203,7 +203,8 @@ public static partial class Game
     internal static int HandAttackCriticalChance(Player player, AttackHand hand, IReadOnlyDictionary<uint, int> playerStats,
         int extraBaseCrit)
     {
-        if (extraBaseCrit == 0 && (hand != AttackHand.Off || OffhandWeaponFor(player) is null))
+        if ((hand != AttackHand.Off || OffhandWeaponFor(player) is null)
+            && (extraBaseCrit == 0 || playerStats.GetValueOrDefault(Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance) != 0))
             return player.Pools.AttackCriticalStrikeChance;
         int PlayerStat(uint key) => playerStats.GetValueOrDefault(key);
         int RawCritical(uint key) => IsCriticalProhibition(key) ? 0 : PlayerStat(key);

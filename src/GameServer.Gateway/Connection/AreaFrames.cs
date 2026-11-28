@@ -528,25 +528,42 @@ public sealed class AreaFrames
                     // A member's first frame: the game puts what its client is missing in the area's frame, and its player
                     // for the others (Program.Joining).
                     var snap = Snapshot();
-                    bool anyDue = false;
+                    List<Member>? dueMembers = null;
                     foreach (var m in snap)
                         if (m.Framed && boundary >= m.First + frame - 1e-9)
                         {
-                            anyDue = true;
-                            if (double.IsNaN(m.LastEnded) && Program.Joining is { } joining)
-                                OnFrame(() => joining(m.Player));
+                            (dueMembers ??= []).Add(m);
+                            if (double.IsNaN(m.LastEnded))
+                            {
+                                if (Program.Joining is { } joining) OnFrame(() => joining(m.Player));
+                                double firstStart = m.Player.Connection.LockstepFrame?.Start ?? (boundary - frame);
+                                OnFrame(() => m.Player.ApplyMovementSpeedAt(firstStart));
+                            }
                         }
+                    // Start this ending frame's lockstep actions right after Input() and BEFORE EndWorldFrame so clicks
+                    // and 0x0192 updates parsed above emit their 0x01ab + 0x01b1 in THIS frame's 0x02b7 instead of waiting
+                    // an extra 33 ms frame.
+                    if (Program.GameLogicOrNull is { } rules && dueMembers is { Count: > 0 })
+                    {
+                        OnFrame(() =>
+                        {
+                            foreach (var m in dueMembers)
+                            {
+                                double frameStart = m.Player.Connection.LockstepFrame?.Start ?? (boundary - frame);
+                                _ = Logged(rules.WorldFrameEnded(m.Player, frameStart));
+                            }
+                        });
+                        Pump();
+                    }
                     // The frame's changes, made once, go to every member with its end. Never drain Area.Delta when no
                     // member is due to receive this frame (e.g. catch-up frames while a slow entry's First is ahead of
                     // boundary), or creates queued into Area.Delta during those frames are lost before the first frame.
-                    List<Member>? ended = null;
-                    if (anyDue)
+                    if (dueMembers is { Count: > 0 })
                     {
                         if (Area is { } components) OnFrame(() => { components.Buffs.Publish(); components.Stats.Publish(); components.Life.Publish(); });
                         var delta = Area?.Delta.Take() ?? [];
-                        foreach (var m in snap)
+                        foreach (var m in dueMembers)
                         {
-                            if (!m.Framed || boundary < m.First + frame - 1e-9) continue;
                             if (delta.Count > 0 && Program.GameLogicOrNull is { } logic)
                                 OnFrame(() => logic.WritingWorldDelta(m.Player, delta));
                             if (await Pumping(Guard(m, () => Program.EndWorldFrame(m.Player, (boundary, boundary + frame), delta))))
@@ -562,7 +579,6 @@ public sealed class AreaFrames
                                     m.LastEnded = boundary;
                                 }
                                 if (onFirstFrame is not null) OnFrame(onFirstFrame);
-                                (ended ??= []).Add(m);
                             }
                         }
                     }
@@ -573,16 +589,6 @@ public sealed class AreaFrames
                     long t4 = Stopwatch.GetTimestamp();
                     OnFrame(() => Step(due));
                     Pump();
-                    // Start each frame's lockstep actions immediately after its step so catch-up frames never go out empty
-                    // or drop LockstepTrail samples.
-                    if (Program.GameLogicOrNull is { } rules && ended is { Count: > 0 })
-                    {
-                        OnFrame(() =>
-                        {
-                            foreach (var m in ended) _ = Logged(rules.WorldFrameEnded(m.Player, boundary));
-                        });
-                        Pump();
-                    }
                     // A frame whose steps took 100 ms or more, by stage: what the client waited for.
                     if (Stopwatch.GetElapsedTime(t0).TotalMilliseconds >= 100)
                         Console.WriteLine($"[frames] slow frame {Frame}: settle {Ms(t0, t1):0} ms, input {Ms(t1, t2):0} ms" +

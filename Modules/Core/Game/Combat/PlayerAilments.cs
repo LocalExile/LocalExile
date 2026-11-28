@@ -142,8 +142,8 @@ public static partial class Game
             if (Get(Stat.BaseCannotBeDamaged) > 0) damage = 0;
             damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref player.NonChaosDotTakenCarry,
                 IncomingResourceDefences.LessTakenPct(player.Pools, Get));
-            lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + (player.Immune ? 0 : IncomingResourceDefences.DamageOverTime(player.EnergyShield,
-                damage, Get(IncomingResourceDefences.BypassStat), until, ref player.NonChaosDotBypassCarry)));
+            lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + (player.Immune ? 0
+                : DamagePlayerNonChaosOverTime(player, DamageType.Fire, damage, until, Get)));
         }
         if (player.PlayerLife > 0 && !player.IncomingAilments.Idle)
         {

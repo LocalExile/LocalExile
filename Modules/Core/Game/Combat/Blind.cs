@@ -358,6 +358,8 @@ public static partial class Game
     {
         var weapon = WeaponProfileFor(player, activeSet: true);
         int Get(uint name) => release && IsCriticalProhibition(name) ? 0 : StatOf(playerStats, name);
+        if ((hand != AttackHand.Off || OffhandWeaponFor(player) is null) && Get(Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance) != 0)
+            return Get(Stat.OverrideMainHandCriticalStrikeChancePctFromCriticalLink);
         int weaponBase = hand == AttackHand.Main ? weapon.Critical : HandWeaponCritical(player, hand, playerStats);
         if (extraBaseCrit == 0)
             return AttackBaseCriticalStrike.Chance(!weapon.Unarmed, weaponBase, player.Pools.CriticalStrikeChancePct + extra, Get);

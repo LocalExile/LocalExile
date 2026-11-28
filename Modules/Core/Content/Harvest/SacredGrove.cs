@@ -399,7 +399,11 @@ public static class SacredGrove
         // The client's HarvestRules ruleset must exist before an Extractor turns targetable: its label looks the ruleset up
         // once and the client crashes without it (live 2026-11-18).
         if (HarvestRules is byte rules)
+        {
             await Send(player, InstanceProtocol.AddRuleset(rules), $"0x001f ruleset HarvestRules (row {rules})");
+            await Send(player, InstanceHarvest.HarvestRulesSnapshot(area.Running, rules),
+                $"0x02c9 HarvestRules snapshot (inProgress={area.Running})");
+        }
         if (grove.ReplacedBy is { } key)
         {
             if (Replacements.FirstOrDefault(r => r.Key == key) is { } replacement) await replacement.Place(player, SiteOf(player, grove));
@@ -417,6 +421,14 @@ public static class SacredGrove
         }
         finally { area.Gate.Release(); }
         foreach (var o in objects) await Present(player, o);
+    }
+
+    static async Task BroadcastHarvestRules(Player player, byte rules, bool inProgress)
+    {
+        byte[] packet = InstanceHarvest.HarvestRulesUpdate(inProgress, rules);
+        string label = $"0x02c9 HarvestRules update (inProgress={inProgress})";
+        foreach (var member in Members(player))
+            await Send(member, packet, label);
     }
 
     // Sets states on grove objects, keeps the grove, and sends each changed object's StateMachine (0x2bc) to every
@@ -585,6 +597,8 @@ public static class SacredGrove
         changes.AddRange(crop.SeedObjects.Select(id => (id, "hatched", 1)));
         Console.WriteLine($"[harvest] {CharacterName(player)} started site {crop.Site}.{crop.Slot} colour {crop.Colour}{withered}");
         await SetStates(player, grove, changes);
+        if (HarvestRules is byte rules)
+            await BroadcastHarvestRules(player, rules, inProgress: true);
 
         byte level = (byte)Math.Clamp(grove.Level, 1, 100);
         var life = new MonsterModSet([], [], new MonsterModEffects(new Dictionary<uint, int>
@@ -684,8 +698,6 @@ public static class SacredGrove
             (crop.Extractor, "active", 0),
             (crop.Irrigator, "inactive", 1),
         };
-        foreach (var other in grove.Crops.Where(c => c != crop && c.Phase == Phase.Idle))
-            changes.AddRange([(other.Extractor, "in_combat", 0), (other.Irrigator, "in_combat", 0)]);
         // Crop Rotation. A changed crop's Extractor and Irrigator and its changed seed objects are created again: a seed's
         // model is part of its creation, and HarvestWorldObject's 0x2bc reader (its creation reader) sets a count per seed
         // row and never drops a row, so a row that left the crop would stay on its label as "0 x" (live 2026-11-20).
@@ -721,6 +733,8 @@ public static class SacredGrove
         Console.WriteLine($"[harvest] site {crop.Site}.{crop.Slot} complete"
             + (regrown.Count > 0 ? $"; Crop Rotation changed {regrown.Count} objects" : ""));
         await SetStates(player, grove, changes);
+        if (HarvestRules is byte rules)
+            await BroadcastHarvestRules(player, rules, inProgress: grove.Crops.Any(c => c.Phase == Phase.Running));
         if (regrown.Count == 0) return;
         foreach (var member in Members(player))
         {

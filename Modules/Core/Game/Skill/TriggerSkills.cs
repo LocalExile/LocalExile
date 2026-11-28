@@ -37,6 +37,8 @@ public static partial class Game
 
     public static string? TriggerOnlyReason(SupportedGem gem)
     {
+        if (gem.Stats.GetValueOrDefault(Stat.SpellslingerTriggerOnWandAttackPct) > 0)
+            return "this spell can only trigger when Spellslinger fires it";
         if (CooldownTriggerSupport(gem) is { } timed)
             return timed.Effect.Id == AutoexertionSupport
                 ? "this warcry can only be triggered by Autoexertion" : "this spell can only be triggered by Automation";
@@ -72,12 +74,24 @@ public static partial class Game
             return "Foulgrasp triggers when a supported Brand is recalled";
         if (GolemStat(gem.Stats, Stat.TriggeredPrismaticBurst) != 0)
             return "Prismatic Burst triggers on a supported attack hit";
+        if (GolemStat(gem.Stats, Stat.TriggeredHextoad) != 0)
+            return "Bursting Toad triggers from a supported cursed ground";
         if (GolemStat(gem.Stats, Stat.TriggeredByInfernalCry) != 0)
             return "Combust triggers on an attack exerted by Infernal Cry";
         if (GolemStat(gem.Stats, Stat.TriggeredByShockwaveSupport) != 0)
             return "this Shockwave triggers on supported melee hits";
         if (GolemStat(gem.Stats, Stat.TriggeredByPyreSupport) != 0)
             return "Call the Pyre triggers on supported melee hits against ignited enemies";
+        if (GolemStat(gem.Stats, Stat.TriggeredByBonespireSupport) != 0)
+            return "Seize the Flesh triggers on use of a supported warcry";
+        if (GolemStat(gem.Stats, Stat.TriggeredByKineticInstabilitySupport) != 0)
+            return "Kinetic Flux triggers from attacks supported by Kinetic Instability";
+        if (GolemStat(gem.Stats, Stat.TriggeredByVoidstormSupport) != 0)
+            return "Voidstorm triggers when a supported ranged attack lands";
+        if (GolemStat(gem.Stats, Stat.TriggeredBySupportMovement) != 0)
+            return "Windburst triggers on a supported attack hit after moving";
+        if (GolemStat(gem.Stats, Stat.TriggeredByHivebornSupport) != 0)
+            return "Summon Hiveborn triggers when you use a supported offering";
         if (gem.WornGrant is { EffectId: GoreShockwaveEffect })
             return "Gore Shockwave triggers on melee hits with at least 150 Strength";
         if (GolemStat(gem.Stats, Stat.TriggeredByDivineCry) != 0)
@@ -89,6 +103,7 @@ public static partial class Game
         if (gem.Effect >= 0)
         {
             string effect = Skills.EffectId(gem.Effect) ?? "";
+            if (IsDoomBlastEffect(effect)) return "Doom Blast triggers when a supported hex ends";
             if (effect == SummonSacredWispEffect) return "Sacred Wisps are summoned by a supported wand hit";
             if (IsRelicSkill(effect)) return "Summon Elemental Relic triggers automatically; manual use is unavailable";
         }
@@ -107,7 +122,8 @@ public static partial class Game
 
     // Every payload needs an independent executor; unsupported mechanics stay unavailable.
     static bool TriggeredSpellExecutable(Player player, ushort id, SupportedGem gem) => SkillsFor(player).IsSpell(gem.Effect)
-        && !SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).IsTravel(gem.Effect)
+        && !SkillsFor(player).IsAttack(gem.Effect) && (!SkillsFor(player).IsTravel(gem.Effect)
+            || SkillsFor(player).EffectId(gem.Effect) is CorpseBodyswapEffect or BodyswapSacrificeEffect)
         && !SkillsFor(player).IsRetaliation(gem.Effect)
         && Supports.Of(gem.Effect)?.Types.Contains(47) != true && PlacedKind(gem) is (false, false)
         && gem.Supports.Count(s => s.Effect.Added.Contains(36)) == 1
@@ -217,7 +233,7 @@ public static partial class Game
     }
 
     static bool TryReleaseAutomaticPayload(Player player, ProjectileSession session, ushort skillId, SupportedGem gem,
-        GemSupports.Applied support, (int X, int Y) aim, Func<bool> current, double now, string label, out double readyAt,
+        GemSupports.Applied? support, (int X, int Y) aim, Func<bool> current, double now, string label, out double readyAt,
         uint triggerTarget = 0)
     {
         readyAt = 0;
@@ -226,7 +242,7 @@ public static partial class Game
         if (release is null || !PayMana(player, skillId, out uint mana, out uint life)) return false;
         var playerStats = CharacterPlayerStats(player);
         int milliseconds = Math.Max(SkillsFor(player).CooldownMs(gem.Effect, gem.Level),
-            SkillsFor(player).CooldownMs(support.Gem.Effect, support.Gem.Level));
+            support is { } trigger ? SkillsFor(player).CooldownMs(trigger.Gem.Effect, trigger.Gem.Level) : 0);
         if (gem.Stats.GetValueOrDefault(Stat.SpellCastTimeAddedToCooldownIfTriggered) != 0)
             milliseconds += SkillsFor(player).CastTimeMs(gem.Effect);
         double rate = Math.Max(0, 1 + ((long)playerStats.GetValueOrDefault(Stat.VirtualCooldownSpeedPlusPct)

@@ -56,6 +56,8 @@ public sealed partial class MercenaryModule : IModule
         public string? OwnerName { get; set; }
         public uint WagerCost { get; set; }
         public bool IsWarrantCall { get; set; }
+        /// <summary>A campaign zone's guaranteed encounter (100% chance): no level gate and an empty Rucksack.</summary>
+        public bool Guaranteed { get; set; }
         public DuelOfferKind ChosenOffer { get; set; }
         public uint ChosenItemId { get; set; }
         public bool ShouldRecruit { get; set; }

@@ -111,7 +111,8 @@ public sealed class AnarchyModule : IModule
         List<string> used = [];
         for (int i = 0; i < count; i++)
         {
-            if (AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY), transitions, taken, rng)
+            if (AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY), transitions, taken, rng,
+                    featureAreas: layout.Level?.FeatureAreas)
                 is not { } at) break;
             taken.Add(at);
             // The exceptional ones come last, so a capped count keeps the ones the scarab promised first; the gigantic

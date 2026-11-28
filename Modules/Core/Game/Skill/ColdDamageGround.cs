@@ -4,6 +4,9 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    public static bool IsColdSnap(string? effect) =>
+        effect is "ColdSnap" or "ColdSnapAltX" or "ColdSnapAltY" or "VaalColdSnap";
+
     public static bool IsCreepingFrost(string? effect) =>
         effect is "CreepingFrost" or "CreepingFrostAltX" or "CreepingFrostAltY" or "CreepingFrostRoyale";
 
@@ -32,7 +35,47 @@ public static partial class Game
 
     public sealed partial class ProjectileSession
     {
-        sealed record GroundMovement(int Effect, double CellsPerSecond, int Limit);
+        // Cold Snap grounds of this player with their Frenzy Charge rules (chance on a kill in the area; Vaal: one a
+        // second while an enemy is in it).
+        sealed class ColdSnapGround(DamageGround ground, int killChance, bool eachSecond)
+        {
+            public readonly DamageGround Ground = ground;
+            public readonly int KillChance = killChance;
+            public readonly bool EachSecond = eachSecond;
+            public double NextFrenzy;
+        }
+        readonly List<ColdSnapGround> coldSnapGrounds = [];
+
+        bool LiveColdSnap(ColdSnapGround snap) => Active && damageGroundArea is { } area
+            && DamageGroundsByArea.TryGetValue(area, out var state) && state.Grounds.Contains(snap.Ground);
+
+        /// <summary>An enemy this player killed while it stood in one of their Cold Snap grounds: the best chance rolls once.</summary>
+        internal void ColdSnapFrenzyOnKill(SpawnedMonster monster, double at)
+        {
+            coldSnapGrounds.RemoveAll(snap => !LiveColdSnap(snap));
+            if (coldSnapGrounds.Count == 0) return;
+            var point = Vector(monster.Walk.Position(at));
+            int chance = coldSnapGrounds.Where(snap => GroundCoversPoint(snap.Ground, point))
+                .Select(snap => snap.KillChance).DefaultIfEmpty(0).Max();
+            if (chance <= 0 || chance < 100 && AreaRng(Player).Next(100) >= chance) return;
+            ChargesOf(Player).Enqueue(new ChargeEvent.Grant(ChargeType.Frenzy, 1, "Cold Snap ground kill"));
+        }
+
+        void ColdSnapEachSecond(GameArea area, DamageGround ground, double at)
+        {
+            if (Player.Closed || Player.LeavingArea || Player.Paused || Player.PlayerLife == 0 || InTown(Player)) return;
+            var snap = coldSnapGrounds.FirstOrDefault(s => ReferenceEquals(s.Ground, ground));
+            if (snap is not { EachSecond: true } || at < snap.NextFrenzy) return;
+            var centre = ground.CurrentCentre;
+            if (!area.MonstersNear((centre.X, centre.Y), ground.Radius).Any(p => DamageGroundTarget(p.Value)
+                    && GroundCoversPoint(ground, Vector(p.Value.Walk.Position(at))))) return;
+            snap.NextFrenzy = at + 1;
+            ChargesOf(Player).Enqueue(new ChargeEvent.Grant(ChargeType.Frenzy, 1, "Vaal Cold Snap"));
+            if (GameServer.Core.Diagnostics.ServerTrace.Skills)
+                Console.WriteLine($"[gateway] Vaal Cold Snap Frenzy Charge: enemy in its area (t={at:0.00})");
+        }
+
+        sealed record GroundMovement(int Effect, double CellsPerSecond, int Limit, bool FollowsOwner = false);
 
         void CreepingFrostAtEnd(ProjectileEvent value)
         {
@@ -109,6 +152,56 @@ public static partial class Game
             }
         }
 
+        // Cold Snap's second part: chilled ground at the burst that deals cold damage over time. Live it grows from the
+        // secondary radius to the tertiary one (Cold Snap 15 -> 30, Vaal 20 -> 36 at base), but its art (grd_fx.ao: no
+        // default animation, no growth) is drawn at one size and cannot be rescaled, so the ground covers the final radius.
+        internal void PlaceColdSnapGround((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+            (int X, int Y) at, SupportedGem source, double damageMore)
+        {
+            if (!Active) return;
+            var caster = CharacterPlayerStats(Player);
+            var own = source.Stats;
+            var area = SkillAreaStats(Player, own, gem.Effect, caster);
+            int Get(uint key) => area.GetValueOrDefault(key);
+            int Own(uint key) => own.GetValueOrDefault(key);
+            int Caster(uint key) => caster.GetValueOrDefault(key);
+            double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Caster, Own);
+            double dps = new SkillDamageContext(SkillHitKind.Spell, caster).OverTime(
+                new(DamageType.Cold, ColdGroundDps(Get, Own, spell: true, mine: false, trap: false), duration)).DamagePerSecond
+                * damageMore;
+            int start = SkillArea.Radius(Math.Max(1, Own(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius)), Get, spell: true);
+            int end = Math.Max(start, SkillArea.Radius(Math.Max(1, Own(Stat.ActiveSkillBaseTertiaryAreaOfEffectRadius)), Get, spell: true));
+            if (duration <= 0 || start <= 0 || Own(Stat.BaseColdDamageToDealPerMinute) <= 0) return;
+            bool vaal = SkillsFor(Player).EffectId(gem.Effect) == "VaalColdSnap";
+            // The worn skin's ground (SkillArtVariations cold_snap: Default, BigHands, Azurite, ProtoVaal, Overseer,
+            // Blighted, Delirium), MiscAnimatedArtVariations by skill_art_variation; the default skin's when it has none.
+            string artId = vaal ? "vaal_cold_snap_ground_effect" : "cold_snap_ground_effect";
+            int variation = SkillArtVariation(Player, gem.Gem);
+            string art = Art.Animated(artId, variation) ?? Art.Animated(artId, 0)
+                ?? (vaal ? "Metadata/Effects/Spells/vaal_skills/cold_snap/aura/fadein.ao" : "Metadata/Effects/Spells/cold_snap_02/grd_fx.ao");
+            uint id = Player.TakeObjectId();
+            var visual = new Visual(id, default);
+            Player.TrackProjectileObject(id);
+            float scale = AreaArtScale(end, art);
+            var effect = new EffectObject(at.X, at.Y, art) { Flags0 = EffectObject.FixedRotation, Scale = scale };
+            Create(id, () =>
+            {
+                if (visual.Ended) return null;
+                visual.Created = true;
+                return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
+            }, wake: true);
+            AddDamageGround(Vector(at), end, duration, DamageType.Cold, dps, Runtime.Now, visual, area,
+                vaal ? new GroundMovement(gem.Effect, 0, 0, FollowsOwner: true) : null);
+            coldSnapGrounds.RemoveAll(snap => !LiveColdSnap(snap));
+            if (DamageGroundsByArea.TryGetValue(Player.Area, out var grounds)
+                && grounds.Grounds.LastOrDefault(g => ReferenceEquals(g.Visual, visual)) is { } placed)
+                coldSnapGrounds.Add(new(placed, Own(Stat.ChanceToGainFrenzyChargeOnKillingEnemyAffectedByColdSnapGroundPct),
+                    Own(Stat.VaalColdSnapGainFrenzyChargeEverySecondIfEnemyInAura) != 0));
+            if (GameServer.Core.Diagnostics.ServerTrace.Skills)
+                Console.WriteLine($"[gateway] Cold Snap ground 0x{id:x} ({(vaal ? "Vaal" : "normal")}) at ({at.X},{at.Y}) " +
+                $"radius {end} (live {start}->{end}){(vaal ? ", follows the caster" : "")} over {duration:0.00}s, {dps:0} cold dps, skin {variation}: {art} scale {scale:0.00}");
+        }
+
         void PlaceCreepingGround(ProjectileVector centre, int radius, double duration, double dps,
             IReadOnlyDictionary<uint, int> chill, GroundMovement movement)
         {
@@ -130,6 +223,19 @@ public static partial class Game
 
         static void MoveColdGround(GameArea area, DamageGround ground, double at, double seconds)
         {
+            if (ground.Movement is { FollowsOwner: true })
+            {
+                ground.Source.ColdSnapEachSecond(area, ground, at);
+                // Vaal Cold Snap's area is around the caster: it moves with them.
+                var owner = Vector(ground.Source.Player.Walk.Position(at));
+                var from = ground.CurrentCentre;
+                if ((owner - from).Length < .5) return;
+                ground.CurrentCentre = owner;
+                int ox = (int)Math.Round(owner.X), oy = (int)Math.Round(owner.Y);
+                if (ground.Visual is { } follow && (ox != (int)Math.Round(from.X) || oy != (int)Math.Round(from.Y)))
+                    ground.Source.World(follow.Id, InstanceProtocol.MoveTo(follow.Id, ox, oy, (float)seconds, InstanceProtocol.FollowTerrain));
+                return;
+            }
             if (ground.Movement is not { CellsPerSecond: > 0 } move) return;
             var centre = ground.CurrentCentre;
             const double search = 45;

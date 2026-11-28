@@ -140,8 +140,9 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   - Whisperer, Arcane Might, Steel Willed, Rampager and Behemoth's remaining scope is in their docs
     ([Whisperer](../docs/game/whisperer.md), [Arcane Might](../docs/game/arcane-might.md),
     [Steel Willed armour](../docs/game/steel-willed-armour.md), [Behemoth](../docs/game/behemoth.md)).
-  - Frostblink: moving targets, use during an active walk and enemy-dependent cooldown recovery. Extend terrain and movement restrictions from native evidence before accepting
-    other instant movement skills.
+  - Frostblink: moving targets and use during an active walk. Extend terrain and movement restrictions from native
+    evidence before accepting other instant movement skills.
+  - Bodyswap: verify the native target search distance, overlapping hit areas and corpse explosion visuals.
   - Add support effects through `DamagePacket.Add`, `Scale`, `Convert` and `AddGain`. When owned-actor execution is
     implemented, supply the actual caster's stats to `SkillDamageContext`; do not inherit an owner's spell-damage
     restriction onto independent minions without a skill rule.

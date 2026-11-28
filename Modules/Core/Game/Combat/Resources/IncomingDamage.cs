@@ -32,6 +32,7 @@ public static partial class Game
 
             return new(damage, damage);
         });
+        taken = ReplaceElementalDamageWithHealing(player, taken, Get);
         RecoupHitLocked(player, taken, now, stats);
         PreventedDamageOf(player).Add(now, shifted[DamageType.Physical].Min - taken[DamageType.Physical].Min);
         long lifeBefore = player.PlayerLife;
@@ -46,6 +47,43 @@ public static partial class Game
         UnhingedHitRecoveryLocked(player, now, stats);
         if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
         RecordHardcoreDeath(player);
+    }
+
+    // The converted part is recovery of Life. It does not pass through Guard, Ward, Energy Shield or recoup.
+    static DamagePacket ReplaceElementalDamageWithHealing(Player player, DamagePacket incoming, Func<uint, int> stat)
+    {
+        if (stat(Stat.BaseElementalDamageHeals) == 0) return incoming;
+        int healing = ActorScale.Saturate((long)(incoming[DamageType.Fire].Min
+            + incoming[DamageType.Cold].Min + incoming[DamageType.Lightning].Min));
+        RecoverElementalDamageAsLife(player, healing, stat);
+        return incoming.Select((type, damage) => DamageTypes.IsElemental(type) ? default : damage);
+    }
+
+    static bool ConvertsElementalDamageToHealing(DamageType type, Func<uint, int> stat) =>
+        DamageTypes.IsElemental(type) && stat(Stat.BaseElementalDamageHeals) != 0;
+
+    static bool RecoverElementalDamageAsLife(Player player, int amount, Func<uint, int> stat)
+    {
+        if (amount <= 0 || player.PlayerLife == 0 || player.Immune || stat(Stat.BaseCannotBeDamaged) != 0
+            || LifeRecovery.NonLeechBlocked(stat)) return false;
+        uint before = player.PlayerLife;
+        double carry = 0;
+        player.PlayerLife = PetrifiedBlood.RecoverLife(player, before, amount, ref carry, minimum: 1,
+            ceilingPct: PetrifiedBlood.RecoveryCeilingPct(stat));
+        return player.PlayerLife > before;
+    }
+
+    internal static int DamagePlayerNonChaosOverTime(Player player, DamageType type, int damage, double now, Func<uint, int> stat) =>
+        DamagePlayerNonChaosOverTime(player, type, damage, now, stat, ref player.NonChaosDotBypassCarry);
+
+    static int DamagePlayerNonChaosOverTime(Player player, DamageType type, int damage, double now, Func<uint, int> stat,
+        ref double bypassCarry)
+    {
+        if (!ConvertsElementalDamageToHealing(type, stat))
+            return IncomingResourceDefences.DamageOverTime(player.EnergyShield, damage,
+                stat(IncomingResourceDefences.BypassStat), now, ref bypassCarry);
+        RecoverElementalDamageAsLife(player, damage, stat);
+        return 0;
     }
 
     public static bool ChaosDamageBypassesEnergyShield(Player player, IReadOnlyDictionary<uint, int> stats)
@@ -116,6 +154,7 @@ public static partial class Game
         recoupable -= diverted;
         RecordIncomingHitTriggers(player, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at, stunned: false, attacker: attacker);
         (physical, other, chaos) = AbsorbPlayerWard(player, physical, other, chaos, at, playerStats);
+        (physical, other, chaos) = InterceptSoulLinkHit(player, physical, other, chaos, at);
         CrabPhysicalHitLocked(player, physical, at, playerStats);
         bool divineFlesh = Get(Stat.KeystoneDivineFlesh) != 0;
         bool protectsMana = !divineFlesh

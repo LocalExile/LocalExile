@@ -97,7 +97,7 @@ static partial class KitavaActTen
         readonly List<Visual> visuals = [];
         readonly List<Orb> orbs = [];
         readonly HashSet<(int, Player, uint)> struck = [];
-        readonly Dictionary<(Player, uint), double> carry = [];
+        readonly Dictionary<(Player, uint), ArenaHazards.GroundCarry> carry = [];
         int rotation, group;
         double lastGround;
         readonly Dictionary<int, double> cooldowns = [];
@@ -217,25 +217,41 @@ static partial class KitavaActTen
                     double Dps(Patch g) => g.Type == DamageType.Physical ? Stat(c, g.Effect, body.Level, global::Stat.BasePhysicalDamageToDealPerMinute) / 60d
                         : Math.Max(0, Stat(c, g.Effect, body.Level, global::Stat.BaseFireDamageToDealPerMinute) / 60d);
                     var e = Exposures.GetValue(p, _ => new());
-                    double dps = p.PlayerLife == 0 || p.Paused || p.Immune || InGracePeriod(p) ? 0 : patches.Where(g => Active(p.Walk.Position(now), g) && !PlayerImmunities(p).Contains(g.Type))
-                        .GroupBy(g => g.Type).Sum(g => g.Max(h => Dps(h) * (h.Type == DamageType.Fire ? Math.Max(0, 1 - Math.Min(Resistance(p, h.Type), MaxResistance(p, h.Type)) / 100d) : 1)));
-                    p.Degens[e] = dps; e.Dps = dps;
+                    double dps = 0, elemental = 0;
+                    if (p.PlayerLife > 0 && !p.Paused && !p.Immune && !InGracePeriod(p))
+                    {
+                        foreach (var group in patches.Where(g => Active(p.Walk.Position(now), g) && !PlayerImmunities(p).Contains(g.Type))
+                            .GroupBy(g => g.Type))
+                        {
+                            double rate = group.Max(h => Dps(h) * (h.Type == DamageType.Fire
+                                ? Math.Max(0, 1 - Math.Min(Resistance(p, h.Type), MaxResistance(p, h.Type)) / 100d) : 1));
+                            dps += rate;
+                            if (DamageTypes.IsElemental(group.Key)) elemental += rate;
+                        }
+                    }
+                    p.Degens.Set(e, dps, elemental); e.Dps = dps;
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                     {
                         if (!GolemCurrent(p, g) || g.Monster.Dead || g.Monster.Invulnerable || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;
-                        double rate = patches.Where(h => Active(g.Monster.Walk.Position(now), h)).GroupBy(h => h.Type).Sum(h => h.Max(patch =>
+                        double rate = 0, elementalRate = 0;
+                        foreach (var group in patches.Where(h => Active(g.Monster.Walk.Position(now), h)).GroupBy(h => h.Type))
                         {
-                            var res = MonsterHitResistance(g.Monster, patch.Type, default);
-                            return Dps(patch) * (patch.Type == DamageType.Fire ? Math.Max(0, 1 - Math.Min(res.Value, res.Maximum) / 100d) : 1)
-                                * Math.Max(0, 1 + Stat(c, patch.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d);
-                        }));
-                        double raw = rate * seconds + carry.GetValueOrDefault((p, g.Id));
-                        int damage = (int)Math.Min(int.MaxValue, Math.Floor(raw)); carry[(p, g.Id)] = raw - damage;
+                            double taken = group.Max(patch =>
+                            {
+                                var res = MonsterHitResistance(g.Monster, patch.Type, default);
+                                return Dps(patch) * (patch.Type == DamageType.Fire ? Math.Max(0, 1 - Math.Min(res.Value, res.Maximum) / 100d) : 1)
+                                    * Math.Max(0, 1 + Stat(c, patch.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d);
+                            });
+                            rate += taken;
+                            if (DamageTypes.IsElemental(group.Key)) elementalRate += taken;
+                        }
+                        carry[(p, g.Id)] = carry.GetValueOrDefault((p, g.Id))
+                            .Apply(g.Monster, rate * seconds, elementalRate * seconds, out int damage, out bool healed);
                         int incoming = damage;
                         damage = g.ShieldPool.Damage(damage, bypass: false, now);
                         PublishEnergyShieldLocked(p, g);
                         g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
-                        if (incoming > 0) p.Minions.OutputQueue.Add(new([], "Kitava ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
+                        if (incoming > 0 || healed) p.Minions.OutputQueue.Add(new([], "Kitava ground changes minion life", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
                         if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
                     }
                 }

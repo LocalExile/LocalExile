@@ -128,6 +128,7 @@ public static class HeistTables
                 }
         MissionAreaIds = areaIds;
         MissionAreaHashes = areaHashes;
+        HeistLocker.LoadGameData();
     }
 
     public static byte JobLevelFromXp(byte jobRow, uint xp, byte maxLevel)

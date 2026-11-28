@@ -343,10 +343,14 @@ public static partial class Game
             int totalExertWarcries = (cryExerted ? 1 : 0) + otherWarcries + (rallyingDamage.HasValue ? 1 : 0);
             long exertedIncreased = ExertedAttackIncreasedDamage(playerStats, skillStats, totalExertWarcries,
                 ancestralExerted: ancestralTargets > 0);
-            var meleeHit = SupportedSwingHit(player, skillId, hand, w => SupportedHitInputsFor(player, skillId, weapon: w) is { } inputs
-                ? SupportedHitFrom(inputs, suppress: true, additionalIncreased: exertedIncreased)
-                : SupportedHitFor(player, skillId, suppress: true, weapon: w));
-            if (ruthless != 1) meleeHit = meleeHit.Scale(ruthless);
+            DamagePacket MeleeHit(DamageRange addedPhysical)
+            {
+                var hit = SupportedSwingHit(player, skillId, hand, w => SupportedHitInputsFor(player, skillId, weapon: w) is { } inputs
+                    ? SupportedHitFrom(inputs, suppress: true, addedPhysical, additionalIncreased: exertedIncreased)
+                    : SupportedHitFor(player, skillId, suppress: true, weapon: w));
+                return ruthless == 1 ? hit : hit.Scale(ruthless);
+            }
+            var meleeHit = MeleeHit(default);
             int criticalMultiplierBase = SupportedCriticalMultiplier(player, skillId, swingWeapon);
             var accuracy = SupportedAccuracy(player, skillId, hand, ExertedAttackAccuracyIncrease(totalExertWarcries, playerStats, skillStats));
             var leech = HitLeechSources(playerStats, true, skillStats, local, melee: true);
@@ -369,7 +373,6 @@ public static partial class Game
             {
                 if (m.Dead || m.Life == 0 || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m))
                     continue;
-                var contactHit = WithMeleeProximityLocked(player, playerStats, skillStats, m, meleeHit, now);
                 int hitChance = AttackHitChanceAt(player, id, m, now, accuracy, playerStats);
                 if (!accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, now, player.AttackAccuracyRandom))
                 {
@@ -381,6 +384,9 @@ public static partial class Game
                     Console.WriteLine($"[gateway] {player.Connection.Remote} {gem.Name} on 0x{id:x} ({m.Label}) blocked");
                     continue;
                 }
+                var addedPhysical = PoachersAddedPhysical(m, now);
+                var contactHit = WithMeleeProximityLocked(player, playerStats, skillStats, m,
+                    addedPhysical.IsZero ? meleeHit : MeleeHit(addedPhysical), now);
                 var hitRolls = HitRollsFor(playerStats);
                 var damageRoll = WithExertedAttackRollModifiers(
                     (hitRolls with { DamageMorePct = 0 }).ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats,

@@ -97,7 +97,7 @@ public static partial class Game
             {
                 if (enemy.Dead || enemy.Life == 0 || enemy.Invulnerable || Dist(position, origin) > blast) continue;
                 int damage = MonsterImpaleDamage(enemy, reflected, now);
-                if (damage <= 0 || ApplyMonsterHitLocked(player, enemy, damage, playerStats: stats, allyAt: origin) is not { } hit)
+                if (damage <= 0 || ApplyMonsterIndirectDamageLocked(player, enemy, damage, playerStats: stats, allyAt: origin) is not { } hit)
                     continue;
                 uint id = enemy.ObjectId;
                 session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life), "Call of Steel reflected impale damage");

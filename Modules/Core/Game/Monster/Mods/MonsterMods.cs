@@ -144,6 +144,8 @@ public static partial class Game
         int basePermyriad = baseCritPermyriad >= 0 ? baseCritPermyriad : MonsterBaseCritChancePermyriad;
         int baseCrit = e.CriticalChanceWith(basePermyriad, increasedCriticalAgainstTarget);
         int chance = baseCrit + additionalCritical;
+        if (m.CoveredInFrostUntil > now)
+            chance = (int)(chance * (100L + CoveredInFrostCriticalPct) / 100);
         critical = !cannotCrit && chance > 0 && !(m.HasCurses && m.Curses.PreventsCritical(now))
             && random.Next(10_000) < chance;
         int extraMult = critical
@@ -298,7 +300,7 @@ public static partial class Game
             additionalElementalTakenPct, chaosDamage > 0);
         double withered = chaosDamage * (chaosFactor - factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
-        // Pride's more Physical Damage and Flesh and Stone's Blood Stance (TakenFromPlayer.Physical) apply to the
+        // Pride's more Physical Damage and Flesh and Stone's Blood Stance apply to the
         // physical part only, never to the elemental share's fallback factor.
         double physicalFactor = PhysicalHitTakenFactor(m, e, now);
         // Its fire, cold and lightning damage taken (Izaro's statues' buffs, Covered in Ash) on those parts.
@@ -368,14 +370,18 @@ public static partial class Game
         return (common, elemental, chaos);
     }
 
-    static double PhysicalHitTakenFactor(SpawnedMonster m, MonsterModEffects effects, double now) =>
-        (1 + Math.Max(0, m.PridePhysicalMore) / 100.0) * (1 + Math.Max(0, FleshTaken(m, now)) / 100.0)
-        * (1 + effects[Stat.PhysicalDamageTakenPlusPct] / 100.0);
+    static double PhysicalHitTakenFactor(SpawnedMonster m, MonsterModEffects effects, double now)
+    {
+        var (pride, flesh) = PhysicalEnemyAuraTaken(m, now, hit: true);
+        return (1 + Math.Max(0, pride) / 100.0) * (1 + Math.Max(0, flesh) / 100.0)
+            * (1 + effects[Stat.PhysicalDamageTakenPlusPct] / 100.0);
+    }
 
     static double ElementalHitTakenPercent(MonsterModEffects effects, SpawnedMonster m, DamageType type, double now) => type switch
     {
         DamageType.Fire => (double)effects[Stat.FireDamageTakenPlusPct] + CoveredInAshFireTaken(m, now),
-        DamageType.Cold => effects[Stat.ColdDamageTakenPlusPct] + m.Ailments.ColdDamageTakenFromChillPct(now),
+        DamageType.Cold => (double)effects[Stat.ColdDamageTakenPlusPct] + m.Ailments.ColdDamageTakenFromChillPct(now)
+            + (m.CoveredInFrostUntil > now ? CoveredInFrostColdTakenPct : 0),
         DamageType.Lightning => effects[Stat.LightningDamageTakenPlusPct],
         _ => 0,
     };
@@ -553,7 +559,7 @@ public static partial class Game
                 chaos: type == DamageType.Chaos, increasedPct: increasedTaken, overTime: true, maimTaken: maimTaken);
         // Pride is a separate more multiplier; Flesh and Stone's Blood Stance affects hits only.
         if (type == DamageType.Physical)
-            factor *= 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;
+            factor *= 1 + Math.Max(0, PhysicalEnemyAuraTaken(m, now, hit: false).Pride) / 100.0;
         return factor;
     }
 
@@ -614,6 +620,7 @@ public static partial class Game
                 FrostBombDebuffs.Remove(m);
                 frostBomb = null;
             }
+            double blightReduction = 1 - BlightRegenerationFactor(m, from, now);
             if (perSecond > 0)
                 recovery = perSecond * Integrate(static (first, last) => Math.Max(0, last - first));
             if (m.PeriodicLifeRegenStarted is double start)
@@ -627,10 +634,13 @@ public static partial class Game
                         * (Math.Max(0, 1 + onHitPct / 100d) - 1);
                 double AfterHinder(double first, double last) => hinder?.ReducedTime(first, last, AfterRecentHit)
                     ?? AfterRecentHit(first, last);
-                double elapsed = AfterHinder(from, now);
+                double baseElapsed = AfterHinder(from, now);
+                double elapsed = baseElapsed;
                 if (frostBomb is not null && elapsed > 0)
                     elapsed -= AfterHinder(Math.Max(from, frostBomb.Started), Math.Min(now, frostBomb.Until))
                         * Math.Clamp(-frostBomb.Regeneration / 100d, 0, 1);
+                if (blightReduction > 0 && elapsed > 0)
+                    elapsed -= baseElapsed * blightReduction;
                 return Math.Max(0, elapsed);
             }
         }

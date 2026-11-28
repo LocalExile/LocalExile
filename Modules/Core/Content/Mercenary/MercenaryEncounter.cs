@@ -40,6 +40,16 @@ public sealed partial class MercenaryModule
         return Math.Max(0L, chance) * Math.Max(0L, 100L + S(Stat.MapMercenaryChancePlusPct)) / 100;
     }
 
+    /// <summary>The chance, in hundredths of a percent, that a Mercenary is Infamous. The wiki: "the base chance is
+    /// approximately 20%, though this chance varies with each class"; since 3.29.1 Infamous ones are "50% more common in tier
+    /// 1 Maps, scaling up to approximately twice as common in tier 16 Maps". map_mercenary_infamous_chance_+% raises it.
+    /// [ESTIMATE] 20% for every class (the per-class rates are not published) and a linear scale between tiers 1 and 16.</summary>
+    public static int InfamousChanceBasisPoints(int mapTier, int increasedPct)
+    {
+        double tierScale = mapTier <= 0 ? 1 : 1.5 + 0.5 * (Math.Clamp(mapTier, 1, 16) - 1) / 15.0;
+        return (int)Math.Round(2000 * tierScale * Math.Max(0, 100 + increasedPct) / 100.0);
+    }
+
     /// <summary>Evaluates whether a new combat instance (map or campaign) rolls a mercenary encounter, honoring retail 3.29
     /// Act 3+ campaign rules, Warrant calls, map chances, and <see cref="GameEvents.EncounterSpawn"/> overrides (for Phase 2 mods).</summary>
     async Task Place(AreaPopulated area)
@@ -76,12 +86,15 @@ public sealed partial class MercenaryModule
         else
         {
             // Campaign: the area's own WorldAreaLeagueChances column (Act 3 16%, later acts less, 100 in five zones, 0 in
-            // Acts 1-2, labyrinth rooms, side areas and Ruthless), while playerLevel <= areaLevel + 10.
+            // Acts 1-2, labyrinth rooms, side areas and Ruthless), while playerLevel <= areaLevel + 10. The five guaranteed
+            // zones ignore the level gate.
             var meta = MercenaryTables.AreaOf(layout.Id);
-            allowed = meta is { IsTown: false, IsHideout: false }
-                && player.Pools.Level <= area.Level + 10;
+            allowed = meta is { IsTown: false, IsHideout: false };
             chance = allowed ? ChanceOf(layout.Id, LeagueFor(player).HardMode, stats) : 0;
-            force |= chance >= 100;
+            bool guaranteed = chance >= 100;
+            if (!guaranteed && player.Pools.Level > area.Level + 10) { allowed = false; chance = 0; }
+            force |= guaranteed;
+            lock (run) run.Guaranteed = guaranteed;
         }
 
         // Allow Phase 2 mods (e.g. 3.26 Mercenaries mod) to enable encounters from Mud Flats onward and scale level
@@ -114,7 +127,8 @@ public sealed partial class MercenaryModule
             else
             {
                 bool infamous = stats.GetValueOrDefault(Stat.MapMercenariesAreInfamous) > 0
-                    || (spawnLevel >= 68 && rng.Next(100) < 5 + stats.GetValueOrDefault(Stat.MapMercenaryInfamousChancePlusPct));
+                    || rng.Next(10000) < InfamousChanceBasisPoints(isMap ? MapRunOf(player)?.Area.Tier ?? 0 : 0,
+                        stats.GetValueOrDefault(Stat.MapMercenaryInfamousChancePlusPct));
                 pick = MercenaryTables.Pick(rng, infamous) ?? MercenaryTables.Pick(rng, false);
             }
 
@@ -176,25 +190,30 @@ public sealed partial class MercenaryModule
 
         if (run.Equipment.Count == 0)
         {
-            run.Equipment = MercenaryEquipment.Roll(kind, build, level, rng,
-                stats.GetValueOrDefault(Stat.MapMercenaryAllUniqueItems) > 0, UniquesFor(player));
+            run.Equipment = MercenaryEquipment.WithInfamousModifier(MercenaryEquipment.Roll(kind, build, level, rng,
+                stats.GetValueOrDefault(Stat.MapMercenaryAllUniqueItems) > 0, UniquesFor(player)), build, level, rng);
         }
 
         if (run.GearItems.Count == 0)
             run.GearItems = MercenaryEquipment.ToInventoryItems(run.Equipment, startingId: 1);
 
-        if (run.RucksackItems.Count == 0 && stats.GetValueOrDefault(Stat.MapMercenaryRucksackIsEmpty) <= 0)
-            run.RucksackItems = RollRucksack(level, rng, forceFull: stats.GetValueOrDefault(Stat.MapMercenaryRucksackIsFull) > 0);
+        // As in 3.29, every Mercenary carries a Rucksack except the guaranteed campaign ones, which carry none.
+        if (run.RucksackItems.Count == 0 && !run.Guaranteed && stats.GetValueOrDefault(Stat.MapMercenaryRucksackIsEmpty) <= 0)
+            run.RucksackItems = RollRucksack(level, rng, build.Infamous, MapDevices.IsMapArea(player.Layout.Hash), run.Skills,
+                full: stats.GetValueOrDefault(Stat.MapMercenaryRucksackIsFull) > 0);
 
         run.WagerCost = MercenaryTables.WagerGoldCost(level, build.Infamous, stats.GetValueOrDefault(Stat.MapMercenaryWagerGoldAmountPlusPct));
 
         var gear = GearOf(kind, build, level, seed, run);
         string displayName = MercenaryTables.FormatName(run.FirstNameHash32, run.SecondNameHash32) ?? build.Name;
+        // MinimapIcon's u16 is the MinimapIcons row + 1: row 668 itself drew row 667's ship's wheel (live 2026-11-27).
+        int iconRow = MercenaryTables.EncounterIconRow;
         uint id = await SpawnMonster(player, variety, level, MonsterRarity.Unique, at.X, at.Y, friendly: true, instanceOwned: true,
             scripted: true, ownedLooks: gear, shape: m => m with
             {
                 Name = displayName, Team = MercenaryWire.MercenaryTeam, StateMachine = met, MercenaryBuild = build.Hash16,
                 HasDialogue = true, NpcFlags = 1, InteractionFlags = 1,
+                MinimapIcon = iconRow >= 0 ? (ushort)(iconRow + 1) : (ushort)0,
             });
         if (id == 0) return false;
         if (player.Area.Monsters.TryGetValue(id, out var body))
@@ -219,25 +238,58 @@ public sealed partial class MercenaryModule
         return true;
     }
 
-    static List<InventoryItem> RollRucksack(byte level, Random rng, bool forceFull)
+    // [ESTIMATE] Retail's Rucksack table is server-side. The wiki (Mercenary, 2026-11) gives its shape: four slots that roll
+    // independently, each a currency stack or a Trarthan gem; Infamous Mercenaries roll rarer currency, bigger stacks and
+    // Trarthan gems a little more often; since 3.29 map Rucksacks roll no Transmutation or Augmentation. The weights, stack
+    // sizes and chances here are this server's. Common entries are left out for Infamous ones; Exalted needs level 68.
+    static readonly (string Id, int Weight, int Min, int Max, bool Common)[] RucksackCurrency =
+    [
+        // No Scroll of Wisdom (CurrencyIdentification): left out of the pool by choice.
+        ("UpgradeToMagic", 100, 2, 8, true), ("AddModToMagic", 80, 2, 6, true), ("Portal", 60, 2, 5, true), ("ArmourQuality", 60, 2, 6, true), ("WeaponQuality", 50, 2, 5, true),
+        ("RerollMagic", 70, 2, 6, true), ("RerollSocketColours", 50, 3, 8, true), ("RerollSocketNumbers", 40, 2, 6, false),
+        ("UpgradeRandomly", 30, 1, 4, false), ("UpgradeToRare", 30, 1, 3, false), ("RerollSocketLinks", 25, 1, 4, false),
+        ("ConvertToNormal", 20, 1, 3, false), ("PassiveRefund", 15, 1, 2, false), ("RerollImplicit", 12, 1, 3, false),
+        ("MapQuality", 15, 1, 3, false), ("FlaskQuality", 15, 1, 3, false), ("Corrupt", 10, 1, 2, false),
+        ("GemQuality", 6, 1, 1, false), ("UpgradeMagicToRare", 8, 1, 2, false), ("RerollRare", 15, 1, 3, false),
+        ("AddModToRare", 2, 1, 1, false),
+    ];
+
+    /// <summary>Fills the 2x2 Rucksack: each of its four cells rolls on its own (all four with <paramref name="full"/>), at
+    /// least one is filled, and a cell holds a currency stack or, for a Mercenary using a Trarthan skill, that gem.</summary>
+    static List<InventoryItem> RollRucksack(byte level, Random rng, bool infamous, bool map, IReadOnlyList<MercenaryTables.RolledSkill> skills,
+        bool full)
     {
-        if (!forceFull && rng.Next(100) >= 55) return [];
-        // Roll 1-2 currency items into the 2x2 rucksack slot (placed at (0,0) / (1,0))
-        string[] pool = level >= 68
-            ? ["Metadata/Items/Currency/CurrencyRerollRare", "Metadata/Items/Currency/CurrencyAddModToRare",
-               "Metadata/Items/Currency/CurrencyRerollSocketLinks", "Metadata/Items/Currency/CurrencyUpgradeToRare",
-               "Metadata/Items/Currency/CurrencyIdentification"]
-            : ["Metadata/Items/Currency/CurrencyUpgradeToRare", "Metadata/Items/Currency/CurrencyRerollMagic",
-               "Metadata/Items/Currency/CurrencyUpgradeRandomly", "Metadata/Items/Currency/CurrencyIdentification"];
+        var currency = RucksackCurrency.Where(c => !(infamous && c.Common) && !(map && c.Id is "UpgradeToMagic" or "AddModToMagic")
+            && (c.Id != "AddModToRare" || level >= 68)).ToArray();
+        var trarthan = skills.Select(s => MercenaryTables.SkillOf(s.SkillRow)?.Name).FirstOrDefault(n => n?.EndsWith(" of Trarthus") == true)
+            is { } name
+            ? Program.Items.All.Where(t => t.Supported).SelectMany(t => Program.Items.Gem(t)?.Variants.Where(v => v.Name == name)
+                .Select(v => (Type: t, Variant: v)) ?? []).FirstOrDefault()
+            : default;
+        bool[] filled = [.. Enumerable.Range(0, 4).Select(_ => full || rng.Next(100) < 50)];
+        if (!filled.Contains(true)) filled[rng.Next(4)] = true;
+
         var result = new List<InventoryItem>();
-        int count = forceFull ? 2 : 1;
-        for (int i = 0; i < count; i++)
+        bool gemTaken = false;
+        for (int cell = 0; cell < 4; cell++)
         {
-            string chosenId = pool[rng.Next(pool.Length)];
-            if (Program.Items.Find(chosenId) is not { Supported: true } bt) continue;
-            ushort stack = (ushort)Math.Clamp(rng.Next(1, level >= 68 ? 5 : 3), 1, Math.Max(1, (int)bt.MaxStack));
-            var item = ItemCatalog.Create(bt) with { StackSize = stack, Identified = true };
-            result.Add(new InventoryItem((uint)(100 + i), (byte)i, 0, item));
+            if (!filled[cell]) continue;
+            Item? item = null;
+            if (!gemTaken && trarthan.Type is not null && rng.Next(100) < (infamous ? 8 : 5))
+            {
+                item = ItemCatalog.Create(trarthan.Type) with { GemVariant = trarthan.Variant.Index };
+                gemTaken = true;
+            }
+            else if (currency.Length > 0)
+            {
+                int roll = rng.Next(currency.Sum(c => c.Weight));
+                var pick = currency.First(c => (roll -= c.Weight) < 0);
+                if (Program.Items.Find("Metadata/Items/Currency/Currency" + pick.Id) is not { Supported: true } bt) continue;
+                int max = infamous ? (pick.Max * 3 + 1) / 2 : pick.Max;
+                ushort stack = (ushort)Math.Clamp(rng.Next(pick.Min, max + 1), 1, Math.Max(1, (int)bt.MaxStack));
+                item = ItemCatalog.Create(bt) with { StackSize = stack, Identified = true };
+            }
+            if (item is not null) result.Add(new InventoryItem((uint)(100 + cell), (byte)(cell % 2), (byte)(cell / 2), item));
         }
         return result;
     }
@@ -510,6 +562,11 @@ public sealed partial class MercenaryModule
             await Send(player, InstanceEntities.Gold(goldLeft),
                 $"0x026e gold {goldLeft} after mercenary duel wager ({wagerPaid})");
         await SetStates(player, run.Body, MercenaryWire.CountdownStates, "(7, 0, 1, 1): the duel was chosen");
+        // The "3, 2, 1, Fight!" banner: CountdownTimers row 0 (MercenaryCountdown) shown by S→C 0x162 from 3; the client
+        // steps it down itself (retail 3.29: 3 at the choice, Fight! about 1.6 s later, as the duel switch lands).
+        foreach (var member in Members(player))
+            await Send(member, InstanceTimers.CountdownTimer(3),
+                "0x0162 countdown timer: 3 (MercenaryCountdown)");
         Save(player, run);
         return true;
     }
@@ -590,9 +647,42 @@ public sealed partial class MercenaryModule
             run.Stage = Stage.Duel;
             run.Body = id;
         }
+        await JoinEscorts(player, run);
         Save(player, run);
         context.Log($"{player.Layout.Id}: mercenary 0x{old:x} duels as 0x{id:x} (offer={run.ChosenOffer})");
         return true;
+    }
+
+    /// <summary>The Trarthan Scarab of Infamy's two escorts join the duel as it starts: each idle body gives way to a hostile
+    /// one with its kit, where it stood (the wiki: they fight with the main Mercenary and go on if it is beaten).</summary>
+    async Task JoinEscorts(Player player, Run run)
+    {
+        Wild[] escorts;
+        lock (run) escorts = [.. run.Wilds.Where(w => w.Escort && !w.Paid)];
+        foreach (var wild in escorts)
+        {
+            if (MercenaryTables.ClassOf(wild.Class) is not { } kind || MercenaryTables.BuildOf(wild.Build) is not { } build
+                || Monsters.Find(kind.Path) is not { Supported: true } variety) continue;
+            var at = player.Area.Monsters.TryGetValue(wild.Body, out var idle) ? idle.Walk.Position(AreaTime(player)) : (wild.X, wild.Y);
+            var looks = MercenaryEquipment.Looks(wild.Equipment, MercenaryGear.Of(kind, build, run.Level,
+                new Random(unchecked(run.Seed * 397 ^ build.Row))));
+            uint id = await SpawnMonster(player, variety, run.Level, MonsterRarity.Unique, at.X, at.Y, instanceOwned: true,
+                ownedLooks: looks, extraMods: MercenaryEquipment.Effects(wild.Equipment, wild.Difficulty),
+                ownedKit: KitOf(player, variety, build, run.Level, run.Seed), shape: o => o with
+                {
+                    Name = wild.Name, MercenaryBuild = build.Hash16,
+                    StateMachine = States(variety, MercenaryWire.DuelStates), HasDialogue = false, NpcFlags = 0,
+                });
+            if (id == 0) continue;
+            await Remove(player, wild.Body);
+            lock (run)
+            {
+                wild.Body = id;
+                wild.X = at.X;
+                wild.Y = at.Y;
+                wild.Escort = false;
+            }
+        }
     }
 
     // ---- Duel Resolution (Win & Loss) -----------------------------------------------------------------------------------------

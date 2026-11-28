@@ -895,6 +895,9 @@ public static partial class Game
         foreach (var (name, value) in rawAttributes)
             sources[name] = AttributeModifiers.Signed(value);
         AbyssJewels.Count(active, catalog, Stats, sources);
+        // Per-empty-socket modifiers (The Untouched Soul: Red -> Life, Green -> Accuracy, Blue -> Mana,
+        // White -> All Elemental Resistances) multiply by empty sockets on genuine active equipped items.
+        EmptySocketPools.Apply(equippedActive, sources);
         ApplySocketedGhastlyEyeBonuses(active, catalog, sources);
         ItemStatAliases.Apply(sources);
         // The Cloak of Tawm'r Isley's identification flag is local in the item data.
@@ -1659,8 +1662,10 @@ public static partial class Game
             // A pure base stat takes its place before the global increases: the weapon override (Slayer Overwhelm,
             // Blind Prophet's Sightless) replaces the armed weapon's base, already with its local mods, and unarmed
             // melee uses its own Behemoth base. Neither base is a spell value; the spell route stays on SpellCriticalStrike.
-            AttackCriticalStrikeChance = DisplayedCriticalChance(player, AttackBaseCriticalStrike.Chance(!activeWeapon.Unarmed,
-                activeWeapon.Critical, pools.CriticalStrikeChancePct, RawCritical), RawCritical),
+            AttackCriticalStrikeChance = DisplayedCriticalChance(player,
+                RawCritical(Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance) != 0 ? RawCritical(Stat.OverrideMainHandCriticalStrikeChancePctFromCriticalLink)
+                    : AttackBaseCriticalStrike.Chance(!activeWeapon.Unarmed, activeWeapon.Critical, pools.CriticalStrikeChancePct, RawCritical),
+                RawCritical),
             SpellCriticalStrikeChance = DisplayedCriticalChance(player, SpellCriticalStrike.Chance(
                 DamageModel.BaseSpellCriticalStrikeChancePerMyriad, RawCritical,
                 playerIncrease: pools.SpellCriticalStrikeChancePct), RawCritical)
@@ -1675,6 +1680,8 @@ public static partial class Game
             + Math.Max(0, shieldBlock) / 5 * EquipmentStat(Stat.ChanceToBlockAttackDamagePer5PctChanceToBlockOnEquippedShieldPlusPct);
         double blockIncrease = bonus.BlockChanceInc + (double)(map?.Get(Stat.MapPlayersBlockChancePlusPct) ?? 0);
         double blockFactor = Math.Max(0, 1 + blockIncrease / 100) * (1 + bonus.BlockChanceMore / 100.0);
+        if (activeWeapon.Staff && ManaStaffAura(player) is { } staff)
+            blockFactor *= Math.Max(0, 1 + ManaStaffGrants(staff).Block / 100.0);
         int totalAttack = (int)Math.Round(Math.Max(0, rawAttack) * blockFactor);
         int totalSpell = (int)Math.Round(Math.Max(0, pools.SpellBlockChance) * blockFactor);
         pools = pools with
@@ -1688,6 +1695,17 @@ public static partial class Game
             SpellBlockChanceUncapped = Math.Max(0, totalSpell),
             SpellBlockChance = Math.Min(Math.Max(0, totalSpell), pools.SpellBlockChanceMax)
         };
+        if (sources.GetValueOrDefault(Stat.DisplayBulwarkLinkOverridesAttackBlockAndMaximumAttackBlock) != 0)
+        {
+            int linkedBlock = sources.GetValueOrDefault(Stat.OverrideAttackBlockPctFromBulwarkLink);
+            pools = pools with
+            {
+                BlockChance = linkedBlock,
+                BlockChanceUncapped = linkedBlock,
+                BlockChanceMax = sources.GetValueOrDefault(Stat.OverrideMaximumAttackBlockPctFromBulwarkLink),
+                AttackBlockAtMaximum = false,
+            };
+        }
         // "+1% Chance to Block Spell Damage per 5% Chance to Block Attack Damage": the attack value is the final capped
         // chance, including the shield's base. The effect stacks additively and is capped by the spell block maximum.
         if (pools.SpellBlockPer5AttackBlock != 0 && pools.BlockChance > 0)
@@ -1830,6 +1848,13 @@ public static partial class Game
     {
         int Get(uint k) => stats.GetValueOrDefault(k);
         int allRes = Get(Stat.BaseResistAllElementsPct);
+        // "X% increased maximum Life, Mana and Global Energy Shield" is one increase on each of the three pools
+        // (PoB ModParser.lua:427 lists Life, Mana and EnergyShield for that one phrase).
+        int allPoolsPct = Get(Stat.MaximumLifeManaAndEnergyShieldPlusPct);
+        // "+X% to Elemental Resistances while holding a Shield": despite the stat's "+%" name it is a flat
+        // resistance, as PoB's parse of the tree node shows (ModCache.lua:651, ElementalResist BASE 15 under the
+        // UsingShield condition), so it joins the three elemental resistances and not chaos.
+        int shieldElementalRes = weapons.Shield ? Get(Stat.ResistAllElementsPlusPctWhileHoldingShield) : 0;
         // The item tables also spell resistances without the base_ prefix (The Annihilating Light's -70% elemental,
         // the Cowl uniques' reduced single resistances); both spellings are the same character stat.
         int elementalRes = Get(Stat.ElementalDamageResistancePlusPct);
@@ -1947,7 +1972,7 @@ public static partial class Game
             lifeMorePct = (100m + lifeMorePct) * (100m + BloodMagic.LifeMorePct) / 100m - 100m;
         return new CharacterStats.Bonus(
             Attributes: attributes, Ward: Get(Stat.BaseWard), WardPct: Get(Stat.WardPlusPct) + Get(Stat.GlobalDefencesPlusPct) + Get(Stat.CombinedGlobalDefencesPlusPct),
-            Life: Get(Stat.BaseMaximumLife), LifePct: Get(Stat.MaximumLifePlusPct), Mana: Get(Stat.BaseMaximumMana), ManaPct: Get(Stat.MaximumManaPlusPct),
+            Life: Get(Stat.BaseMaximumLife), LifePct: Get(Stat.MaximumLifePlusPct) + allPoolsPct, Mana: Get(Stat.BaseMaximumMana), ManaPct: Get(Stat.MaximumManaPlusPct) + allPoolsPct,
             LifeMorePct: lifeMorePct,
             ManaPerFourStrength: Get(StrengthMana.PerFourStrength),
             LifePerLevel: Get(LifeManaPoolSources.LifePerLevel), ManaPerLevel: Get(LifeManaPoolSources.ManaPerLevel),
@@ -1979,7 +2004,8 @@ public static partial class Game
             ArmourAppliesToChaosDamage: Get(PlayerHitMitigation.ArmourAppliesToChaos) != 0,
             EnergyShield: Get(Stat.BaseMaximumEnergyShield),
             EnergyShieldPctPerTenStrength: Get(AttributeDefenceSources.EnergyShieldPerTenStrength),
-            EnergyShieldPct: Get(Stat.MaximumEnergyShieldPlusPct) + Get(Stat.GlobalDefencesPlusPct) + Get(Stat.CombinedGlobalDefencesPlusPct),
+            EnergyShieldPct: Get(Stat.MaximumEnergyShieldPlusPct) + Get(Stat.GlobalDefencesPlusPct) + Get(Stat.CombinedGlobalDefencesPlusPct)
+                + allPoolsPct,
             ShieldArmourPct: Get(Stat.ShieldPhysicalDamageReductionRatingPlusPct),
             ShieldEvasionPct: Get(Stat.ShieldEvasionRatingPlusPct),
             ShieldEnergyShieldPct: Get(Stat.ShieldMaximumEnergyShieldPlusPct),
@@ -1999,11 +2025,11 @@ public static partial class Game
             DoubleBodyArmour: Get(Stat.DamageReductionRatingFromBodyArmourDoubled) != 0,
             NoBodyArmour: Get(Stat.GainNoArmourFromBodyArmour) != 0,
             MeleePhysicalDamagePct: Get(Stat.MeleePhysicalDamagePlusPct),
-            FireResistance: allRes + Get(Stat.BaseFireDamageResistancePct) + Get(Stat.FireDamageResistancePlusPct) + elementalRes
+            FireResistance: allRes + shieldElementalRes + Get(Stat.BaseFireDamageResistancePct) + Get(Stat.FireDamageResistancePlusPct) + elementalRes
                 + fireColdRes + fireLightningRes + fireChaosRes,
-            ColdResistance: allRes + Get(Stat.BaseColdDamageResistancePct) + Get(Stat.ColdDamageResistancePlusPct) + elementalRes
+            ColdResistance: allRes + shieldElementalRes + Get(Stat.BaseColdDamageResistancePct) + Get(Stat.ColdDamageResistancePlusPct) + elementalRes
                 + pairRes + fireColdRes + coldChaosRes,
-            LightningResistance: allRes + Get(Stat.BaseLightningDamageResistancePct) + Get(Stat.LightningDamageResistancePlusPct)
+            LightningResistance: allRes + shieldElementalRes + Get(Stat.BaseLightningDamageResistancePct) + Get(Stat.LightningDamageResistancePlusPct)
                 + elementalRes + pairRes + fireLightningRes + lightningChaosRes,
             ChaosResistance: Get(Stat.BaseChaosDamageResistancePct) + fireChaosRes + coldChaosRes + lightningChaosRes,
             FireMaxResistance: allMax + allElemMax + Get(Stat.BaseMaximumFireDamageResistancePct),

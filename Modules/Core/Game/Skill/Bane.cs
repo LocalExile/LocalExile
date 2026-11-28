@@ -102,7 +102,7 @@ public static partial class Game
         foreach (var source in PlayerSkillSourcesLocked(player).Where(s => s.Active && s.SourceGem is not null
             && s.Identity.Host == bane.Host).OrderBy(s => s.Identity.Socket))
         {
-            if (catalog.EffectId(source.Effect) is not { } effect || !CurseCatalog.Hex(effect) || result.Any(r => r.Item3 == effect))
+            if (CurseCatalog.HexFamily(catalog.EffectId(source.Effect)) is not { } effect || result.Any(r => r.Item3 == effect))
                 continue;
             var linked = SupportedSkill(player, source.Id);
             if (GolemStat(linked.Stats, Stat.CannotCastCurses) == 0 && BaneSupportsHex(player, bane, linked))

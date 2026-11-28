@@ -117,7 +117,7 @@ public static partial class Game
             session.Runtime.Schedule(first + interval * i, () =>
             {
                 if (!session.Active || player.PlayerLife == 0) return;
-                session.Runtime.Impact(use, at, new("Conflagration landing", radius));
+                session.RainImpact(use, at, new("Conflagration landing", radius));
                 if (proxy) session.RainArt(at, Art.Animated("NapalmArrowsLandingScaled", 0), .75, radius);
                 if (duration > 0 && limit != 0)
                     session.PlantConflagration(at, detonation, trigger, explosionRadius, ProjectileRuntime.Time(duration), limit);

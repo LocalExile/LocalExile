@@ -256,7 +256,10 @@ public static partial class Game
             talk.Script, talk.TextAudio.Count > 0, talk.Index, talk.Row, talk.OpensGuildHideouts, talk.RewardOffer);
         bool offeredScript = false;
         // A scripted row's end (FinishNPCChat, DoNPCChat, a screen, a move): after its talk, or now when it has none.
-        if (EndsWithScript(talk) && talk.Category is "Gossip" or "Quests" or "QuestReward" && talk.RewardOffer is null)
+        if (EndsWithScript(talk)
+            && (talk.Category is "Gossip" or "Quests" or "QuestReward"
+                || (talk.OpensScreen is { } openScreen && ScriptScreens.ContainsKey(openScreen)))
+            && talk.RewardOffer is null)
         {
             if (talk.TextAudio.Count > 0) player.NpcTalkScript = talk;
             else
@@ -272,7 +275,7 @@ public static partial class Game
                 if (await GameEvents.AnyNpcOption(option)) return true;
                 // On the click itself a script that only ends the talk shows nothing: FinishNPCChat with a screen or an
                 // event of a system the server does not have (Einhar's BestiaryScreen). The caller lists the options.
-                if (onClick && talk.NextChat is null && talk.AreaTransition is null
+                if (onClick && talk.NextChat is null && talk.AreaTransition is null && !talk.GoToKingsmarch
                     && !(talk.OpensScreen is { } screen && ScriptScreens.ContainsKey(screen)))
                 {
                     Console.WriteLine($"[gateway] {player.Connection.Remote} npc option {talk.Category} \"{talk.Option}\": its script shows nothing here ({talk.Script.Trim()})");

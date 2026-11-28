@@ -601,7 +601,10 @@ public static partial class Game
                     if (MonsterBlocks(m, AreaRng(player), spell: false, now, skillStats, playerStats)) continue;
                     var fullLifeStrike = dualStrikeBonuses.Against(m);
                     double damageMore = fullLifeStrike.DamageMore;
-                    var contactHit = damageMore == 1 ? hitPacket : hitPacket.Scale(damageMore);
+                    var addedPhysical = PoachersAddedPhysical(m, now);
+                    var contactHit = addedPhysical.IsZero ? hitPacket : SupportedHitFrom(capturedInputs, suppress: false,
+                        addedPhysical: addedPhysical).Scale(factor);
+                    if (damageMore != 1) contactHit = contactHit.Scale(damageMore);
                     var rolled = WithConditionalSupportDamageLocked(player, skillStats, attack: true, m,
                         GameEvents.WithOutgoingDamage(player, playerStats, m,
                             damageRoll.RollBeforeCritical(contactHit, AreaRng(player), criticalDoubleDamage)), now);

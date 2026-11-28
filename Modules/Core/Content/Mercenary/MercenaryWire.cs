@@ -45,7 +45,9 @@ public static class MercenaryWire
 
     /// <summary>The four shared states of a Mercenaries type, in .ot order: encounter_state, hired_state, leavetalk_enabled, light.</summary>
     public static readonly int[] MetStates = [1, 0, 0, 1], TalkStates = [1, 0, 1, 1], CountdownStates = [7, 0, 1, 1],
-        QuietStates = [7, 0, 0, 1], DuelStates = [2, 0, 0, 1], HiredStates = [0, 1, 0, 1];
+        QuietStates = [7, 0, 0, 1], DuelStates = [2, 0, 0, 1], HiredStates = [0, 1, 0, 1],
+        // encounter_state 8, "Party Member idle" in Mercenary.ot: the companions that wait beside the main Mercenary.
+        PartyIdleStates = [8, 0, 0, 1];
 
     /// <summary>The frames, counted from the duel choice, of the second mark, the quiet state and the switch to the duel.</summary>
     public static readonly int[] CountdownFrames = [18, 24, 54];

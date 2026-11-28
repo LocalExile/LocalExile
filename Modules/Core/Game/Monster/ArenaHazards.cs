@@ -13,10 +13,24 @@ internal static class ArenaHazards
     {
         internal double Last = double.NaN;
         internal readonly double[] Carry = new double[5];
-        internal readonly Dictionary<uint, double> MinionCarry = [];
+        internal readonly Dictionary<uint, GroundCarry> MinionCarry = [];
         internal ushort Fear;
         internal int FearValue;
     }
+    internal readonly record struct GroundCarry(double Damage, double Healing)
+    {
+        public GroundCarry Apply(SpawnedMonster monster, double total, double elemental, out int damage, out bool healed)
+        {
+            bool converts = monster.Effects[global::Stat.BaseElementalDamageHeals] != 0;
+            double health = converts ? Math.Max(0, elemental) + Healing : 0;
+            double harm = Math.Max(0, total - (converts ? elemental : 0)) + Damage;
+            long wholeHealing = (long)Math.Min(int.MaxValue, Math.Floor(health));
+            damage = (int)Math.Min(int.MaxValue, Math.Floor(harm));
+            healed = RecoverMinionElementalDamageAsLife(monster, wholeHealing);
+            return new(harm - damage, health - wholeHealing);
+        }
+    }
+
     internal static int Stat(Player c, int effect, byte level, uint name)
     {
         var cat = SkillsFor(c);
@@ -90,7 +104,7 @@ internal static class ArenaHazards
                 int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); e.Carry[slot] = amount - damage;
                 loss += type == DamageType.Chaos
                     ? DamagePlayerChaosOverTime(p, damage, now, stats)
-                    : IncomingResourceDefences.DamageOverTime(p.EnergyShield, damage, Get(IncomingResourceDefences.BypassStat), now, ref p.NonChaosDotBypassCarry);
+                    : DamagePlayerNonChaosOverTime(p, type, damage, now, Get);
             }
             uint lifeAfter = VaalImmortalCallLife(p, (uint)Math.Max(0, (long)p.PlayerLife - loss), now);
             RecordRechargeLifeDamage(p, (long)p.PlayerLife - lifeAfter, now, stats);
@@ -105,20 +119,23 @@ internal static class ArenaHazards
                 int MinionStat(uint key) => g.Player.GetValueOrDefault(key);
                 bool elementalImmune = g.Definition.IsGolem && (MinionStat(global::Stat.GolemImmunityToElementalDamage) != 0
                     || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && MinionStat(global::Stat.ElementalGolemImmunityToElementalDamage) != 0);
-                double amount = e.MinionCarry.GetValueOrDefault(g.Id);
+                double amount = 0, elemental = 0;
                 double soulLink = MinionLinkDamageTaken(p, g, now);
                 foreach (var type in DamageTypes.ConversionOrder)
                 {
                     if (elementalImmune && DamageTypes.IsElemental(type)) continue;
                     var res = MonsterHitResistance(g.Monster, type, default);
-                    amount += DamageModel.Mitigate(packet[type].Min, res.Value, res.Maximum) * seconds * soulLink;
+                    double taken = DamageModel.Mitigate(packet[type].Min, res.Value, res.Maximum) * seconds * soulLink;
+                    amount += taken;
+                    if (DamageTypes.IsElemental(type)) elemental += taken;
                 }
-                int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); e.MinionCarry[g.Id] = amount - damage;
+                e.MinionCarry[g.Id] = e.MinionCarry.GetValueOrDefault(g.Id)
+                    .Apply(g.Monster, amount, elemental, out int damage, out bool healed);
                 int beforeShield = damage;
                 damage = g.ShieldPool.Damage(damage, false, now);
                 int absorbed = beforeShield - damage;
                 g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
-                if (absorbed > 0 || damage > 0) p.Minions.OutputQueue.Add(new([], "campaign ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life,
+                if (absorbed > 0 || damage > 0 || healed) p.Minions.OutputQueue.Add(new([], "campaign ground changes minion life", g.Id, g.Monster, PlayerMinions.OutputKind.Life,
                     DeathKind: DotDeathKind(g.Monster, g.Monster.Life)));
                 if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
             }

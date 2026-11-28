@@ -37,6 +37,18 @@ public static partial class Game
     public static Dictionary<uint, int> CachedPlayerStats(Player player, out double baselineLifePerSecond) =>
         CachedPlayerStats(player, out baselineLifePerSecond, out _);
 
+    public static Dictionary<uint, int> CachedPlayerStats(Player player, out double baselineLifePerSecond,
+        out double baselineEnergyShieldFromLifePerSecond)
+    {
+        if (FrameStatsOf.TryGetValue(player, out var frame) && frame.ByFrame && frame.Graph is { } graph)
+        {
+            baselineLifePerSecond = frame.Outputs.BaselineLifePerSecond;
+            baselineEnergyShieldFromLifePerSecond = frame.Outputs.BaselineEnergyShieldFromLifePerSecond;
+            return new(graph.Values);
+        }
+        return CharacterPlayerStatsSnapshot(player, out baselineLifePerSecond, out baselineEnergyShieldFromLifePerSecond, out _);
+    }
+
     /// <summary>The stats as of the graph's last step in an area's frames, else a fresh build; with
     /// <paramref name="capturePanelSources"/>, the panel's sources too (what the tail's first step saw).</summary>
     public static Dictionary<uint, int> CachedPlayerStats(Player player, out double baselineLifePerSecond,
@@ -267,10 +279,12 @@ public static partial class Game
     static bool PetrifiedBloodCapped(Player player, IReadOnlyDictionary<uint, int> stats)
     {
         if (!player.PetrifiedBlood.Active || player.PlayerLife == 0) return false;
+        var recoveryGet = PanelStats.WhileMoving(name => name is var key ? stats.GetValueOrDefault(key) : 0,
+            player.Walk.Moving(AreaTime(player)));
         var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
-            name => name is var key ? stats.GetValueOrDefault(key) : 0, player.Pools.Life);
-        double factor = LifeRegenerationKeystoneFactor(name => stats.GetValueOrDefault(name));
-        uint margin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute * factor / 60);
+            recoveryGet, player.Pools.Life, player.Pools.EnergyShield,
+            LifeRegenerationKeystoneFactor(name => stats.GetValueOrDefault(name)));
+        uint margin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
         return (long)player.PlayerLife + margin >= (uint)((long)player.PlayerMaxLife * LowLifeThresholdPct(stats) / 100);
     }
 

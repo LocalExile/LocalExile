@@ -140,19 +140,28 @@ public sealed class EnergyShield
         * (get(Stat.KeystoneWickedWard) != 0 ? 0.6 : 1)
         // Eldritch Battery: "50% less Energy Shield Recharge Rate".
         * (get(Stat.KeystoneEldritchBattery) != 0 ? 0.5 : 1);
-    public static double RegenPerMinute(uint max, Func<uint, int> get) =>
-        get(Stat.MapPlayersNoRegenerationIncludingEs) != 0 || get(Stat.NoEnergyShieldRechargeOrRegeneration) != 0 ? 0 :
-        Math.Max(0, get(Stat.BaseEnergyShieldRegenerationRatePerMinute)
-            + 60d * get(Stat.EnergyShieldRegenerationRatePerSecond) + max * get(Stat.BaseEnergyShieldRegenerationRatePerMinutePct) / 100.0)
-        * Math.Max(0, 1 + get(Stat.EnergyShieldRegenerationRatePlusPct) / 100.0)
+    /// <summary>Whether Energy Shield regeneration (native, Zealot's Oath, or Pious Path) is blocked.</summary>
+    public static bool RegenerationBlocked(Func<uint, int> get) =>
+        get(Stat.MapPlayersNoRegenerationIncludingEs) != 0
+        || get(Stat.NoEnergyShieldRechargeOrRegeneration) != 0
+        || get(Stat.CannotRegenerateEnergyShield) != 0
+        || get(Stat.CannotRecoverEnergyShield) != 0
+        || get(Stat.NoEnergyShieldRecovery) != 0;
+
+    /// <summary>Combined multiplier for Energy Shield regeneration (and Zealot's Oath converted life regeneration).</summary>
+    public static double RegenerationMultiplier(Func<uint, int> get) =>
+        RegenerationBlocked(get) ? 0 :
+        Math.Max(0, 1 + get(Stat.EnergyShieldRegenerationRatePlusPct) / 100.0)
         * Math.Max(0, 1 + get(Stat.EnergyShieldRecoveryRatePlusPct) / 100.0) * PanelStats.MapRecoveryMultiplier(get);
 
-    /// <summary>Whether life regeneration converted to Energy Shield by Zealot's Oath may run. The native ES
-    /// regeneration prohibitions apply to the converted amount as well.</summary>
-    public static bool ConversionAllowed(Func<uint, int> get) =>
-        get(Stat.MapPlayersNoRegenerationIncludingEs) == 0 && get(Stat.NoEnergyShieldRechargeOrRegeneration) == 0 &&
-        get(Stat.CannotRecoverEnergyShield) == 0 &&
-        get(Stat.NoEnergyShieldRecovery) == 0;
+    public static double RegenPerMinute(uint max, Func<uint, int> get) =>
+        Math.Max(0, get(Stat.BaseEnergyShieldRegenerationRatePerMinute)
+            + 60d * get(Stat.EnergyShieldRegenerationRatePerSecond)
+            + max * get(Stat.BaseEnergyShieldRegenerationRatePerMinutePct) / 100.0)
+        * RegenerationMultiplier(get);
+
+    /// <summary>Whether life regeneration converted or mirrored to Energy Shield (Zealot's Oath / Pious Path) may run.</summary>
+    public static bool ConversionAllowed(Func<uint, int> get) => !RegenerationBlocked(get);
     // The ordinary 0x1b3 virtual recharge-active stat does not start the client's recharge predictor. Feed its
     // verified native recovery input during the recharge phase instead; keep the recharge-rate stat for the panel.
     public static double PredictionPerMinute(uint max, Func<uint, int> get, bool recharging) =>

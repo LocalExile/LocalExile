@@ -192,6 +192,7 @@ public static partial class Game
         if (mirage) shot = MirageOffense(player, shot);
         if (transform is not null) shot = transform(shot);
         use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true,
+            VoidstormDriver = transform is null ? shot.VoidstormDriver : null,
             FromTrapOrMine = shot.FromTrapOrMine || from is not null,
             FromMine = shot.FromMine || placedKind.Mine,
             Penetration = placedKind.Mine && !shot.FromMine
@@ -338,7 +339,7 @@ public static partial class Game
             session.Runtime.Schedule(land, () =>
             {
                 if (!session.Active || player.PlayerLife == 0) return;
-                session.Runtime.Impact(use, at, new(id, radius));
+                session.RainImpact(use, at, new(id, radius));
                 if (!toxic) session.RainArt(at, impact, 1, radius);
                 else if (duration > 0)
                 {

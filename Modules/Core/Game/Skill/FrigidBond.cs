@@ -16,12 +16,11 @@ public static partial class Game
                 (monster, now) => MonsterDotTaken(monster, DamageType.Cold, now), "dies from Frigid Bond")
             : Task.CompletedTask;
 
-    static void ApplyFrigidBondLocked(Player player, LinkSkills.Link link, (int X, int Y) from,
+    static void ApplyFrigidBondLocked(Player player, LinkSkills.Link link, (int X, int Y) from, (int X, int Y) to,
         IReadOnlyDictionary<uint, int> playerStats, double now)
     {
         var skill = link.SkillStats;
         if (skill.GetValueOrDefault(Stat.LinkSkillsDealColdDotToEnemiesInBeamAoe) == 0) return;
-        var to = player.Area.Monsters[link.Target].Walk.Position(now);
         var merged = MergeSkillStats(playerStats, skill);
         int Get(uint key) => merged.GetValueOrDefault(key);
         double seconds = SkillDurationModifiers.Seconds(skill.GetValueOrDefault(Stat.SupportDamagingLinksBaseDurationMs)

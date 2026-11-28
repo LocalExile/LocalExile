@@ -659,6 +659,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // damage taken, shown with BuffDefinitions 807 (cover_in_ash).
     public double CoveredInAshUntil = double.NegativeInfinity, CoveredInAshShownUntil;
     public ushort CoveredInAshBuff;
+    public double CoveredInFrostUntil = double.NegativeInfinity, CoveredInFrostShownUntil;
+    public ushort CoveredInFrostBuff;
     // Maimed by his hits until when (the sole movement owner) and the physical damage increase its support gave, whose
     // independent time plain Maim does not refresh; shown with its own maimed buff.
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
@@ -674,6 +676,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // hindered enemies have 30% reduced movement speed (Game.HinderSeconds and the walk factor).
     public double HinderedUntil = double.NegativeInfinity, HinderShownUntil;
     public double TotemHinderedUntil = double.NegativeInfinity;
+    public List<(double Until, int Pct)>? WitherHinders;
     public ushort HinderBuff;
     // Knocked back by a hit (Game.KnockbackOnHitLocked): the cell the AI tick presents with a Teleport, null when none.
     public (int X, int Y)? KnockbackPending;
@@ -766,6 +769,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>Its life; a change goes to every client at the frame's end (AreaLife).</summary>
     public uint Life { get; set { if (field == value) return; field = value; LifeChanged?.Invoke(); } } = maxLife;
     internal Action? LifeChanged;
+    public double? LastLifeEndedAt { get; internal set; }
     // Until when its last flinch plays (Clock seconds; HitReaction): no new action or flinch before.
     // Owned by the area's frame.
     public double FlinchUntil = double.NegativeInfinity;
@@ -875,6 +879,8 @@ public sealed class LockstepAttack(int action, uint targetId, SpawnedMonster? ta
     public Func<double> Hold { get; } = hold;
     // Ground attacks have no target-hit task to advance their repeat timer when the swing starts.
     public Func<double>? GroundAttackSeconds { get; init; }
+    // Full attack duration delegate used to clamp LockstepBusyUntil when a walk-up reaches its swing.
+    public Func<double>? AttackSeconds { get; init; }
     // Placed where its 0x1ab went out and not decided yet: the step pass tests its goal every frame.
     public bool Open;
     // When MoveTo's search timer (+0x55c) last started (Game.StepWalkUp).
@@ -1353,7 +1359,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
         var l = Layout;
         Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && (Barrier is not { Count: > 0 } b || !b.Contains((cx, cy))) : null;
         return new(l.SpawnX, l.SpawnY, Program.WalkSpeed, walkable, l.GridW > 0 ? l.GridW : 4096, l.GridH > 0 ? l.GridH : 4096,
-            () => Blockers, sight: l.Sight) { FrameOf = LockstepFrameOf };
+            () => Blockers, sight: l.Sight) { FrameOf = LockstepFrameOf, TrackDistance = true };
     }
     /// <summary>True when C→S 0x7d's tile hash differed from the server's generated <see cref="ServerLevels.Level.TileHash"/>.</summary>
     public bool LevelDesynced { get; set; }
@@ -1623,6 +1629,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     /// <summary>Life the client predicted was not written (AreaLife.LifePredicted): the last written value is behind.</summary>
     public bool LifeAheadOfWire;
     uint playerLife;
+    public double? LastLifeEndedAt { get; private set; }
     public uint PlayerLife
     {
         get => playerLife;
@@ -1631,7 +1638,9 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
             // Resource loss belongs to the actual death transition, never a delayed death notification.
             if (playerLife > 0 && value == 0)
             {
-                VaalSouls.ClearBalance(); VaalPreventionUntil = 0; VaalUseState = null;
+                LastLifeEndedAt = Frames.Now(this);
+                // Vaal souls are kept on death (poewiki "Vaal skill"); only the use in flight and prevention end.
+                VaalPreventionUntil = 0; VaalUseState = null;
                 MoltenStrikeAttackCounts.Clear(); MoltenStrikeFifthBuffs.Clear();
                 Rage.Clear(); Rampage.Clear(); RetireOwnedCombat(); RetireResourceEffects();
             }
