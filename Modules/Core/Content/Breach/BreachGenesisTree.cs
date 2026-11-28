@@ -141,7 +141,40 @@ public static partial class BreachGenesisTree
     static Dictionary<uint, FruitDefinition> FruitByHash = [];
     static Dictionary<ushort, HashSet<ushort>> Adjacency = [];
     static Dictionary<ushort, int> PassiveUnlockThresholds = [];
-    static int[] SubTreeMaxPoints = [24, 16, 24, 12];
+    // Retail 3.29 Genesis Tree sub-tree point caps (BrequelPassiveSubTrees has no MaxPoints column in client.db):
+    // Equipment 16 (39 point-costing PSG nodes), Currency 7 (11), Uniques 13 (40), Misc 3 (8) — 39 points total.
+    static readonly int[] DefaultSubTreeMaxPoints = [16, 7, 13, 3];
+    static int[] SubTreeMaxPoints = [.. DefaultSubTreeMaxPoints];
+
+    // Per-source retail 3.29 point awards by sub-tree (Equipment, Currency, Uniques, Misc), summing to [16, 7, 13, 3]:
+    // BodyPart1..10 turn-ins subtotal [8, 5, 8, 2]; tutorial + 7 BrequelFruitQuests milestones subtotal [8, 2, 5, 1].
+    static readonly (int Eq, int Cur, int Uni, int Misc) TutorialPoints = (1, 0, 0, 0);
+    static readonly (int Eq, int Cur, int Uni, int Misc)[] BodyPartPoints =
+    [
+        (1, 1, 0, 0), // BodyPart1  - Horned Skull
+        (1, 0, 2, 0), // BodyPart2  - Clasped Skull
+        (1, 2, 0, 0), // BodyPart3  - Handmouth
+        (1, 0, 2, 0), // BodyPart4  - Claw Bramble
+        (1, 1, 0, 0), // BodyPart5  - Severed Limb
+        (0, 0, 2, 0), // BodyPart6  - Strange Limb
+        (0, 0, 2, 0), // BodyPart7  - Foul Hand
+        (1, 0, 0, 1), // BodyPart8  - The Head of Vruun
+        (1, 0, 0, 1), // BodyPart9  - Breachlord Limbs
+        (1, 1, 0, 0), // BodyPart10 - Spiked Limb
+    ];
+    static readonly (int Eq, int Cur, int Uni, int Misc)[] FruitQuestPoints =
+    [
+        (1, 1, 0, 0), // BrequelFruitQuests#1 (300)
+        (1, 0, 1, 0), // BrequelFruitQuests#2 (1000)
+        (1, 0, 1, 0), // BrequelFruitQuests#3 (3000)
+        (1, 1, 1, 0), // BrequelFruitQuests#4 (6000)
+        (1, 0, 1, 0), // BrequelFruitQuests#5 (12000)
+        (1, 0, 1, 0), // BrequelFruitQuests#6 (18000)
+        (1, 0, 0, 1), // BrequelFruitQuests#7 (30000)
+    ];
+
+    /// <summary>Maximum allocatable point cap per sub-tree (<c>[16, 7, 13, 3]</c>).</summary>
+    public static IReadOnlyList<int> SubTreeCaps => SubTreeMaxPoints;
 
     /// <summary>Loads all Genesis Tree tables (<c>BrequelPassiveSubTrees</c>, <c>BrequelTreeSlots</c>,
     /// <c>BrequelFruitTypes</c>, <c>BrequelTreePassiveUnlocks</c>, <c>PassiveSkills</c>, and
@@ -199,8 +232,8 @@ public static partial class BreachGenesisTree
             }
         }
 
-        // BrequelPassiveSubTrees max points if present in schema.
-        int[] maxPoints = [24, 16, 24, 12];
+        // BrequelPassiveSubTrees has no MaxPoints column in 3.29.3c/d; keep the retail [16, 7, 13, 3] caps unless present.
+        int[] maxPoints = [.. DefaultSubTreeMaxPoints];
         foreach (var r in ClientTables.TableOrEmpty("BrequelPassiveSubTrees"))
         {
             if (r.Index is >= 0 and < SubTreeCount && r.IntOrNull("MaxPoints") is int mp and > 0)
@@ -329,7 +362,9 @@ public static partial class BreachGenesisTree
         var w = new LoginWriter().U16(TreeStatePacketId);
         for (int sub = 0; sub < SubTreeCount; sub++)
         {
-            int allowed = sub < earnedBySubTree.Length ? Math.Max(0, earnedBySubTree[sub]) : 0;
+            // Client 0x02cf handler throws a fatal C++ exception if spent > allowed in any sub-tree (e.g. legacy saves).
+            int earned = sub < earnedBySubTree.Length ? Math.Max(0, earnedBySubTree[sub]) : 0;
+            int allowed = Math.Max(earned, SpentPointsInSubTree(state, sub));
             InstanceProtocol.CompactUInt(w, (uint)allowed);
         }
         w.U8(pointsOnly ? (byte)1 : (byte)0);
@@ -476,28 +511,52 @@ public static partial class BreachGenesisTree
     // ---- Point budget & unlock rules ----
 
     /// <summary>Computes earned Genesis Tree skill points per sub-tree (0..3) from quest progression:
-    /// tutorial completion, <c>BrequelFruitQuests</c> Hiveblood milestones (1..7), and <c>BodyPart1..10</c> turn-ins.</summary>
-    public static int[] EarnedPointsBySubTree(Player player)
-    {
-        int fruitQuests = BreachHub.CountTurnedInFruitQuests(player);
-        int bodyParts = BreachHub.CountTurnedInBodyParts(player);
-        bool tutorialDone = player.Character.LeagueQuestFlags.Contains(BreachHub.LqfTutorialCompleted);
+    /// tutorial completion (<c>ChayulaNPCTutorialCompleted</c>), <c>BrequelFruitQuests</c> Hiveblood milestones (1..7),
+    /// and <c>BodyPart1..10</c> turn-ins, summing cleanly to the retail 3.29 caps <c>[16, 7, 13, 3]</c>.</summary>
+    public static int[] EarnedPointsBySubTree(Player player) =>
+        EarnedPointsForFlags(player.Character.LeagueQuestFlags);
 
-        // Base starting points (enough to allocate the initial womb + early nodes) plus milestone progression.
-        int baseEarned = (tutorialDone ? 4 : 2) + fruitQuests * 2 + bodyParts;
+    /// <summary>Pure helper computing earned points per sub-tree from a character's <c>LeagueQuestFlags</c>.</summary>
+    public static int[] EarnedPointsForFlags(IReadOnlySet<int> leagueQuestFlags)
+    {
         int[] points = new int[SubTreeCount];
+        static void Add(int[] dst, (int Eq, int Cur, int Uni, int Misc) delta)
+        {
+            dst[SubTreeEquipment] += delta.Eq;
+            dst[SubTreeCurrency] += delta.Cur;
+            dst[SubTreeUniques] += delta.Uni;
+            dst[SubTreeMisc] += delta.Misc;
+        }
+
+        if (leagueQuestFlags.Contains(BreachHub.LqfTutorialCompleted))
+            Add(points, TutorialPoints);
+        for (int i = 0; i < BodyPartPoints.Length; i++)
+            if (leagueQuestFlags.Contains(BreachHub.LqfTurnInBodyPartFirst + i))
+                Add(points, BodyPartPoints[i]);
+        for (int i = 0; i < FruitQuestPoints.Length; i++)
+            if (leagueQuestFlags.Contains(BreachHub.LqfTreeJuicedTurnedInFirst + i))
+                Add(points, FruitQuestPoints[i]);
+
         for (int sub = 0; sub < SubTreeCount; sub++)
-            points[sub] = Math.Clamp(baseEarned, 0, SubTreeMaxPoints[sub]);
+            points[sub] = Math.Clamp(points[sub], 0, SubTreeMaxPoints[sub]);
         return points;
     }
 
-    /// <summary>How many non-start points are currently spent in <paramref name="subTree"/>.</summary>
+    /// <summary>How many point-costing passives are currently spent in <paramref name="subTree"/>. Matches the client's
+    /// <c>BrequelTreePassives</c> (<c>0x141ef8440</c>): starting nodes, womb nodes, and Devoted/Forsaken
+    /// <c>IsMultipleChoiceOption</c> nodes are free.</summary>
     public static int SpentPointsInSubTree(SavedTreeState state, int subTree)
     {
         int spent = 0;
+        HashSet<ushort>? seen = null;
         foreach (ushort gid in state.Allocated)
-            if (NodesByGraphId.TryGetValue(gid, out var node) && node.SubTree == subTree && !node.IsStart && !node.IsWomb)
+        {
+            if (seen is not null ? !seen.Add(gid) : state.Allocated.Count > 1 && !(seen = [gid]).Contains(gid)) continue;
+            if (NodesByGraphId.TryGetValue(gid, out var node)
+                && node.SubTree == subTree
+                && !node.IsStart && !node.IsWomb && !node.IsMultipleChoiceOption)
                 spent++;
+        }
         return spent;
     }
 
@@ -542,7 +601,7 @@ public static partial class BreachGenesisTree
                 refusal = "node already allocated";
                 return false;
             }
-            if (SpentPointsInSubTree(state, node.SubTree) >= earned[node.SubTree])
+            if (!node.IsMultipleChoiceOption && SpentPointsInSubTree(state, node.SubTree) >= earned[node.SubTree])
             {
                 refusal = $"no available points in sub-tree {node.SubTree}";
                 return false;
