@@ -99,9 +99,14 @@ public static class MercenaryTables
     public static IReadOnlyList<Class> Classes => ClassesData;
     public static IReadOnlyList<Build> Builds => BuildsData;
 
+    /// <summary>The MinimapIcons row of MercenaryEncounter (the encounter Mercenary's map icon), or -1.</summary>
+    public static int EncounterIconRow { get; private set; } = -1;
+
     /// <summary>Builds this module's game data at startup (before the Gateway listens), not on first use.</summary>
     public static void LoadGameData()
     {
+        EncounterIconRow = ClientTables.TableOrEmpty("MinimapIcons").FirstOrDefault(r => r.TextOrNull("Id") == "MercenaryEncounter")
+            is { Table: not null } icon ? icon.Index : -1;
         var tagNames = LoadTagNames();
         ClassesData = LoadClasses(tagNames);
         BuildsData = LoadBuilds();

@@ -200,6 +200,12 @@ public sealed partial class MercenaryModule
                 HasDialogue = true, NpcFlags = 1, InteractionFlags = 1,
             });
         if (id == 0) return false;
+        // The monster create leaves MinimapIcon unset; the encounter's map icon is turned on as Abyss does its pit's.
+        // The record's u16 is the MinimapIcons row + 1: row 668 itself drew row 667's ship's wheel (live 2026-11-27).
+        int iconRow = MercenaryTables.EncounterIconRow;
+        if (iconRow >= 0 && variety.ComponentsOrBase.ToList().IndexOf("MinimapIcon") is int icon and >= 0)
+            await SendWorldRecord(player, id, InstanceEntities.ComponentUpdate(id, (byte)icon, [0x01, (byte)(iconRow + 1), (byte)((iconRow + 1) >> 8)]),
+                "0x02bc Mercenary encounter map icon");
         if (player.Area.Monsters.TryGetValue(id, out var body))
         {
             body.States = met;
