@@ -5,6 +5,68 @@ namespace GameServer.Gateway.Tests;
 public class DamageTakenTriggerTests
 {
     [Fact]
+    public async Task Triggered_shock_nova_draws_once_per_pulse_and_hand_cast_draws_none()
+    {
+        static async Task AdvanceAndDrain(Player player, Game.ProjectileSession session, double seconds)
+        {
+            long target = GameServer.Core.Projectiles.ProjectileRuntime.Time(Game.AreaTime(player) + seconds);
+            session.AdvanceTo(target);
+            session.AdvanceTo(target + GameServer.Core.Projectiles.ProjectileRuntime.Time(seconds));
+            var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            session.Enqueue(() => { done.SetResult(); return Task.CompletedTask; });
+            await done.Task;
+        }
+        static List<uint> CreatedObjects(Player player, uint fromExclusive, uint toExclusive) =>
+            Enumerable.Range((int)fromExclusive + 1, (int)(toExclusive - fromExclusive - 1))
+                .Select(i => (uint)i).Where(player.Area.Objects.Has).ToList();
+
+        // 1. Hand-cast Shock Nova draws its own cast clip on the client: zero server EffectObjects.
+        int handCastCount, cwdtCount, processionCount;
+        using (var f = new TriggeredSummonTests.Fixture())
+        {
+            f.Player.ProjectileRuntime = f.Session;
+            ushort snId = f.Equip(("Shock Nova", 1)).Single();
+            var gem = Game.GemSkillEffects(f.Player).Single(g => g.Id == snId);
+            uint before = f.Player.TakeObjectId();
+            var sacrifice = new Game.SacrificeUse(f.Player, snId, gem.Effect, gem.Gem, triggered: false);
+            f.Session.ScheduleSpatialSpell(gem, (100, 100), (105, 100), 0, () => true, sacrifice, null);
+            await AdvanceAndDrain(f.Player, f.Session, 1.0);
+            uint after = f.Player.TakeObjectId();
+            handCastCount = CreatedObjects(f.Player, before, after).Count;
+        }
+
+        // 2. Triggered Shock Nova (CWDT) draws circle + donut once per pulse (2 effects, not 4).
+        using (var f = new TriggeredSummonTests.Fixture())
+        {
+            f.Player.ProjectileRuntime = f.Session;
+            ushort snId = f.Equip(("Shock Nova", 1), ("Cast when Damage Taken Support", 1)).First();
+            int threshold = Game.SupportedSkill(f.Player, snId).Stats[Stat.CastOnDamageTakenThreshold];
+            uint before = f.Player.TakeObjectId();
+            Game.RecordDamageTakenTriggers(f.Player, threshold, 1000);
+            Game.ReleaseDamageTakenTriggers(f.Player, f.Session);
+            await AdvanceAndDrain(f.Player, f.Session, 1.0);
+            uint after = f.Player.TakeObjectId();
+            cwdtCount = CreatedObjects(f.Player, before, after).Count;
+        }
+
+        // 3. Triggered Shock Nova of Procession (ShockNovaAltX) draws once per offset pulse.
+        using (var f = new TriggeredSummonTests.Fixture())
+        {
+            f.Player.ProjectileRuntime = f.Session;
+            ushort snId = f.Equip(("Shock Nova of Procession", 1), ("Cast when Damage Taken Support", 1)).First();
+            int threshold = Game.SupportedSkill(f.Player, snId).Stats[Stat.CastOnDamageTakenThreshold];
+            uint before = f.Player.TakeObjectId();
+            Game.RecordDamageTakenTriggers(f.Player, threshold, 1000);
+            Game.ReleaseDamageTakenTriggers(f.Player, f.Session);
+            await AdvanceAndDrain(f.Player, f.Session, 2.0);
+            uint after = f.Player.TakeObjectId();
+            processionCount = CreatedObjects(f.Player, before, after).Count;
+        }
+
+        Assert.Equal((0, 2, 6), (handCastCount, cwdtCount, processionCount));
+    }
+
+    [Fact]
     public void Cwdt_is_trigger_only_and_native_level_limit_preserves_manual_high_level_spell()
     {
         WithCharacter(player =>

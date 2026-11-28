@@ -29,6 +29,8 @@ public sealed class DamageAura
     public Func<bool> Active { get; init; } = () => true;
     /// <summary>The damage over <paramref name="seconds"/> and the owner's stats it was made with, in the area's frame.</summary>
     public required Func<double, (DamageOverTime Damage, Dictionary<uint, int> Stats)> Damage { get; init; }
+    /// <summary>Line of sight from the owner to a monster (null: none checked): false means a wall blocks this frame's damage.</summary>
+    public Func<(int X, int Y), (int X, int Y), bool>? Sees { get; init; }
 
     internal readonly List<(uint Id, SpawnedMonster M, ushort Buff)> Entered = [];
     internal readonly List<(uint Id, ushort Buff)> Left = [];
@@ -77,17 +79,19 @@ public static partial class Game
             if (!CurrentGameWork || !aura.Valid()) return;
             entered = [.. aura.Entered];
             aura.Entered.Clear();
-            if (aura.Active())
+            if (aura.Active() && zone.Inside.Count > 0)
             {
                 double now = ProjectileWorldTime(player);
                 var (damageOverTime, stats) = aura.Damage(seconds);
+                var origin = aura.Sees is null ? default : player.Walk.Position(AreaTime(player));
                 foreach (var id in zone.Inside)
                 {
                     if (!aura.Marks.ContainsKey(id.Value) || player.Area.Monsters.GetValueOrDefault(id.Value) is not { Dead: false, Life: > 0 } m) continue;
+                    if (aura.Sees is { } sees && !sees(origin, m.Walk.Position(AreaTime(player)))) continue;
                     var (damage, carry) = MonsterBurn(m, damageOverTime, seconds, now);   // its resistance, its shock
                     m.Burn = carry;
                     if (damage == 0) continue;
-                    int lifeDamage = ApplyMonsterDotEnergyShieldLocked(player.Area, m, damage, chaos: false, AreaTime(player));
+                    int lifeDamage = ApplyMonsterDotEnergyShieldLocked(player.Area, m, damage, chaos: damageOverTime.Type == DamageType.Chaos, AreaTime(player));
                     bool stageStarts = false;
                     if (lifeDamage > 0) (m.Life, stageStarts) = TakeOwnerDamageLocked(player, m, lifeDamage);
                     m.Aggro = m.Life > 0;
