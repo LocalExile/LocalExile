@@ -221,6 +221,7 @@ public static partial class Game
     /// <summary>The framework's hand-over (Player.StatsChanged): marks the steps that read the input.</summary>
     internal static void PlayerStatInputChanged(Player player, StatInput input)
     {
+        if (input == StatInput.Pools) RefreshBloodRageDegen(player);
         if (!FrameStatsOf.TryGetValue(player, out var frame) || frame.Graph is not { } graph) return;
         switch (input)
         {

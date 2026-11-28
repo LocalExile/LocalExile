@@ -105,7 +105,8 @@ public static partial class Game
     {
         public ushort Buff, Skill;
         public int Token;
-        public double Until, Seconds, Degen;
+        public double Until, Seconds;
+        public int LifeDegenPctPerMinute, ShieldDegenPctPerMinute;
         public readonly Dictionary<uint, int> Stats = [];
     }
     sealed class SelfBuffSet
@@ -144,14 +145,19 @@ public static partial class Game
         double now = AreaTime(player);
         AddRunning(set.PhaseRun);
         AddRunning(set.PhaseRunDamage);
-        AddRunning(set.BloodRage);
+        if (AddRunning(set.BloodRage))
+        {
+            stats[Stat.AttackSpeedPlusPct] += stats.GetValueOrDefault(Stat.BloodRageGrantsAdditionalAttackSpeedPlusPct);
+            stats[Stat.AddFrenzyChargeOnKillPctChance] += stats.GetValueOrDefault(Stat.BloodRageGrantsAdditionalPctChanceToGainFrenzyOnKill);
+        }
         return stats;
 
-        void AddRunning(SelfBuff? buff)
+        bool AddRunning(SelfBuff? buff)
         {
-            if (buff is null || now >= buff.Until) return;
+            if (buff is null || now >= buff.Until) return false;
             foreach (var (key, value) in buff.Stats)
                 stats[key] = stats.GetValueOrDefault(key) + value;
+            return true;
         }
     }
 
@@ -280,20 +286,27 @@ public static partial class Game
         buff.Stats[Stat.AttackSpeedPlusPct] = Own(Stat.AttackSpeedPlusPctGrantedFromSkill);
         buff.Stats[Stat.LifeLeechFromPhysicalAttackDamagePermyriad] = Own(Stat.LifeLeechFromPhysicalAttackDamagePermyriad);
         buff.Stats[Stat.AddFrenzyChargeOnKillPctChance] = Own(Stat.AddFrenzyChargeOnKillPctChance);
-        double degen = (player.PlayerMaxLife * (double)Own(Stat.BasePhysicalDamagePctOfMaximumLifeToDealPerMinute)
-            + player.Pools.EnergyShield * (double)Own(Stat.BasePhysicalDamagePctOfMaximumEnergyShieldToDealPerMinute)) / 6000;
-        player.Degens.Set(buff, DamageType.Physical, degen);
-        buff.Degen = degen;
+        buff.LifeDegenPctPerMinute = Own(Stat.BasePhysicalDamagePctOfMaximumLifeToDealPerMinute);
+        buff.ShieldDegenPctPerMinute = Own(Stat.BasePhysicalDamagePctOfMaximumEnergyShieldToDealPerMinute);
+        UpdateBloodRageDegen(player, buff);
         Console.WriteLine($"[gateway] {player.Connection.Remote} Blood Rage: {seconds:0.###} s, +{buff.Stats[Stat.AttackSpeedPlusPct]}% attack speed, "
-            + $"{buff.Degen:0.#} physical damage per second");
-        await ShowSelfBuff(player, buff, BloodRageBuffRow, "Blood Rage", () => EndBloodRageDegen(player, buff));
+            + $"{player.Degens[buff]:0.#} physical damage per second");
+        await ShowSelfBuff(player, buff, BloodRageBuffRow, "Blood Rage", () => player.Degens[buff] = 0);
     }
 
-    // When the buff ends.
-    static void EndBloodRageDegen(Player player, SelfBuff buff)
+    static void RefreshBloodRageDegen(Player player)
     {
-        player.Degens[buff] = 0;
-        buff.Degen = 0;
+        if (SelfBuffs.TryGetValue(player, out var set) && set.BloodRage is { Until: > 0 } buff)
+            UpdateBloodRageDegen(player, buff);
+    }
+
+    static void UpdateBloodRageDegen(Player player, SelfBuff buff)
+    {
+        var pools = player.Pools;
+        double rate = AreaTime(player) < buff.Until
+            ? (pools.Life * (double)buff.LifeDegenPctPerMinute + pools.EnergyShield * (double)buff.ShieldDegenPctPerMinute) / 6000
+            : 0;
+        player.Degens.Set(buff, DamageType.Physical, rate);
     }
 
     // A hostile monster the player killed (ChargesOnKill): a running Blood Rage starts its duration again.
@@ -306,6 +319,6 @@ public static partial class Game
         if (!player.Connection.Connected) return;
         // Per kill: the stats are the same while it runs, so only the buff's timer is shown again (no stat build).
         _ = ShowSelfBuff(player, rage, BloodRageBuffRow, "Blood Rage refreshed by a kill",
-            () => EndBloodRageDegen(player, rage), restat: false);
+            () => player.Degens[rage] = 0, restat: false);
     }
 }

@@ -459,7 +459,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Shield of Light sends a forward cone and waves from nearby allies in tile entry order on its first contact.
   Crushing Fist fixes its ground position on the first animation contact and hits on the following slam contact.
 - Bloodscent applies its Rage grant to the weapon that landed the hit (checked offline).
-- Blood Rage: attack speed, physical attack life leech, Frenzy Charge chance on kill and its physical degeneration;
+- Blood Rage: attack speed and Frenzy Charge chance include helmet enchantments during the buff, and its physical
+  degeneration follows maximum Life and Energy Shield. The buff also grants physical attack life leech;
   a kill refreshes it (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Auras, reservation, Pride, heralds (Herald of Thunder's bolts drawn in the worn skin; walls block them) and
   permanent spell buffs, including Mana-Infused Staff's fixed reservation and block wave and Spellslinger's linked
