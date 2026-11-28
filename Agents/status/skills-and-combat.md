@@ -373,7 +373,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Blink Arrow, including the Royale gem in an existing save, moves the player in the same update and leaves its clone
   at departure.
   Clones use arrows, arrow rain or elemental shots.
-  Lightning Warp queues teleports and hits both endpoints.
+  Lightning Warp queues teleports and hits both endpoints. Bodyswap selects a corpse first on an untargeted cast and
+  uses the explicit valid target when selected. Both ends deal spell damage and a consumed corpse adds a separate fire hit.
 - Instant skills, shared Blink and Guard cooldowns (a guard skill cast from the bar as well as one a trigger releases),
   opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear
   landings across terrain gaps, walk-only door crossing (prison grates via layer-1 sight barriers) while stopping before

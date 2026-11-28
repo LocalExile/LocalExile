@@ -1454,6 +1454,21 @@ public static partial class Game
             await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana} (no corpse, nothing paid)");
             return false;
         }
+        BodyswapDestination? corporealTarget = null;
+        if (SkillsFor(player).EffectId(gem.Effect) == CorpseBodyswapEffect && placedAdmission is null
+            && !IsTotemSkill(player, skillId))
+        {
+            using (ProjectileMutation(player, advance: false))
+            {
+                double now = ProjectileWorldTime(player);
+                corporealTarget = FindCorpseBodyswapTarget(player, gem.Effect, player.Walk.Position(now), to, targetId, now);
+            }
+            if (corporealTarget is null)
+            {
+                await SendPlayerMana(player, "Bodyswap: no valid target");
+                return false;
+            }
+        }
         if (IsSummonBeastialCompanionEffect(SkillsFor(player).EffectId(gem.Effect)))
         {
             beastCompanion = SupportedSkill(player, skillId);
@@ -1810,6 +1825,9 @@ public static partial class Game
         if (gem.Name is not null && !IsTotemSkill(player, skillId)
             && IsLightningWarpEffect(SkillsFor(player).EffectId(gem.Effect)))
             return CompleteSupportedUse(ScheduleLightningWarp(player, gem, to, Current, criticalRoll, vaalUse?.PactDamageMore ?? 1));
+        if (corporealTarget is { } body && spellCastMs is int corporealCast)
+            return CompleteSupportedUse(ScheduleCorpseBodyswap(player, gem, body, corporealCast, sequence,
+                swingAt, recoveryGeneration, Current, criticalRoll));
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == ShaperMemoryEffect)
             return CompleteSupportedUse(await CastShaperMemory(player, skillId, to, Current));
         // A summon's mana is paid at the cast's start and its minion arrives after the cast time, as a totem placement's does: the

@@ -1017,7 +1017,10 @@ public static partial class Game
             raw = raw.Scale(Math.Max(0, 1 + (long)traumaMeleeMore * traumaStacks / 100d));
         if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.SpellBaseFireDamagePctMaximumLife) is int lifePct and > 0)
         {
-            double fire = (long)player.PlayerMaxLife * lifePct / 100d;
+            uint life = skills.EffectId(gem.Effect) == CorpseBodyswapEffect
+                ? projectileTotemLife ?? (placed.Trap || placed.Mine ? 1u : player.PlayerMaxLife)
+                : player.PlayerMaxLife;
+            double fire = (long)life * lifePct / 100d;
             raw = raw.Add(GameServer.Core.World.DamageType.Fire, new(fire, fire));
         }
         if (!attack && !secondary && Get(Stat.KeystoneBattlemage) != 0

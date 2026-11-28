@@ -14,7 +14,8 @@ public static partial class Game
     static readonly RuleTable<TotemState.Totem, TotemSkillSource> TotemSources = new();
     sealed record FormationTarget((int X, int Y) At);
     static readonly RuleTable<TotemState.Totem, FormationTarget> FormationTargets = new();
-    public static bool SpellTotemEffect(Player player, int effect) => SkillsFor(player).IsSpell(effect)
+    public static bool SpellTotemEffect(Player player, int effect) => SkillsFor(player).EffectId(effect) == CorpseBodyswapEffect
+        || SkillsFor(player).IsSpell(effect)
         && !SkillsFor(player).IsAttack(effect) && !SkillsFor(player).IsTravel(effect)
         && Supports.Of(effect)?.Types.Contains(47) != true
         && (TotemSummon(player, effect) is not null || GolemData.Find(SkillsFor(player).EffectId(effect)) is not null
@@ -247,6 +248,11 @@ public static partial class Game
             double range = TotemTargetRange(player, totem.SkillId);
             var gem = GemSkillEffects(player).First(g => g.Id == totem.SkillId);
             string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
+            if (effect == CorpseBodyswapEffect)
+            {
+                CastCorpseBodyswapTotem(player, totem, now, bytes);
+                continue;
+            }
             if (VoidSphereEffect(effect) && player.ProjectileRuntime is { Active: true } sphereRuntime
                 && sphereRuntime.HasVoidSphere(totem.Id)) continue;
             bool daggerDetonation = effect == BladeBlastDaggerDetonation;

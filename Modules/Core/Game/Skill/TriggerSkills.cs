@@ -107,7 +107,8 @@ public static partial class Game
 
     // Every payload needs an independent executor; unsupported mechanics stay unavailable.
     static bool TriggeredSpellExecutable(Player player, ushort id, SupportedGem gem) => SkillsFor(player).IsSpell(gem.Effect)
-        && !SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).IsTravel(gem.Effect)
+        && !SkillsFor(player).IsAttack(gem.Effect)
+        && (!SkillsFor(player).IsTravel(gem.Effect) || SkillsFor(player).EffectId(gem.Effect) == CorpseBodyswapEffect)
         && !SkillsFor(player).IsRetaliation(gem.Effect)
         && Supports.Of(gem.Effect)?.Types.Contains(47) != true && PlacedKind(gem) is (false, false)
         && gem.Supports.Count(s => s.Effect.Added.Contains(36)) == 1

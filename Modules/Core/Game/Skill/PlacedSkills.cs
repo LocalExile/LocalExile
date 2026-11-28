@@ -770,6 +770,13 @@ public static partial class Game
         KeyValuePair<uint, SpawnedMonster> target = default;
         (int X, int Y) aim = placed.At;
         bool locusAim = placed.Mine && GolemStat(placed.Own, Stat.SupportLocusMineMinesAlwaysTargetYourLocation) != 0;
+        if (effect == CorpseBodyswapEffect)
+        {
+            if (currentSkill && GemSourceLifetimeCurrentLocked(player, placed.Skill, placed.Effect, placed.Source))
+                ReleasePlacedCorpseBodyswap(player, new(placed, inventionMore),
+                    locusAim ? player.Walk.Position(now) : triggeringEnemy.Value?.Walk.Position(now) ?? placed.At, now, bytes);
+            return;
+        }
         if (IsHexblastEffect(effect))
         {
             var origin = locusAim ? player.Walk.Position(now) : placed.At;
