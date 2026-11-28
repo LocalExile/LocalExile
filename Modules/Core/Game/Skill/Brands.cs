@@ -115,6 +115,8 @@ public static partial class Game
         public required int Quality;
         public required SupportedGem Gem;
         public required (int X, int Y) At;
+        // Where the brand was cast or last recalled; it returns here when its attached enemy dies.
+        public required (int X, int Y) Home;
         public required double CreatedAt;
         public required double AttachedDurationTotal;
         public required double AttachedRemaining;
@@ -596,6 +598,7 @@ public static partial class Game
 
                 // Move to player position and refresh/extend remaining duration
                 brand.At = here;
+                brand.Home = here;
                 brand.RecallSearchBonus = searchBonus;
                 brand.DetachedAt = now;
                 if (!brand.InfiniteAttachedDuration && extendAttached > 0)
@@ -910,6 +913,7 @@ public static partial class Game
             Quality = gem.Quality,
             Gem = gem,
             At = at,
+            Home = at,
             CreatedAt = now,
             DetachedAt = now,
             AttachedDurationTotal = attachedDur,
@@ -1027,6 +1031,8 @@ public static partial class Game
         brand.DetachedAt = now;
         brand.Energy = 0;
 
+        // spawnGround means the target is gone: the brand goes back to its cast/recall position (end effects stay at `at`).
+        if (spawnGround) brand.At = brand.Home;
         if (spawnGround && state.Brands.Contains(brand))
             SpawnDetachedVisualLocked(player, brand, bytes);
     }

@@ -101,9 +101,14 @@ public static class MercenaryTables
     public static IReadOnlyList<Class> Classes => ClassesData;
     public static IReadOnlyList<Build> Builds => BuildsData;
 
+    /// <summary>The MinimapIcons row of MercenaryEncounter (the encounter Mercenary's map icon), or -1.</summary>
+    public static int EncounterIconRow { get; private set; } = -1;
+
     /// <summary>Builds this module's game data at startup (before the Gateway listens), not on first use.</summary>
     public static void LoadGameData()
     {
+        EncounterIconRow = ClientTables.TableOrEmpty("MinimapIcons").FirstOrDefault(r => r.TextOrNull("Id") == "MercenaryEncounter")
+            is { Table: not null } icon ? icon.Index : -1;
         var tagNames = LoadTagNames();
         ClassesData = LoadClasses(tagNames);
         BuildsData = LoadBuilds();
@@ -142,9 +147,10 @@ public static class MercenaryTables
     public static IReadOnlyList<Class> Eligible(bool infamous = false) =>
         [.. Classes.Where(c => c.Path.Length > 0 && c.Supported && BuildsOf(c.Row, infamous).Count > 0)];
 
-    /// <summary>The builds one class draws from.</summary>
+    /// <summary>The builds one class draws from. A build that can wield nothing is an unfinished row (3.29's Bladereach,
+    /// Crit1HShadowSpectral: no weapons, no extra stats, only the "Do Nothing" skill) and is never drawn.</summary>
     public static IReadOnlyList<Build> BuildsOf(int classRow, bool infamous = false) =>
-        [.. Builds.Where(b => b.ClassRow == classRow && b.Infamous == infamous)];
+        [.. Builds.Where(b => b.ClassRow == classRow && b.Infamous == infamous && b.WieldableItemClasses.Length > 0)];
 
     /// <summary>One eligible class and one of its builds, drawn uniformly from <paramref name="rng"/>; null when no class is
     /// eligible.</summary>
