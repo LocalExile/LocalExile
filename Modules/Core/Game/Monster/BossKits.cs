@@ -142,6 +142,20 @@ public static class BossKits
     internal static bool IsUnsafeGenericTarget(int effect) =>
         EntityOrAllyOnlyTargets.Contains(effect) || SkillCatalog.ActionTypeId(effect) == "MaligaroVanish";
 
+    /// <summary>True when a standalone skill carries <c>distribute_projectiles_over_contact_points</c> (stat 8480)
+    /// and its <c>GrantedEffects.Animation</c> pool is absent from the variety's extracted <c>monster_contact_clips</c>.
+    /// In 3.29.3c/d, <c>ProjectileAction::StartAnimation</c> (+0x1BA5E6A) dereferences the active animation clip
+    /// unchecked after <c>Actor::PlayAnimation</c> leaves it NULL, crashing the client in Lockstep (e.g. Vruun's
+    /// triggered child <c>MPWWildBreachBossFingerProjectile</c> whose <c>SpellProjectile</c> pool is absent from
+    /// <c>wildbreachboss.ao</c>).</summary>
+    internal static bool IsMissingContactAnimationPool(SkillCatalog catalog, MonsterCatalog.Variety variety, int effect)
+    {
+        if (!catalog.DistributesProjectilesOverContactPoints(effect) || !catalog.HasMonsterContacts(variety.Id))
+            return false;
+        string? animKey = catalog.EffectAnimation(effect) ?? catalog.MonsterProjectile(effect)?.AnimationKey;
+        return !string.IsNullOrEmpty(animKey) && catalog.MonsterContactPool(variety.Id, animKey) is null;
+    }
+
     /// <summary>Whether one granted effect is something the ordinary AI can play as an action (the test <see cref="Effects"/>
     /// applies to each of a variety's effects), for a caller whose effects do not come from the variety's own list: a
     /// mercenary's build skills.</summary>
@@ -149,7 +163,7 @@ public static class BossKits
     {
         if (SolarisLunaris.IsBody(variety) && effect is 6739 or 6740) return false;
         if (effect < 0 || catalog.CastsOnDeath(effect) || IsDamageTakenTrigger(catalog, effect)
-            || IsUnsafeGenericTarget(effect)
+            || IsUnsafeGenericTarget(effect) || IsMissingContactAnimationPool(catalog, variety, effect)
             // A summon's movement attack is how it reaches the player (Doubt's spider MonsterFlickerStrike); a boss
             // keeps only its non-movement skills.
             || (catalog.IsMovement(effect) && !(forSummon && catalog.IsAttack(effect)))
@@ -278,6 +292,7 @@ public static class BossKits
             foreach (int effect in candidates)
                 if (effect >= 0 && !effects.Contains(effect) && !catalog.CastsOnDeath(effect) && !IsLeavePortal(catalog, effect)
                     && !IsUnsafeGenericTarget(effect)
+                    && !IsMissingContactAnimationPool(catalog, variety, effect)
                     && !(MonsterKitHooks.HasEffectFilters && !MonsterKitHooks.AllowEffect(variety, effect, catalog.EffectId(effect)))
                     && IsDamageTakenTrigger(catalog, effect) == trigger
                     && (MonsterSkills.ShapeOf(catalog, effect) is not null || trigger && (catalog.IsAttack(effect) || catalog.IsSpell(effect))))

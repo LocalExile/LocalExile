@@ -39,6 +39,7 @@ public sealed class SkillCatalog
         _projectileAos = LoadProjectileAos();
         _projectileClips = LoadProjectileClips();
         _monsterContacts = LoadMonsterContacts();
+        _effectAnimations = LoadEffectAnimations();
         _monsterMeleeClocks = LoadMonsterMeleeClocks();
         _summonedMonsters = LoadSummonedMonsters();
         _monsterVarietyRowsById = LoadMonsterVarietyRowsById();
@@ -54,9 +55,36 @@ public sealed class SkillCatalog
     private readonly Tables? _tables;
     private readonly StatCatalog _stats = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool> _castsOnDeath = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool> _distributesOverContacts = new();
+    private readonly string?[] _effectAnimations;
 
     public bool CastsOnDeath(int effect) => _castsOnDeath.GetOrAdd(effect, row =>
         EffectStats(row, 1).Any(stat => (stat.Item1 == Stat.CastOnDeathPct || stat.Item1 == Stat.AttackOnDeathPct) && stat.Item2 > 0));
+
+    /// <summary>Whether <paramref name="effect"/> carries <c>distribute_projectiles_over_contact_points</c> (stat 8480).</summary>
+    public bool DistributesProjectilesOverContactPoints(int effect) => _distributesOverContacts.GetOrAdd(effect, row =>
+        EffectStats(row, 1).Any(stat => stat.Item1 == Stat.DistributeProjectilesOverContactPoints && stat.Item2 != 0));
+
+    /// <summary>The <c>Animation.Id</c> referenced by <c>GrantedEffects.Animation</c> for <paramref name="effect"/>, or null.</summary>
+    public string? EffectAnimation(int effect) =>
+        effect >= 0 && effect < _effectAnimations.Length ? _effectAnimations[effect] : null;
+
+    static string?[] LoadEffectAnimations()
+    {
+        if (ClientTables.TableOrNull("GrantedEffects") is not { } granted
+            || ClientTables.TableOrNull("Animation") is not { } anims) return [];
+        var animIds = new List<string>(anims.Count);
+        foreach (var a in anims) animIds.Add(a.TextOrNull("Id") ?? "");
+        var result = new string?[granted.Count];
+        int i = 0;
+        foreach (var e in granted)
+        {
+            if (e.IntOrNull("Animation") is int ea && ea >= 0 && ea < animIds.Count && animIds[ea].Length > 0)
+                result[i] = animIds[ea];
+            i++;
+        }
+        return result;
+    }
 
     // Both sets of effects already have their own native rows and per-level stat sets. Only name-based lookups
     // require resolution; explicit row-based calls retain their exact identity (including monster effects).
@@ -1303,6 +1331,9 @@ public sealed class SkillCatalog
         MonsterContact(varietyId, animationKey, sequence)
         ?? (fallbackAnimationKey is not null && !string.Equals(fallbackAnimationKey, animationKey, StringComparison.Ordinal)
             ? MonsterContact(varietyId, fallbackAnimationKey, sequence) : null);
+
+    /// <summary>Whether <c>monster_contact_clips</c> has extracted animation pools for <paramref name="varietyId"/>.</summary>
+    public bool HasMonsterContacts(string varietyId) => _monsterContacts.ContainsKey(varietyId);
 
     /// <summary>A variety's whole pool for an animation key (every clip the selector may pick), or null.</summary>
     public MonsterClipContact[]? MonsterContactPool(string varietyId, string animationKey) =>

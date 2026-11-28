@@ -8,6 +8,9 @@ public sealed record HideoutScene(HideoutCatalog.Doodad Stash, (int X, int Y) Gu
     /// <summary>A reserved spot, for a module's furniture.</summary>
     public (int X, int Y) SmallStation { get; init; }
 
+    /// <summary>A second reserved spot, separate from <see cref="SmallStation"/>, for another module's furniture.</summary>
+    public (int X, int Y) SmallStation2 { get; init; }
+
     /// <summary>Where the character has moved things, by editor key.</summary>
     public IReadOnlyDictionary<string, HideoutPlacement>? Saved { get; init; }
 
@@ -15,7 +18,12 @@ public sealed record HideoutScene(HideoutCatalog.Doodad Stash, (int X, int Y) Gu
     public (int X, int Y, float Rotation) Station(HideoutSlot slot, string editorKey)
     {
         if (Saved?.TryGetValue(editorKey, out var moved) == true) return (moved.X, moved.Y, moved.Rotation);
-        var (x, y) = slot == HideoutSlot.Large ? LargeStation : SmallStation;
+        var (x, y) = slot switch
+        {
+            HideoutSlot.Large => LargeStation,
+            HideoutSlot.Small2 => SmallStation2,
+            _ => SmallStation,
+        };
         return (x, y, 0);
     }
 
@@ -70,6 +78,7 @@ public sealed record HideoutScene(HideoutCatalog.Doodad Stash, (int X, int Y) Gu
             npcs.Add(npc with { X = x, Y = y });
         }
         var small = Place(sx + 16, sy + 16, 4);
-        return new(stash, guild, bench, large, device, npcs) { SmallStation = small };
+        var small2 = Place(small.X + 12, small.Y, 4);
+        return new(stash, guild, bench, large, device, npcs) { SmallStation = small, SmallStation2 = small2 };
     }
 }

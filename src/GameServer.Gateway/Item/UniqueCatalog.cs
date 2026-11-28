@@ -476,7 +476,7 @@ public sealed partial class UniqueCatalog
     /// where it lies and no socketed gem is lost.</summary>
     public Item? Reforge(Item item, Func<string, double> weight, Random random)
     {
-        if (item.Rarity != ItemRarity.Unique || item.Corrupted || item.Mirrored || item.Vestigial || items.ByHash(item.TypeHash) is not { } current
+        if (item.Rarity != ItemRarity.Unique || item.Corrupted || item.Mirrored || item.Vestigial || item.Foulborn || items.ByHash(item.TypeHash) is not { } current
             || !ItemDrops.EquipmentClasses.Contains(current.Class)) return null;
         var candidates = new List<(Definition Definition, double Weight)>();
         foreach (var definition in All)

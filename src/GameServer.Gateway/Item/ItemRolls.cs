@@ -203,6 +203,11 @@ public sealed class ItemRolls
     public Item? Augment(Item item, Random random) =>
         item.Rarity == ItemRarity.Magic && TryModifiable(item, out _) ? AddAffix(item, 1, random) : null;
 
+    /// <summary>Foulborn Orb of Augmentation (<c>mutated_add_mod_to_magic</c>): augments a magic item with a new random
+    /// modifier with higher-level modifiers being more likely (weight × (1 + level / 20)).</summary>
+    public Item? FoulbornAugment(Item item, Random random) =>
+        item.Rarity == ItemRarity.Magic && TryModifiable(item, out _) ? AddAffixCore(item, (1, 1), random, respectMetamods: true, requiredTag: null, favorHigherTiers: true) : null;
+
     static bool IsMagicOnly(Item item) => item.Components.Contains("Flask") || item.Components.Contains("Tincture");
 
     /// <summary>Regal Orb's validated magic-to-rare upgrade: the magic affixes stay, one more comes from the rare
@@ -212,6 +217,16 @@ public sealed class ItemRolls
         if (item.Rarity != ItemRarity.Magic || IsMagicOnly(item) || !TryModifiable(item, out var type))
             return null;
         return AddAffix(item, MaxAffixesPerSide(type, item), random) is not { } added ? null
+            : added with { Rarity = ItemRarity.Rare, Identified = true, NameWords = RareName(type, random) };
+    }
+
+    /// <summary>Foulborn Regal Orb (<c>mutated_upgrade_magic_to_rare</c>): upgrades a magic item to rare while favoring
+    /// higher-level modifiers (weight × (1 + level / 20)).</summary>
+    public Item? FoulbornRegal(Item item, Random random)
+    {
+        if (item.Rarity != ItemRarity.Magic || IsMagicOnly(item) || !TryModifiable(item, out var type))
+            return null;
+        return AddAffixCore(item, MaxAffixesPerSide(type, item), random, respectMetamods: true, requiredTag: null, favorHigherTiers: true) is not { } added ? null
             : added with { Rarity = ItemRarity.Rare, Identified = true, NameWords = RareName(type, random) };
     }
 
@@ -241,6 +256,15 @@ public sealed class ItemRolls
         if (item.Rarity != ItemRarity.Rare || IsMagicOnly(item) || !TryModifiable(item, out var type))
             return null;
         return AddAffix(item, MaxAffixesPerSide(type, item), random);
+    }
+
+    /// <summary>Foulborn Exalted Orb (<c>mutated_add_mod_to_rare</c>): augments a rare item with a new random modifier
+    /// while favoring higher-level modifiers (weight × (1 + level / 20)).</summary>
+    public Item? FoulbornExalted(Item item, Random random)
+    {
+        if (item.Rarity != ItemRarity.Rare || IsMagicOnly(item) || !TryModifiable(item, out var type))
+            return null;
+        return AddAffixCore(item, MaxAffixesPerSide(type, item), random, respectMetamods: true, requiredTag: null, favorHigherTiers: true);
     }
 
     /// <summary>Chaos Orb's validated rare reroll: every unprotected explicit affix is replaced by 4-6 new weighted
@@ -695,10 +719,17 @@ public sealed class ItemRolls
             !have.Any(h => h.Families.Intersect(p.Mod.Families).Any()) && (requiredTag is null || p.Mod.Tags.Contains(requiredTag)))];
     }
 
-    Item? AddAffixCore(Item item, (int Prefix, int Suffix) max, Random rng, bool respectMetamods, string? requiredTag)
+    /// <summary>The Foulborn orbs' "higher level modifiers being more likely" (their CurrencyItems text): each eligible
+    /// affix weighs <c>weight × (1 + Mods.Level / 20)</c>, the rule Deepwater's vat used, so low tiers can still roll.</summary>
+    static IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> FavorHigherTiers(IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> pool) =>
+        [.. pool.Select(p => (p.Mod, Math.Max(1, p.Weight * (1 + p.Mod.Level / 20))))];
+
+    Item? AddAffixCore(Item item, (int Prefix, int Suffix) max, Random rng, bool respectMetamods, string? requiredTag,
+        bool favorHigherTiers = false)
     {
         var allowed = AffixesToAdd(item, max, respectMetamods, requiredTag);
         if (allowed.Count == 0) return null;
+        if (favorHigherTiers) allowed = FavorHigherTiers(allowed);
         var added = Pick(allowed, rng);
         // Prefixes before suffixes, as Roll orders them.
         var mods = item.Mods.ToList();

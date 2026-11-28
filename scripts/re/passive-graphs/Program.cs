@@ -13,6 +13,8 @@ const string CombinedHash = "F2766B5A4618CDBE7E2993973B4D653F155F71BDFE0E5D063A4
 const string AtlasPath = "metadata/atlasskillgraphs/atlasskillgraph.psg";
 // Read from the 3.29.3d client; the file has not been compared with a 3.29.3c archive.
 const string AtlasHash = "CF58DDD58781A613DB064BC8F17BABB56AEACFD2C3ED303B35FAD80A19F8DA88";
+const string BrequelPath = "metadata/leagueskillgraphs/chayulatreepassiveskillgraph.psg";
+const string BrequelHash = "7D5441464E083BC4F42CB93B6BC1A87FF59F1E11871E5CBD0695C6583A7B9A7E";
 const string Artifact = "phrecia-passive-skillgraph.psg";
 
 if (args.Length != 2 || args[0].StartsWith("--", StringComparison.Ordinal))
@@ -45,6 +47,9 @@ if (alternateHash != OriginalPhreciaHash && alternateHash != CombinedHash)
 byte[] atlasBytes = fs.ReadFile(AtlasPath);
 if (Convert.ToHexString(SHA256.HashData(atlasBytes)) != AtlasHash)
     throw new InvalidDataException("The Atlas PSG is not the pinned graph. The client archive was not changed.");
+byte[] brequelBytes = fs.ReadFile(BrequelPath);
+if (Convert.ToHexString(SHA256.HashData(brequelBytes)) != BrequelHash)
+    throw new InvalidDataException("The Brequel (Genesis Tree) PSG is not the pinned graph. The client archive was not changed.");
 HashSet<uint> ascendancyIds = GameServer.Core.ClientTable.Load(GameServer.Core.ClientTables.DefaultPath, "PassiveSkills")
     .Where(r => !r.IsNull("AscendancyKey"))
     .Select(r => r.UInt("PassiveSkillGraphId")).ToHashSet();
@@ -85,7 +90,8 @@ var output = new
     originalPhreciaSha256 = OriginalPhreciaHash,
     normal = Extract("metadata/passiveskillgraph.psg", normalBytes),
     phrecia = Extract("derived: ordinary/Bloodline tree with original Phrecia main ascendancies", mergedBytes),
-    atlas = Extract(AtlasPath, atlasBytes)
+    atlas = Extract(AtlasPath, atlasBytes),
+    brequel = Extract(BrequelPath, brequelBytes)
 };
 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
 File.WriteAllBytes(artifactPath + ".tmp", mergedBytes);

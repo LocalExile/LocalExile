@@ -18,6 +18,9 @@ public static class CurrencyEffects
     public const string OrbOfAugmentation = "Metadata/Items/Currency/CurrencyAddModToMagic";
     public const string RegalOrb = "Metadata/Items/Currency/CurrencyUpgradeMagicToRare";
     public const string ExaltedOrb = "Metadata/Items/Currency/CurrencyAddModToRare";
+    public const string FoulbornOrbOfAugmentation = "Metadata/Items/Currency/CurrencyMutatedAddModToMagic";
+    public const string FoulbornRegalOrb = "Metadata/Items/Currency/CurrencyMutatedUpgradeMagicToRare";
+    public const string FoulbornExaltedOrb = "Metadata/Items/Currency/CurrencyMutatedAddModToRare";
     public const string OrbOfAnnulment = "Metadata/Items/Currency/CurrencyRemoveMod";
     public const string AncientOrb = "Metadata/Items/Currency/CurrencyRerollUnique";
     public const string LesserEldritchIchor = "Metadata/Items/Currency/CurrencyEldritchIchor1";
@@ -250,6 +253,18 @@ public static class CurrencyEffects
     /// eligible explicit are refused before the inventory handler spends an orb.</summary>
     public static Item? Annulment(Item item, ItemRolls rolls, Random random) => rolls.Annul(item, random);
 
+    /// <summary>Foulborn Orb of Augmentation (<c>mutated_add_mod_to_magic</c>): augments a magic item with a new
+    /// modifier while favoring higher-level tiers.</summary>
+    public static Item? FoulbornAugmentation(Item item, ItemRolls rolls, Random random) => rolls.FoulbornAugment(item, random);
+
+    /// <summary>Foulborn Regal Orb (<c>mutated_upgrade_magic_to_rare</c>): upgrades a magic item to rare while
+    /// favoring higher-level tiers.</summary>
+    public static Item? FoulbornRegal(Item item, ItemRolls rolls, Random random) => rolls.FoulbornRegal(item, random);
+
+    /// <summary>Foulborn Exalted Orb (<c>mutated_add_mod_to_rare</c>): augments a rare item with a new modifier while
+    /// favoring higher-level tiers.</summary>
+    public static Item? FoulbornExalted(Item item, ItemRolls rolls, Random random) => rolls.FoulbornExalted(item, random);
+
     /// <summary>Exalted Orb: a modifiable rare item keeps its affixes and name and gets one more within its rare
     /// limits (three per side, two for jewels). Flasks are magic-only; non-rare items, unknown/unmodifiable bases and
     /// full items are refused before the inventory handler spends an orb.</summary>
@@ -329,13 +344,15 @@ public static class CurrencyEffects
                 or "reroll_mod_values" or "reroll_implicit_mod" or "reroll_variable_defences"
                 or "remove_random_mod" or "fracture_random_mod" or "add_flask_seal" or "add_flask_injector"
                 or "conflict_orb" or "reroll_rare_eldritch" or "add_mod_to_rare_eldritch"
-                or "remove_random_mod_eldritch");
+                or "remove_random_mod_eldritch"
+                or "mutated_add_mod_to_magic" or "mutated_upgrade_magic_to_rare" or "mutated_add_mod_to_rare");
 
     public static bool Recognizes(ItemCatalog items, ItemCatalog.BaseType type, bool essence = false) =>
         essence || HandlesAction(items.CurrencyAction(type))
         || type.Id is "Metadata/Items/Currency/CurrencyIdentification" or ChromaticOrb or JewellersOrb or OrbOfFusing
             or OrbOfAlchemy or ChaosOrb or DivineOrb or BlessedOrb or OrbOfScouring or OrbOfTransmutation
             or OrbOfAlteration or OrbOfAugmentation or RegalOrb or ExaltedOrb or OrbOfAnnulment or AncientOrb
+            or FoulbornOrbOfAugmentation or FoulbornRegalOrb or FoulbornExaltedOrb
             or ArmourersScrap or SacredOrb or BlacksmithsWhetstone or OrbOfChance or VaalOrb or GlassblowersBauble
             or GemcuttersPrism or FacetorsLens or FracturingOrb or CartographersChisel or EldritchChaosOrb or EldritchExaltedOrb
             or EldritchAnnulmentOrb or OrbOfBinding or OrbOfUnmaking or OrbOfConflict
@@ -381,6 +398,9 @@ public static class CurrencyEffects
             "convert_to_normal" => Scouring(target, rolls),
             "add_mod_to_rare" => Exalted(target, rolls, random),
             "upgrade_magic_to_rare" => Regal(target, rolls, random),
+            "mutated_add_mod_to_magic" => FoulbornAugmentation(target, rolls, random),
+            "mutated_upgrade_magic_to_rare" => FoulbornRegal(target, rolls, random),
+            "mutated_add_mod_to_rare" => FoulbornExalted(target, rolls, random),
             "reroll_socket_colours" => targetType is not null
                 ? Chromatic(target, items.Requirements(targetType), random) : null,
             "reroll_socket_links" => targetType is not null ? Fusing(target, targetType, random) : null,

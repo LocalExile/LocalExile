@@ -46,6 +46,8 @@ public static class CharacterSaves
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public RitualEncounterData? RitualEncounter { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IncursionTempleData? IncursionTemple { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ExpeditionSagaData? ExpeditionSaga { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public uint? BrequelFruitLevel { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public bool Foulborn { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public MercenaryContractData? MercenaryContract { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public bool MercenaryLocked { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Note { get; init; }
@@ -809,6 +811,7 @@ public static class CharacterSaves
         { SkinTransferSource = i.SkinTransferSource is null ? null : ToSaved(i.SkinTransferSource, mods), MemoryStrands = i.MemoryStrands, Intangibility = i.Intangibility, RequiredLevel = i.RequiredLevel,
             RelicStyle = i.RelicStyle, ScryingAreaHash = i.ScryingAreaHash, Chart = i.Chart, RitualEncounter = i.RitualEncounter,
             IncursionTemple = i.IncursionTemple, ExpeditionSaga = i.ExpeditionSaga,
+            BrequelFruitLevel = i.BrequelFruitLevel, Foulborn = i.Foulborn,
             MercenaryContract = i.MercenaryContract, MercenaryLocked = i.MercenaryLocked,
             Note = i.Note, CustomName = i.CustomName, SkillBarGemId = i.SkillBarGemId };
 
@@ -836,9 +839,9 @@ public static class CharacterSaves
             OriginalItem = s.OriginalItem is null ? null : FromSaved(s.OriginalItem, catalog),
             SkinTransferSource = s.SkinTransferSource is not { } source ? null : source.SkinTransferSource is null
                 ? FromSaved(source, catalog) : throw new InvalidDataException("Nested skin transfers are not supported"),
-            Influences = s.Influences, Split = s.Split, Synthesised = s.Synthesised, Vestigial = s.Vestigial,
+            Influences = s.Influences, Split = s.Split, Synthesised = s.Synthesised, Vestigial = s.Vestigial, Foulborn = s.Foulborn,
             HeistBlueprint = s.HeistBlueprint, Chart = s.Chart, RitualEncounter = s.RitualEncounter,
-            IncursionTemple = s.IncursionTemple, ExpeditionSaga = s.ExpeditionSaga,
+            IncursionTemple = s.IncursionTemple, ExpeditionSaga = s.ExpeditionSaga, BrequelFruitLevel = s.BrequelFruitLevel,
             MercenaryContract = s.MercenaryContract, MercenaryLocked = s.MercenaryLocked,
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
             MemoryStrands = s.MemoryStrands, Intangibility = s.Intangibility,

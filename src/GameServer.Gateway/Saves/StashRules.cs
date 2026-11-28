@@ -148,8 +148,9 @@ public sealed class StashRules
     /// Tab types whose page the client lays out its own way, which the Gateway doesn't know yet: items saved there are
     /// not shown, so these tabs take nothing. The map tab: the 3.29 client lists maps by tier, not at grid cells (two Beach
     /// Maps at (0, 0) and (0, 1) were saved but not shown, live 2026-10-20). Unique parents hold no direct items:
-    /// AccountStash routes them to hidden category inventories using UniqueStashLayout. Breach still has no supported
-    /// item layout.
+    /// AccountStash routes them to hidden category inventories using UniqueStashLayout. BreachStashTabLayout has 0 rows
+    /// in 3.29.3c (legacy splinters/breachstones removed; BreachStashTabSubStashGroup defines 4 Wombgift sub-stashes
+    /// 0x01/0x11/0x21/0x31, while Wombgift storage uses BrequelStorage1 row 101).
     /// </summary>
     public static bool NotShown(byte tabType) => tabType is Map or Unique or Breach;
 

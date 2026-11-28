@@ -40,11 +40,12 @@ public static partial class Game
         public async Task<uint?> SpawnHideoutStation(HideoutSlot slot, string metadataPath, string editorKey, string name)
         {
             if (player.CurrentHideoutScene is not { } scene) return null;
-            if (HideoutCatalog.TypeOf(metadataPath) is not var (components, _)) return null;
+            if (HideoutCatalog.TypeOf(metadataPath) is not var (components, states)) return null;
             if (components.Count == 0 || !HideoutObject.CanSerialize(components)) return null;
             var (x, y, rotation) = scene.Station(slot, editorKey);
             uint id = player.TakeObjectId();
-            var obj = new HideoutObject(x, y, rotation, components, new HideoutDoodad(0, 0));
+            // One value per shared state: the client refuses a StateMachine whose count differs from its type's.
+            var obj = new HideoutObject(x, y, rotation, components, new HideoutDoodad(0, 0), [.. states.Select(_ => 0)]);
             await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(metadataPath), obj.Blob()),
                 $"0x02bb create {name} 0x{id:x} at ({x}, {y})");
             await SendWorldRecord(player, id, () => InstanceProtocol.EnterWakeZone(id));

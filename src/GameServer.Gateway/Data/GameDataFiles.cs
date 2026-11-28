@@ -74,7 +74,7 @@ public static class GameDataFiles
         ("monster_melee_clocks", "ordinary monster melee clocks from the variety AO, including slow spans and ACT budgets (monster-contacts v8)"),
         ("monster_stances", "when a weapon-stanced monster's skill lands (the Rogue Exiles' stance clips)"),
         ("projectile_clips", "monster projectile flight and impact clips (a mortar is invisible without its flight clip) and the flight clip's contact, a spell mortar's landing time, also through .ao views and groups (projectile-clips v4)"),
-        ("passive_graphs", "ordinary, Phrecia and Atlas passive graph membership/connections/geometry (passive-graphs v7)"),
+        ("passive_graphs", "ordinary, Phrecia, Atlas and Brequel (Genesis Tree) passive graph membership/connections/geometry (passive-graphs v8)"),
         ("client_constants", "the Gateway does not start without its HNC mask"),
         ("stat_descriptions", "mod wording for tools' item crafter (the crafter mode)"),
     ];
