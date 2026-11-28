@@ -893,9 +893,9 @@ public static partial class Game
         foreach (var (name, value) in rawAttributes)
             sources[name] = AttributeModifiers.Signed(value);
         AbyssJewels.Count(active, catalog, Stats, sources);
-        // "+X to maximum Life for each Empty Red Socket on any Equipped Item" and its mana counterpart: the stat times
-        // the empty sockets of that colour on the active items, in the flat pool bucket (EmptySocketPools).
-        EmptySocketPools.Apply(active, Stats, sources);
+        // Per-empty-socket modifiers (The Untouched Soul: Red -> Life, Green -> Accuracy, Blue -> Mana,
+        // White -> All Elemental Resistances) multiply by empty sockets on genuine active equipped items.
+        EmptySocketPools.Apply(equippedActive, sources);
         ApplySocketedGhastlyEyeBonuses(active, catalog, sources);
         ItemStatAliases.Apply(sources);
         const uint daggerCrit = Stat.GladiatorCriticalStrikeChancePlusPctFinalWhileWieldingDagger;

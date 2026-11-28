@@ -263,9 +263,9 @@ public static class ItemModStats
     /// (Kongming's Stratagem) removes it.</summary>
     public static int ShieldBlock(ItemCatalog items, Item item, ItemCatalog.BaseType type)
     {
-        var local = Local(item, items.Mods);
+        var local = LocalCached(item, items.Mods);
         if (local.GetValueOrDefault(Stat.LocalNoBlockChance) != 0) return 0;
-        long flat = items.ShieldBlock(type) + local.GetValueOrDefault(Stat.LocalAdditionalBlockChancePct);
+        long flat = Math.Max(0, items.ShieldBlock(type) + local.GetValueOrDefault(Stat.LocalAdditionalBlockChancePct));
         return (int)(flat * Math.Max(0, 100 + local.GetValueOrDefault(Stat.LocalBlockChancePlusPct)) / 100);
     }
 
