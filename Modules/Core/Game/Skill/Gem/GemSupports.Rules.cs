@@ -76,7 +76,11 @@ public static partial class Game
                 || GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, g.EffectId))))];
     }
 
-    public static bool IsDashEffect(string? effectId) => effectId is "Dash" or "DashHardMode" or "DashArborix";
+    public static bool IsDashEffect(string? effectId) => effectId is "Dash" or "DashHardMode" or "DashArborix" or "DashRoyale";
+
+    const string QuickstepEffect = "QuickstepHardMode";
+
+    static bool IsDashMovementEffect(string? effectId) => IsDashEffect(effectId) || effectId == QuickstepEffect;
     public static SupportedGem SupportedSkill(Player player, ushort skillId) =>
         ApplyCurrentMomentum(player, skillId, ApplyCurrentIntensity(player, skillId, BaseSupportedSkill(player, skillId)));
 

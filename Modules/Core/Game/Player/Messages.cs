@@ -266,7 +266,7 @@ public static partial class Game
                         continue;
                     }
                 }
-                if (cast && gem.Name is not null && IsDashEffect(SkillsFor(player).EffectId(gem.Effect)))
+                if (cast && gem.Name is not null && IsDashMovementEffect(SkillsFor(player).EffectId(gem.Effect)))
                 {
                     bool valid;
                     valid = TryDashLanding(player, gem.Effect, (use.X, use.Y), out _, out _,
@@ -288,7 +288,7 @@ public static partial class Game
                     Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={AreaTime(player):0.000})");
                     continue;
                 }
-                if (cast && gem.Name is not null && IsDashEffect(SkillsFor(player).EffectId(gem.Effect)))
+                if (cast && gem.Name is not null && IsDashMovementEffect(SkillsFor(player).EffectId(gem.Effect)))
                 {
                     if (!TryCommitDashUse(player, use.SkillId, gem.Effect, (use.X, use.Y), out var dashUse, at, flags: use.Flags))
                     {
@@ -355,7 +355,7 @@ public static partial class Game
                         moveLanding = fd;
                         movedByCast = fd != (px, py);
                     }
-                    else if (chargeBonus == 0 && gem.Name is not null && !IsDashEffect(SkillsFor(player).EffectId(gem.Effect)) && LandsAtAim(player, gem.Effect))
+                    else if (chargeBonus == 0 && gem.Name is not null && !IsDashMovementEffect(SkillsFor(player).EffectId(gem.Effect)) && LandsAtAim(player, gem.Effect))
                     {
                         var landing = MovementLanding(player, gem.Effect, (px, py), (use.X, use.Y), use.SkillId, use.Flags);
                         player.Walk.Teleport(landing.X, landing.Y, at);

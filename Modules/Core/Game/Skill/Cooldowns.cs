@@ -15,7 +15,7 @@ public static partial class Game
         var sources = GemSkillEffects(player).Where(g => g.Effect == effect).ToArray();
         if (sources.Length == 0)
         {
-            if (skills.CooldownMs(effect, level) <= 0 || !IsDashEffect(skills.EffectId(effect))) return null;
+            if (skills.CooldownMs(effect, level) <= 0 || !IsDashMovementEffect(skills.EffectId(effect))) return null;
             var fallback = SingleUseCooldown.ForSkill(skills, Stats, effect, level,
                 CharacterPlayerStats(player), skills.EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2));
             return WithMapCooldown(player, fallback is { } dash ? dash with { SharedGroup = 9 } : null);
@@ -142,7 +142,7 @@ public static partial class Game
         int group = skills.CooldownGroup(effect, level);
         if (group == GuardCooldownGroup && !skills.IsVaal(effect)) return GuardCooldownKey;
         string? id = skills.EffectId(effect);
-        return group >= 0 && (IsDashEffect(id) || IsSummonBeastialCompanionEffect(id)
+        return group >= 0 && (IsDashMovementEffect(id) || IsSummonBeastialCompanionEffect(id)
             || id is TwisterEffect or CatStealthCryEffect) ? -1 - group : effect;
     }
 

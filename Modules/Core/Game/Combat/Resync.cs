@@ -114,7 +114,9 @@ public static partial class Game
             // the same layer-0-abort / layer-1-record trace as IceDash, and requires dx^2 + dy^2 >= 25.
             return FlameDashLanding(player, from, aim, skill, minRange: 25);
         }
-        if (id is "Dash" or "DashHardMode")
+        if (id == QuickstepEffect)
+            return QuickstepLanding(player, from, aim, (flags & 1) != 0);
+        if (id is "Dash" or "DashHardMode" or "DashRoyale")
         {
             const uint distanceStat = Stat.SkillTravelDistancePlusPct;
             int travel = GolemStat(CharacterPlayerStats(player), distanceStat);
@@ -194,13 +196,50 @@ public static partial class Game
         return direct ? end : last;
     }
 
+    // HardQuickDodge 0x141ba12c0 projects a fixed 30 cells, independent of Dash's travel stat.
+    // Its 0x141ba17b0 trace can cross terrain with layer-1 clearance but retains only standable cells.
+    static (int X, int Y) QuickstepLanding(Player player, (int X, int Y) from, (int X, int Y) aim, bool reverse)
+    {
+        if (from == aim) return from;
+        const int distance = 30;
+        float dx = (float)aim.X - from.X, dy = (float)aim.Y - from.Y;
+        float scale = distance / MathF.Sqrt(dx * dx + dy * dy);
+        int direction = reverse ? -1 : 1;
+        var end = (from.X + direction * (int)MathF.Floor(dx * scale + .5f),
+            from.Y + direction * (int)MathF.Floor(dy * scale + .5f));
+        double now = ProjectileWorldTime(player);
+        var enemies = player.Area.MonstersNear(from, distance + 128)
+            .Where(pair => QuickstepEnemy(pair.Value))
+            .Select(pair => (At: pair.Value.Walk.Position(now), Size: LivingCollision.Size(pair.Value)))
+            .ToArray();
+        var layout = player.Layout;
+        var sight = layout.Sight;
+        var wall = player.SightBarrier;
+        var last = from;
+        foreach (var cell in ClientPathfinder.Line(from, end).Skip(1))
+        {
+            if (cell.X < 0 || cell.Y < 0 || cell.X >= layout.GridW || cell.Y >= layout.GridH
+                || wall.Contains(cell) || sight is not null && sight(cell.X, cell.Y) < 1
+                || enemies.Any(enemy => Math.Max(Math.Abs((long)cell.X - enemy.At.X),
+                    Math.Abs((long)cell.Y - enemy.At.Y)) - enemy.Size < 2)) break;
+            if (layout.WalkableFor(cell.X, cell.Y, 1) && !player.Barrier.Contains(cell)) last = cell;
+            else if (sight is null) break;
+        }
+        // HardQuickDodge::CanExecute (0x141ba0f90) refuses displacements of fewer than five cells.
+        int x = last.X - from.X, y = last.Y - from.Y;
+        return x * x + y * y >= 25 ? last : from;
+    }
+
+    static bool QuickstepEnemy(SpawnedMonster enemy) =>
+        enemy is { Hostile: true, Dead: false, Life: > 0, OwnerId: null, WorldHidden: false };
+
     // Resolve Dash through the current terrain-aware landing before payment and commit it in the same
     // admission transaction: a blocked endpoint or a stale action cannot displace the player without a paid use.
     public static bool TryDashLanding(Player player, int effect, (int X, int Y) aim,
         out (int X, int Y) from, out (int X, int Y) to, double? acceptedAt = null, ushort skill = 0, ushort flags = 0)
     {
         to = from = default;
-        if (!IsDashEffect(SkillsFor(player).EffectId(effect)) || !SkillsFor(player).IsTravel(effect)
+        if (!IsDashMovementEffect(SkillsFor(player).EffectId(effect)) || !SkillsFor(player).IsTravel(effect)
             || !SkillsFor(player).IsMovement(effect) || !player.ProjectileActive(player.ProjectileEpoch)
             || !player.Connection.PlayerSent || player.PlayerLife == 0 || player.Paused || player.Closed || player.LeavingArea
             || player.RageRetired || player.PendingTransfer is not null || InTown(player)

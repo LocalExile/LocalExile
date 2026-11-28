@@ -1011,7 +1011,7 @@ public static partial class Game
         int castAction = 0;
         (int X, int Y) aim = default, stand = default, landing = default;
         bool moves = gem.Name is not null && !shieldCharge && LandsAtAim(player, gem.Effect);
-        if (gem.Name is not null && IsDashEffect(SkillsFor(player).EffectId(gem.Effect)))
+        if (gem.Name is not null && IsDashMovementEffect(SkillsFor(player).EffectId(gem.Effect)))
         {
             (int X, int Y) dashAim;
             dashAim = m.Walk.Position(ProjectileWorldTime(player));
@@ -1232,10 +1232,11 @@ public static partial class Game
         var source = PlayerSkillSourcesAt(CharacterName(player), equipment, requirements.Inactive, LeagueFor(player),
                 GrantedSkillsOf(player), WornGrantedSkillsOf(player, equipment))
             .FirstOrDefault(s => s.Id == skillId && s.Effect == effect && s.Active);
-        if (source is null || !IsDashEffect(SkillsFor(player).EffectId(effect))) return null;
+        if (source is null || !IsDashMovementEffect(SkillsFor(player).EffectId(effect))) return null;
         supported = SupportedSkillAt(player, skillId, requirements);
         if (supported.Effect != effect || !supported.RequirementsMet
             || ActorSkillInstanceDisabled(player, effect, skillId) is not null
+            || TravelSkillsExceptDashDisabled(player, effect, skillId) is not null
             || WeaponRestricted(player, effect) is not null
             || SkillsFor(player).EffectId(effect) is { } effectId
                 && ProjectileDefinition(effectId)?.Unavailable?.Invoke(player) is not null)
@@ -1276,7 +1277,13 @@ public static partial class Game
             state.Refresh(acceptedAt, plan.RecoveryRate);
             state.Capacity(plan.Uses);
             bool cooldownReset = CooldownResetTriggered(player, effect, skillId, AreaRng(player));
-            if (!cooldownReset) _ = state.TryUse(acceptedAt, plan);
+            if (!cooldownReset)
+            {
+                _ = state.TryUse(acceptedAt, plan);
+                if (SkillsFor(player).EffectId(effect) == QuickstepEffect)
+                    state.ApplyUseRecoveryBonus(acceptedAt, state.UseVersion,
+                        QuickstepRecoveryBonus(player, supported.Stats, from, acceptedAt));
+            }
             player.SkillReadyAt[key] = acceptedAt + state.RemainingSeconds;
             var sharedUses = cooldownReset ? [] : SpendSharedCooldownPeers(player, key, effect, skillId, plan, acceptedAt, peers);
             int action = beginAction ? Interlocked.Increment(ref player.ActionCount) : player.ActionCount;
@@ -1294,6 +1301,19 @@ public static partial class Game
             };
             return true;
         }
+    }
+
+    static int QuickstepRecoveryBonus(Player player, IReadOnlyDictionary<uint, int> stats, (int X, int Y) from, double now)
+    {
+        bool any = false;
+        foreach (var (_, enemy) in player.Area.MonstersNear(from, PresenceRadius))
+        {
+            if (!QuickstepEnemy(enemy) || Dist(enemy.Walk.Position(now), from) > PresenceRadius) continue;
+            if (enemy.Rarity == MonsterRarity.Unique)
+                return stats.GetValueOrDefault(Stat.CooldownRecoveryRatePlusPctWhenAUniqueEnemyInYourPresence);
+            any = true;
+        }
+        return any ? 0 : stats.GetValueOrDefault(Stat.CooldownRecoveryRatePlusPctIfNoEnemiesInYourPresence);
     }
 
     public static async Task<bool> PublishDashUse(Player player, DashUseReceipt receipt)
@@ -1367,7 +1387,7 @@ public static partial class Game
         if (VaalArcticArmourActive(player, AreaTime(player)) && cooldownUse?.Instant != true && !locationInstant
             && !SkillsFor(player).IsInstant(gem.Effect)) return false;
         if (!PlacedCastFamilyCurrent(player, skillId, placedAdmission)) return false;
-        if (IsDashEffect(SkillsFor(player).EffectId(gem.Effect)))
+        if (IsDashMovementEffect(SkillsFor(player).EffectId(gem.Effect)))
         {
             if (dashReceipt is null)
             {
@@ -1591,7 +1611,7 @@ public static partial class Game
             return accepted;
         }
         (int X, int Y) dashFrom = default, dashTo = default;
-        bool dash = gem.Name is not null && IsDashEffect(SkillsFor(player).EffectId(gem.Effect));
+        bool dash = gem.Name is not null && IsDashMovementEffect(SkillsFor(player).EffectId(gem.Effect));
         if (dash)
         {
             if (!TryDashLanding(player, gem.Effect, to, out dashFrom, out dashTo)) return false;
