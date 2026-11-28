@@ -57,9 +57,9 @@ public sealed partial class DeepwaterModule
         PlayerOf(player).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), ItemsOf(player).NextRevision(row), removed, added),
             $"0x00bf inventory {PlayerInventories.InventoryId(row)}: {what}");
 
-    /// <summary>Why the deck cannot start a run now, or null: on The Sovereign, as its map owner, with no run armed.</summary>
+    /// <summary>Why the deck cannot start a run now, or null: on The Sovereign (or encounter PseudoHub deck), as its map owner, with no run armed.</summary>
     string? DeckRefusal(Player player, State state) =>
-        PlayerOf(player).AreaId != HubId ? "not on The Sovereign"
+        !IsOnDeck(player) ? "not on The Sovereign"
         : !HubOwner(player) ? "not the deck's map owner"
         : state.Armed is not null ? "a run is waiting at the Bathysphere already" : null;
 
@@ -147,6 +147,7 @@ public sealed partial class DeepwaterModule
         // The tracker's "enter the Bathysphere" (QuestFlags 3568, G: set by the accepted Descend).
         await SetQuestFlags(player, [DeepwaterConstants.EnterTheChart]);
         await Arm(module, player, state, plan, active.Item.Rarity);
+        await DeepwaterSpeech.ClimbInCallout(player);
     }
 
     // ---- op 0: a Voyage ----

@@ -787,7 +787,7 @@ public static class DeepwaterUpgrades
     public static async Task SpawnBenchProps(IModuleContext module, Player player)
     {
         var modPlayer = PlayerOf(player);
-        if (modPlayer.AreaId != DeepwaterModule.HubId || player.Instance is not { } instance) return;
+        if (!DeepwaterModule.IsOnDeck(player) || player.Instance is not { } instance) return;
 
         var group = BenchProps.GetOrCreateValue(instance);
         BenchProp[] snapshot;
@@ -797,6 +797,9 @@ public static class DeepwaterUpgrades
             {
                 var tiles = player.Layout.Level?.TileQuestObjects ?? [];
                 var rooms = player.Layout.Level?.RoomObjects ?? [];
+                var (ox, oy) = DeepwaterGrid.IsEncounter(modPlayer.AreaId) && player.Layout.Level is { Records.Count: > 1 } lvl
+                    ? (lvl.Records[1].X * 23, lvl.Records[1].Y * 23)
+                    : (0, 0);
                 for (int stage = 1; stage <= BenchStageTypes.Length; stage++)
                 {
                     string type = BenchStageTypes[stage - 1];
@@ -812,8 +815,8 @@ public static class DeepwaterUpgrades
                         Stage = stage,
                         Type = type,
                         Id = player.TakeObjectId(),
-                        X = placed?.X ?? defX,
-                        Y = placed?.Y ?? defY,
+                        X = placed?.X ?? (defX + ox),
+                        Y = placed?.Y ?? (defY + oy),
                         Reach = size + 3,
                         Rotation = placed?.Rotation ?? 0f,
                         Z = placed?.Z,
@@ -896,7 +899,7 @@ public static class DeepwaterUpgrades
     /// <summary>Syncs all 6 below-deck bench stage props live to <paramref name="player"/>'s current league flags.</summary>
     public static async Task SyncBenchProps(Player player)
     {
-        if (PlayerOf(player).AreaId != DeepwaterModule.HubId) return;
+        if (!DeepwaterModule.IsOnDeck(player)) return;
         await UpdateStage1Bench(player, HasLeagueFlag(player, VesperFlameGivenLeagueFlag));
         for (int stage = 2; stage <= BenchStageTypes.Length; stage++)
             await UpdateUpgradeBenchStage(player, stage, visible: HasLeagueFlag(player, TotalTurnedInLeagueFlags[stage - 2]), animate: false);
@@ -909,7 +912,7 @@ public static class DeepwaterUpgrades
         InstanceTransfer.UseSkillOnObject use, double at, bool isHubOwner)
     {
         var modPlayer = PlayerOf(player);
-        if (modPlayer.AreaId != DeepwaterModule.HubId || player.Instance is not { } instance
+        if (!DeepwaterModule.IsOnDeck(player) || player.Instance is not { } instance
             || !BenchProps.TryGetValue(instance, out var group))
             return false;
 
