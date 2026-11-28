@@ -202,6 +202,7 @@ def agent_options(options, folder):
         "window": options.window, "traceFiles": options.trace_files, "traceMovies": options.trace_movies,
         "runMutexPrefix": run_mutex_prefix(folder),
         "mimalloc": dict(mimalloc_options(options.mimalloc)), "lazyNullBuffersKb": max(0, options.lazy_null_buffers) if options.renderer == "null" else 0,
+        "simSpeed": options.sim_speed if options.sim_speed and options.sim_speed > 1.0 else 0,
         "crashLog": str(Path(os.path.abspath(options.crash_log))) if options.crash_log else None}
 
 
@@ -247,6 +248,8 @@ def parse(argv=None):
                              "device, no GPU")
     parser.add_argument("--frame-sleep-ms", type=int, default=0,
                         help="sleep per main-loop frame (0: none; the preset's framerate_limit caps every renderer)")
+    parser.add_argument("--sim-speed", type=float, default=1.0,
+                        help="lockstep simulation speed multiplier floor (>1, paired with Gateway Game_SIM_SPEED)")
     parser.add_argument("--no-render-jobs", action="store_true", help="also disable the frame render jobs (stalls)")
     parser.add_argument("--no-texture-upload", action="store_true", help="texture manager Upload off")
     parser.add_argument("--priority", choices=sorted(PRIORITIES), default="below-normal")
