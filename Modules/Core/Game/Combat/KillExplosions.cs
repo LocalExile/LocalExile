@@ -365,10 +365,66 @@ public static partial class Game
                     CommitBossStage(player, targetId, target, now);
                     hit = hit with { StageStarts = false };
                 }
-                CommitMinionHitLocked(player, targetId, target, hit, damage, now, "minion chaos kill explosion");
+                CommitMinionHitLocked(player, targetId, target, hit, damage, now, "minion chaos kill explosion", secondary: true);
                 if (hit.Life == 0 && target.CursedAtDeath && GameServer.Core.World.RandomRolls.Chance(chance, 100, AreaRng(player)))
                     pending.Enqueue((targetId, target));
             }
+        }
+    }
+
+    // Mon'tregul's Grasp: "Enemies Killed by Zombies' Hits Explode, dealing 50% of their Life as Fire Damage".
+    // Secondary fire area damage scaled by the killing zombie's modifiers/supports; does not chain.
+    static void ResolveZombieKillExplosionLocked(Player player, uint corpseId, SpawnedMonster corpse,
+        GolemState.Golem zombie, double now)
+    {
+        if (!corpse.Hostile || player.Closed || player.LeavingArea || player.PlayerLife == 0
+            || HardcoreProgressBlocked(player)) return;
+        int percent = CharacterPlayerStats(player).GetValueOrDefault(Stat.ZombieExplodeOnKillPctFireDamageToDeal);
+        if (percent <= 0) return;
+        var at = corpse.Walk.Position(now);
+        if (!corpse.CorpseConsumed && ReferenceEquals(player.Area.Monsters.GetValueOrDefault(corpseId), corpse))
+        {
+            corpse.CorpseConsumed = true;
+            player.Area.Monsters.Remove(corpseId);
+            player.Minions.OutputQueue.Add(new([], "zombie kill explosion removes corpse", WorldId: corpseId, RemovesObject: true));
+            if (player.Connection.Connected && TakeExplosionArt(player, now))
+            {
+                uint effect = player.TakeObjectId();
+                var art = new EffectObject(at.X, at.Y, KillExplosionAo);
+                player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(effect,
+                    InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob()), "zombie fire kill explosion",
+                    WorldId: effect, CreatesObject: true));
+                SendAfter(player, ArtMs(KillExplosionAo) / 1000d, async () =>
+                {
+                    if (!player.Closed && !player.LeavingArea) await SendWorldRemoval(player, effect, null);
+                });
+            }
+        }
+        double factor = MinionAreaDamageFactor(zombie.Monster, DamageType.Fire, zombie.Own)
+            * MinionNecromancerCorpseDamage(zombie.Monster.Effects)
+            * (1 + 0.04 * (zombie.CombatCharges?.Held(ChargeType.Frenzy) ?? 0));
+        if (factor <= 0) return;
+        double raw = corpse.MaxLife * (percent / 100d) * factor;
+        var packet = DamagePacket.Of(DamageType.Fire, raw, raw);
+        var penetration = Penetration.Of(zombie.Monster.Effects.Stats, Stats, attack: false, zombie.Own);
+        double radius = MinionFireRadius(zombie, 22);
+        var playerStats = CharacterPlayerStats(player);
+        int cannotPenetrate = zombie.Monster.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances];
+        foreach (var (targetId, target) in player.Area.MonstersNear(at, radius))
+        {
+            if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable
+                || Dist(target.Walk.Position(now), at) > radius + LivingCollision.Size(target)) continue;
+            var mitigated = MitigateMonsterHit(target, packet, now, penetration, cannotPenetrateOrIgnore: cannotPenetrate);
+            int damage = MonsterTakesMitigated(target, mitigated, spell: false, now);
+            if (damage <= 0 || ApplyMonsterHitLocked(player, target, damage, allyAt: at,
+                cull: MinionIgniteKillRule(playerStats, target, now)) is not { } hit) continue;
+            if (hit.StageStarts)
+            {
+                CommitBossStage(player, targetId, target, now);
+                hit = hit with { StageStarts = false };
+            }
+            CommitMinionHitLocked(player, targetId, target, hit, damage, now, "zombie fire kill explosion",
+                source: zombie.Monster, skill: zombie.Own, fighter: zombie, secondary: true);
         }
     }
 
