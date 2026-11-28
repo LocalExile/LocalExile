@@ -215,9 +215,10 @@ public static class BossKits
     /// its barrage, teleport and damage-taken trigger marks, and only the ones that do something. The variety's own default
     /// attack is not put in front: for a mercenary variety that attack is the effect it leaves by.</summary>
     public static IReadOnlyList<MonsterKitSkill> KitFromEffects(Player conn, MonsterCatalog.Variety variety, byte level,
-        IReadOnlyList<int> effects)
+        IReadOnlyList<int> effects, MonsterModEffects? modifiers = null, bool keepUnshaped = false)
     {
-        var kit = BuildKit(conn, variety, level, UniqueOrder(SkillsFor(conn), variety, effects), null, unique: true, keepFirst: false);
+        var kit = BuildKit(conn, variety, level, UniqueOrder(SkillsFor(conn), variety, effects, keepUnshaped), null,
+            unique: true, keepFirst: false, modifiers: modifiers, keepUnshaped: keepUnshaped);
         if (kit.Count <= 1 || (kit[0].Attack.Use is null && kit[0].TriggerThreshold == 0 && kit[0].CooldownSeconds <= 0))
             return kit;
         // Put a direct attack at slot 0 (preferring zero cooldown): SpawnMonster and walk-up fallbacks treat kit[0] as
@@ -262,7 +263,8 @@ public static class BossKits
 
     /// <summary>The candidates a unique plays, in the order of <see cref="UniqueEffects"/>: the usable ones, then the shaped ones,
     /// then the triggers on damage taken. Never the effect a mercenary leaves by.</summary>
-    public static IReadOnlyList<int> UniqueOrder(SkillCatalog catalog, MonsterCatalog.Variety variety, IReadOnlyList<int> candidates)
+    public static IReadOnlyList<int> UniqueOrder(SkillCatalog catalog, MonsterCatalog.Variety variety, IReadOnlyList<int> candidates,
+        bool includeCompanionExtras = false)
     {
         bool allowCombos = !IsBossControllerVariety(variety);
         List<int> effects = [];
@@ -280,7 +282,12 @@ public static class BossKits
                     && !IsUnsafeGenericTarget(effect)
                     && !(MonsterKitHooks.HasEffectFilters && !MonsterKitHooks.AllowEffect(variety, effect, catalog.EffectId(effect)))
                     && IsDamageTakenTrigger(catalog, effect) == trigger
-                    && (MonsterSkills.ShapeOf(catalog, effect) is not null || trigger && (catalog.IsAttack(effect) || catalog.IsSpell(effect))))
+                    && (MonsterSkills.ShapeOf(catalog, effect) is not null
+                        || (includeCompanionExtras && !trigger && !catalog.IsAura(effect)
+                            && catalog.EffectId(effect) != "DoLiterallyNothing"
+                            && (catalog.HasType(effect, "Mark") || catalog.HasType(effect, "Trapped")
+                                || catalog.HasType(effect, "SummonsTotem")))
+                        || trigger && (catalog.IsAttack(effect) || catalog.IsSpell(effect))))
                     effects.Add(effect);
         return effects;
     }
@@ -334,7 +341,7 @@ public static class BossKits
     /// it does (it is the monster's own default attack); without it every entry must do something.</summary>
     static IReadOnlyList<MonsterKitSkill> BuildKit(Player player, MonsterCatalog.Variety variety, byte level,
         IReadOnlyList<int> effects, MonsterAttack? defaultAttack, bool unique, bool keepFirst,
-        MonsterModEffects? modifiers = null, double mapDamage = 1)
+        MonsterModEffects? modifiers = null, double mapDamage = 1, bool keepUnshaped = false)
     {
         var catalog = SkillsFor(player);
         List<MonsterKitSkill> kit = [];
@@ -369,7 +376,13 @@ public static class BossKits
             bool keepsDefault = kit.Count == 0 && defaultAttack is not null && !(unique && built.Summon is not null);
             var attack = (keepsDefault
                 ? defaultAttack! with { SkillId = id } : built) with { Effect = effect };
-            if (unique && MonsterSkills.UseOf(catalog, effect, level) is { } use)
+            var resolvedUse = unique ? MonsterSkills.UseOf(catalog, effect, level) : null;
+            if (resolvedUse is null && unique && keepUnshaped && catalog.HasType(effect, "Mark"))
+            {
+                var markStats = GolemData.Skill(catalog, effect, level).Stats;
+                resolvedUse = new MonsterSkillUse(MonsterSkillShape.Curse, 0, 10.0, markStats);
+            }
+            if (resolvedUse is { } use)
             {
                 // A travel reaches as far as it carries the monster; a buff on itself is used from where it sees the
                 // player; a spell on the player or a corpse (a curse, Volatile Dead) from as far as its action reaches.
@@ -406,7 +419,9 @@ public static class BossKits
                 // A totem's skill is its body's to use: the summon is kept only when that body has something to do.
                 if (attack.Summon is { Effect: >= 0 } totem)
                 {
-                    if (BodyAttack(player, Monsters.Find(totem.Variety.ToString()), level, totem.Effect, 0x4000) is null && !kept) continue;
+                    if (BodyAttack(player, Monsters.Find(totem.Variety.ToString()), level, totem.Effect, 0x4000) is null
+                        && !kept && !(keepUnshaped && (!attack.Damage.IsZero || catalog.HasType(effect, "SummonsTotem"))))
+                        continue;
                 }
                 else if (attack.Summon is null)
                 {
@@ -417,12 +432,23 @@ public static class BossKits
                         cooldown = Math.Max(cooldown, hazard.Cooldown);
                     }
                     else if (Shaped(player, variety, level, effect, attack) is { } shaped) attack = shaped;
+                    else if (keepUnshaped && Acts(attack) && KeepsCompanionUnshaped(catalog, effect))
+                    {
+                        if ((catalog.HasType(effect, "Area") || catalog.HasType(effect, "AreaSpell")
+                                || catalog.HasType(effect, "Rain") || catalog.HasType(effect, "Slam"))
+                            && attack.AreaRadius <= 0)
+                            attack = attack with { AreaRadius = AreaRadius(catalog, effect, level) ?? 16, AreaAtSelf = catalog.HasType(effect, "Nova") };
+                        if (catalog.IsRangedAttack(effect) || catalog.HasType(effect, "Projectile") || catalog.HasType(effect, "WandAttack"))
+                            attack = attack with { Ranged = true, Range = Math.Max(attack.Range, 45) };
+                    }
                     // A monster's own skill the shaping has no form for stays the action it was: the client plays its
                     // clip and what that draws (Merveil, the Twisted's geysers, screech and cascade), and it hits as a
                     // plain hit.
                     else if (!kept && !(Acts(attack) && KeepsUnshaped(catalog, variety, effect))) continue;
                 }
             }
+            if (keepUnshaped && attack.Ranged && attack.Range < 45)
+                attack = attack with { Range = 45 };
             if (!Acts(attack) && !kept) continue;
             var scaled = Scaled(attack);
             var (minRange, cdGroup) = KitSkillConstraints(catalog, effect, level, scaled.Range);
@@ -455,6 +481,17 @@ public static class BossKits
             };
         }
         return kit;
+    }
+
+    static bool KeepsCompanionUnshaped(SkillCatalog catalog, int effect)
+    {
+        string id = catalog.EffectId(effect) ?? "";
+        if (id.Length == 0 || id == "DoLiterallyNothing" || catalog.HasType(effect, "Triggered")
+            || id.StartsWith("GS", StringComparison.Ordinal)
+            || SkillCatalog.ActionTypeId(effect) == "CastGroundEffect"
+            || SetOffWords.Any(w => id.Contains(w, StringComparison.Ordinal)))
+            return false;
+        return true;
     }
 
     // Words of an id that mark a piece another skill sets off (an impact, an explosion, a death effect, a ground), not

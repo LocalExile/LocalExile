@@ -78,6 +78,8 @@ public static class MercenaryTables
     static Dictionary<string, AreaMeta> AreasById = new(StringComparer.OrdinalIgnoreCase);
     static IReadOnlyDictionary<int, IReadOnlyList<(int Dx, int Dy)>> PartyOffsetsData =
         new Dictionary<int, IReadOnlyList<(int Dx, int Dy)>>();
+    static Dictionary<int, (int LevelReq, double DamageEffectiveness)[]> EffectDamageEffectivenessData = [];
+    static Dictionary<int, (int LevelReq, int AttackSpeedMult)[]> EffectAttackSpeedMultData = [];
 
     public static AreaMeta? AreaOf(string areaId) => AreasById.TryGetValue(areaId, out var meta) ? meta : null;
     public static bool IsTownOrHideout(string areaId) => AreaOf(areaId) is { } m && (m.IsTown || m.IsHideout);
@@ -125,6 +127,7 @@ public static class MercenaryTables
         WarrantTypeHash = Program.Items.Find("Metadata/Items/MapFragments/MercenaryWarrant")?.Hash ?? 0;
         AreasById = LoadAreas();
         PartyOffsetsData = LoadPartyOffsets();
+        (EffectDamageEffectivenessData, EffectAttackSpeedMultData) = LoadSkillScaling();
         var itemClasses = ClientTables.TableOrEmpty("ItemClasses");
         foreach (var r in itemClasses)
         {
@@ -387,6 +390,122 @@ public static class MercenaryTables
             return null;
         string trimmed = id.EndsWith("Mercenary", StringComparison.Ordinal) ? id[..^"Mercenary".Length] : id;
         return AuraCatalog.Shared(trimmed) ? trimmed : null;
+    }
+
+    /// <summary>Maps a mercenary curse/mark <c>GrantedEffects</c> id (e.g. <c>ConductivityMercenary</c>,
+    /// <c>FlammabilityBlasphemyMercenary</c>, <c>AssassinsMarkMercenary</c>) to its canonical <see cref="CurseCatalog"/> key.</summary>
+    public static string? CanonicalCurseName(string? effectId)
+    {
+        if (string.IsNullOrEmpty(effectId)) return null;
+        string trimmed = effectId.EndsWith("Mercenary", StringComparison.Ordinal) ? effectId[..^"Mercenary".Length] : effectId;
+        if (trimmed.EndsWith("Blasphemy", StringComparison.Ordinal))
+            trimmed = trimmed[..^"Blasphemy".Length];
+        if (CurseCatalog.All.ContainsKey(trimmed)) return trimmed;
+        return null;
+    }
+
+    /// <summary>True when <paramref name="grantedEffect"/> is a mercenary Blasphemy curse aura
+    /// (e.g. <c>FlammabilityBlasphemyMercenary</c>, <c>EnfeebleMercenary</c>).</summary>
+    public static bool IsBlasphemyCurse(SkillCatalog skills, int grantedEffect)
+    {
+        if (grantedEffect < 0 || skills.EffectId(grantedEffect) is not { } id) return false;
+        if (CanonicalCurseName(id) is not { } canonical || !CurseCatalog.Hex(canonical)) return false;
+        return id.Contains("Blasphemy", StringComparison.OrdinalIgnoreCase) || skills.IsAura(grantedEffect);
+    }
+
+    /// <summary>Added-damage effectiveness multiplier (<c>1 + DamageEffectiveness / 10000</c>) for a mercenary skill at
+    /// <paramref name="actorLevel"/>, matching <c>GrantedEffectStatSetsPerLevel</c>.</summary>
+    public static double DamageEffectiveness(int grantedEffect, int actorLevel)
+    {
+        if (!EffectDamageEffectivenessData.TryGetValue(grantedEffect, out var rows) || rows.Length == 0) return 1.0;
+        double picked = rows[0].DamageEffectiveness;
+        for (int i = 0; i < rows.Length; i++)
+        {
+            if (rows[i].LevelReq <= actorLevel) picked = rows[i].DamageEffectiveness;
+            else break;
+        }
+        return picked;
+    }
+
+    /// <summary>Skill-specific attack speed multiplier % from <c>GrantedEffectsPerLevel.AttackSpeedMultiplier</c>
+    /// (e.g. -20 for slow slams, +15 for fast attacks; 0 when unmodified).</summary>
+    public static int AttackSpeedMultiplierPct(int grantedEffect, int actorLevel)
+    {
+        if (!EffectAttackSpeedMultData.TryGetValue(grantedEffect, out var rows) || rows.Length == 0) return 0;
+        int picked = rows[0].AttackSpeedMult;
+        for (int i = 0; i < rows.Length; i++)
+        {
+            if (rows[i].LevelReq <= actorLevel) picked = rows[i].AttackSpeedMult;
+            else break;
+        }
+        return picked;
+    }
+
+    static (Dictionary<int, (int, double)[]>, Dictionary<int, (int, int)[]>) LoadSkillScaling()
+    {
+        var effMap = new Dictionary<int, (int, double)[]>();
+        var spdMap = new Dictionary<int, (int, int)[]>();
+        if (!ClientTables.Has("GrantedEffects")) return (effMap, spdMap);
+
+        var mercenaryEffects = new HashSet<int>();
+        foreach (var s in SkillRowsData.Values)
+        {
+            if (s.GrantedEffect >= 0) mercenaryEffects.Add(s.GrantedEffect);
+            if (s.EncounterGrantedEffect >= 0) mercenaryEffects.Add(s.EncounterGrantedEffect);
+        }
+        if (mercenaryEffects.Count == 0) return (effMap, spdMap);
+
+        var effects = ClientTables.Table("GrantedEffects");
+        var statSetToEffects = new Dictionary<int, List<int>>();
+        foreach (int ge in mercenaryEffects)
+        {
+            if (ge < 0 || ge >= effects.Count) continue;
+            if (effects[ge].IntOrNull("StatSet1") is int ss && ss >= 0)
+            {
+                if (!statSetToEffects.TryGetValue(ss, out var list)) statSetToEffects[ss] = list = [];
+                list.Add(ge);
+            }
+        }
+
+        if (ClientTables.Has("GrantedEffectStatSetsPerLevel") && statSetToEffects.Count > 0)
+        {
+            var perSet = new Dictionary<int, List<(int Req, double Eff)>>();
+            foreach (var r in ClientTables.Table("GrantedEffectStatSetsPerLevel"))
+            {
+                if (r.IntOrNull("StatSet") is not int ss || !statSetToEffects.ContainsKey(ss)) continue;
+                int req = r.IntOrNull("PlayerLevelReq") ?? 0;
+                double raw = r.Real("DamageEffectiveness");
+                double mult = Math.Max(0.1, 1.0 + raw / 10000.0);
+                if (!perSet.TryGetValue(ss, out var list)) perSet[ss] = list = [];
+                list.Add((req, mult));
+            }
+            foreach (var (ss, list) in perSet)
+            {
+                list.Sort(static (a, b) => a.Req.CompareTo(b.Req));
+                var arr = list.ToArray();
+                foreach (int ge in statSetToEffects[ss]) effMap[ge] = arr;
+            }
+        }
+
+        if (ClientTables.Has("GrantedEffectsPerLevel"))
+        {
+            var perEffect = new Dictionary<int, List<(int Req, int Spd)>>();
+            foreach (var r in ClientTables.Table("GrantedEffectsPerLevel"))
+            {
+                if (r.IntOrNull("GrantedEffect") is not int ge || !mercenaryEffects.Contains(ge)) continue;
+                int spd = r.IntOrNull("AttackSpeedMultiplier") ?? 0;
+                if (spd == 0) continue;
+                int req = r.IntOrNull("PlayerLevelReq") ?? 0;
+                if (!perEffect.TryGetValue(ge, out var list)) perEffect[ge] = list = [];
+                list.Add((req, spd));
+            }
+            foreach (var (ge, list) in perEffect)
+            {
+                list.Sort(static (a, b) => a.Req.CompareTo(b.Req));
+                spdMap[ge] = list.ToArray();
+            }
+        }
+        return (effMap, spdMap);
     }
 
     public static bool IsDisabledUnique(string? uniqueName) =>

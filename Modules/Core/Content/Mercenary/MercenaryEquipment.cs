@@ -10,6 +10,29 @@ public static class MercenaryEquipment
 {
     public sealed record Worn(byte Slot, Item Item, VisibleItem Look);
 
+    /// <summary>Computed local stats for one equipped weapon (base phys, local flat/increased/quality, attack time, crit, range).</summary>
+    public sealed record WeaponHand(
+        DamagePacket LocalDamage,
+        int AttackMs,
+        int BaseCritPermyriad,
+        int Range,
+        string ItemClass,
+        bool IsBow,
+        bool IsWand,
+        bool IsMelee,
+        bool IsTwoHand);
+
+    /// <summary>Resolved weapon, shield, and quiver loadout for a mercenary.</summary>
+    public sealed record EquippedWeapons(
+        WeaponHand? MainHand,
+        WeaponHand? OffHand,
+        bool HasShield,
+        bool HasQuiver,
+        bool IsDualWielding)
+    {
+        public static readonly EquippedWeapons None = new(null, null, false, false, false);
+    }
+
     /// <summary>Resolved live stats for a mercenary (for both server combat and client <c>0x1b3</c> Defence/Loadout sync).</summary>
     public sealed record ComputedStats(
         MonsterModSet Mods,
@@ -17,7 +40,10 @@ public static class MercenaryEquipment
         uint MaxLife,
         uint MaxEnergyShield,
         int EquippedUniqueCount,
-        IReadOnlyList<(uint Key, int Value)> ClientStats);
+        IReadOnlyList<(uint Key, int Value)> ClientStats)
+    {
+        public EquippedWeapons Weapons { get; init; } = EquippedWeapons.None;
+    }
 
     static readonly HashSet<string> TwoHandClasses = new(
         ["Two Hand Sword", "Two Hand Axe", "Two Hand Mace", "Staff", "Warstaff", "Bow", "FishingRod"],
@@ -413,11 +439,48 @@ public static class MercenaryEquipment
         foreach (var (k, v) in modStats)
             stats[k] = ActorScale.Saturate((long)stats.GetValueOrDefault(k) + v);
 
-        // Local armour / evasion / energy shield from equipped Armour items
+        // Local armour / evasion / energy shield from equipped Armour items, and local weapon/quiver/shield stats
         int gearArmour = 0, gearEvasion = 0, gearEs = 0, gearBlock = 0;
-        foreach (var item in equipped)
+        WeaponHand? mainHand = null, offHand = null;
+        bool hasShield = false, hasQuiver = false;
+        var skillCatalog = SkillsFor(player);
+
+        WeaponHand? BuildWeaponHand(Item item, ItemCatalog.BaseType bt)
         {
-            if (Program.Items.ByHash(item.TypeHash) is not { } bt || !bt.Components.Contains("Armour")) continue;
+            if (skillCatalog.WeaponBase(bt.Row) is not var (ms, min, max, range)) return null;
+            var calc = ItemWeaponStats.Calculate(item, (ms, min, max, range), Program.Items.Mods);
+            var local = ItemModStats.Sum([item], Program.Items.Mods, local: true);
+            int baseCrit = AddedBaseCriticalStrike.LocalWeaponChance(
+                Program.Items.WeaponCritical(bt),
+                local.GetValueOrDefault(Stat.LocalCriticalStrikeChance),
+                local.GetValueOrDefault(Stat.LocalCriticalStrikeChancePlusPct));
+            if (baseCrit <= 0) baseCrit = MonsterModEffects.DefaultBaseCriticalChance;
+            int effRange = Math.Max(1, range + local.GetValueOrDefault(Stat.LocalWeaponRangePlus));
+            bool isBow = string.Equals(bt.Class, "Bow", StringComparison.OrdinalIgnoreCase);
+            bool isWand = string.Equals(bt.Class, "Wand", StringComparison.OrdinalIgnoreCase);
+            bool isTwoHand = TwoHandClasses.Contains(bt.Class);
+            return new WeaponHand(calc.Damage, calc.AttackMs, baseCrit, effRange, bt.Class,
+                isBow, isWand, IsMelee: !isBow && !isWand, isTwoHand);
+        }
+
+        foreach (var invItem in items)
+        {
+            var item = invItem.Item;
+            if (Program.Items.ByHash(item.TypeHash) is not { } bt) continue;
+            byte? equipRow = PlayerInventories.MercenarySlotAtX(invItem.X)?.EquipmentRow;
+
+            if (equipRow == PlayerInventories.Weapon1)
+            {
+                mainHand ??= BuildWeaponHand(item, bt);
+            }
+            else if (equipRow == PlayerInventories.Offhand1)
+            {
+                if (bt.ClassRow == MercenaryTables.ShieldClassRow) hasShield = true;
+                else if (bt.ClassRow == MercenaryTables.QuiverClassRow) hasQuiver = true;
+                else offHand ??= BuildWeaponHand(item, bt);
+            }
+
+            if (!bt.Components.Contains("Armour")) continue;
             var local = ItemModStats.Sum([item], Program.Items.Mods, local: true);
             var (baseArm, baseEva, baseShield) = Program.Items.Defences(bt)?.AtRoll(item.DefenceBaseRoll) ?? (0, 0, 0);
             int quality = item.Quality;
@@ -429,6 +492,18 @@ public static class MercenaryEquipment
             gearEs += (int)Math.Round((baseShield + local.GetValueOrDefault(Stat.LocalEnergyShield)) * esPct);
             gearBlock += Program.Items.ShieldBlock(bt) + local.GetValueOrDefault(Stat.LocalAdditionalBlockChancePct);
         }
+        bool isDualWielding = mainHand is not null && offHand is not null;
+        if (isDualWielding)
+        {
+            stats[Stat.IsDualWielding] = 1;
+            gearBlock += 20 + stats.GetValueOrDefault(Stat.BlockWhileDualWieldingPct)
+                + stats.GetValueOrDefault(Stat.DualWieldOrShieldBlockPct);
+        }
+        else if (hasShield)
+        {
+            gearBlock += stats.GetValueOrDefault(Stat.DualWieldOrShieldBlockPct);
+        }
+        var weapons = new EquippedWeapons(mainHand, offHand, hasShield, hasQuiver, isDualWielding);
         if (gearArmour > 0) stats[Stat.BasePhysicalDamageReductionRating] = stats.GetValueOrDefault(Stat.BasePhysicalDamageReductionRating) + gearArmour;
         if (gearEvasion > 0) stats[Stat.BaseEvasionRating] = stats.GetValueOrDefault(Stat.BaseEvasionRating) + gearEvasion;
         if (gearEs > 0) stats[Stat.BaseMaximumEnergyShield] = stats.GetValueOrDefault(Stat.BaseMaximumEnergyShield) + gearEs;
@@ -567,6 +642,9 @@ public static class MercenaryEquipment
         clientStats.Add((Stat.UncappedLightningDamageResistancePct, uncappedLight));
         clientStats.Add((Stat.UncappedChaosDamageResistancePct, uncappedChaos));
 
-        return new ComputedStats(new([], [], modEffects), stats, maxLife, maxEs, uniqueCount, clientStats);
+        return new ComputedStats(new([], [], modEffects), stats, maxLife, maxEs, uniqueCount, clientStats)
+        {
+            Weapons = weapons,
+        };
     }
 }
