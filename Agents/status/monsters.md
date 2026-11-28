@@ -205,9 +205,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Abyss: pit, crack arms, wave, reward chest per instance. [Docs](../docs/game/league-encounters.md)
 - Mercenaries & Luminary: Act 3+ campaign and map encounters (`0xa1`/`0xa2`, `0x7b` `0x60`/`0x61`, `0x010c`),
   Take Item/Rucksack, Rematch Warrants, temporary recruits, persistent 3-slot permanent roster (`Mercenary1..3`),
-  full `CanMercenaryEquipItem` validation, companion AI/auras/taunt/recoup/death/revive, and all Scion Luminary
-  ascendancy passives (`Noble Blood`, `Oath of Fealty`, `Golden Glory`, `Loyal Bodyguard`, `Bestowed Knighthood`,
-  `Legendary Arms` + unique-slot nodes).
+  full `CanMercenaryEquipItem` validation, companion owned-skills/weapon-scaled AI/auras/taunt/recoup/death/revive,
+  and all Scion Luminary ascendancy passives (`Noble Blood`, `Oath of Fealty`, `Golden Glory`, `Loyal Bodyguard`,
+  `Bestowed Knighthood`, `Legendary Arms` + unique-slot nodes).
   Supports roll 3.29 endgame counts from area level 68 with one tier per support by level.
   Guaranteed campaign zones ignore the level gate with no Rucksack; other encounters carry a 2x2 currency/Trarthan
   gem Rucksack, show the `MercenaryEncounter` map icon, and exclude the empty Bladereach build.

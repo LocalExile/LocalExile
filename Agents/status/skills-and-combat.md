@@ -280,7 +280,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   to the attack's melee and projectile hits for Overexertion. Docs: [11](../docs/protocol/11-skills.md) Â§10i.
 - Seismic Cry gives six melee slams more area after release, independently of the timed armour buff (predictive and lockstep).
 - Ancestral Cry gives eight melee strikes two additional targets after release, independently of the resistance buff (predictive and lockstep).
-- Exerted attacks publish the client's `display_num_empowered_attacks` counter per warcry and apply passive/item exerted-attack modifiers across slams and strikes; Automation and Autoexertion publish linked counts, active toggle buffs, reservations, area carry, and cooldown triggers.
+- Exerted attacks publish the client's `display_num_empowered_attacks` counter per warcry and apply passive/item
+  exerted-attack modifiers across slams and strikes.
+  Automation and Autoexertion trigger all eligible instant spells (including Arcane Cloak, Withering Step, Berserk,
+  Corrupting Fever, Plague Bearer, Frostblink, Banners, Signal Prey, and Bladefall of Trarthus) with linked counts,
+  toggle buffs, reservations, and area carry.
 - Strike targeting: spirit strikes and the previous location. Frost Blades and Lightning Strike resolve their extra
   melee contacts and projectile volleys. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
 - Passive enemy auras. Docs: [11](../docs/protocol/11-skills.md) Â§10e.
