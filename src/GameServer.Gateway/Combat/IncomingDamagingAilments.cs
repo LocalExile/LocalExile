@@ -62,7 +62,7 @@ public sealed class IncomingDamagingAilments
     public bool ApplyBleed(double now, double perSecond, double seconds, uint? source = null, bool reflected = false,
         Func<uint, int>? victim = null, double durationFactor = 1)
     {
-        if (now < bleedProtectedUntil) return false;
+        if (now < bleedProtectedUntil || victim is not null && PreventsBleeding(victim)) return false;
         if (!(perSecond > 0) || !(seconds > 0)) return false;
         seconds *= SelfDuration(victim, bleed: true);
         if (!reflected) seconds *= durationFactor;

@@ -313,6 +313,8 @@ public static partial class Game
         }
         duration /= RecipientEffectTime.Rate(1, key => GolemStat(playerStats, key));
         guard.Until = now + duration;
+        if (guard.Effect == "QuickGuard")
+            player.IncomingAilments.RemoveOrProtectBleeding(now, 0);
         if (guard.Effect == "ImmortalCall")
         {
             // Recovery can advance across the cast or expiry after the buff itself has changed.
@@ -413,7 +415,7 @@ public static partial class Game
         }
         Add(Stat.AffectedByGuardSkill, 1);
         Add(Stat.BasePhysicalDamageReductionRating, guard.Armour);
-        if (guard.Effect == "QuickGuard") Add(Stat.AvoidBleedPct, 100);
+        if (guard.Effect == "QuickGuard") Add(Stat.ImmuneToBleeding, 1);
         if (guard.LightningDamage > 0)
         {
             Add(Stat.GlobalMinimumAddedLightningDamage, guard.LightningDamage);
