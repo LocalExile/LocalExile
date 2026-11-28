@@ -187,17 +187,31 @@ public static partial class Game
     /// <summary>The default attack's accuracy for the swinging hand, Blind included (PlayerAccuracy for the main hand);
     /// the off hand swaps in its local accuracy (WeaponAccuracyFor), as its panel row does.</summary>
     public static int HandAccuracy(Player player, AttackHand hand, IReadOnlyDictionary<uint, int>? playerStats = null) =>
+        HandAccuracy(player, hand, playerStats, extraIncreased: 0);
+
+    internal static int HandAccuracy(Player player, AttackHand hand, IReadOnlyDictionary<uint, int>? playerStats, long extraIncreased) =>
         hand == AttackHand.Off && OffhandWeaponFor(player) is { } off
-            ? WeaponAccuracyFor(player, off, playerStats ?? CharacterPlayerStats(player)) : PlayerAccuracy(player, playerStats);
+            ? WeaponAccuracyFor(player, off, playerStats ?? CharacterPlayerStats(player), null, effect: -1, extraIncreased)
+            : extraIncreased == 0 ? PlayerAccuracy(player, playerStats)
+            : WeaponAccuracyFor(player, null, playerStats ?? CharacterPlayerStats(player), null, effect: -1, extraIncreased);
 
     /// <summary>The default attack's critical chance with the swinging hand (Pools.AttackCriticalStrikeChance is the
     /// main hand's): the off-hand weapon's own base and local modifiers with the same increases and override.</summary>
-    public static int HandAttackCriticalChance(Player player, AttackHand hand, IReadOnlyDictionary<uint, int> playerStats)
+    public static int HandAttackCriticalChance(Player player, AttackHand hand, IReadOnlyDictionary<uint, int> playerStats) =>
+        HandAttackCriticalChance(player, hand, playerStats, extraBaseCrit: 0);
+
+    internal static int HandAttackCriticalChance(Player player, AttackHand hand, IReadOnlyDictionary<uint, int> playerStats,
+        int extraBaseCrit)
     {
-        if (hand != AttackHand.Off || OffhandWeaponFor(player) is null) return player.Pools.AttackCriticalStrikeChance;
+        if (extraBaseCrit == 0 && (hand != AttackHand.Off || OffhandWeaponFor(player) is null))
+            return player.Pools.AttackCriticalStrikeChance;
         int PlayerStat(uint key) => playerStats.GetValueOrDefault(key);
         int RawCritical(uint key) => IsCriticalProhibition(key) ? 0 : PlayerStat(key);
-        return DisplayedCriticalChance(player, AttackBaseCriticalStrike.Chance(true, HandWeaponCritical(player, hand, playerStats),
+        var weapon = WeaponProfileFor(player, activeSet: true);
+        int weaponBase = hand == AttackHand.Off && OffhandWeaponFor(player) is not null
+            ? HandWeaponCritical(player, hand, playerStats) : weapon.Critical;
+        int basis = ActorScale.Saturate((long)AttackBaseCriticalStrike.OfMainHand(!weapon.Unarmed, weaponBase, RawCritical) + extraBaseCrit);
+        return DisplayedCriticalChance(player, AttackBaseCriticalStrike.ChanceOfBase(basis,
             player.Pools.CriticalStrikeChancePct, RawCritical), RawCritical);
     }
 
@@ -330,27 +344,30 @@ public static partial class Game
     /// <summary><see cref="SupportedCriticalChance(Player, ushort, AttackHand)"/> with the off-hand weapon's base
     /// critical chance read once by the caller (null: no off-hand weapon), for a sweep that asks per victim.</summary>
     public static int SupportedCriticalChance(Player player, ushort skillId, AttackHand hand, int? offCritical) =>
-        SupportedCriticalChance(player, skillId, hand, offCritical, 0);
+        SupportedCriticalChance(player, skillId, hand, offCritical, 0, extraBaseCrit: 0);
 
     static int SupportedCriticalChance(Player player, ushort skillId, AttackHand hand, int? offCritical,
-        long extraIncrease) => (hand, offCritical) switch
+        long extraIncrease, int extraBaseCrit = 0) => (hand, offCritical) switch
         {
-            (AttackHand.Off, int off) => SupportedCriticalChanceFor(player, skillId, false, extraIncrease, off),
-            (AttackHand.Both, int off) => (int)Math.Round((SupportedCriticalChanceFor(player, skillId, false, extraIncrease)
-                + SupportedCriticalChanceFor(player, skillId, false, extraIncrease, off)) / 2.0, MidpointRounding.AwayFromZero),
-            _ => SupportedCriticalChanceFor(player, skillId, false, extraIncrease),
+            (AttackHand.Off, int off) => SupportedCriticalChanceFor(player, skillId, false, extraIncrease, off, extraBaseCrit),
+            (AttackHand.Both, int off) => (int)Math.Round((SupportedCriticalChanceFor(player, skillId, false, extraIncrease, null, extraBaseCrit)
+                + SupportedCriticalChanceFor(player, skillId, false, extraIncrease, off, extraBaseCrit)) / 2.0, MidpointRounding.AwayFromZero),
+            _ => SupportedCriticalChanceFor(player, skillId, false, extraIncrease, null, extraBaseCrit),
         };
 
     /// <summary>A supported attack's accuracy with a hand: the off hand's local accuracy in the main hand's place.
     /// Both hands at once use the main hand's (one hit, one evasion roll).</summary>
-    public static AttackAccuracyProfile SupportedAccuracy(Player player, ushort skillId, AttackHand hand)
+    public static AttackAccuracyProfile SupportedAccuracy(Player player, ushort skillId, AttackHand hand) =>
+        SupportedAccuracy(player, skillId, hand, extraIncreased: 0);
+
+    internal static AttackAccuracyProfile SupportedAccuracy(Player player, ushort skillId, AttackHand hand, long extraIncreased)
     {
-        var accuracy = SupportedAccuracy(player, skillId);
+        var accuracy = SupportedAccuracy(player, skillId, extraIncreased);
         if (hand != AttackHand.Off || OffhandWeaponFor(player) is not { } off) return accuracy;
         var gem = SupportedSkill(player, skillId);
         var playerStats = CharacterPlayerStats(player);
         return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, gem.Stats, off.LocalSources)
-            with { Rating = WeaponAccuracyFor(player, off, playerStats, gem.Stats, gem.Effect) };
+            with { Rating = WeaponAccuracyFor(player, off, playerStats, gem.Stats, gem.Effect, extraIncreased) };
     }
 
     /// <summary>The swinging hand's local modifiers (on-hit chances, leech, penetration): the main hand's for both

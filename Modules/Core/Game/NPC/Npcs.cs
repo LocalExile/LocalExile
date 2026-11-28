@@ -15,7 +15,7 @@ public static partial class Game
         // An NPC is the player's quest view: their quest state chose it, so it is theirs alone to see (AreaDelta's private entities).
         if (InAreaFrame(player))
         {
-            player.Area.Delta.Add(id, InstanceEntities.CreateObject(id, type, obj.Blob()), log, AreaDelta.Kind.Create, only: player);
+            player.Area.Delta.Add(id, InstanceEntities.CreateObject(id, type, obj.Blob(), headerU32: uint.MaxValue), log, AreaDelta.Kind.Create, only: player);
             player.Area.Delta.Add(id, InstanceProtocol.EnterWakeZone(id), null, only: player);
         }
         else
@@ -79,6 +79,12 @@ public static partial class Game
         // Only a fresh click opens/reopens NPC dialogue; held-LMB repeats (~100 ms later, 0x0400 clear) must not wipe
         // an open quest reward offer and send 0x0084 over it.
         if (!use.InitialPress) return;
+        uint id;
+        lock (player.Npcs)
+        {
+            id = player.Npcs.FirstOrDefault(n => ReferenceEquals(n.Value, npc)).Key;
+            if (id == 0 && use.TargetId != 0 && player.Npcs.ContainsKey(use.TargetId)) id = use.TargetId;
+        }
         if (!TryBeginObjectWalk(player, requestedAt, npc.X, npc.Y, NpcInteractionSize(npc), out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 npc {npc.Npc} ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
@@ -94,8 +100,20 @@ public static partial class Game
             Note("vendor restores life");
             await SendPlayerMana(player, "vendor restores mana");
         }
-        uint id;
-        lock (player.Npcs) id = player.Npcs.FirstOrDefault(n => ReferenceEquals(n.Value, npc)).Key;
+        lock (player.Npcs)
+        {
+            if (id != 0 && player.Npcs.TryGetValue(id, out var latest)) npc = latest;
+            else
+            {
+                uint resolved = player.Npcs.FirstOrDefault(n => ReferenceEquals(n.Value, npc)).Key;
+                if (resolved != 0) id = resolved;
+                else if (use.TargetId != 0 && player.Npcs.TryGetValue(use.TargetId, out var byTarget))
+                {
+                    id = use.TargetId;
+                    npc = byTarget;
+                }
+            }
+        }
         player.StashOpen = false;
         player.GuildStashOpen = false;
         player.TradeStashOpen = false;

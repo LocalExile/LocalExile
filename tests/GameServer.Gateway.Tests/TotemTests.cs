@@ -297,6 +297,104 @@ public sealed class TotemTests
         Assert.True(Has(sent, Roster(id, 0)), "the replaced totem stayed listed");
     }
 
+    [Fact]
+    public void Player_totems_and_allied_minions_carry_minion_flag_and_pass_players_while_blocking_hostiles()
+    {
+        var minionBlob = new MonsterObject(10, 20, 100, MonsterObject.BaseComponents, Team: 0) { IsMinion = true }.Blob();
+        var hostileBlob = new MonsterObject(10, 20, 100, MonsterObject.BaseComponents, Team: 1).Blob();
+        // ObjectFlags (1) + BaseData count (1) + GridX (4) + GridY (4) + Rotation (4) = team u16 at offset 14.
+        Assert.Equal((ushort)0x8000, BitConverter.ToUInt16(minionBlob, 14));
+        Assert.Equal((ushort)0x0001, BitConverter.ToUInt16(hostileBlob, 14));
+
+        var player = new Player(new(1, "totem-collision", 1000, 1000, 100, 100, null, []), 1, 1)
+        {
+            PlayerLife = 1000,
+            Connection = { PlayerSent = true },
+        };
+        player.Walk.Teleport(5, 5, 0);
+        player.SetObjectBlocker(100, 10, 10, 2, actorOrChest: true, collisionRadius: null, blocksPlayer: false);
+        player.SetObjectBlocker(101, 20, 20, 2, actorOrChest: true);
+        player.Area.Monsters[200] = new("allied-minion", new(30, 30, 0), 0, 0, 100) { Hostile = false, AlliedMinion = true };
+        player.Area.Monsters[201] = new("hostile", new(40, 40, 0), 0, 0, 100) { Hostile = true };
+
+        Assert.Contains(player.StationaryBlockers, b => b.X == 10 && b.Y == 10);
+        Assert.Contains(player.StationaryBlockers, b => b.X == 20 && b.Y == 20);
+        Assert.DoesNotContain(player.PlayerStationaryBlockers, b => b.X == 10 && b.Y == 10);
+        Assert.Contains(player.PlayerStationaryBlockers, b => b.X == 20 && b.Y == 20);
+
+        var correction = player.CorrectionBlockers();
+        Assert.DoesNotContain(correction, b => b.X == 10 && b.Y == 10);
+        Assert.Contains(correction, b => b.X == 20 && b.Y == 20);
+
+        var playerBlockers = player.Blockers;
+        Assert.DoesNotContain(playerBlockers, b => b.X == 10 && b.Y == 10);
+        Assert.DoesNotContain(playerBlockers, b => b.X == 30 && b.Y == 30);
+        Assert.Contains(playerBlockers, b => b.X == 20 && b.Y == 20);
+        Assert.Contains(playerBlockers, b => b.X == 40 && b.Y == 40);
+
+        var previousOwner = GameArea.Own(player.Area);
+        try
+        {
+            using var frame = player.BeginMonsterBlockerFrame(0);
+            Assert.DoesNotContain(frame.ForPlayer, b => b.X == 10 && b.Y == 10);
+            Assert.DoesNotContain(frame.ForPlayer, b => b.X == 30 && b.Y == 30);
+            Assert.Contains(frame.ForPlayer, b => b.X == 20 && b.Y == 20);
+            Assert.Contains(frame.ForPlayer, b => b.X == 40 && b.Y == 40);
+
+            var enemyView = frame.For(201);
+            Assert.Contains(enemyView, b => b.X == 10 && b.Y == 10);
+            Assert.Contains(enemyView, b => b.X == 30 && b.Y == 30);
+            Assert.Contains(enemyView, b => b.X == 20 && b.Y == 20);
+        }
+        finally { GameArea.Own(previousOwner); }
+
+        player.RemoveBlocker(100);
+        Assert.DoesNotContain(player.StationaryBlockers, b => b.X == 10 && b.Y == 10);
+        Assert.Same(player.StationaryBlockers, player.PlayerStationaryBlockers);
+    }
+
+    [Fact]
+    public void Totem_variety_follows_native_ballista_and_attribute_spell_totem_selection()
+    {
+        var skills = new SkillCatalog();
+        var player = new Player(new(1, "totem-models", 1000, 1000, 100, 100, null, []), 1, 1);
+        var spellStats = new Dictionary<uint, int> { [Stat.IsTotem] = 1 };
+        var ballistaStats = new Dictionary<uint, int> { [Stat.IsTotem] = 1, [Stat.IsRangedAttackTotem] = 1 };
+        var arrowNovaBallistaStats = new Dictionary<uint, int>
+            { [Stat.IsTotem] = 1, [Stat.IsRangedAttackTotem] = 1, [Stat.ProjectilesRain] = 1 };
+        var slamStats = new Dictionary<uint, int>
+            { [Stat.IsTotem] = 1, [Stat.SupportTotemTypeOverrideToSupportSlamAncestor] = 1 };
+
+        string VarietyId(string effectId, IReadOnlyDictionary<uint, int> stats)
+        {
+            int row = skills.EffectRow(effectId);
+            Assert.True(row >= 0, $"missing GrantedEffects row: {effectId}");
+            var variety = Game.TotemVariety(player, row, stats);
+            Assert.NotNull(variety);
+            return variety!.Id;
+        }
+
+        // Ballista Totem Support: projectile -> ShotgunTotem (18), rain/Arrow Nova -> MortarTotem (19), channel -> SnipeTotem (12).
+        Assert.Equal("Metadata/Monsters/Totems/ShotgunTotem", VarietyId("SplitArrow", ballistaStats));
+        Assert.Equal("Metadata/Monsters/Totems/MortarTotem", VarietyId("RainOfArrows", ballistaStats));
+        Assert.True(Game.BallistaEffect(player, skills.EffectRow("RainOfArrows")));
+        Assert.True(Game.BallistaEffect(player, skills.EffectRow("RainOfArrowsAltX")));
+        Assert.True(Game.BallistaEffect(player, skills.EffectRow("RainOfArrowsAltY")));
+        Assert.Equal("Metadata/Monsters/Totems/MortarTotem", VarietyId("BlastRain", ballistaStats));
+        Assert.Equal("Metadata/Monsters/Totems/MortarTotem", VarietyId("SplitArrow", arrowNovaBallistaStats));
+        Assert.Equal("Metadata/Monsters/Totems/SnipeTotem", VarietyId("ScourgeArrow", ballistaStats));
+        Assert.Equal("Metadata/Monsters/Totems/SnipeTotem", VarietyId("SiegeBallista", ballistaStats));
+        Assert.Equal("Metadata/Monsters/Totems/MortarTotem", VarietyId("SiegeBallista", arrowNovaBallistaStats));
+
+        // Spell Totem Support: generic SkillTotemId 22 picks Str/Dex/Int totem by GrantedEffects.Attribute (1/2/3).
+        Assert.Equal("Metadata/Monsters/Totems/StrengthTotem", VarietyId("WarlordsMark", spellStats));
+        Assert.Equal("Metadata/Monsters/Totems/DexterityTotem", VarietyId("EtherealKnives", spellStats));
+        Assert.Equal("Metadata/Monsters/Totems/IntelligenceTotem", VarietyId("Fireball", spellStats));
+
+        // Earthbreaker slam override -> SupportAncestorSlamTotem (20).
+        Assert.Equal("Metadata/Monsters/Totems/SupportAncestorSlamTotem", VarietyId("Earthshatter", slamStats));
+    }
+
     sealed class Wire : IDisposable
     {
         readonly TcpListener listener = new(IPAddress.Loopback, 0);

@@ -7,7 +7,8 @@ public static partial class Game
 
     internal sealed record EarthshatterAttack(ProjectileSession Session,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem, ushort Sequence,
-        SkillCriticalRoll Critical, double Ruthless, bool Exerted, bool SeismicExerted, RetainedAreaAttack Fissure, RetainedAreaAttack Burst)
+        SkillCriticalRoll Critical, double Ruthless, bool Exerted, bool SeismicExerted, int? RallyingDamage,
+        RetainedAreaAttack Fissure, RetainedAreaAttack Burst)
     {
         internal bool Active => Session.Active && Session.Player.PlayerLife > 0;
 
@@ -32,7 +33,7 @@ public static partial class Game
                 firstContactAt: null, Ruthless, priorTargets: null, scaledBlastChaos: 0,
                 singleStrikeTarget: null, onHit: null, scheduledSession: Session, Exerted, prepaidRawExtra: 0,
                 baseChaos: 0, hammer: null, retainedAttack: attack, allowMeleeSplash: false, contactTargets: candidates,
-                seismicExerted: SeismicExerted);
+                seismicExerted: SeismicExerted, rallyingDamage: RallyingDamage);
             if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled Earthshatter hit must not yield.");
             hit.GetAwaiter().GetResult();
         }
@@ -136,7 +137,7 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, SupportedGem admitted,
         (int X, int Y) from, (int X, int Y) to, ushort sequence, int repeats, AttackHand hand,
         SkillCatalog.Unarmed weapon, int? offCritical, SkillCriticalRoll critical, double radiusMore, double damageMore,
-        double ruthless, bool exerted, bool seismicExerted, double contactAt)
+        double ruthless, bool exerted, bool seismicExerted, int? rallyingDamage, double contactAt)
     {
         var session = ProjectilesFor(player);
         long contact = ProjectileRuntime.Time(contactAt);
@@ -160,8 +161,9 @@ public static partial class Game
         double More(uint key) => Math.Max(0, 1 + AreaStat(key) / 100d);
         double fissureMore = More(Stat.SpikeSlamFissureDamagePlusPctFinal) * damageMore;
         double spikeMore = More(Stat.SpikeSlamExplosionDamagePlusPctFinal) * More(Stat.SpikeSlamSpikeDamagePlusPctFinal) * damageMore;
-        var fissureSource = CaptureAreaAttack(player, skillId, admitted, hand, weapon, offCritical, fissureMore, fissureMore, "fissure");
-        var attack = new EarthshatterAttack(session, gem, sequence, critical, ruthless, exerted, seismicExerted, fissureSource,
+        var fissureSource = CaptureExertedAreaAttack(player, skillId, admitted, hand, weapon, offCritical, fissureMore, fissureMore, "fissure",
+            exerted, (seismicExerted ? 1 : 0) + (MeleeWarcryTriggersFor(critical)?.Count ?? 0), rallyingDamage);
+        var attack = new EarthshatterAttack(session, gem, sequence, critical, ruthless, exerted, seismicExerted, rallyingDamage, fissureSource,
             fissureSource with { HitMore = spikeMore, AilmentMore = spikeMore, Phase = "spike" });
         int capacity = AreaStat(Stat.SpikeSlamMaxSpikes);
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), stats.GetValueOrDefault, Own,

@@ -145,6 +145,11 @@ public static partial class Game
             + (tinctureWeapon ? Get(Stat.StunDurationPlusPctWithTincturedWeapons) : 0)
             + (fullLife ? Get(Stat.StunDurationPlusPctVsEnemiesThatAreOnFullLife) : 0)
             + (critical ? Get(Stat.StunDurationOnCriticalStrikePlusPct) : 0);
+        if (own?.GetValueOrDefault(Stat.SupportTraumaStunDurationPlusPctPerTrauma) is int traumaStun and not 0)
+        {
+            int traumaStacks = CurrentTraumaCount(player, ProjectileWorldTime(player));
+            if (traumaStacks > 0) duration += (long)traumaStun * traumaStacks;
+        }
         long thresholdReduction = (long)Get(Stat.BaseStunThresholdReductionPlusPct) + local
             + (tinctureWeapon ? Get(Stat.StunThresholdReductionPlusPctWithTincturedWeapons) : 0);
         int lightningReduction = Get(Stat.LightningSkillStunThresholdPlusPct);

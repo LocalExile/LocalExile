@@ -70,7 +70,7 @@ public static partial class Game
             if (VampiricMinionAt(player, link, now) is null) continue;
             redirects = true;
             lifeLeechCap += ScaledLinkStat(link, Stat.RemoraLinkGrantsMaximumLifeLeechRatePctPerMinute,
-                Math.Max(0, 100L + get(Stat.LinkSkillBuffEffectPlusPct)));
+                LinkBuffEffectPercentForLink(player, link, get));
         }
         int WithVampiricCap(uint key) => key != Stat.MaximumLifeLeechRatePctPerMinute
             ? get(key) : ActorScale.Saturate(get(key) + lifeLeechCap);

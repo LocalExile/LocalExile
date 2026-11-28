@@ -331,8 +331,18 @@ public static partial class Game
         extra += get(Stat.ActionSpeedPlusPctWhileAffectedByHaste);
         int mapSpeed = MapSkillActionSpeedPerUse(player);
         if (mapSpeed != 0) extra += (double)mapSpeed * player.RecentEvents.Amount(StatConditions.UsedSkill, now);
+        bool unaffectedByTc = get(Stat.UnaffectedByTemporalChains) != 0
+            || get(Stat.VirtualUnaffectedByTemporalChains) != 0
+            || get(Stat.UnaffectedByCurses) != 0
+            || get(Stat.VirtualUnaffectedByCurses) != 0
+            || get(Stat.Hexproof) != 0
+            || get(Stat.VirtualHexproof) != 0
+            || get(Stat.UnaffectedByTemporalChainsWhileAffectedByHaste) != 0
+                && AffectingAuras(player).Any(a => AuraCatalog.Family(a.EffectId) == "Haste")
+            || get(Stat.UnaffectedByCursesWhileAffectedByZealotry) != 0
+                && AffectingAuras(player).Any(a => AuraCatalog.Family(a.EffectId) == "Zealotry");
         double factor = player.ElementalAilments.TotalActionFactor(now, get(Stat.ActionSpeedMinusPct) - extra)
-            * TemporalChainsActionFactor(get(Stat.TemporalChainsActionSpeedPlusPctFinal));
+            * (unaffectedByTc ? 1 : TemporalChainsActionFactor(get(Stat.TemporalChainsActionSpeedPlusPctFinal)));
         if (get(Stat.ActionSpeedCannotBeReducedBelowBase) != 0) factor = Math.Max(1, factor);
         // Rakiata's Leadership: action speed cannot be modified below 100% + this value (the level 1 spirit's 10 is
         // the wiki's "at least 110% of base value").

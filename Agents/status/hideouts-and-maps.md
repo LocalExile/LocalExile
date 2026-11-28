@@ -242,6 +242,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   release. Scarab inputs, repeated breakouts and reward drops have native verification; retail reward weights and
   difficulty need calibration.
 - Legion Atlas rules can change the battle's general count. See [Legion](../docs/game/legion.md).
+- Legion (partial): the Timeless Monolith with its timer, two armies in stasis, break-out on damage, release wave and war chests;
+  rewards (symbols, rolled drops, splinters, Ruthless scaling), the scarabs and the Atlas passives. The Domain of Timeless Conflict
+  follows 3.29: ghosts, revival waves in the control zone, the 100-crystal tracker, the generals' lines and recipe portals. The army
+  fills the arena; Aukuna fights mounted and dismounts on the mount's death; Hyrri is her Fish with the rider and water clones;
+  Generals and Sergeants use the S6 combo hooks. Scarab inputs, repeated breakouts and reward drops have native verification;
+  the rest is not checked in the client, and retail reward weights and difficulty need calibration.
+  Docs: [Legion](../docs/game/legion.md).
 
 - Blight: pump, lanes, enemies, foundations; only 17 of 30 towers act (HUD and chests pending).
 
@@ -394,8 +401,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ducat socketing and reclaim, and Message in a Bottle reveal.
   Ship upgrades (`DeepwaterUpgrades` rows 0–4: `+1` lantern, Sulphur scaling, extra scattered objects, final-lantern
   Adrenaline, all five upgrade pieces with Vesper turn-ins `#3920–3924` unlocking copy-cap tiers and
-  `GhostflameCraftingBenchProps_Stage1..6`), Act 1 Deepwater Fairgraves (`1_1_9` with `FlameBarrier1` and
-  `AllFlameLanternDeepwater`), and Kishara's Rest (`#29` barrier → `#30` imbued level ≥ 83 boss arena with two-phase
+  `GhostflameCraftingBenchProps_Stage1..6`), Act 1 Deepwater Fairgraves (`1_1_9` with dynamic `FlameBarrier1` and
+  `AllFlameLanternDeepwater`, crediting minion/totem/trap/mine kills too), and Kishara's Rest (`#29` barrier → `#30` imbued level ≥ 83 boss arena with two-phase
   Cressie and Velka, guaranteed unique + 8% Coursing Current Support + first-kill quest drops, and
   `VelkaDescensionObject` opening Velka Bloodline `Descendancy#15`) work
   ([03](../docs/protocol/03-area-and-world.md) §8, [12](../docs/protocol/12-quests.md) §5,

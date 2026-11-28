@@ -87,8 +87,12 @@ public static partial class Game
 
     static void BannerRecipientChanged(Player recipient, PlacedBanner banner)
     {
-        // Resistance is read from the character's pools, so it must follow entering and leaving the banner.
-        if (banner.Stats.ContainsKey(Stat.BaseResistAllElementsPct) && !recipient.Closed && !recipient.LeavingArea)
+        // A higher-effect banner of the same kind can displace a resistance grant even if it grants none itself.
+        bool resistanceMayChange = banner.Stats.ContainsKey(Stat.BaseResistAllElementsPct)
+            || recipient.Instance is { } instance && AreaBanners.TryGetValue(instance, out var placed)
+                && placed.Values.Any(other => other.Row == banner.Row && other.Recipients.Contains(recipient)
+                    && other.Stats.ContainsKey(Stat.BaseResistAllElementsPct));
+        if (resistanceMayChange && !recipient.Closed && !recipient.LeavingArea)
             PlayerStatBuffsChanged(recipient);
         else
             MarkPlayerStats(recipient, PlayerStatStep.Sources);

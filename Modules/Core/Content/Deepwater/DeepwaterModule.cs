@@ -317,6 +317,25 @@ public sealed partial class DeepwaterModule : IModule
                 }
             }
         });
+        // Minion, totem, trap, mine, and non-playerKill deaths emit GameEvents.Kill without MonsterKilled.
+        GameEvents.Kill.Add(id, kill =>
+        {
+            if (kill.PlayerKill || kill.Monster.Rarity < MonsterRarity.Rare) return;
+            var modMonster = global::Game.ModMonster(kill.Monster, kill.At);
+            var payload = new MonsterKill(kill.Player, modMonster);
+            if (kill.Monster.Rarity == MonsterRarity.Unique)
+            {
+                kill.Later(() => DeepwaterFairgraves.OnMonsterKilled(module, payload));
+                if (RunOf(kill.Player) is { } bossRun)
+                    kill.Later(() => DeepwaterVelka.OnMonsterKilled(module, payload, bossRun));
+            }
+            if (RunOf(kill.Player) is { HasAnyRareSulphur: true, CellRules: { } rules } run)
+            {
+                int cell = run.CellIndex(modMonster.X, modMonster.Y);
+                if ((uint)cell < (uint)rules.Length && rules[cell].RareDropSulphur)
+                    kill.Later(() => DeepwaterLoot.AwardRareSulphur(module, kill.Player, run, cell));
+            }
+        });
         // Per-cell map_experience_gain_+% on Charts and Voyages (0-alloc when inactive).
         GameEvents.Experience.Add(id, gain =>
         {

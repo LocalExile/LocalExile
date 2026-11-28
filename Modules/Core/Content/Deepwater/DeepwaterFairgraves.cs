@@ -64,6 +64,7 @@ public static class DeepwaterFairgraves
         public int BarrierX, BarrierY;
         public float BarrierRotation;
         public float? BarrierZ;
+        public float BarrierScale = 1f;
         public string? BarrierModel;
         public bool Open;
         public bool KilledInInstance;
@@ -75,10 +76,17 @@ public static class DeepwaterFairgraves
     /// <summary>Builds the <see cref="QuestObject"/> for <see cref="FlameBarrierType"/> in closed (<c>open = false</c>)
     /// or open (<c>open = true</c>) state (also callable directly in tests).</summary>
     public static QuestObject BuildBarrierObject(int x, int y, float rotation, float? height, string? model, bool open) =>
+        BuildBarrierObject(x, y, rotation, height, model, open, scale: 1f);
+
+    /// <summary>Builds the <see cref="QuestObject"/> for <see cref="FlameBarrierType"/> with its room-line scale.</summary>
+    public static QuestObject BuildBarrierObject(int x, int y, float rotation, float? height, string? model, bool open, float scale) =>
         new(x, y, BarrierComponents(), rotation, height is float h && !float.IsNaN(h) ? h : null,
             string.IsNullOrEmpty(model) ? FlameBarrierModel : model,
             TransitionState: open ? BarrierOpenState : BarrierClosedState,
-            Blocked: !open);
+            Blocked: !open)
+        {
+            Scale = scale > 0f && !float.IsNaN(scale) ? scale : 1f,
+        };
 
     /// <summary><c>GameEvents.AreaGenerated</c> handler for <c>1_1_9</c> in Allflame leagues: spawns <c>FlameBarrier1</c>
     /// and <c>SkeletonBossFairgravesDeepwater</c> (unless the entering character already has <c>QF 47</c>), or syncs the
@@ -121,6 +129,7 @@ public static class DeepwaterFairgraves
                     BarrierY = barrierAt?.Y ?? 0,
                     BarrierRotation = barrierAt?.Rotation ?? 0f,
                     BarrierZ = barrierAt is not null && !float.IsNaN(barrierAt.Z) ? barrierAt.Z : null,
+                    BarrierScale = barrierAt is not null && barrierAt.Scale > 0f && !float.IsNaN(barrierAt.Scale) ? barrierAt.Scale : 1f,
                     BarrierModel = barrierAt is not null && !string.IsNullOrEmpty(barrierAt.Model) ? barrierAt.Model : FlameBarrierModel,
                     Open = alreadyDone,
                     KilledInInstance = false,
@@ -213,7 +222,7 @@ public static class DeepwaterFairgraves
         foreach (var member in DeepwaterLoot.Members(player))
         {
             if (ReferenceEquals(member, player)) continue;
-            member.SetBlocker(state.BarrierId, state.BarrierX, state.BarrierY, BarrierBlockSize);
+            ApplyBarrierBlocking(member, state, blocked: true);
             if (transIndex >= 0)
                 await global::Game.SendWorldRecord(PlayerOf(member), state.BarrierId,
                     InstanceEntities.TransitionableUpdate(state.BarrierId, (byte)transIndex, BarrierClosedState),
@@ -287,7 +296,7 @@ public static class DeepwaterFairgraves
 
             if (state.BarrierId != 0)
             {
-                member.RemoveBlocker(state.BarrierId);
+                ApplyBarrierBlocking(member, state, blocked: false);
                 if (transIndex >= 0)
                     await global::Game.SendWorldRecord(PlayerOf(member), state.BarrierId,
                         InstanceEntities.TransitionableUpdate(state.BarrierId, (byte)transIndex, BarrierOpenState),
@@ -331,14 +340,14 @@ public static class DeepwaterFairgraves
 
     static async Task CreateBarrier(Player player, FairgravesState state, bool open)
     {
-        var obj = BuildBarrierObject(state.BarrierX, state.BarrierY, state.BarrierRotation, state.BarrierZ, state.BarrierModel, open);
+        var obj = BuildBarrierObject(state.BarrierX, state.BarrierY, state.BarrierRotation, state.BarrierZ, state.BarrierModel, open, state.BarrierScale);
         var modPlayer = PlayerOf(player);
         if (!await global::Game.SendWorldCreate(modPlayer, state.BarrierId,
             InstanceEntities.CreateObject(state.BarrierId, InstanceEntities.ObjectTypeHash(FlameBarrierType), obj.Blob()),
             $"0x02bb FlameBarrier1 0x{state.BarrierId:x} at ({state.BarrierX}, {state.BarrierY}) ({(open ? "open" : "blocked")})"))
             return;
         await global::Game.SendWorldRecord(modPlayer, state.BarrierId, InstanceProtocol.EnterWakeZone(state.BarrierId));
-        if (!open) player.SetBlocker(state.BarrierId, state.BarrierX, state.BarrierY, BarrierBlockSize);
+        ApplyBarrierBlocking(player, state, blocked: !open);
     }
 
     static async Task OpenBarrierForAll(Player player, FairgravesState state)
@@ -348,7 +357,7 @@ public static class DeepwaterFairgraves
         int transIndex = QuestObject.TransitionableIndex(BarrierComponents());
         foreach (var member in DeepwaterLoot.Members(player))
         {
-            member.RemoveBlocker(state.BarrierId);
+            ApplyBarrierBlocking(member, state, blocked: false);
             if (transIndex >= 0)
                 await global::Game.SendWorldRecord(PlayerOf(member), state.BarrierId,
                     InstanceEntities.TransitionableUpdate(state.BarrierId, (byte)transIndex, BarrierOpenState),
@@ -357,6 +366,35 @@ public static class DeepwaterFairgraves
                 InstanceEntities.BlockageUpdate(state.BarrierId, false),
                 $"0x01c6 FlameBarrier1 0x{state.BarrierId:x} unblocked");
         }
+    }
+
+    static void ApplyBarrierBlocking(Player player, FairgravesState state, bool blocked)
+    {
+        if (!blocked)
+        {
+            player.RemoveBlocker(state.BarrierId);
+            bool removed = player.DoorBarriers.Remove(state.BarrierId);
+            removed |= player.SightDoorBarriers.Remove(state.BarrierId);
+            if (removed) player.UpdateBarrier();
+            return;
+        }
+        string model = string.IsNullOrEmpty(state.BarrierModel) ? FlameBarrierModel : state.BarrierModel;
+        if (File.Exists(GameServer.Data.Ggpk.GamePack.DefaultFile))
+        {
+            var hull = ServerLevels.ModelWalkCells(model, state.BarrierX, state.BarrierY, state.BarrierRotation, state.BarrierScale);
+            if (hull.Count > 0)
+            {
+                player.RemoveBlocker(state.BarrierId);
+                player.DoorBarriers[state.BarrierId] = hull;
+                if (ServerLevels.HasModelHull(model))
+                    player.SightDoorBarriers[state.BarrierId] = ServerLevels.ModelSightCells(model, state.BarrierX, state.BarrierY, state.BarrierRotation, state.BarrierScale);
+                else
+                    player.SightDoorBarriers.Remove(state.BarrierId);
+                player.UpdateBarrier();
+                return;
+            }
+        }
+        player.SetBlocker(state.BarrierId, state.BarrierX, state.BarrierY, BarrierBlockSize);
     }
 
     static async Task DropAllflame(IModuleContext module, Player player, int x, int y, byte level)

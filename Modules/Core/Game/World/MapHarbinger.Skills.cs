@@ -59,7 +59,7 @@ public static partial class MapHarbinger
     sealed class PlayerCurseState
     {
         public readonly Dictionary<uint, int> Stats = [];
-        public readonly Dictionary<string, ushort> Buffs = new(StringComparer.Ordinal);
+        public readonly Dictionary<string, object> Holders = new(StringComparer.Ordinal);
     }
 
     static readonly Store<Player, ArenaHazards.Exposure> GroundExposure = new();
@@ -837,13 +837,12 @@ public static partial class MapHarbinger
             if (active is not null && CurseImmune(member)) active = null;
             if (active is null)
             {
-                if (ActivePlayerCurses.TryGetValue(member, out var existing) && (existing.Stats.Count > 0 || existing.Buffs.Count > 0))
+                if (ActivePlayerCurses.TryGetValue(member, out var existing) && (existing.Stats.Count > 0 || existing.Holders.Count > 0))
                     await ClearPlayerCursesAsync(member);
                 continue;
             }
 
             var state = ActivePlayerCurses.GetValue(member, _ => new());
-            bool statsChanged = false;
             var nextStats = new Dictionary<uint, int>();
             foreach (var (_, (_, _, es)) in active)
                 foreach (var (k, v) in es)
@@ -853,30 +852,19 @@ public static partial class MapHarbinger
             {
                 state.Stats.Clear();
                 foreach (var (k, v) in nextStats) state.Stats[k] = v;
-                statsChanged = true;
             }
 
-            foreach (string gone in state.Buffs.Keys.Where(k => !active.ContainsKey(k)).ToArray())
+            foreach (string gone in state.Holders.Keys.Where(k => !active.ContainsKey(k)).ToArray())
             {
-                ushort bid = state.Buffs[gone];
-                state.Buffs.Remove(gone);
-                await SendWorldRecord(member, member.Id,
-                    InstanceEntities.RemoveBuff(member.Id, bid), null);
+                object holder = state.Holders[gone];
+                state.Holders.Remove(gone);
+                await ReleasePlayerDebuff(member, holder);
             }
-            foreach (var (eid, (buffRow, srcId, _)) in active)
+            foreach (var (eid, (buffRow, srcId, es)) in active)
             {
-                if (state.Buffs.ContainsKey(eid)) continue;
-                ushort bid = member.NextBuff++;
-                state.Buffs[eid] = bid;
-                await SendWorldRecord(member, member.Id,
-                    InstanceEntities.AddBuff(member.Id, bid, buffRow, srcId), null);
-            }
-            if (statsChanged)
-            {
-                member.Pools = PoolsFor(member, member.Pools.Level);
-                member.ApplyMovementSpeed();
-                await SendPlayerStatSnapshot(member,
-                    () => PlayerStatsOffFrames(member), null);
+                if (!state.Holders.TryGetValue(eid, out var holder))
+                    state.Holders[eid] = holder = new object();
+                await HoldPlayerDebuff(member, holder, buffRow, srcId, es);
             }
         }
     }
@@ -935,36 +923,27 @@ public static partial class MapHarbinger
     static async Task ClearAllPlayerCurses(Player player)
     {
         foreach (var member in Members(player))
-            if (ActivePlayerCurses.TryGetValue(member, out var s) && (s.Stats.Count > 0 || s.Buffs.Count > 0))
+            if (ActivePlayerCurses.TryGetValue(member, out var s) && (s.Stats.Count > 0 || s.Holders.Count > 0))
                 await ClearPlayerCursesAsync(member);
     }
 
     static async Task ClearPlayerCursesAsync(Player player)
     {
         if (!ActivePlayerCurses.TryGetValue(player, out var state)) return;
-        ushort[] buffs = [.. state.Buffs.Values];
-        bool hadStats = state.Stats.Count > 0;
+        object[] holders = [.. state.Holders.Values];
         state.Stats.Clear();
-        state.Buffs.Clear();
+        state.Holders.Clear();
         ActivePlayerCurses.Remove(player);
         if (player.Closed || player.LeavingArea) return;
-        foreach (ushort bid in buffs)
-            await SendWorldRecord(player, player.Id,
-                InstanceEntities.RemoveBuff(player.Id, bid), null);
-        if (hadStats)
-        {
-            player.Pools = PoolsFor(player, player.Pools.Level);
-            player.ApplyMovementSpeed();
-            await SendPlayerStatSnapshot(player,
-                () => PlayerStatsOffFrames(player), null);
-        }
+        foreach (var holder in holders)
+            await ReleasePlayerDebuff(player, holder);
     }
 
     static void ClearPlayerCursesSync(Player player)
     {
         if (!ActivePlayerCurses.TryGetValue(player, out var state)) return;
         state.Stats.Clear();
-        state.Buffs.Clear();
+        state.Holders.Clear();
         ActivePlayerCurses.Remove(player);
     }
 }

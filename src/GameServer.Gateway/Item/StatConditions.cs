@@ -108,6 +108,10 @@ public static class StatConditions
         "gain_phasing_while_you_have_low_life", "gain_phasing_if_enemy_killed_recently",
         "phasing_if_blocked_recently", "gain_phasing_while_you_have_onslaught",
         "gain_phasing_while_at_maximum_frenzy_charges", "gain_phasing_while_affected_by_haste",
+        // Companion per-unique scaling is evaluated against the companion's own equipped uniques, never the player's.
+        "permanenet_mercenary_damage_+%_final_and_minion_damage_+%_final_per_equipped_unique",
+        "damage_+%_final_per_equipped_unique",
+        "minion_damage_+%_final_per_equipped_unique",
     };
 
     const string FullShieldSuppression = "spell_damage_%_suppressed_while_on_full_energy_shield";
@@ -733,7 +737,7 @@ public static class StatConditions
                 return holds ? State.Holds : State.Fails;
             };
         }
-        var equippedAmount = EquipmentAmountId.Match(statId);
+        var equippedAmount = DedicatedConsumers.Contains(statId) ? System.Text.RegularExpressions.Match.Empty : EquipmentAmountId.Match(statId);
         if (equippedAmount.Success)
         {
             string countKey = "equipped_" + equippedAmount.Groups["kind"].Value;
@@ -914,7 +918,7 @@ public static class StatConditions
             long minions = subject.Amounts?.GetValueOrDefault(ActiveNonVaalSkillMinionCount) ?? 0;
             return (int)Int128.Clamp((Int128)value * Math.Max(0, minions), int.MinValue, int.MaxValue);
         }
-        var equipment = EquipmentAmountId.Match(id);
+        var equipment = DedicatedConsumers.Contains(id) ? System.Text.RegularExpressions.Match.Empty : EquipmentAmountId.Match(id);
         if (equipment.Success && subject.Value?.Invoke("equipped_" + equipment.Groups["kind"].Value) is int count)
             return (int)Math.Clamp((long)value * Math.Max(0, count), int.MinValue, int.MaxValue);
         if (!TryRecentAmount(id, out string key, out long unit, out int? cap)

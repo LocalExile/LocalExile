@@ -80,10 +80,6 @@ public static partial class Game
                 target = Stat.DamagePlusPct;
                 amount *= Math.Max(0, GolemStat(playerStats, Stat.Dexterity)) / 5;
             }
-            else if (key == Stat.PermanenetMercenaryDamagePlusPctAndMinionDamagePlusPct)
-                target = Stat.DamagePlusPct;
-            else if (key == Stat.PermanenetMercenaryMaximumLifePlusPctAndMinionMaximumLifePlusPct)
-                target = Stat.MaximumLifePlusPct;
             else if (name.StartsWith("minion_", StringComparison.Ordinal))
                 target = name[7..] switch
                 {

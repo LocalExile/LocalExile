@@ -54,9 +54,12 @@ public static partial class Game
     /// mine uses for its proxy skill.</summary>
     internal const ushort TotemActionSkill = 0x4000;
 
-    // GrantedEffects row → MonsterVarieties row of its default skin: ActiveSkills.SkillTotemId is SkillTotemVariations'
-    // SkillTotemsKey, TotemSkinId 0 (Rejuvenation Totem: 4 → Metadata/Monsters/Totems/LifeRegenTotem).
-    static (Dictionary<int, int> Effects, Dictionary<int, int> Skins) TotemVarieties = default!;
+    // GrantedEffects row → ActiveSkills.SkillTotemId and __col23; SkillTotemVariations (SkillTotemsKey, TotemSkinId)
+    // → MonsterVarieties row (3.29.3c FUN_141b0e3f0).
+    const int GenericSkillTotemId = 22, SnipeBallistaTotemId = 12, ShotgunBallistaTotemId = 18,
+        MortarBallistaTotemId = 19, SlamAncestorTotemId = 20;
+    static (Dictionary<int, (int SkillTotemId, bool KeepNonProjectileBallista)> Effects,
+        Dictionary<(int Key, int Skin), int> Skins) TotemVarieties = default!;
 
     // The totem auras' BuffDefinitions stats (172: base_life_regeneration_rate_per_minute and five more); the totem's
     // skill gives their values.
@@ -73,19 +76,23 @@ public static partial class Game
         return result;
     }
 
-    static (Dictionary<int, int> Effects, Dictionary<int, int> Skins) LoadTotemVarieties()
+    static (Dictionary<int, (int SkillTotemId, bool KeepNonProjectileBallista)> Effects,
+        Dictionary<(int Key, int Skin), int> Skins) LoadTotemVarieties()
     {
-        var result = new Dictionary<int, int>();
-        if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("ActiveSkills") || !ClientTables.Has("SkillTotemVariations")) return (result, []);
-        var skins = new Dictionary<int, int>();
+        var result = new Dictionary<int, (int, bool)>();
+        var skins = new Dictionary<(int, int), int>();
+        if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("ActiveSkills") || !ClientTables.Has("SkillTotemVariations")) return (result, skins);
         foreach (var v in ClientTables.Table("SkillTotemVariations"))
-            if (v.Int("TotemSkinId") == 0 && v.IntOrNull("MonsterVarietiesKey") is int row)
-                skins.TryAdd(v.Int("SkillTotemsKey"), row);
+            if (v.IntOrNull("MonsterVarietiesKey") is int row)
+                skins.TryAdd((v.Int("SkillTotemsKey"), v.Int("TotemSkinId")), row);
         var skills = ClientTables.Table("ActiveSkills");
         foreach (var e in ClientTables.Table("GrantedEffects"))
             if (e.IntOrNull("ActiveSkill") is int a && a < skills.Count
-                && skills[a].IntOrNull("SkillTotemId") is int totem && skins.TryGetValue(totem, out int variety))
-                result[e.Index] = variety;
+                && skills[a].IntOrNull("SkillTotemId") is int totem)
+            {
+                bool keepNonProjectile = skills[a].Has("__col23") && skills[a].BoolOrNull("__col23") == true;
+                result[e.Index] = (totem, keepNonProjectile);
+            }
         return (result, skins);
     }
 
@@ -94,25 +101,60 @@ public static partial class Game
     public static bool IsTotemSkill(Player player, ushort skill) =>
         SupportedSkill(player, skill).Stats.GetValueOrDefault(Stat.IsTotem) != 0;
 
-    /// <summary>The totem variety a gem skill summons, or null. A dedicated totem skill (its ActiveSkills row carries
-    /// <see cref="TotemSkillType"/>) summons the sprite its own SkillTotemVariations entry (skin 0) names — every
-    /// gem-granted totem skill places, damaging or not. An aura executor summons its native skin. A skill that Spell
-    /// Totem Support totemifies is not a dedicated row: it takes a dedicated spell skin when the tables have one and the
-    /// generic intelligence skin otherwise.</summary>
-    public static MonsterCatalog.Variety? TotemVariety(Player player, int effect)
+    /// <summary>The totem variety a gem skill summons, or null. Follows 3.29.3c <c>FUN_141b0e3f0</c>: dedicated totem
+    /// skills use their <c>ActiveSkills.SkillTotemId</c> (overridden to <c>MortarTotem</c> 19 when
+    /// <c>is_ranged_attack_totem</c> is set without <c>Projectile</c> or with <c>projectiles_rain</c>); generic
+    /// <c>SkillTotemId == 22</c> skills select <c>SupportAncestorSlamTotem</c> (20) on slam override,
+    /// <c>Strength/Dexterity/IntelligenceTotem</c> (1/2/3) by <c>GrantedEffects.Attribute</c> for spell totems, and
+    /// <c>SnipeTotem</c> (12, <c>Channel</c>) / <c>ShotgunTotem</c> (18, <c>Projectile</c> and not <c>projectiles_rain</c>)
+    /// / <c>MortarTotem</c> (19) for ballistas, with <c>totem_art_variation</c> skin fallback to 0.</summary>
+    public static MonsterCatalog.Variety? TotemVariety(Player player, int effect) =>
+        TotemVariety(player, effect, null);
+
+    public static MonsterCatalog.Variety? TotemVariety(Player player, int effect, IReadOnlyDictionary<uint, int>? stats)
     {
-        if (SkillsFor(player).HasType(effect, TotemSkillType)
-            && TotemVarieties.Effects.TryGetValue(effect, out int own)
-            && Monsters.Find(own.ToString()) is { Supported: true } placed) return placed;
-        if (SkillsFor(player).EffectId(effect) is { } id && (TotemAuras.ContainsKey(id) || NativeProjectileTotem(player, effect))
-            && TotemVarieties.Effects.TryGetValue(effect, out int native))
-            return Monsters.Find(native.ToString()) is { Supported: true } aura ? aura : null;
-        if (!SpellTotemEffect(player, effect) && !BallistaEffect(player, effect)) return null;
-        // Prefer a dedicated native skin; generic spell/ballista proxies use intelligence/dexterity skins 3/2.
-        if (TotemVarieties.Effects.TryGetValue(effect, out int specific)
-            && Monsters.Find(specific.ToString()) is { Supported: true } nativeSpell) return nativeSpell;
-        return TotemVarieties.Skins.TryGetValue(BallistaEffect(player, effect) ? 2 : 3, out int generic)
-            && Monsters.Find(generic.ToString()) is { Supported: true } spell ? spell : null;
+        var catalog = SkillsFor(player);
+        bool dedicated = catalog.HasType(effect, TotemSkillType)
+            || catalog.EffectId(effect) is { } id && (TotemAuras.ContainsKey(id) || NativeProjectileTotem(player, effect));
+        bool proxy = stats is not null && GolemStat(stats, Stat.IsTotem) != 0
+            || SpellTotemEffect(player, effect) || BallistaEffect(player, effect);
+        if (!dedicated && !proxy) return null;
+
+        int skillTotemId;
+        bool keepNonProjectileBallista;
+        if (TotemVarieties.Effects.TryGetValue(effect, out var info))
+            (skillTotemId, keepNonProjectileBallista) = info;
+        else if (dedicated) return null;
+        else (skillTotemId, keepNonProjectileBallista) = (GenericSkillTotemId, false);
+
+        bool isRangedAttackTotem = stats is not null
+            ? GolemStat(stats, Stat.IsRangedAttackTotem) != 0
+            : !dedicated && BallistaEffect(player, effect) && !SpellTotemEffect(player, effect);
+        bool projectilesRain = stats is not null && GolemStat(stats, Stat.ProjectilesRain) != 0;
+        bool slamOverride = stats is not null && GolemStat(stats, Stat.SupportTotemTypeOverrideToSupportSlamAncestor) != 0;
+
+        int resolvedKey;
+        if (skillTotemId == GenericSkillTotemId)
+        {
+            if (slamOverride) resolvedKey = SlamAncestorTotemId;
+            else if (!isRangedAttackTotem)
+                resolvedKey = catalog.EffectAttribute(effect) switch { 2 => 2, 3 => 3, _ => 1 };
+            else if (catalog.HasType(effect, "Channel")) resolvedKey = SnipeBallistaTotemId;
+            else if (catalog.HasType(effect, "Projectile") && !projectilesRain) resolvedKey = ShotgunBallistaTotemId;
+            else resolvedKey = MortarBallistaTotemId;
+        }
+        else
+        {
+            resolvedKey = isRangedAttackTotem && !keepNonProjectileBallista
+                && (!catalog.HasType(effect, "Projectile") || projectilesRain)
+                ? MortarBallistaTotemId : skillTotemId;
+        }
+
+        int skin = stats is not null ? GolemStat(stats, Stat.TotemArtVariation) : 0;
+        if (!TotemVarieties.Skins.TryGetValue((resolvedKey, skin), out int varietyRow)
+            && (skin == 0 || !TotemVarieties.Skins.TryGetValue((resolvedKey, 0), out varietyRow)))
+            return null;
+        return Monsters.Find(varietyRow.ToString()) is { Supported: true } found ? found : null;
     }
 
     /// <summary>Whether the totem this use would place can be placed at all. A dedicated totem skill places through the
@@ -120,9 +162,12 @@ public static partial class Game
     /// places when it has a cast time, and a native ranged ballista when its path is available (SpellTotems.cs,
     /// BallistaTotems.cs). Only a totemified skill with no executor of its own is refused, before action or cost
     /// admission.</summary>
-    public static bool TotemPathAvailable(Player player, ushort skill, int effect) => !IsTotemSkill(player, skill)
-        || PlacedKind(SupportedSkill(player, skill)) is (false, false)
-            && TotemVariety(player, effect) is not null && TotemLimit(player, skill) > 0
+    public static bool TotemPathAvailable(Player player, ushort skill, int effect)
+    {
+        var supported = SupportedSkill(player, skill);
+        if (supported.Stats.GetValueOrDefault(Stat.IsTotem) == 0) return true;
+        return PlacedKind(supported) is (false, false)
+            && TotemVariety(player, effect, supported.Stats) is not null && TotemLimit(player, skill) > 0
             && (TotemAuras.ContainsKey(SkillsFor(player).EffectId(effect) ?? "")
                 || NativeProjectileTotem(player, effect) && ResolveProjectileDefinition(effect) is not null
                 // A dedicated totem skill the local path runs (TotemUseLocked): its own hit, the corpse meal or the taunt.
@@ -130,10 +175,11 @@ public static partial class Game
                 // through their own clause, so what that clause refuses (a ballista off a bow) stays refused, and
                 // the hit lookup below is never paid on SpellTotemCurrent's per-tick check for them.
                 || SkillsFor(player).HasType(effect, TotemSkillType) && !NativeProjectileTotem(player, effect)
-                    && GolemStat(SupportedSkill(player, skill).Stats, Stat.IsRangedAttackTotem) == 0
+                    && GolemStat(supported.Stats, Stat.IsRangedAttackTotem) == 0
                     && (TotemDoesSomething(player, effect) || IsSearingBond(player, effect))
                 || SpellTotemEffect(player, effect) && TotemCastSeconds(player, skill) is not null
                 || BallistaPathAvailable(player, skill));
+    }
 
     /// <summary>Whether a dedicated totem skill has something this module runs behind it: an aura
     /// (<see cref="TotemAuras"/>), Devouring Totem's corpse meal, or a nova spell that hits around the totem
@@ -435,8 +481,8 @@ public static partial class Game
                 PresentNearby(player);
                 TotemsDiedLocked(player, now, playerStats);
             }
-            // A totem blocks paths on the client as any body does.
-            if (bodySize >= 0) player.SetObjectBlocker(objectId, place.X, place.Y, bodySize, true);
+            // A player totem blocks enemy monsters while players pass through it (Positioned +0x1e0 bit 15).
+            if (bodySize >= 0) player.SetObjectBlocker(objectId, place.X, place.Y, bodySize, true, null, blocksPlayer: false);
             if (NativeProjectileTotem(player, effect) && seconds > 0)
             {
                 var groundStats = SkillAreaStats(player, own, effect, playerStats);
@@ -481,7 +527,7 @@ public static partial class Game
                 place = point;
                 var blob = new MonsterObject(place.X, place.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
                     TransitionState: variety.TransitionStates, Team: 0, Skills: totemSkills.Length == 0 ? null : totemSkills,
-                    Stats: objectStats) { LifeData = variety.LifeData, Chain = variety.Chain };
+                    Stats: objectStats) { LifeData = variety.LifeData, Chain = variety.Chain, IsMinion = true };
                 bytes.Create(objectId, InstanceEntities.CreateObject(objectId,
                     InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level)), blob.Blob()));
                 bytes.Presentation(objectId, InstanceProtocol.EnterWakeZone(objectId));

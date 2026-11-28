@@ -2801,8 +2801,12 @@ buff's `ancestral_buff_cooldown_does_not_tick`.
 
 A totem skill's ActiveSkills row names its totem (`SkillTotemId`); SkillTotemVariations maps that id and a skin to a
 MonsterVarieties row, and skin 0 is the default (Rejuvenation Totem: 4 → `Metadata/Monsters/Totems/LifeRegenTotem`).
+A support-made totem (`SkillTotemId` 22) picks its id as the client's 0x141b0e3f0 does: Earthbreaker 20; a ballista 12
+for a channelled skill, 18 for a projectile one and 19 for a rain; a spell totem 1, 2 or 3 by GrantedEffects
+`Attribute`. `totem_art_variation` picks the skin, falling back to 0.
 The totem base type (`Metadata/Monsters/Totems/Totem`) reads only components the monster blob writer already has.
-Its .ot files make it immobile with `set_is_totem_object`, play `Emerge` as its basic action, block movement and give
+Its .ot files make it immobile with `set_is_totem_object`, play `Emerge` as its basic action, block movement (not the
+players': it is sent with the minion bit, [10](10-chat-and-commands.md) Team) and give
 it `monster_inherent_damage_taken_+%_final` -80.
 
 The server (`Totems.Rules.cs`) keeps the player's totems in `Player.Totems`, never in `Monsters`: area hits,

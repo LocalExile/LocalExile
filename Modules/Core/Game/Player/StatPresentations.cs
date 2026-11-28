@@ -14,8 +14,11 @@ public static partial class Game
         SendSupportGemBuffs, SendLifetap, SendPetrifiedBloodLoss,
         SendPhysicalAegis, SendUnhinged, SyncPhasing, SendLifeAndManaEndings,
         SendAttackerSlows, SendExpandedInventory, SendQuestItems, SendRage, SendFortification, DrainFlaskTriggers,
-        SendConsumedCorpseCharges,
+        SendConsumedCorpseCharges, SendPlayerStatsChanged,
     ];
+
+    static Task SendPlayerStatsChanged(Player player) =>
+        GameEvents.PlayerStatsChanged.Any ? GameEvents.RunPlayerStatsChanged(player) : Task.CompletedTask;
 
     // After the others, outside their batch: Spirit Chieftain's minion follows its published state.
     static readonly Func<Player, Task>[] StatPresentationsAfter =

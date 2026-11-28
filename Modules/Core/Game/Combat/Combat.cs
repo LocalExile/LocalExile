@@ -526,11 +526,16 @@ public static partial class Game
         NotePlayerAttack(player);
         RecordUsedSkillLocked(player, begun);
         bool eligibleWarcry = weapon.Melee && !ranged;
-        cryExerted = ConsumeIntimidatingCryExertLocked(player, eligibleWarcry);
         var warcries = eligibleWarcry ? CryOf(player) : null;
-        var warcryTriggers = warcries is null ? null : ConsumeMeleeWarcryTriggers(warcries, criticalRoll);
-        int ancestralTargets = warcries is null ? 0 : ConsumeAncestralCry(warcries);
-        double rallyingMore = 1 + (warcries is null ? 0 : ConsumeRallyingCry(warcries).GetValueOrDefault()) / 100d;
+        bool consumeWarcry = eligibleWarcry && !ExertedAttackKeepsCountLocked(player);
+        cryExerted = warcries is not null && IntimidatingCryExerts(player) > 0;
+        if (cryExerted && consumeWarcry) warcries!.Exerts--;
+        var warcryTriggers = warcries is null ? null : ConsumeMeleeWarcryTriggers(warcries, criticalRoll, consumeWarcry);
+        int ancestralTargets = warcries is null ? 0 : ConsumeAncestralCry(warcries, consumeWarcry);
+        int? defaultRallying = warcries is null ? null : ConsumeRallyingCry(warcries, consumeWarcry);
+        if (eligibleWarcry) SyncExertedAttackBuffsLocked(player);
+        int defaultOtherWarcries = (ancestralTargets > 0 ? 1 : 0) + (warcryTriggers?.Count ?? 0);
+        int defaultTotalWarcries = (cryExerted ? 1 : 0) + defaultOtherWarcries + (defaultRallying.HasValue ? 1 : 0);
         PhaseRunOnSkillUse(player, use.SkillId, duration);
         SpiritBurstOnSkillUse(player, target, begun);
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
@@ -568,6 +573,7 @@ public static partial class Game
         await WhilePaused(player);
         // One use, one Fortification and one Rage gain (as one AreaSkillHit sweep), whichever of its hits lands first.
         bool fortified = false, raged = false;
+        var splashOrigins = weapon.Melee ? new List<(int X, int Y)>(1) : null;
         if (!await HitTarget(use.TargetId, m, target)) return;
         List<(uint Id, SpawnedMonster M, (int X, int Y) At)> extras;
         double now2 = AreaTime(player);
@@ -581,10 +587,29 @@ public static partial class Game
             extras.Add((echoId, echoed, echoed.Walk.Position(now2)));
         foreach (var (extraId, extra, at) in extras)
             if (!await HitTarget(extraId, extra, at)) return;
+        if (weapon.Melee && splashOrigins is { Count: > 0 })
+        {
+            var merged = SkillAreaStats(player, ownPenetration ?? new Dictionary<uint, int>(), attackEffect);
+            if (MeleeSplash.Settings(key => merged.GetValueOrDefault(key)) is { } splash)
+            {
+                double splashNow = AreaTime(player);
+                var struck = new HashSet<uint> { use.TargetId };
+                foreach (var (extraId, _, _) in extras) struck.Add(extraId);
+                var splashTargets = new List<(uint Id, SpawnedMonster M, (int X, int Y) At)>();
+                foreach (var splashAt in splashOrigins)
+                    foreach (var (sid, sm) in player.Area.MonstersNear(splashAt, splash.Radius))
+                        if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null && !sm.WorldHidden
+                            && sm.Walk.Position(splashNow) is var smAt && Dist(smAt, splashAt) <= splash.Radius && struck.Add(sid))
+                            splashTargets.Add((sid, sm, smAt));
+                foreach (var (sid, sm, smAt) in splashTargets)
+                    if (!await HitTarget(sid, sm, smAt, splash.More, isSplash: true)) return;
+            }
+        }
 
         // One hit of this swing on one monster: accuracy, block, impale, crit and on-hit as the target's own. False when a
         // later action replaced the swing.
-        async Task<bool> HitTarget(uint targetId, SpawnedMonster m, (int X, int Y) target)
+        async Task<bool> HitTarget(uint targetId, SpawnedMonster m, (int X, int Y) target,
+            double splashDamageMore = 1, bool isSplash = false)
         {
             uint life;
             bool stageStarts = false;
@@ -612,14 +637,22 @@ public static partial class Game
                 // Settle Rage at accepted contact before this hit's gain. It is a final multiplier on the attack packet,
                 // never on an existing impale bonus or on generic damage/DoT.
                 var playerStats = CharacterPlayerStats(player);
+                long defaultExertedAccuracy = ExertedAttackAccuracyIncrease(defaultTotalWarcries, playerStats, ownPenetration);
                 var accuracy = AttackAccuracyProfile.From(player.Pools, playerStats, Stats, ownPenetration, weapon.LocalSources)
-                    with { Rating = HandAccuracy(player, hand, playerStats) };
+                    with { Rating = HandAccuracy(player, hand, playerStats, defaultExertedAccuracy) };
+                long defaultExertedIncreased = ExertedAttackIncreasedDamage(playerStats, ownPenetration, defaultTotalWarcries,
+                    ancestralExerted: ancestralTargets > 0);
+                var defaultDamageStats = defaultExertedIncreased == 0 ? playerStats
+                    : new Dictionary<uint, int>(playerStats)
+                    {
+                        [Stat.DamagePlusPct] = ActorScale.Saturate((long)playerStats.GetValueOrDefault(Stat.DamagePlusPct) + defaultExertedIncreased),
+                    };
                 IEnumerable<(uint, int)> conversionStats = ownPenetration is null ? [] :
                     ownPenetration.Select(pair => (pair.Key, pair.Value));
                 var conversion = SupportedAttackDamage.WithWeaponGains(
-                    DamageStats.Conversion(playerStats, conversionStats, Stats, attack: true), weapon,
-                    key => playerStats.GetValueOrDefault(key));
-                var prehit = DefaultMeleePrehitProfileLocked(player, targetId, m, playerStats, weapon, conversion,
+                    DamageStats.Conversion(defaultDamageStats, conversionStats, Stats, attack: true), weapon,
+                    key => defaultDamageStats.GetValueOrDefault(key));
+                var prehit = DefaultMeleePrehitProfileLocked(player, targetId, m, defaultDamageStats, weapon, conversion,
                     ownPenetration, ProjectileWorldTime(player), accuracy.Rating);
                 if (prehit is null)
                 {
@@ -627,12 +660,14 @@ public static partial class Game
                         "the registered living hostile monster");
                     return true;
                 }
-                if (rallyingMore != 1)
+                double exertedMore = ExertedAttackMore(ownPenetration, cryExerted,
+                    defaultOtherWarcries, defaultRallying, playerStats);
+                if (exertedMore != 1)
                     prehit = prehit with
                     {
-                        Ignite = RepeatAilment(prehit.Ignite, rallyingMore),
-                        Bleed = RepeatAilment(prehit.Bleed, rallyingMore),
-                        Poison = RepeatAilment(prehit.Poison, rallyingMore)
+                        Ignite = RepeatAilment(prehit.Ignite, exertedMore),
+                        Bleed = RepeatAilment(prehit.Bleed, exertedMore),
+                        Poison = RepeatAilment(prehit.Poison, exertedMore)
                     };
                 double contactAt = AreaTime(player);
                 if (m.Effects[Stat.BaseCannotBeDamaged] > 0
@@ -650,22 +685,28 @@ public static partial class Game
                     Console.WriteLine($"[gateway] {player.Connection.Remote} attack on 0x{targetId:x} ({m.Label}) blocked");
                     return true;
                 }
+                if (!isSplash) splashOrigins?.Add(m.Walk.Position(contactAt));
                 var pen = Penetration.Of(playerStats, Stats, attack: true, ownPenetration, weapon.LocalSources);
                 var resistanceMods = HitResistMods(playerStats, ownPenetration);
                 var hit = prehit.Hit;
                 if (weapon.Melee)
                     hit = WithMeleeProximityLocked(player, playerStats, ownPenetration, m, hit, contactAt);
                 var hitRolls = HitRollsFor(playerStats);
-                var damageRoll = WithIntimidatingCryExert(hitRolls with { DamageMorePct = 0 }, cryExerted).ForWeapon(weapon.LocalSources);
+                var damageRoll = WithExertedAttackRollModifiers(hitRolls with { DamageMorePct = 0 }, cryExerted,
+                    defaultTotalWarcries, playerStats, ownPenetration).ForWeapon(weapon.LocalSources);
                 long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(playerStats, ownPenetration);
                 var ownRolled = GameEvents.WithOutgoingDamage(player, playerStats, m,
                     damageRoll.RollBeforeCritical(hit, AreaRng(player), criticalDoubleDamage));
-                critical = RollCriticalStrike(player, CriticalChanceOn(player, targetId, HandAttackCriticalChance(player, hand, playerStats),
-                        AttackCriticalChanceVsBlinded(player, playerStats, hand: hand), AttackCriticalChanceVsGround(player, playerStats, hand: hand)),
+                int defaultExertedBaseCrit = ExertedAttackBonusCritPermyriad(defaultTotalWarcries, playerStats, ownPenetration);
+                int defaultCritChance = CriticalChanceOn(player, targetId,
+                    HandAttackCriticalChance(player, hand, playerStats, defaultExertedBaseCrit),
+                    AttackCriticalChanceVsBlinded(player, playerStats, release: false, hand, defaultExertedBaseCrit),
+                    AttackCriticalChanceVsGround(player, playerStats, release: false, hand, defaultExertedBaseCrit));
+                critical = RollCriticalStrike(player, defaultCritChance,
                         ownPenetration, skillRoll: criticalRoll)
                     && GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                 ownRolled = damageRoll.CompleteCriticalMultiplier(ownRolled, AreaRng(player), critical, criticalDoubleDamage);
-                if (rallyingMore != 1) ownRolled = ownRolled.Scale(rallyingMore);
+                if (exertedMore != 1) ownRolled = ownRolled.Scale(exertedMore);
                 long weaponMultiplier = (long)AttackCriticalMultiplier(player, playerStats)
                     + ClawDaggerCriticalBonus(weapon, playerStats, ownPenetration);
                 int sourceCriticalMultiplier = CriticalMultiplierWithWeapon(
@@ -677,12 +718,13 @@ public static partial class Game
                     hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), additionalElementalTakenPct: witheredElemental);
                 hitCode = HitCode(mitigated);
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
+                if (splashDamageMore != 1) damage = (int)Math.Floor(damage * Math.Max(0, splashDamageMore));
                 int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, at, damage, takenRules);
                 LeechOnHitTargetLocked(player, m, MonsterTakenComponents(m, mitigated, spell: false, at, takenRules), damage,
                     HitLeechSources(playerStats, true, ownPenetration, weapon.LocalSources, weapon.Melee), targetId);
                 (damage, stored, impaled) = WithImpaleHitLocked(player, m, damage, ownRolled, critical,
                     sourceCriticalMultiplier + FullLifeCriticalMultiplier(m, playerStats, ownPenetration),
-                    WeaponImpaleSettings(playerStats, Stats, attack: true, ownPenetration, weapon, critical));
+                    WeaponImpaleSettings(playerStats, Stats, attack: true, ownPenetration, weapon, critical), splashDamageMore);
                 impaleStacks = m.Impale.Stacks;
                 impaleStored = m.Impale.Bonus;
                 var fortificationDamage = RawFortificationDamage(ownRolled, critical, criticalMultiplier);
@@ -703,7 +745,7 @@ public static partial class Game
                     FearsomeWarriorOnMeleeKillLocked(player, m, contactAt,
                         playerStats.GetValueOrDefault(Stat.ChanceToIntimidateNearbyEnemiesOnMeleeKillPct),
                         playerStats.GetValueOrDefault(Stat.EnemiesYouIntimidateHaveStunDurationOnSelfPlusPct), AreaRng(player));
-                CaptureUnhingedHitKillLocked(player, m, playerHit: true);
+                CaptureHitCorpseDestructionLocked(player, m, directPlayerHit: true, playerStats);
                 CaptureEquippedHitExplosionLocked(m, playerStats);
                 CaptureAttackKillExplosionLocked(m, playerStats, wand: weapon.ItemClass == "Wand");
                 if (stageStarts)
@@ -754,7 +796,7 @@ public static partial class Game
                         BleedReflected(playerStats)) is { } cut)
                     (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(player, m, hit: damage > 0, killed: life == 0);
-                ExertedMeleeHitLocked(player, warcryTriggers, target, at);
+                if (!isSplash) ExertedMeleeHitLocked(player, warcryTriggers, target, at);
                 if (!raged) raged = RageOnHitWithWeaponLocked(player, attack: true, melee: weapon.Melee, critical, weapon.ItemClass, target: m);
                 if (weapon.ItemClass is not null) RecordWeaponContactLocked(player, at, weaponContactSource);
                 if (critical) ItemMinionsOnWeaponCriticalLocked(player, weaponContactSource, m, at);
@@ -1761,7 +1803,8 @@ public static partial class Game
                 plannedCorpse: plannedCorpse);
         if (gem.Name is not null && IsDesecrateEffect(SkillsFor(player).EffectId(gem.Effect)))
             return CompleteSupportedUse(await Desecrate(player, skillId, to, Current));
-        if (gem.Name is not null && IsTotemSkill(player, skillId) && TotemVariety(player, gem.Effect) is { } totem)
+        if (gem.Name is not null && IsTotemSkill(player, skillId)
+            && TotemVariety(player, gem.Effect, SupportedSkill(player, skillId).Stats) is { } totem)
         {
             _ = PlaceTotem(player, skillId, gem.Effect, gem.Level, totem,
                 TotemPlacementPoint(player, skillId, from, to), TotemPlacementCurrent,
@@ -2355,23 +2398,24 @@ public static partial class Game
         if (IsBaseChainHook(effectId))
             return ScheduleBaseChainHook(player, skillId, gem, to, targetId, recoveryGeneration,
                 actionToken ?? player.ActionCount, sequence, swingAt, cooldownUse, criticalRoll, cryExerted, rallyingDamage);
+        var supported = SupportedSkill(player, skillId);
+        var traumaUse = channelGeneration is null ? TraumaUseFor(player, supported) : null;
         if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)))
             return ScheduleMoltenStrike(player, skillId, gem, from, to, recoveryGeneration,
-                targetId, sequence, actionToken, cooldownUse, criticalRoll, swingAt, cryExerted, ancestralTargets, rallyingDamage);
+                targetId, sequence, actionToken, cooldownUse, criticalRoll, swingAt, cryExerted, ancestralTargets, rallyingDamage, traumaUse);
         if (IsLightningStrike(gem.Effect) || IsFrostBlades(gem.Effect) || IsWildStrike(gem.Effect))
             return ScheduleProjectileStrike(player, skillId, gem, from, to, targetId,
                 recoveryGeneration, cooldownUse, criticalRoll,
-                sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage);
+                sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage, traumaUse);
         if (IsSmite(gem.Effect))
             return ScheduleSmite(player, skillId, gem, from, to, targetId,
-                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage);
+                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage, traumaUse);
         if (IsStaticStrike(gem.Effect))
             return ScheduleStaticStrike(player, skillId, gem, from, to, targetId,
-                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage);
+                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage, traumaUse);
         if (IsBoneshatter(gem.Effect))
             return ScheduleBoneshatter(player, skillId, gem, from, to, targetId,
-                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage);
-        var supported = SupportedSkill(player, skillId);
+                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted, ancestralTargets, rallyingDamage, traumaUse);
         var beidat = CastingBeidatSpell(player, skillId);
         int seals = UnleashSeals(player, skillId, supported, ProjectileWorldTime(player), spend: true);
         double reoccurrenceMore = Math.Max(0, 1 + GolemStat(supported.Stats, Stat.SupportSpellRapidFireRepeatUseDamagePlusPctFinal) / 100d);
@@ -2460,7 +2504,7 @@ public static partial class Game
                     sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll,
                     targetId: targetId, repeat: pair, swingAt: pairAt, sacrifice: sacrifice, cryExerted: cryExerted,
                     damageMore: MeleeRepeatDamageMore(player, skillId, pair), strikeSeconds: duration, ancestralTargets: ancestralTargets,
-                    rallyingDamage: rallyingDamage));
+                    rallyingDamage: rallyingDamage, traumaUse: traumaUse));
                 pairAt += duration;
             }
             await Task.WhenAll(jobs);
@@ -2543,7 +2587,8 @@ public static partial class Game
                 repeatDelay: repeat * repeatInterval + sealDelay, radiusMore: radiusMore, sacrifice: sacrifice,
                 damageMore: fistMore * (reoccurrence ? reoccurrenceMore : 1) * (meleeRepeats > 0 ? MeleeRepeatDamageMore(player, skillId, repeat) : 1),
                 discharge: discharge, cryExerted: cryExerted, hitAndAilmentMore: (beidat?.More ?? 1) * useDamageMore,
-                seismicExerted: seismicArea.HasValue, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage));
+                seismicExerted: seismicArea.HasValue, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage,
+                traumaUse: traumaUse));
             Hit(to);
             foreach (var area in cascadeAreas) Hit(area);
         }
@@ -3048,7 +3093,8 @@ public static partial class Game
         BoneshatterContact? boneshatter = null, InfernalBlowUse? infernalBlast = null,
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false, bool seismicExerted = false, int ancestralTargets = 0,
-        int? rallyingDamage = null, RetainedAreaAttack? retainedAttack = null, IReadOnlyList<uint>? contactTargets = null) =>
+        int? rallyingDamage = null, RetainedAreaAttack? retainedAttack = null, IReadOnlyList<uint>? contactTargets = null,
+        TraumaUse? traumaUse = null) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
@@ -3059,7 +3105,7 @@ public static partial class Game
             boneshatter: boneshatter, infernalBlast: infernalBlast, strikeSeconds: strikeSeconds,
             extraShockChance: extraShockChance, cascadeBurst: cascadeBurst,
             flurryRelease: flurryRelease, nearbyOnly: nearbyOnly, seismicExerted: seismicExerted, ancestralTargets: ancestralTargets,
-            rallyingDamage: rallyingDamage, contactTargets: contactTargets);
+            rallyingDamage: rallyingDamage, contactTargets: contactTargets, traumaUse: traumaUse);
 
     private static async Task AreaSkillHitStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -3079,11 +3125,12 @@ public static partial class Game
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         IReadOnlyList<uint>? contactTargets = null, BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false,
         LacerateUse? lacerate = null, SupportedGem? triggeredSpellSource = null, bool seismicExerted = false,
-        int ancestralTargets = 0, int? rallyingDamage = null)
+        int ancestralTargets = 0, int? rallyingDamage = null, TraumaUse? traumaUse = null, int extraOtherWarcries = 0)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
         bool spell = hitPlan.Kind == SkillHitKind.Spell;
+        bool attack = hitPlan.Kind == SkillHitKind.Attack;
         // A gem melee swing keeps its hit when the player only walks on: the client queues a Move until its clip's
         // cut-in instead of running it (Lockstep.cs, measured live 2026-11-03), so the Move the server hears first is a
         // queued order, not a replacement of the swing. Everything else keeps the action-token rule (a Move cancels the
@@ -3167,8 +3214,8 @@ public static partial class Game
             rallyingDamage = rallying;
             if (seismicArea is int area) radiusMore *= SkillArea.RadiusMultiplier(area);
         }
-        var warcryTriggers = spell ? null : MeleeWarcryTriggersFor(criticalRoll);
-        int otherWarcries = (seismicExerted ? 1 : 0) + (ancestralTargets > 0 ? 1 : 0) + (warcryTriggers?.Count ?? 0);
+        var warcryTriggers = !attack ? null : MeleeWarcryTriggersFor(criticalRoll);
+        int otherWarcries = (seismicExerted ? 1 : 0) + (ancestralTargets > 0 ? 1 : 0) + (warcryTriggers?.Count ?? 0) + extraOtherWarcries;
         // Discharge: the charges it spends are counted as the use starts; with none it deals nothing.
         if (hitPlan.SpendsCharges) discharge ??= new(RemovableCharges(player));
         if (discharge is not null && discharge.Total == 0)
@@ -3462,18 +3509,20 @@ public static partial class Game
             if (!spell && retainedAttack is null && areaAction == EarthshatterFissures.Action)
             {
                 ScheduleEarthshatterLocked(player, skillId, gem, admittedGem, from, to, sequence, repeat, hand, weapon,
-                    offCritical, criticalRoll, radiusMore * chargeRadius, damageMore, ruthless, cryExerted == true, seismicExerted, now);
+                    offCritical, criticalRoll, radiusMore * chargeRadius, damageMore * hitAndAilmentMore, ruthless,
+                    cryExerted == true, seismicExerted, rallyingDamage, now);
                 return;
             }
             if (retainedAttack is null && strikeIndex == 0 && areaAction == PerforateAction)
             {
                 SchedulePerforateLocked(player, gem, admittedGem, from, to, sequence, repeat, hand, weapon, offCritical,
-                    criticalRoll, radiusMore * chargeRadius, damageMore, ruthless, cryExerted == true, seismicExerted, now);
+                    criticalRoll, radiusMore * chargeRadius, damageMore, ruthless, cryExerted == true, seismicExerted, now, rallyingDamage);
                 return;
             }
             if (stormPeriod is double interval && strikeIndex == 0)
                 CreateBladestormLocked(player, gem, admittedGem, hand, weapon, offCritical, from, to, interval,
-                    sequence, now, radiusMore, damageMore, ruthless, repeat, cryExerted);
+                    sequence, now, radiusMore * chargeRadius, damageMore * hitAndAilmentMore, ruthless, cryExerted,
+                    rallyingDamage, otherWarcries);
             if (swordstorm && retainedAttack is null)
             {
                 ScheduleSwordstormLocked(player, gem, admittedGem, weapon, criticalRoll, to, sequence, now, radius, damageMore, ruthless);
@@ -3503,7 +3552,7 @@ public static partial class Game
             if (retainedAttack is null && strikeIndex == 0 && areaAction == HolyHammersAction)
             {
                 ScheduleHolyHammersLocked(player, gem, admittedGem, from, to, sequence, repeat, hand, weapon, offCritical,
-                    criticalRoll, radius, damageMore, ruthless, cryExerted == true, now, rallyingDamage);
+                    criticalRoll, radius, damageMore, ruthless, cryExerted == true, now, rallyingDamage, seismicExerted);
                 return;
             }
             if (divineBlast && !immediate && strikeIndex == 0)
@@ -3529,8 +3578,8 @@ public static partial class Game
             }
             if (retainedAttack is null && strikeIndex == 0 && effectId == "VolcanicFissureAltX" && areaAction is { } fissureAction)
             {
-                var source = CaptureAreaAttack(player, skillId, admittedGem, hand, weapon, offCritical,
-                    damageMore, damageMore, "fissure");
+                var source = CaptureExertedAreaAttack(player, skillId, admittedGem, hand, weapon, offCritical,
+                    damageMore, damageMore, "fissure", cryExerted == true, otherWarcries, rallyingDamage);
                 ScheduleSnakingFissureLocked(player, skillId, gem, source, from, to, now, fissureAction,
                     sequence, repeat, radiusMore * chargeRadius, criticalRoll, ruthless, cryExerted == true, seismicExerted, rallyingDamage);
                 return;
@@ -3758,8 +3807,10 @@ public static partial class Game
                 elementalHitStruck = struck;
                 elementalHitContacts = targets.Count;
             }
-            // Melee Splash: each struck enemy splashes onto the enemies around it, for the support's less damage.
-            if (!spell && hammer is null && allowMeleeSplash && boneshatter?.Pulse != true && infernalBlast is null)
+            // Melee Splash: each struck enemy splashes onto the enemies around it (Melee Strike skills only).
+            if (!spell && hammer is null && allowMeleeSplash && boneshatter?.Pulse != true && infernalBlast is null
+                && (targets.Count > 0 || elementalHit)
+                && SkillsFor(player).IsStrike(gem.Effect) && MeleeAttack(player, gem.Effect))
             {
                 var merged = SkillAreaStats(player, SupportedSkill(player, skillId).Stats, gem.Effect);
                 int SplashStat(uint key) => merged.GetValueOrDefault(key);
@@ -3769,7 +3820,7 @@ public static partial class Game
                     {
                         var splashAt = m.Walk.Position(now);
                         foreach (var (sid, sm) in player.Area.MonstersNear(splashAt, splash.Radius))
-                            if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null
+                            if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null && !sm.WorldHidden
                                 && Dist(sm.Walk.Position(now), splashAt) <= splash.Radius && struck.Add(sid))
                             {
                                 targets.Add((sid, sm));
@@ -4008,6 +4059,9 @@ public static partial class Game
                                 Raw = offInputs.Raw.Add(DamageType.Chaos, new(added, added)),
                             };
                         }
+                        int totalExertWarcries = !attack ? 0 : (cryExerted == true ? 1 : 0) + otherWarcries + (rallyingDamage.HasValue ? 1 : 0);
+                        long exertedIncreased = !attack ? 0 : ExertedAttackIncreasedDamage(playerStats, skillStats,
+                            totalExertWarcries, seismicExerted, ancestralTargets > 0);
                         long additionalIncreased = PlayerHitDamage.VsBlindedDamageStat is var key
                             ? (long)playerStats.GetValueOrDefault(key) + admittedGem.Stats.GetValueOrDefault(key) : 0;
                         AreaSkillDamageProfile Profile(long increased)
@@ -4023,10 +4077,11 @@ public static partial class Game
                                     melee: SkillsFor(player).IsMelee(gem.Effect), increased, capturedInputs),
                                 SupportedPoison(player, skillId, spell, playerStats, swingWeapon, increased, capturedInputs));
                         }
-                        sweepProfile = Profile(0);
+                        sweepProfile = Profile(exertedIncreased);
                         double targetEffectiveness = AddedEffectiveness(player, admittedGem.Effect, admittedGem.Level);
                         sweepSpider = CaptureSpiderDamage(player, capturedInputs, targetEffectiveness, context: true, local: local,
-                            bow: false, offHand: hand == AttackHand.Off, required: HasLocalTargetDamage(bothOff?.LocalSources));
+                            bow: false, offHand: hand == AttackHand.Off, required: HasLocalTargetDamage(bothOff?.LocalSources),
+                            extraIncreased: exertedIncreased);
                         if (sweepSpider is not null && !spell && shield is null)
                         {
                             if (hand != AttackHand.Off)
@@ -4035,14 +4090,21 @@ public static partial class Game
                                 (_, dualWieldMore) = HandDamageMore(player, admittedGem.Stats);
                             if (offInputs is not null)
                                 sweepOffSpider = CaptureSpiderDamage(player, offInputs, targetEffectiveness, context: true,
-                                    local: OffhandWeaponFor(player)?.LocalSources, bow: false, offHand: true, required: true);
+                                    local: OffhandWeaponFor(player)?.LocalSources, bow: false, offHand: true, required: true,
+                                    extraIncreased: exertedIncreased);
                         }
-                        if (additionalIncreased != 0) blindedProfile = Profile(additionalIncreased);
+                        if (additionalIncreased != 0) blindedProfile = Profile(exertedIncreased + additionalIncreased);
                         pen = Penetration.Of(playerStats, Stats, attack: !spell, skillStats, local);
                         mods = HitResistMods(playerStats, skillStats);
                         sweepMultiplier = (retainedAttack?.CriticalMultiplier ?? SupportedCriticalMultiplier(player, skillId, sourceWeapon))
                             + flurryBonus.CriticalMultiplier;
-                        if (!spell) accuracy = retainedAttack?.Accuracy ?? SupportedAccuracy(player, skillId, hand);
+                        if (!spell)
+                        {
+                            long exertedAcc = !attack ? 0 : ExertedAttackAccuracyIncrease(totalExertWarcries, playerStats, skillStats);
+                            accuracy = retainedAttack is not null
+                                ? retainedAttack.Accuracy
+                                : SupportedAccuracy(player, skillId, hand, exertedAcc);
+                        }
                         leech = HitLeechSources(playerStats, !spell, skillStats, local, !spell && SkillsFor(player).IsMelee(gem.Effect));
                         impale = WeaponImpaleSettings(playerStats, Stats, !spell, skillStats, spell || shield is not null ? null : sourceWeapon);
                         criticalImpale = WeaponImpaleSettings(playerStats, Stats, !spell, skillStats, spell || shield is not null ? null : sourceWeapon, critical: true);
@@ -4128,7 +4190,7 @@ public static partial class Game
                             Poison = RepeatAilment(profile.Poison, repeatMore),
                         };
                     }
-                    double overexertionMore = ExertedAttackMore(skillStats, cryExerted == true, otherWarcries, rallyingDamage);
+                    double overexertionMore = !attack ? 1 : ExertedAttackMore(skillStats, cryExerted == true, otherWarcries, rallyingDamage, playerStats);
                     if (overexertionMore != 1)
                         profile = profile with
                         {
@@ -4206,9 +4268,10 @@ public static partial class Game
                     {
                         DamageExtraRolls = hitRolls.DamageExtraRolls < 0 ? 0 : Math.Max(hitRolls.DamageExtraRolls, extraArcRolls)
                     };
-                    var damageRoll = WithIntimidatingCryExert((hitRolls with { DamageMorePct = 0 })
+                    int hitExertWarcries = !attack ? 0 : (cryExerted == true ? 1 : 0) + otherWarcries + (rallyingDamage.HasValue ? 1 : 0);
+                    var damageRoll = WithExertedAttackRollModifiers((hitRolls with { DamageMorePct = 0 })
                         .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(player, skillId, gem.Effect),
-                            intelligence: player.Pools.Intelligence), cryExerted == true).ForWeapon(weaponLocal);
+                            intelligence: player.Pools.Intelligence), cryExerted == true, hitExertWarcries, playerStats, skillStats).ForWeapon(weaponLocal);
                     long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(playerStats, skillStats);
                     var rolled = WithConditionalSupportDamageLocked(player, skillStats, !spell, m,
                         GameEvents.WithOutgoingDamage(player, playerStats, m,
@@ -4225,7 +4288,9 @@ public static partial class Game
                         rolled = rolled.Add(DamageType.Fire, new(flameFire, flameFire));
                         m.HallowingFlameUntil = 0;
                     }
-                    rolled = WithExertedAttackDamage(rolled, skillStats, cryExerted == true, otherWarcries, rallyingDamage);
+                    if (attack)
+                        rolled = WithExertedAttackDamage(rolled, skillStats, cryExerted == true, otherWarcries, rallyingDamage, playerStats);
+                    int exertedCritBonus = !attack ? 0 : ExertedAttackBonusCritPermyriad(hitExertWarcries, playerStats, skillStats);
                     // The shared roll meets each target's current chance: a source can change between targets.
                     if (!linkedSource && retainedAttack is { } source)
                     {
@@ -4236,11 +4301,11 @@ public static partial class Game
                     else
                     {
                         int useCriticalChance = extraCriticalIncrease == 0
-                            ? SupportedCriticalChance(player, skillId, hand, offCritical)
-                            : SupportedCriticalChanceFor(player, skillId, release: false, extraIncrease: extraCriticalIncrease);
+                            ? SupportedCriticalChance(player, skillId, hand, offCritical, extraIncrease: 0, extraBaseCrit: exertedCritBonus)
+                            : SupportedCriticalChanceFor(player, skillId, release: false, extraIncrease: extraCriticalIncrease, weaponCritical: null, extraBaseCrit: exertedCritBonus);
                         int criticalChance = CriticalChanceOn(player, id, useCriticalChance,
-                            SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical),
-                            SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical));
+                            SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical, extraIncrease: 0, extraBaseCrit: exertedCritBonus),
+                            SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical, extraIncrease: 0, extraBaseCrit: exertedCritBonus));
                         // Read an existing bleed before this attack can inflict its own.
                         if (!spell && m.Bleeds.IgnitedAt(ProjectileWorldTime(player)))
                         {
@@ -4248,9 +4313,9 @@ public static partial class Game
                                 + playerStats.GetValueOrDefault(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies);
                             if (bleedingCrit != 0)
                                 criticalChance = CriticalChanceOn(player, id,
-                                    SupportedCriticalChance(player, skillId, hand, offCritical, bleedingCrit),
-                                    SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical, bleedingCrit),
-                                    SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical, bleedingCrit));
+                                    SupportedCriticalChance(player, skillId, hand, offCritical, bleedingCrit, exertedCritBonus),
+                                    SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical, bleedingCrit, exertedCritBonus),
+                                    SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical, bleedingCrit, exertedCritBonus));
                         }
                         if (flurryBonus.CriticalMore != 0)
                             criticalChance = Math.Min(10_000, (int)(criticalChance * flurryBonus.CriticalMore));
@@ -4540,6 +4605,10 @@ public static partial class Game
             if (sweepStats is { } stats) stats.Dispose();
         }
         await SettleSweep();
+        if (landed > 0 && ownerContact && !spell && traumaUse is { Gained: false }
+            && boneshatter is null && infernalBlast is null && hammer is null && retainedAttack is null)
+            using (ProjectileMutation(player, advance: scheduledSession is null))
+                TryGainTraumaLocked(player, scheduledSession, admittedGem, traumaUse, ProjectileWorldTime(player), "Trauma");
         if (holyPath) await PublishFlaskChanges(player);
         // The wave reports its own shape (the tunables to calibrate, GroundSlamWave) instead of the circle; a gem melee
         // attack reports the clip its contact came from (GemAttackContactDelay), which the live check can compare with the
@@ -4624,7 +4693,8 @@ public static partial class Game
                 targetFilter: targetFilter, extraStunThresholdReduction: extraStunThresholdReduction, extraStunDurationPct: extraStunDurationPct,
                 extraKnockbackDistancePct: extraKnockbackDistancePct, removeStunAndKnockback: removeStunAndKnockback,
                 offHandWeapon: offHandWeapon, shieldUse: shieldUse, additionalStrikeTargets: additionalStrikeTargets,
-                lacerate: lacerate, seismicExerted: seismicExerted, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage);
+                lacerate: lacerate, seismicExerted: seismicExerted, ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage,
+                traumaUse: traumaUse);
         }
     }
 
@@ -4910,7 +4980,7 @@ public static partial class Game
         (m.Life, bool starts) = TakeOwnerHitLocked(player, m, lifeDamage, cull, rampageSource, playerStats, cullPlayer);
         if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)lifeDamage - before, 0, int.MaxValue);
         if (m.Kit.Count > 0) BossKits.TakeDamage(m, (long)before - m.Life);
-        CaptureUnhingedHitKillLocked(player, m, playerHit: allyAt is null);
+        CaptureHitCorpseDestructionLocked(player, m, directPlayerHit: allyAt is null, playerStats);
         if (m is { Hostile: true, Invulnerable: false, EntranceGrace: false } && (ownHit ?? (allyAt is null)))
             player.RecentEvents.Record(OwnedEnemyHitRecently, hitNow);
         if (allyAt is null)
@@ -5419,7 +5489,8 @@ public static partial class Game
         destroyCorpse = playerKill && byHit && TakeUnhingedHitKillLocked(player, m);
         QueueEssenceDeathSpawnLocked(player, id, m);
         if (playerKill) QueueMadnessExplosionLocked(player, id, m);
-        StopCorpseBlocking(player, id, m);
+        if (!destroyCorpse || HardcoreProgressBlocked(player) || m.Variety is null || !m.Hostile)
+            StopCorpseBlocking(player, id, m);
         DetonateExplosiveFusesOnDeath(m);
         QueueInfernalBlowDeath(m, ProjectileWorldTime(player));
         QueueInfernalCryDeath(id, m, ProjectileWorldTime(player));
@@ -5455,15 +5526,16 @@ public static partial class Game
             else if (player.PlayerLife > 0)
                 GainPhasingOnKill(player);
             // ChargesOnKill recorded this accepted kill before the explosion samples its conditions.
+            bool corpseDestroyed = destroyCorpse && DestroyHitKillCorpseLocked(player, id, m);
             bool corpseConsumed, devoured;
             now = AreaTime(player);
             // Devour's corpse is taken before the tattoo's roll: one killing blow consumes a corpse once.
-            devoured = ConsumeDevouredCorpseLocked(player, id, m, now);
-            corpseConsumed = devoured || ConsumeCorpseOnKillLocked(player, id, m, now);
-            bool explodedCorpse = await ExplodeOnKill(player, id, m, at, explosionEquipment);
-            if (corpseConsumed && !explodedCorpse)
+            devoured = !corpseDestroyed && ConsumeDevouredCorpseLocked(player, id, m, now);
+            corpseConsumed = corpseDestroyed || devoured || ConsumeCorpseOnKillLocked(player, id, m, now);
+            if (corpseConsumed)
                 await Game.SendWorldRemoval(player, id,
-                    $"0x02bd corpse 0x{id:x} ({m.Label}) {(devoured ? "devoured by the supported skill" : "consumed by the killing blow")}");
+                    $"0x02bd corpse 0x{id:x} ({m.Label}) {(corpseDestroyed ? "destroyed on hit kill" : devoured ? "devoured by the supported skill" : "consumed by the killing blow")}");
+            await ExplodeOnKill(player, id, m, at, explosionEquipment);
         }
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
         SoulEaterSoul(player, id, at);
@@ -5508,7 +5580,6 @@ public static partial class Game
         if (MonsterGrantsKillFlaskCharges(m))
             await GainKillCharges(player, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed", flaskChargesPct);
         await DropLoot(player, m, at, firstBossKill);
-        await PublishUnhingedCorpseDestruction(player, id, m, destroyCorpse);
     }
 
     // The monster's items (ItemDrops.Roll) as WorldItem objects scattered around where it died, on walkable cells when the

@@ -1081,6 +1081,11 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// where client A* favours 45-degree diagonals.</summary>
     public bool Blocking { get; init; } = true;
 
+    /// <summary>Sets bit 15 (<c>0x8000</c>) of <c>Positioned</c>'s team <c>u16</c> (<c>+0x1e0</c>, "Is Minion" in
+    /// <c>0x141e36650</c>): a same-team walker without the bit (the players, team 0) passes this body
+    /// (<c>0x141e65ae0</c>); other teams' walkers and minions still collide with it.</summary>
+    public bool IsMinion { get; init; }
+
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents =
         ["Positioned", "Stats", "ObjectMagicProperties", "BaseEvents", "Pathfinding", "Buffs", "Life", "Animated",
@@ -1137,9 +1142,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
         {
             switch (c)
             {
-                // x, y, f32 rotation (+0x29c), u16 team (+0x1e0; the player is team 0: 0 = friendly, green outline;
-                // 1 = hostile, red); blocking is the type's own unless overridden as non-blocking (flags1 0x0a).
-                case "Positioned": w.Positioned(GridX, GridY, Rotation, Team, blocking: Blocking ? null : false, blocksNoWalker: !Blocking); break;
+                // x, y, f32 rotation (+0x29c), u16 team (+0x1e0; low 15 bits = team, 0 = friendly / 1 = hostile;
+                // bit 15 0x8000 = Is Minion so players pass through allied minions/totems while hostiles stay blocked);
+                // blocking is the type's own unless overridden as non-blocking (flags1 0x0a).
+                case "Positioned": w.Positioned(GridX, GridY, Rotation, (ushort)(Team | (IsMinion ? 0x8000 : 0)), blocking: Blocking ? null : false, blocksNoWalker: !Blocking); break;
                 case "Stats": w.Stats(Stats).U32(0).U32(0).U8(0); break;
                 // base magic properties (0x142208700, Instance.MagicProperties): u16 flags (bits 0-2 rarity → +0x7c,
                 // 0 = normal; bit 3 identified → +0x78, which gates the name and the explicit list), u8 +0x7a, the mod

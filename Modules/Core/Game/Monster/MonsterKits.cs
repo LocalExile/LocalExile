@@ -58,7 +58,8 @@ public static class MonsterKits
         if (effect < 0 || string.IsNullOrEmpty(id)) return true;
         if (MonsterKitHooks.HasEffectFilters && !MonsterKitHooks.AllowEffect(variety, effect, id))
             return true;
-        if (catalog.CastsOnDeath(effect) || BossKits.IsDamageTakenTrigger(catalog, effect) || catalog.IsAura(effect))
+        if (catalog.CastsOnDeath(effect) || BossKits.IsDamageTakenTrigger(catalog, effect) || catalog.IsAura(effect)
+            || BossKits.IsUnsafeGenericTarget(effect))
             return true;
         if (catalog.HasType(effect, "Triggered") || catalog.HasType(effect, "RemoteMined"))
             return true;

@@ -439,6 +439,7 @@ public static partial class Game
     // Whether a use of the skill pays its cost when it starts (CastGemSkill's PayMana), not a link's or a toggle's.
     static bool PaysOnUse(Player player, ushort skillId, int effect) =>
         !IsLinkSkill(player, effect) && BannerAuraRow(SkillsFor(player).EffectId(effect)) == 0
+        && CooldownTriggerController(SkillsFor(player).EffectId(effect)) == 0
         && ToggledReservation(player, skillId) is null;
 
     // The charge a skill spends to be used while it cools down (CooldownBypass), null when it has no bypass.

@@ -14,4 +14,5 @@ public sealed record SpiderDamageSource(DamagePacket Raw, DamageConversion Conve
     public double HitIntensityMore { get; init; } = 1;
     public double ReleaseAilmentMore { get; init; } = 1;
     public long ProjectileAttackHitIncrease { get; init; }
+    public long ExtraIncreased { get; init; }
 }

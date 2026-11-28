@@ -430,6 +430,8 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2bb**
   the .ot `team` values are only defaults. The player is sent team 0. Monsters sent with 0 had a **green** (friendly)
   hover outline; with 1 the outline is **red** and on The Coast a life bar shows over the head (towns hide hostile life
   bars). The Gateway sends 1, or 0 with `/spawn_mob … friendly` (both verified live: red and green outlines).
+  Only the low 15 bits are the team; bit 15 (0x8000) is Is Minion (0x141e36650). A walker without the bit passes a
+  same-team body with it (0x141e65ae0), so players walk through their totems and minions and monsters do not.
 - **Combat** (live 2026-10-17, [11](11-skills.md)). The player has the default attack (skill 0x0102); a click on a
   monster sends C→S 0x24 with it, which is answered with 0x1ab aimed at it (flags | 0x80 + u32 target id after the flags, write
   `0x141fe41b0`), then **S→C 0x1b1** lowers its life: `header, u32 current, u32 reserved, u8 pool (0 life, 1 mana,

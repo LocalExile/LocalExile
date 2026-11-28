@@ -118,7 +118,7 @@ Nothing yet.
   Fortification on use for more ailment damage ([25](../docs/protocol/25-gem-supports.md)).
   Multistrike repeats full swings within one paid use, cancels remaining repeats with the action, and keeps
   the native panel's per-hit damage convention.
-  Melee Splash checks the radius of each strike before counting its targets ([25](../docs/protocol/25-gem-supports.md)).
+  Melee Splash checks the radius of each strike before counting its targets, and `melee_splash` (Tribal Fury, items/enchants) plus `melee_splash_area_of_effect_+%` apply to Melee Strike skills only ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust for melee physical-origin damage, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
   Manaforged Arrows triggers off paid bow uses and channelled bow ticks and scales supported hit and ailment damage.
