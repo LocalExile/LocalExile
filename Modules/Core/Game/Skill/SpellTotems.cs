@@ -34,7 +34,7 @@ public static partial class Game
     const string BladeBlastDaggerDetonation = "BladeBlastAltY";
 
     static bool SpellTotemNova(Player player, int effect) =>
-        SkillsFor(player).EffectId(effect) is "IceNova" or "IceNovaAltY" or BladeBlastDaggerDetonation or TrarthanBargain;
+        SkillsFor(player).EffectId(effect) is "IceNova" or "IceNovaAltX" or "IceNovaAltY" or BladeBlastDaggerDetonation or TrarthanBargain;
 
     static SummonCatalog.Definition? TotemSummon(Player player, int effect) =>
         SummonData.Find(SkillsFor(player).EffectId(effect)) is { Family: not "Clone", Id: not "AnimateWeaponAltX" } summon ? summon : null;
