@@ -419,6 +419,7 @@ sealed partial class VendorRecipes
         var placements = offered.ToArray();
         if (placements.Select(i => i.Id).Distinct().Count() != placements.Length)
             throw new ArgumentException("Duplicate vendor ingredient id");
+        var returned = new List<Item>();
         foreach (var placement in placements)
         {
             var item = placement.Item;
@@ -426,13 +427,21 @@ sealed partial class VendorRecipes
             int count = item.StackSize;
             if (type.Class == "StackableCurrency")
             {
-                int wisdoms = type.Name switch
+                // No client table prices any other currency's basic sale (CurrencyItems carries no price
+                // column), so refuse just this stack -- return it in the offer and log it -- instead of
+                // throwing and refusing the whole trade.
+                int? wisdoms = type.Name switch
                 {
                     "Portal Scroll" => 1, "Armourer's Scrap" => 2,
                     "Blacksmith's Whetstone" or "Orb of Transmutation" or "Orb of Alteration" => 4,
-                    _ => throw new NotSupportedException("This currency's basic sale is not implemented. Nothing has been sold."),
+                    _ => null,
                 };
-                Add("Scroll of Wisdom", (long)wisdoms * count);
+                if (wisdoms is null)
+                {
+                    returned.Add(item);
+                    System.Console.WriteLine($"[gateway] vendor: basic sale refused {type.Name} x{count}: no table price; item returned");
+                }
+                else Add("Scroll of Wisdom", (long)wisdoms.Value * count);
             }
             else if (!item.Identified && item.Rarity != ItemRarity.Normal)
                 Add("Transmutation Shard", (item.Rarity == ItemRarity.Magic ? 2L : 5L) * count);
@@ -469,6 +478,7 @@ sealed partial class VendorRecipes
                 rewards.Add(ItemCatalog.Create(type) with { StackSize = (ushort)amount });
                 left -= amount;
             }
+        rewards.AddRange(returned);
         return new(rewards, placements.Length == 0 ? [] : ["basic sale"]);
     }
 
