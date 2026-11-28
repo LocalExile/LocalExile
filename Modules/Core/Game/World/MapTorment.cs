@@ -112,7 +112,6 @@ public static partial class MapTorment
     static readonly uint[] Unsupported =
     [
         Stat.MapRogueExilesPossessedPctChance, Stat.MapTormentScarabMoreLikelyPct,
-        Stat.MapPossessedMonsterEquipmentDropsConvertedToDustPctChance,
     ];
 
     // A possessed monster's own chance to drop an item of a kind (the Atlas's sextant-era map stats).

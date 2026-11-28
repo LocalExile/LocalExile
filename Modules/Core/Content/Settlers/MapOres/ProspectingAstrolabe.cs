@@ -29,13 +29,27 @@ public sealed class ProspectingAstrolabe
     {
         if (request.Opening is not { } opening || request.Campaign) return;
 
-        bool directSlot = request.Slots.Any(s => !s.IsMap && s.BaseId.Equals(MapOreTables.ProspectingAstrolabeId, StringComparison.Ordinal));
-        if (!directSlot) return;
+        int directCount = request.Slots.Count(s => !s.IsMap && s.BaseId.Equals(MapOreTables.ProspectingAstrolabeId, StringComparison.Ordinal));
+        if (directCount == 0) return;
+
+        if (directCount > 1)
+        {
+            request.Opening = null;
+            request.Reason = "Only one Prospecting Astrolabe can be used per map.";
+            return;
+        }
+        if (opening.Mods.Get(Stat.ProspectingAstrolabeEnabledMap) > 0)
+        {
+            request.Opening = null;
+            request.Reason = "This map is already shaped by a Prospecting Astrolabe.";
+            return;
+        }
 
         var mods = opening.Mods
             .WithFragmentStat(Stat.ProspectingAstrolabeEnabledMap, 1)
             .WithFragmentStat(Stat.AstrolabeEnabledMap, 1)
-            .WithFragmentStat(Stat.MapSpawnSettlersOre, 1);
+            .WithFragmentStat(Stat.MapSpawnSettlersOre, 1)
+            .WithFragmentStat(Stat.MonsterInAstrolabeMap, 1);
 
         request.Opening = opening with { Mods = mods };
         request.HandledContent.Add(MapScarabContent.KalguuranOre);

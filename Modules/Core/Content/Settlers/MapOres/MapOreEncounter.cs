@@ -180,7 +180,7 @@ public sealed class MapOreEncounter
                     Program.LeagueFor(area.Player).HardMode, stats.ChancePlusPct, stats.AdditionalChancePct);
         }
 
-        int total = nativeCount + stats.AdditionalOres + (stats.ProspectingAstrolabe ? 1 : 0);
+        int total = nativeCount + stats.AdditionalOres;
         if (stats.ForcedSpawns > 0 && total < stats.ForcedSpawns)
             total = stats.ForcedSpawns;
         if (stats.ProspectingAstrolabe && total < 1)
@@ -339,7 +339,20 @@ public sealed class MapOreEncounter
     {
         if (Of(player) is not { } state) return;
         await state.Gate.WaitAsync();
-        try { state.PresentedPlayers.Remove(player); }
+        try
+        {
+            state.PresentedPlayers.Remove(player);
+            state.VerisiumShieldPlayers.TryRemove(player.Id, out _);
+            foreach (var n in state.Nodes)
+            {
+                if (n.ChannellingPlayerId == player.Id)
+                {
+                    n.ChannellingPlayerId = 0;
+                    if (n.Stage == NodeStage.Channelling)
+                        n.Stage = NodeStage.Ready;
+                }
+            }
+        }
         finally { state.Gate.Release(); }
     }
 
@@ -355,7 +368,21 @@ public sealed class MapOreEncounter
             {
                 state.Area = player.Area;
                 state.PresentedPlayers.Clear();
-                foreach (var n in state.Nodes) n.Presented = false;
+                state.VerisiumShieldPlayers.Clear();
+                foreach (var n in state.Nodes)
+                {
+                    n.Presented = false;
+                    // Restored monsters receive new object IDs after vacate/re-entry; reset unfinished active nodes
+                    // instead of letting PruneDeadMonsters auto-complete them for free on the next tick.
+                    if (n.Stage is NodeStage.Active or NodeStage.Channelling)
+                    {
+                        n.AliveMonsters.Clear();
+                        n.AlivePods.Clear();
+                        n.ChannellingPlayerId = 0;
+                        n.WavesSpawned = 0;
+                        n.Stage = NodeStage.Ready;
+                    }
+                }
             }
 
             if (state.PresentedPlayers.Contains(player)) return;
@@ -554,61 +581,74 @@ public sealed class MapOreEncounter
 
         if (player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
 
-        // Walk up to the clicked object.
-        if (!TryBeginObjectWalk(player, requestedAt, node.X, node.Y, 15, out var walk)) return true;
+        // Walk up to the clicked object and verify actual reach after walking.
+        const int reach = 15;
+        if (!TryBeginObjectWalk(player, requestedAt, node.X, node.Y, reach, out var walk)) return true;
         if (walk.Arrive > walk.Now) await AreaDelay(player, walk.Arrive - walk.Now);
         if (!PlayerActionCurrent(player, walk.Action)) return true;
+        if (!PlayerWalk.InWalkUpRange(walk.Stop, (node.X, node.Y), reach))
+        {
+            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null);
+            return true;
+        }
 
-        // Starfall Crater sub-area portal transition.
-        if (node.Kind == MapOreSlotKind.StarfallCrater && use.TargetId == node.TransitionId)
+        // Starfall Crater sub-area portal transition (accept clicks on either the transition or entrance object).
+        if (node.Kind == MapOreSlotKind.StarfallCrater && (use.TargetId == node.TransitionId || use.TargetId == node.PrimaryId))
         {
             await EnterStarfallCrater(player, state, node);
             return true;
         }
 
-        // Lost Shipment chest opening.
-        if (node.Kind == MapOreSlotKind.LostShipment)
-        {
-            await OpenLostShipment(player, state, node);
-            return true;
-        }
-
-        // Verisium: click once to begin channelling, click again (or walk out / hit max) to release.
-        if (node.Kind == MapOreSlotKind.Verisium)
-        {
-            await HandleVerisiumInteract(player, state, node);
-            return true;
-        }
-
-        await state.Gate.WaitAsync();
         try
         {
-            if (node.Stage != NodeStage.Ready) return true;
-            double now = AreaTime(player);
-            state.Now = now;
-            node.StartedAt = now;
-
-            switch (node.Kind)
+            // Lost Shipment chest opening.
+            if (node.Kind == MapOreSlotKind.LostShipment)
             {
-                case MapOreSlotKind.CrimsonIron:
-                    await StartCrimsonIron(player, state, node);
-                    break;
-                case MapOreSlotKind.Orichalcum:
-                    await StartOrichalcum(player, state, node);
-                    break;
-                case MapOreSlotKind.PetrifiedAmber:
-                    await StartPetrifiedAmber(player, state, node);
-                    break;
-                case MapOreSlotKind.Bismuth:
-                    await ClaimBismuth(player, state, node);
-                    break;
-                case MapOreSlotKind.DustHourglass:
-                    await StartDustHourglass(player, state, node);
-                    break;
+                await OpenLostShipment(player, state, node);
+                return true;
             }
+
+            // Verisium: click once to begin channelling, click again (or walk out / hit max) to release.
+            if (node.Kind == MapOreSlotKind.Verisium)
+            {
+                await HandleVerisiumInteract(player, state, node);
+                return true;
+            }
+
+            await state.Gate.WaitAsync();
+            try
+            {
+                if (node.Stage != NodeStage.Ready) return true;
+                double now = AreaTime(player);
+                state.Now = now;
+                node.StartedAt = now;
+
+                switch (node.Kind)
+                {
+                    case MapOreSlotKind.CrimsonIron:
+                        await StartCrimsonIron(player, state, node);
+                        break;
+                    case MapOreSlotKind.Orichalcum:
+                        await StartOrichalcum(player, state, node);
+                        break;
+                    case MapOreSlotKind.PetrifiedAmber:
+                        await StartPetrifiedAmber(player, state, node);
+                        break;
+                    case MapOreSlotKind.Bismuth:
+                        await ClaimBismuth(player, state, node);
+                        break;
+                    case MapOreSlotKind.DustHourglass:
+                        await StartDustHourglass(player, state, node);
+                        break;
+                }
+            }
+            finally { state.Gate.Release(); }
+            return true;
         }
-        finally { state.Gate.Release(); }
-        return true;
+        finally
+        {
+            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null);
+        }
     }
 
     // ---- 1. Crimson Iron ----
@@ -1232,13 +1272,17 @@ public sealed class MapOreEncounter
         {
             (Stat.IsSettlersOreMonster, 1),
         };
-        if (lifeMore > 0)
-            extraStats.Add((Stat.MaximumLifePlusPct, lifeMore));
-        if (escalating > 0)
-            extraStats.Add((Stat.DamagePlusPct, escalating * 15));
+        MonsterModSet? extraMods = null;
+        if (lifeMore > 0 || escalating > 0)
+        {
+            var modStats = new Dictionary<uint, int>();
+            if (lifeMore > 0) modStats[Stat.MaximumLifePlusPct] = lifeMore;
+            if (escalating > 0) modStats[Stat.DamagePlusPct] = escalating * 15;
+            extraMods = new MonsterModSet([], [], new MonsterModEffects(modStats));
+        }
 
         uint id = await SpawnMonster(player, variety, (byte)state.AreaLevel, rarity, x, y,
-            log: false, extraStats: extraStats);
+            log: false, extraMods: extraMods, extraStats: extraStats);
         if (id == 0) return 0;
 
         state.MonsterOwner[id] = node;

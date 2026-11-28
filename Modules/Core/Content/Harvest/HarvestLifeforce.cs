@@ -55,14 +55,6 @@ public static class HarvestLifeforce
     public static void Drops(DropRoll drop)
     {
         if (!SacredGrove.TryMonster(drop.Player, drop.Monster.ObjectId, out var tag, out var stats)) return;
-        // Refiner's Bargain grants random Kingsmarch crops (250% of rolled Lifeforce) instead of Lifeforce.
-        if (stats.RandomCropsInstead)
-        {
-            int cropJuice = Roll(AreaRng(drop.Player), stats, tag.Tier, out int cropSecond);
-            if (cropJuice + cropSecond > 0)
-                VillageResourceHooks.OnHarvestRefinersBargain(drop.Player, cropJuice + cropSecond, MapModsOf(drop.Player));
-            return;
-        }
         // A Corpse-Grown monster (a Faridun seed, which replaces a Tier 3 seed) drops Crystallised Rancour (the wiki's
         // Harvest page); [G] one, in place of lifeforce.
         if (tag.Faridun)
@@ -71,6 +63,14 @@ public static class HarvestLifeforce
             return;
         }
         if (tag.Tier >= 4) Blossom(drop, stats);
+        // Refiner's Bargain grants random Kingsmarch crops (250% of rolled Lifeforce) instead of Lifeforce.
+        if (stats.RandomCropsInstead)
+        {
+            int cropJuice = Roll(AreaRng(drop.Player), stats, tag.Tier, out int cropSecond);
+            if (cropJuice + cropSecond > 0)
+                VillageResourceHooks.OnHarvestRefinersBargain(drop.Player, cropJuice + cropSecond, MapModsOf(drop.Player));
+            return;
+        }
         if ((uint)tag.Colour >= 4 || Items(drop.Player)[tag.Colour] is not { } item) return;
         int count = Roll(AreaRng(drop.Player), stats, tag.Tier, out int second);
         if (count > 0) drop.Stacks.Add((item, count));

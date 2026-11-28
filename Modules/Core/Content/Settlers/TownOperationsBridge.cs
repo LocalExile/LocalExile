@@ -240,8 +240,13 @@ public sealed class TownOperationsBridge : IOperationsHost, IVillageOreSink
         if (amount <= 0) return;
         var (account, league) = VillageStore.ScopeOf(player);
         AddResource(account, league, (int)resource, amount);
-        if (!player.Closed && !player.LeavingArea && KaruiShoresIntro.NeedsVillageRuleset(player))
-            _ = VillageTownService.SyncStateAsync(player);
+        if (!player.Closed && !player.LeavingArea)
+        {
+            if (source.StartsWith("map-ore:", StringComparison.Ordinal))
+                _ = KaruiShoresIntro.OnStrangeOreDiscoveredAsync(player, cleared: true);
+            if (KaruiShoresIntro.NeedsVillageRuleset(player))
+                _ = VillageTownService.SyncStateAsync(player);
+        }
     }
 
     /// <summary>
