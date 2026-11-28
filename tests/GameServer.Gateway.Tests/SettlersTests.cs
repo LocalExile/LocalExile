@@ -314,7 +314,7 @@ public sealed class SettlersTests
                 var ships = snap.Ships.Where(s => s.ShipIndex != 0 && s.ShipIndex != 1).ToList();
                 ships.Add(new VillageStore.ShipRow(0, VillageShippingService.ShipStateSailing, 1,
                     now - 100, now + 1800, 0, 1000,
-                    $"{{\"Exports\":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"Elapsed\":{shipTarget / 3},\"Total\":{shipTarget}}}",
+                    VillageShippingService.SerializeCargoBlob(new uint[OperationsData.ExportCount], shipTarget / 3, shipTarget),
                     "[]", 0, 0, false));
                 ships.Add(new VillageStore.ShipRow(1, VillageShippingService.ShipStateIdle, 0,
                     0, 0, 0, 0, "{}", "[]", 0, 0, false));
