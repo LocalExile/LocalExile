@@ -167,7 +167,7 @@ public static class BreachHiveblood
             int before = Math.Max(0, state.Balance);
             int next = Math.Min(cap, before + scaled);
             added = next - before;
-            hitCap = next >= cap && before + scaled > cap;
+            hitCap = before < cap && before + scaled > cap;   // once, when this award reaches the cap
             if (added <= 0) return false;
             state.Balance = next;
             return true;
