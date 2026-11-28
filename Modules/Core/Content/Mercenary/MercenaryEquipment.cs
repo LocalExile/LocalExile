@@ -23,12 +23,24 @@ public static class MercenaryEquipment
         ["Two Hand Sword", "Two Hand Axe", "Two Hand Mace", "Staff", "Warstaff", "Bow", "FishingRod"],
         StringComparer.OrdinalIgnoreCase);
 
+    // [ESTIMATE] The wiki (Mercenary, 2026-11) says gear is "always at least magic rarity, typically moderately to
+    // well-crafted", sometimes unique (Mercenary-exclusive uniques among them), and an Infamous Mercenary's is better rolled
+    // with at least one unique. Retail's chances are server-side; these are this server's.
+    const int UniqueChancePct = 3, MagicChancePct = 20, ExclusiveUniqueWeight = 10;
+    static readonly HashSet<string> ExclusiveUniques = new(StringComparer.Ordinal)
+        { "Azadi Crest", "Binds of Bloody Vengeance", "The Ghastly Theatre", "Hand of Heresy", "Howlcrack", "Scornflux" };
+
     public static List<Worn> Roll(MercenaryTables.Class kind, MercenaryTables.Build build, int level, Random rng,
         bool allUnique, UniqueCatalog uniques)
     {
         var result = new List<Worn>();
         var looks = MercenaryGear.Of(kind, build, level, rng);
         ushort? arrow = Program.Items.Visual("DefaultArrow");
+        // An Infamous Mercenary wears at least one unique: one slot (not the body armour, which a Mercenary cannot wear
+        // unique) is chosen to be one.
+        var uniqueSlots = looks.Where(l => l.Slot != MercenaryGear.Body && !(l.Slot == MercenaryGear.MainHand && l.VisualIdentity == arrow))
+            .Select(l => l.Slot).ToArray();
+        byte? forcedUnique = build.Infamous && uniqueSlots.Length > 0 ? uniqueSlots[rng.Next(uniqueSlots.Length)] : null;
         foreach (var look in looks)
         {
             if (look.Slot == MercenaryGear.MainHand && look.VisualIdentity == arrow) continue;
@@ -48,22 +60,26 @@ public static class MercenaryEquipment
                     && !t.Id.Contains("Talisman", StringComparison.Ordinal)).OrderBy(t => t.Id, StringComparer.Ordinal).ToArray();
             }
             if (pool.Length == 0) continue;
-            Item item;
-            if (allUnique)
+            Item? item = null;
+            bool wantUnique = allUnique || look.Slot == forcedUnique
+                || look.Slot != MercenaryGear.Body && rng.Next(100) < UniqueChancePct;
+            if (wantUnique)
             {
                 var candidates = uniques.All.Where(d => !d.EncounterOnly && !d.Corrupted && !d.Mirrored
                     && !MercenaryTables.IsDisabledUnique(d.Name)
-                    && Program.Items.Find(d.BaseTypeId) is { } t && pool.Any(p => p.Row == t.Row)).OrderBy(d => d.Name, StringComparer.Ordinal).ToArray();
-                item = null!;
-                while (candidates.Length > 0 && item is null)
+                    && Program.Items.Find(d.BaseTypeId) is { } t && pool.Any(p => p.Row == t.Row)).OrderBy(d => d.Name, StringComparer.Ordinal).ToList();
+                while (candidates.Count > 0 && item is null)
                 {
-                    int pick = rng.Next(candidates.Length);
-                    item = uniques.Create(candidates[pick], rng)!;
-                    candidates = [.. candidates.Where((_, i) => i != pick)];
+                    // The Mercenary-exclusive uniques drop only from Mercenaries, so they are weighted up among the rest.
+                    int roll = rng.Next(candidates.Sum(d => ExclusiveUniques.Contains(d.Name) ? ExclusiveUniqueWeight : 1));
+                    int pick = candidates.FindIndex(d => (roll -= ExclusiveUniques.Contains(d.Name) ? ExclusiveUniqueWeight : 1) < 0);
+                    item = uniques.Create(candidates[pick], rng);
+                    candidates.RemoveAt(pick);
                 }
-                if (item is null) throw new InvalidOperationException($"No mercenary unique for equipment class {row}");
+                if (item is null && allUnique) throw new InvalidOperationException($"No mercenary unique for equipment class {row}");
             }
-            else item = Program.Rolls.Roll(ItemCatalog.Create(pool[rng.Next(pool.Length)]) with { ItemLevel = (byte)level }, ItemRarity.Rare, rng);
+            item ??= Program.Rolls.Roll(ItemCatalog.Create(pool[rng.Next(pool.Length)]) with { ItemLevel = (byte)level },
+                !build.Infamous && rng.Next(100) < MagicChancePct ? ItemRarity.Magic : ItemRarity.Rare, rng);
             var wornLook = look with { VisualIdentity = item.VisualIdentity };
             result.Add(new(look.Slot, item with { ItemLevel = (byte)level }, wornLook));
         }
