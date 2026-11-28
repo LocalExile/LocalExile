@@ -40,6 +40,16 @@ public sealed partial class MercenaryModule
         return Math.Max(0L, chance) * Math.Max(0L, 100L + S(Stat.MapMercenaryChancePlusPct)) / 100;
     }
 
+    /// <summary>The chance, in hundredths of a percent, that a Mercenary is Infamous. The wiki: "the base chance is
+    /// approximately 20%, though this chance varies with each class"; since 3.29.1 Infamous ones are "50% more common in tier
+    /// 1 Maps, scaling up to approximately twice as common in tier 16 Maps". map_mercenary_infamous_chance_+% raises it.
+    /// [ESTIMATE] 20% for every class (the per-class rates are not published) and a linear scale between tiers 1 and 16.</summary>
+    public static int InfamousChanceBasisPoints(int mapTier, int increasedPct)
+    {
+        double tierScale = mapTier <= 0 ? 1 : 1.5 + 0.5 * (Math.Clamp(mapTier, 1, 16) - 1) / 15.0;
+        return (int)Math.Round(2000 * tierScale * Math.Max(0, 100 + increasedPct) / 100.0);
+    }
+
     /// <summary>Evaluates whether a new combat instance (map or campaign) rolls a mercenary encounter, honoring retail 3.29
     /// Act 3+ campaign rules, Warrant calls, map chances, and <see cref="GameEvents.EncounterSpawn"/> overrides (for Phase 2 mods).</summary>
     async Task Place(AreaPopulated area)
@@ -114,7 +124,8 @@ public sealed partial class MercenaryModule
             else
             {
                 bool infamous = stats.GetValueOrDefault(Stat.MapMercenariesAreInfamous) > 0
-                    || (spawnLevel >= 68 && rng.Next(100) < 5 + stats.GetValueOrDefault(Stat.MapMercenaryInfamousChancePlusPct));
+                    || rng.Next(10000) < InfamousChanceBasisPoints(isMap ? MapRunOf(player)?.Area.Tier ?? 0 : 0,
+                        stats.GetValueOrDefault(Stat.MapMercenaryInfamousChancePlusPct));
                 pick = MercenaryTables.Pick(rng, infamous) ?? MercenaryTables.Pick(rng, false);
             }
 
