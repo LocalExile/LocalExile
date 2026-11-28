@@ -55,7 +55,7 @@ public static partial class Game
     {
         equipment ??= ItemsOf(player).EquipmentSnapshot();
         return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && (g.ManuallyCast
-                || g.EffectId is SpiritBurstEffect or GuardianWeaponEffect or FoulgraspEffect or PrismaticBurstEffect
+                || g.EffectId is SpiritBurstEffect or GuardianWeaponEffect or FoulgraspEffect or PrismaticBurstEffect or HextoadEffect
                     or AvengingFlameEffect or SummonSacredWispEffect or ShockwaveEffect or VoidShockwaveEffect or GoreShockwaveEffect
                 || TriggeredItemMinion(g) is not null)
             && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId)
@@ -63,13 +63,13 @@ public static partial class Game
                 || g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
                 || SkillsFor(player).IsWarcry(g.Effect)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
-                || g.EffectId is SnipeEffect or SpiritBurstEffect or FoulgraspEffect or PrismaticBurstEffect
+                || g.EffectId is SnipeEffect or SpiritBurstEffect or FoulgraspEffect or PrismaticBurstEffect or HextoadEffect
                     or AvengingFlameEffect or SummonSacredWispEffect or ShockwaveEffect or VoidShockwaveEffect
                     or GoreShockwaveEffect or "DoryanisTouch" or ApproachingFlamesEffect
                     or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink" or CallOfSteelEffect
                     or "SummonStoneGolem" or "Convocation" or BloodOfferingEffect or "EnduringCry" or "IntimidatingCry" or GuardianWeaponEffect
                 || TriggeredItemMinion(g) is not null
-                || g.EffectId == ShaperMemoryEffect
+                || g.EffectId is ShaperMemoryEffect or GluttonyOfElementsEffect
                 || SummonData.Find(g.EffectId) is { Family: "DoedresEffigy" or ItemHarbingerFamily }
                 || AuraCatalog.Supported(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, g.EffectId))))];
@@ -141,7 +141,7 @@ public static partial class Game
                             Quality(p.Socket, p.Gem), p.Socket));
                 else if (variant.Effect2 >= 0
                     && Supports.Of(variant.Effect2) is { Support: true, Id: SnipeSupportEffect or GeneralsCrySupportEffect
-                        or "SupportBrandSupport" or "SupportIntuitiveLink" or BattlemagesCrySupport or AutomationSupport or AutoexertionSupport })
+                        or "SupportBrandSupport" or "SupportIntuitiveLink" or BattlemagesCrySupport or AutomationSupport or AutoexertionSupport or SpellslingerSupport })
                     candidates.Add(new(variant.Effect2, EffectiveGemLevel(player, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
                         Quality(p.Socket, p.Gem), p.Socket));
             }
@@ -838,6 +838,7 @@ public static partial class Game
         public bool Armed { get; init; }
         public bool Claw { get; init; }
         public double ReleaseAilmentMore { get; init; } = 1;
+        public double AddedDamageEffectiveness { get; init; } = 1;
     }
 
     static int PlayerMinionDamageShare(IReadOnlyDictionary<uint, int> stats) =>
@@ -951,7 +952,7 @@ public static partial class Game
             if (projectile) { types.Remove(19); types.Add(2); }
             else { types.Remove(2); types.Remove(7); }
         }
-        var plan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
+        var plan = ManaStaffHitPlan(player, SkillHitPlan.ForSkill(skills, gem.Effect, gem.Level, gem.Quality), gem.Stats);
         if (totem && projectileTotemLife is uint totemLife && plan.Kind == SkillHitKind.Spell
             && gem.Stats.GetValueOrDefault(Stat.InfernalBoltBaseFireDamagePctMaximumLife) is > 0 and var firePercent)
         {
@@ -970,6 +971,8 @@ public static partial class Game
         bool secondary = plan.Kind == SkillHitKind.Secondary;
         var attackWeapon = attack ? weapon ?? WeaponFor(player) : null;
         var coefficients = SkillsFor(player).DamageCoefficients(gem.Effect, gem.Level);
+        double addedDamageEffectiveness = attackWeapon is not null && !secondary ? coefficients.Added / 10000d
+            : AddedEffectiveness(player, gem.Effect, gem.Level);
         int attackAccuracy = attackWeapon is null || secondary ? 0 : WeaponAccuracyFor(player, weapon, caster, gem.Stats, gem.Effect);
         var spellBase = secondary || attackWeapon is null
             ? plan.SpellBaseWith(Get) : GameServer.Core.World.DamagePacket.Empty;
@@ -1007,7 +1010,7 @@ public static partial class Game
             : attackWeapon is not null
             ? SupportedAttackDamage.Raw(attackWeapon, Get, new(attackAccuracy),
                 coefficients.Base, coefficients.Added, melee: types.Contains(19) && !SkillsFor(player).RequiresShield(gem.Effect))
-            : DamageStats.RawAdded(spellBase, Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
+            : DamageStats.RawAdded(spellBase, Get, spell: true, addedDamageEffectiveness);
         if (traumaMeleeMore != 0 && traumaStacks > 0)
             raw = raw.Scale(Math.Max(0, 1 + (long)traumaMeleeMore * traumaStacks / 100d));
         if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.SpellBaseFireDamagePctMaximumLife) is int lifePct and > 0)
@@ -1018,6 +1021,8 @@ public static partial class Game
             double fire = (long)life * lifePct / 100d;
             raw = raw.Add(GameServer.Core.World.DamageType.Fire, new(fire, fire));
         }
+        if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.GainPctOfBaseWandDamageAsAddedSpellDamage) is > 0 and var wandPct)
+            raw = AddSpellslingerWandDamage(player, raw, wandPct * AddedEffectiveness(player, gem.Effect, gem.Level) / 100d);
         if (!attack && !secondary && Get(Stat.KeystoneBattlemage) != 0
             && WeaponIn(player, ActiveMainHand(player))?.LocalDamage is { } mainHandDamage)
             raw = raw.Add(mainHandDamage.Scale(AddedEffectiveness(player, gem.Effect, gem.Level)));
@@ -1104,6 +1109,7 @@ public static partial class Game
             WieldingWand: attackWeapon?.WieldingWand == true, WieldingBow: attackWeapon?.Bow == true, Secondary: secondary, ActiveSkill: SkillPoisonStats.ActiveSkillId(gem.Effect))
         {
             FrozenStats = new Dictionary<uint, int>(stats),
+            AddedDamageEffectiveness = addedDamageEffectiveness,
             WeaponIncreased = attackWeapon is not null && !secondary ? SupportedAttackDamage.WeaponIncrease(attackWeapon, Get,
                 gem.Stats.GetValueOrDefault(Stat.BaseProjectileSpeedPlusPct))
                 : !attack && !secondary && Get(Stat.SpellStaffDamagePlusPct) is int staff and not 0
@@ -1125,9 +1131,14 @@ public static partial class Game
 
     // The supported hit from inputs already worked out (GemSkills reads one gem's inputs once for its hit and ailment rows).
     public static GameServer.Core.World.DamagePacket SupportedHitFrom(SupportedHitInputs inputs, bool suppress,
-        long additionalIncreased = 0)
+        long additionalIncreased = 0) => SupportedHitFrom(inputs, suppress, default(DamageRange), additionalIncreased);
+
+    static DamagePacket SupportedHitFrom(SupportedHitInputs inputs, bool suppress,
+        DamageRange addedPhysical, long additionalIncreased = 0)
     {
-        var hit = PlayerHitDamage.Resolve(inputs.Raw, WeaponAttributeDamage.Read(inputs.Armed, inputs.Get), inputs.Conversion, spell: !inputs.Attack && !inputs.Secondary,
+        var raw = addedPhysical.IsZero ? inputs.Raw : inputs.Raw.Add(DamageType.Physical,
+            addedPhysical.Scale(inputs.AddedDamageEffectiveness));
+        var hit = PlayerHitDamage.Resolve(raw, WeaponAttributeDamage.Read(inputs.Armed, inputs.Get), inputs.Conversion, spell: !inputs.Attack && !inputs.Secondary,
             melee: inputs.Melee, area: inputs.Area, projectile: inputs.Projectile,
             supportModifiers: inputs.Modifiers, skillTypes: inputs.Types,
             wieldingBow: inputs.WieldingBow, wieldingWand: inputs.WieldingWand, retaliation: inputs.Attack && inputs.Types.Contains(120),
@@ -1306,6 +1317,7 @@ public static partial class Game
     {
         var gem = SupportedSkill(player, skillId);
         if (SkillsFor(player).EffectId(gem.Effect) is not { } effectId) return null;
+        if (effectId == SpellslingerEffect) return SpellslingerReservation(player, skillId);
         if (IsBlessing(gem)) return null;
         var sourceReservation = SkillsFor(player).Reservation(gem.Effect, gem.Level);
         if (CurseCatalog.Hex(effectId) || effectId == "TemporalChains")
@@ -1318,6 +1330,9 @@ public static partial class Game
                 return new(0, 0, 0, 0);
         }
         if (sourceReservation is not { } reservation) return null;
+        if (effectId == ManaInfusedStaffEffect && gem.Stats.GetValueOrDefault(
+                Stat.ActiveSkillAlwaysReservesUnmodifiableXPctOfMana) is > 0 and var fixedMana)
+            return new(0, fixedMana * 100, 0, 0) { FixedMana = true };
         if (gem.Stats.GetValueOrDefault(Stat.BaseSkillNoReservation) != 0
             || gem.Stats.GetValueOrDefault(Stat.AuraSkillNoReservation) != 0)
             return new(0, 0, 0, 0);

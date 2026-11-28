@@ -131,8 +131,7 @@ public static partial class Game
             IncomingResourceDefences.LessTakenPct(player.Pools, Get),
             typedIncreasedPct: ActorScale.Saturate((long)Get(Stat.FireDamageTakenPlusPct) + Get(Stat.ElementalDamageTakenPlusPct)),
             finalTakenPct: Get(IncomingResourceDefences.UnhingedSaneDamageFinal));
-        int life = IncomingResourceDefences.DamageOverTime(player.EnergyShield, damage,
-            Get(IncomingResourceDefences.BypassStat), now, ref flame.BypassCarry);
+        int life = DamagePlayerNonChaosOverTime(player, DamageType.Fire, damage, now, Get, ref flame.BypassCarry);
         player.PlayerLife = VaalImmortalCallLife(player, (uint)Math.Max(0, (long)player.PlayerLife - life), now);
         if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); RecordHardcoreDeath(player); }
     }

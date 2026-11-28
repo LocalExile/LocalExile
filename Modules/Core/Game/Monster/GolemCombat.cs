@@ -933,9 +933,10 @@ public static partial class Game
                 + (prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeMultiplierPlusVsFocusedTarget) : 0)) / 100.0;
         bool fullLife = g.Monster.Life >= g.Monster.MaxLife;
         int extraDoubleDamage = MinionDoubleDamageChanceLocked(player, g, fullLife, now);
-        var rolled = GolemRollHit(a.Attack.Damage.Scale(factor), effects, a.Attack.Spell, AreaRng(player),
-            fullLife, SkeletonWeaponTripleDamage(player, g, a, now), extraDoubleDamage);
         MinionHitProfiles.TryGetValue(a, out var profile);
+        var hitPacket = MinionHitAgainst(a, profile, target, now);
+        var rolled = GolemRollHit(hitPacket.Scale(factor), effects, a.Attack.Spell, AreaRng(player),
+            fullLife, SkeletonWeaponTripleDamage(player, g, a, now), extraDoubleDamage);
         bool ignoreElemental = g.Shield > 0
             && g.Monster.Mods.Effects[Stat.HitsIgnoreEnemyElementalResistancesWhileHasEnergyShield] != 0;
         var resistanceMods = new HitResistances.Mods(
@@ -966,7 +967,7 @@ public static partial class Game
             return range.Scale(Math.Max(0, 1 - effective / 100));
         });
         bool ignorePhysical = MinionIgnoresPhysicalReduction(mitigated, effects, target, random, a.Stats);
-        int projectileTaken = projectile ? MinionProjectileCurseStat(target, Stat.ProjectileDamageTakenPlusPct, now) : 0;
+        int projectileTaken = projectile ? ProjectileCurseStat(target, Stat.ProjectileDamageTakenPlusPct, now) : 0;
         int damage = MonsterTakesMitigatedCore(target, mitigated, a.Attack.Spell, now, projectileTaken, ignorePhysical, random);
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
@@ -1279,7 +1280,7 @@ public static partial class Game
                     {
                         Payload = offense, ReturnAnchor = canReturn ? owner : null, ProjectileTargets = landings,
                         TargetSplit = (target, at) => player.Area.Monsters.GetValueOrDefault(target.Id) is { Hostile: true } victim
-                            ? MinionProjectileCurseStat(victim, Stat.ProjectilesHittingSelfSplitIntoX,
+                            ? ProjectileCurseStat(victim, Stat.ProjectilesHittingSelfSplitIntoX,
                                 at / (double)ProjectileRuntime.QuantaPerSecond) : 0
                     });
             }
@@ -1290,16 +1291,9 @@ public static partial class Game
             {
                 Payload = offense, ReturnAnchor = canReturn ? owner : null, ProjectileTargets = landings,
                 TargetSplit = (target, at) => player.Area.Monsters.GetValueOrDefault(target.Id) is { Hostile: true } victim
-                    ? MinionProjectileCurseStat(victim, Stat.ProjectilesHittingSelfSplitIntoX,
+                    ? ProjectileCurseStat(victim, Stat.ProjectilesHittingSelfSplitIntoX,
                         at / (double)ProjectileRuntime.QuantaPerSecond) : 0
             });
-    }
-
-    static int MinionProjectileCurseStat(SpawnedMonster target, uint stat, double now)
-    {
-        if (!target.HasCurses || target.Curses[stat] == 0) return 0;
-        target.Curses.Expire(now);
-        return target.Curses[stat];
     }
 
     static void GolemMeteorLocked(Player player, GolemState.Golem g, double now)
@@ -1355,7 +1349,7 @@ public static partial class Game
                     chaos: hazard.Type == DamageType.Chaos, overTime: true)
                     + hazard.DamageCarry.GetValueOrDefault(id);
                 int damage = (int)Math.Floor(total); hazard.DamageCarry[id] = total - damage;
-                if (damage <= 0 || ApplyTypedMonsterHitLocked(player, m, damage, hazard.Type == DamageType.Chaos ? damage : 0, allyAt: centre) is not { } hit) continue;
+                if (damage <= 0 || ApplyMonsterIndirectDamageLocked(player, m, damage, hazard.Type == DamageType.Chaos ? damage : 0, allyAt: centre) is not { } hit) continue;
                 if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
                 CommitMinionHitLocked(player, id, m, hit, damage, now, $"golem {g.Id:x} ground damage",
                     source: g.Monster, skill: g.Own, fighter: g, damageOverTime: true);

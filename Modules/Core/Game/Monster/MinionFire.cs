@@ -22,9 +22,13 @@ public static partial class Game
         IReadOnlyDictionary<uint, int>? skill, bool damageOverTime = false)
     {
         var effects = minion.Effects;
-        long increased = (long)effects[Stat.DamagePlusPct] + effects[Stat.AreaDamagePlusPct]
-            + (type == DamageType.Fire ? (long)effects[Stat.FireDamagePlusPct] + effects[Stat.ElementalDamagePlusPct]
-                : effects[Stat.ChaosDamagePlusPct]);
+        long typedIncrease = type switch
+        {
+            DamageType.Fire => (long)effects[Stat.FireDamagePlusPct] + effects[Stat.ElementalDamagePlusPct],
+            DamageType.Physical => effects[Stat.PhysicalDamagePlusPct],
+            _ => effects[Stat.ChaosDamagePlusPct],
+        };
+        long increased = (long)effects[Stat.DamagePlusPct] + effects[Stat.AreaDamagePlusPct] + typedIncrease;
         if (damageOverTime) increased += (long)effects[Stat.DamageOverTimePlusPct] + effects[Stat.BurnDamagePlusPct];
         int Own(uint stat) => skill?.GetValueOrDefault(stat) ?? 0;
         var support = skill?.Select(p => (p.Key, p.Value)) ?? [];
@@ -137,12 +141,16 @@ public static partial class Game
         double radius = MinionFireRadius(minion, 22);
         double raw = MinionFireDamage(minion, monster.MaxLife * (percent / 100d), damageOverTime: false);
         var damagePacket = DamagePacket.Of(DamageType.Fire, raw, raw);
+        var rng = AreaRng(player);
         GolemDieLocked(player, minion, now);
         foreach (var (id, target) in player.Area.Monsters.ToArray())
         {
             if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable || target.Asleep
                 || Dist(target.Walk.Position(now), at) > radius + LivingCollision.Size(target)) continue;
-            var mitigated = MitigateMonsterHit(target, damagePacket, now,
+            var added = PoachersAddedPhysical(target, now);
+            int physical = added.IsZero ? 0 : added.Scale(MinionAreaDamageFactor(monster, DamageType.Physical, minion.Own)).Roll(rng);
+            var contact = damagePacket.Add(DamageType.Physical, new(physical, physical));
+            var mitigated = MitigateMonsterHit(target, contact, now,
                 cannotPenetrateOrIgnore: monster.Mods.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances]);
             int damage = MonsterTakesMitigated(target, mitigated, spell: false, now);
             if (damage > 0) CommitMinionFireDamage(player, id, target, damage, at, now, "Minion Instability", minion);

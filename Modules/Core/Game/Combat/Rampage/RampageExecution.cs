@@ -41,7 +41,10 @@ public sealed class RampageWorld(GameServer.Modding.IModuleLifetime? sourceOwner
     public readonly Dictionary<uint, (double Until, ushort Buff)> Blinds = [];
     public readonly Dictionary<uint, double> SentBlinds = [];
     public sealed record Strike(double At, long Epoch, uint ActorId, SpawnedMonster Actor,
-        uint TargetId, SpawnedMonster Target, GameServer.Core.World.DamagePacket Damage, bool Area, int Accuracy);
+        uint TargetId, SpawnedMonster Target, GameServer.Core.World.DamagePacket Damage, bool Area, int Accuracy)
+    {
+        internal double AddedEffectiveness { get; init; } = 1;
+    }
     public readonly List<Strike> Strikes = [];
     public readonly HashSet<uint> Exploded = [];
     public void Enable() { if (!Enabled) { Enabled = true; Epoch = ConnectionWorker.NextEpoch(); } }

@@ -270,13 +270,16 @@ public static partial class Game
 
     /// <summary>Maim's relative walk factor and the movement_velocity_+% the client should hold. Maim adds -30 into the
     /// monster's existing increased/reduced movement bucket; it never overwrites the speed roll or another modifier.</summary>
-    public static (double Factor, int Pct) MaimedMovementFactor(SpawnedMonster m, double now)
+    public static (double Factor, int Pct) MaimedMovementFactor(SpawnedMonster m, double now) => MaimedMovementFactor(m, now, 0);
+
+    static (double Factor, int Pct) MaimedMovementFactor(SpawnedMonster m, double now, int groundHinder)
     {
         int basePct = m.Effects.MovementPct;
         int maimPct = now < m.MaimedUntil ? -30 : 0;
         // The totem notable's local stat specifies 25%. The common 30% Hinder can expire independently.
         int timedHinder = Math.Max(m.HinderedUntil > now ? 30 : 0, m.TotemHinderedUntil > now ? 25 : 0);
-        int hinderPct = Math.Max(Math.Max(Math.Max(SpiderHinder(m, now), timedHinder), WitherHinder(m, now)), BlightHinder(m, now).Slow);
+        int hinderPct = Math.Max(Math.Max(groundHinder, Math.Max(SpiderHinder(m, now), timedHinder)),
+            Math.Max(WitherHinder(m, now), BlightHinder(m, now).Slow));
         int lowLife = MonsterOnLowLife(m) ? m.Effects[Stat.MovementVelocityPlusPctWhenOnLowLife] : 0;
         int totalPct = basePct + maimPct - hinderPct + lowLife;
         bool debilitated = now < m.DebilitatedUntil;
@@ -539,6 +542,7 @@ public static partial class Game
             poisonSkill, out double poisonDps, out double poisonSeconds))
             {
                 player.Area.ActivePoisonMonsters.Add(targetId);
+                if (owned) AlchemistGroundOnAilmentLocked(player, m, DamageType.Chaos, now);
                 if (m.Poisons.Stacks(now) > poisonStacksBefore || m.Poisons.Until > poisonUntilBefore)
                     ShowPoisonBuff(player, targetId, m, PoisonBuffToShow(player, m, now));
                 if (playerHit && Player(Stat.PoisonReflectedToSelf) != 0 && Player(Stat.CannotBePoisoned) == 0
@@ -655,9 +659,10 @@ public static partial class Game
         double trap = BearTrapWalkFactor(m, now);
         double snare = EnsnaredWalkFactor(m, now);
         if (!m.RuleAilments.Idle) packets.AddRange(AlternateAilmentBuffs(id, $"monster 0x{id:x} ({m.Label})", m.RuleAilments, now));
+        int groundHinder = StormbindHinder(player.Area, m, now);
         bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
         bool lowLifeMove = MonsterOnLowLife(m) && m.Effects[Stat.MovementVelocityPlusPctWhenOnLowLife] != 0;
-        if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1 && trap == 1 && snare == 1
+        if (elementalIdle && groundHinder == 0 && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1 && trap == 1 && snare == 1
             && m.Effects[Stat.ActionSpeedMinusPct] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown && !lowLifeMove) return;
         if (!elementalIdle)
         {
@@ -669,7 +674,7 @@ public static partial class Game
             }
         }
         double action = MonsterActionFactor(m, now, freeze: false);
-        var (walk, movementPct) = MonsterWalkModifiers(m, now, action, vines, trap, snare);
+        var (walk, movementPct) = MonsterWalkModifiers(m, now, action, vines, trap, snare, groundHinder);
         if (walk != a.WalkFactor)
         {
             // PlayerWalk cannot represent zero. Keep the last recoverable speed so thawing or an expiry can restore
@@ -694,7 +699,7 @@ public static partial class Game
             a.SentActionSpeed = speed;
             SetStats(player, id, [(key, speed)]);
         }
-        bool maimed = TimedWalkDebuff(now, m) || SpiderHinder(m, now) != 0
+        bool maimed = groundHinder != 0 || TimedWalkDebuff(now, m) || SpiderHinder(m, now) != 0
             || lowLifeMove || trap != 1 || snare != 1;
         bool maimShown = m.MaimedMovementShown;
         bool movementChanged = maimed
@@ -712,11 +717,11 @@ public static partial class Game
         }
     }
 
-    static (double Factor, int Pct) MonsterWalkModifiers(SpawnedMonster m, double now, double action, double vines, double trap, double snare)
+    static (double Factor, int Pct) MonsterWalkModifiers(SpawnedMonster m, double now, double action, double vines, double trap, double snare, int groundHinder = 0)
     {
         // Maim changes movement only. Bear Trap's movement multiplier also enters the client's movement_velocity stat.
         bool speedFloored = m.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0;
-        var movement = MaimedMovementFactor(m, now);
+        var movement = MaimedMovementFactor(m, now, groundHinder);
         double lessMove = trap * snare * (now < m.CoveredInAshUntil ? .8 : 1);
         if (lessMove != 1 && !(speedFloored && lessMove < 1))
             movement = (movement.Factor * lessMove, (int)Math.Round((100 + movement.Pct) * lessMove - 100));

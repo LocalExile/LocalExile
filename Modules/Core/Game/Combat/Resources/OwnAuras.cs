@@ -345,6 +345,7 @@ public static partial class Game
                 SupportEffectPct = support.EffectPct, AffectsSelf = support.AffectsSelf, Stance = stance,
                 ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency,
                 FixedManaReservation = reservation.Value.FixedMana,
+                FixedLifeReservation = reservation.Value.FixedLife,
             };
             repriced = WithCasterAuraStamps(player, repriced, input.Raw);
             if (repriced == aura) continue;

@@ -108,8 +108,7 @@ public static partial class Game
         int damage = IncomingResourceDefences.TakenOverTime(raw * (1 - resistance / 100d), Get, ref state.TakenCarry,
             IncomingResourceDefences.LessTakenPct(player.Pools, Get),
             typedIncreasedPct: ActorScale.Saturate((long)Get(Stat.FireDamageTakenPlusPct) + Get(Stat.ElementalDamageTakenPlusPct)));
-        int life = IncomingResourceDefences.DamageOverTime(player.EnergyShield, damage,
-            Get(IncomingResourceDefences.BypassStat), now, ref state.BypassCarry);
+        int life = DamagePlayerNonChaosOverTime(player, DamageType.Fire, damage, now, Get, ref state.BypassCarry);
         player.PlayerLife = VaalImmortalCallLife(player, (uint)Math.Max(0, (long)player.PlayerLife - life), now);
         if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); RecordHardcoreDeath(player); }
         return life;

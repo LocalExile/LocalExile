@@ -468,11 +468,15 @@ public static partial class Game
     // The explosion's hit before the target's mitigation: the corpse's maximum Life x percent as physical damage, with the
     // owner's global increases and more multipliers, then his global conversion and gain as extra (poewiki Explode: global,
     // not attack or spell, stats apply). Increases apply before conversion, as for every hit on the server.
-    public static DamagePacket CorpseExplosionHit(uint corpseMaxLife, int percent, Func<uint, int> get, DamageConversion conversion)
+    public static DamagePacket CorpseExplosionHit(uint corpseMaxLife, int percent, Func<uint, int> get, DamageConversion conversion) =>
+        CorpseExplosionHit(corpseMaxLife, percent, get, conversion, default);
+
+    static DamagePacket CorpseExplosionHit(uint corpseMaxLife, int percent, Func<uint, int> get, DamageConversion conversion,
+        DamageRange addedPhysical)
     {
         double damage = corpseMaxLife * (double)percent / 100;
         long increased = (long)get(Stat.DamagePlusPct) + get(Stat.PhysicalDamagePlusPct) + get(Stat.AreaDamagePlusPct);
-        return DamagePacket.Of(DamageType.Physical, damage, damage)
+        return DamagePacket.Of(DamageType.Physical, new DamageRange(damage, damage).Add(addedPhysical))
             .Scale(Math.Max(0, 1 + increased / 100.0) * ChargeEffects.DamageMore(get)).Convert(conversion);
     }
 
@@ -509,7 +513,9 @@ public static partial class Game
                     && Dist(e.Value.Walk.Position(now), centre) <= blast).ToList())
                 {
                     var rng = AreaRng(player);
-                    var resisted = MitigateMonsterHit(m, hit.Roll(rng), now, penetration, cannotPenetrate, lowestElemental);
+                    var added = PoachersAddedPhysical(m, now);
+                    var contact = added.IsZero ? hit : CorpseExplosionHit(corpse.MaxLife, percent, Get, conversion, added);
+                    var resisted = MitigateMonsterHit(m, contact.Roll(rng), now, penetration, cannotPenetrate, lowestElemental);
                     int witheredElemental = WitheredElementalHitTaken(m, player.Id, now, witherElementalPerStack);
                     int damage = MonsterTakesMitigated(m, resisted, false, now, random: rng, additionalElementalTakenPct: witheredElemental);
                     int chaosDamage = MonsterHitChaosDamage(m, resisted, false, now, damage,

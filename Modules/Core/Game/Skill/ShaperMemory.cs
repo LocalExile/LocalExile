@@ -133,20 +133,24 @@ public static partial class Game
             var weapon = HandWeapon(player, AttackHand.Main);
             var (coefficient, effectiveness) = catalog.DamageCoefficients(effect, level);
             var raw = SupportedAttackDamage.Raw(weapon, Get, default, coefficient, effectiveness, melee: true);
-            var hit = PlayerHitDamage.Resolve(raw, Get, SupportedAttackDamage.WithWeaponGains(new(), weapon), spell: false,
-                melee: true, area: true, additionalIncreased: SupportedAttackDamage.WeaponIncrease(weapon, Get),
+            var conversion = SupportedAttackDamage.WithWeaponGains(new(), weapon);
+            long increased = SupportedAttackDamage.WeaponIncrease(weapon, Get);
+            DamagePacket Resolve(DamageRange added) => PlayerHitDamage.Resolve(
+                raw.Add(DamageType.Physical, added.Scale(effectiveness / 10000d)), Get, conversion, spell: false,
+                melee: true, area: true, additionalIncreased: increased,
                 additional: new()
                 {
                     MeleePhysicalMorePct = Get(Stat.WarBannerPhysicalDamagePlusPctFinalWithMeleeSkills),
                     MaximumMore = (DamageTypeHistory.Physical, Get(Stat.MaximumPhysicalAttackDamagePlusPctFinal)),
                     AttackMorePct = Get(NonInstantAttackMore),
                 });
+            var hit = Resolve(default);
             session.Runtime.Schedule(finish, () =>
             {
                 if (Alive())
                 {
                     session.World(id, InstanceProtocol.Teleport(id, aim.X, aim.Y));
-                    HitArea(hit, aim, SkillArea.Radius(ShaperMemorySlamRadius, Get, spell: false), false);
+                    HitArea(hit, Resolve, aim, SkillArea.Radius(ShaperMemorySlamRadius, Get, spell: false));
                 }
                 Remove();
             });
@@ -200,8 +204,10 @@ public static partial class Game
         else
         {
             int repeatCount = 1 + Math.Max(0, GolemStat(own, Stat.SkillRepeatCount));
-            var raw = SpellHit.Resolve(SkillHitPlan.ForSkill(catalog, effect, level, 0), Stats, stats, own, new DamageConversion(),
-                AddedEffectiveness(player, effect, level));
+            var plan = SkillHitPlan.ForSkill(catalog, effect, level, 0);
+            var conversion = new DamageConversion();
+            double effectiveness = AddedEffectiveness(player, effect, level);
+            var raw = SpellHit.Resolve(plan, stats, own, conversion, effectiveness, default);
             const string projectile = "Metadata/Projectiles/ShaperProjectileLegacyRose";
             var profile = GatewayProjectileModifiers.Resolve(new ProjectileProfile(projectile)
                 { Speed = 90, Radius = 2, Range = 100, Pierce = -1, DirectDamage = true }, Get, attack: false);
@@ -216,7 +222,9 @@ public static partial class Game
                                 return ProjectileHitResult.Miss;
                             double now = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
                             var pen = new Penetration.PerType(0, GolemStat(own, Stat.BaseReduceEnemyColdResistancePct), 0, 0);
-                            int damage = MonsterTakes(enemy, raw, AreaRng(player), spell: true, pen, now);
+                            var added = PoachersAddedPhysical(enemy, now);
+                            var hit = added.IsZero ? raw : SpellHit.Resolve(plan, stats, own, conversion, effectiveness, added);
+                            int damage = MonsterTakes(enemy, hit, AreaRng(player), spell: true, pen, now);
                             return Damage(contact.Target.Id, enemy, damage, false, now) ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
                         }),
                     });
@@ -231,12 +239,18 @@ public static partial class Game
             session.Runtime.Schedule(session.Runtime.Now + ProjectileRuntime.Time(.1), Check);
         }
 
-        void HitArea(DamagePacket packet, (int X, int Y) at, int radius, bool spell)
+        void HitArea(DamagePacket packet, Func<DamageRange, DamagePacket> resolve, (int X, int Y) at, int radius)
         {
             double now = AreaTime(player);
             foreach (var (enemyId, enemy) in area.MonstersNear(at, radius).ToArray())
+            {
                 if (enemy.Hostile && !enemy.Dead && Dist(enemy.Walk.Position(now), at) <= radius)
-                    Damage(enemyId, enemy, MonsterTakes(enemy, packet, AreaRng(player), spell, now: now), false, now);
+                {
+                    var added = PoachersAddedPhysical(enemy, now);
+                    var hit = added.IsZero ? packet : resolve(added);
+                    Damage(enemyId, enemy, MonsterTakes(enemy, hit, AreaRng(player), spell: false, now: now), false, now);
+                }
+            }
         }
 
         bool Damage(uint enemyId, SpawnedMonster enemy, int amount, bool dot, double now)

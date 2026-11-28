@@ -37,6 +37,8 @@ public static partial class Game
 
     public static string? TriggerOnlyReason(SupportedGem gem)
     {
+        if (gem.Stats.GetValueOrDefault(Stat.SpellslingerTriggerOnWandAttackPct) > 0)
+            return "this spell can only trigger when Spellslinger fires it";
         if (CooldownTriggerSupport(gem) is { } timed)
             return timed.Effect.Id == AutoexertionSupport
                 ? "this warcry can only be triggered by Autoexertion" : "this spell can only be triggered by Automation";
@@ -72,6 +74,8 @@ public static partial class Game
             return "Foulgrasp triggers when a supported Brand is recalled";
         if (GolemStat(gem.Stats, Stat.TriggeredPrismaticBurst) != 0)
             return "Prismatic Burst triggers on a supported attack hit";
+        if (GolemStat(gem.Stats, Stat.TriggeredHextoad) != 0)
+            return "Bursting Toad triggers from a supported cursed ground";
         if (GolemStat(gem.Stats, Stat.TriggeredByInfernalCry) != 0)
             return "Combust triggers on an attack exerted by Infernal Cry";
         if (GolemStat(gem.Stats, Stat.TriggeredByShockwaveSupport) != 0)
@@ -99,6 +103,7 @@ public static partial class Game
         if (gem.Effect >= 0)
         {
             string effect = Skills.EffectId(gem.Effect) ?? "";
+            if (IsDoomBlastEffect(effect)) return "Doom Blast triggers when a supported hex ends";
             if (effect == SummonSacredWispEffect) return "Sacred Wisps are summoned by a supported wand hit";
             if (IsRelicSkill(effect)) return "Summon Elemental Relic triggers automatically; manual use is unavailable";
         }

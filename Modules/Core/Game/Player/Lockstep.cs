@@ -13,6 +13,8 @@ public static partial class Game
             && player.LockstepSkill.Channel == player.ChannelSkillSequence
             && (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill
                 || CurrentChargedDash(player) is not null
+                || CurrentDivineIre(player) is not null
+                || CurrentStormbind(player) is not null
                 || ActiveWitherChannel(player) is not null
                 || ActiveAimedPulseChannel(player) is not null
                 || IsBladeFlurryChannelling(player, player.ChannelSkill, player.ChannelGeneration, player.ActionCount));
@@ -232,6 +234,8 @@ public static partial class Game
                 {
                     AimChargedDash(player, channelAimAtRelease, at);
                     AimBladeFlurry(player, channelAimAtRelease);
+                    AimDivineIre(player, channelAimAtRelease);
+                    AimStormbind(player, channelAimAtRelease);
                     AimPulseChannel(player, channelAimAtRelease);
                 }
                 ended = channel;

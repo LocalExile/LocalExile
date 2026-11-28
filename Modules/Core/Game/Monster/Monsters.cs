@@ -684,6 +684,12 @@ public static partial class Game
             Release = projectile is null || effect < 0 ? null : MonsterReleaseFor(player, variety, effect, level, projectile),
         };
         if (IsEssenceExplosiveInsect(variety.Id)) attack = EssenceInsectAttack(player, level, skillId, mods.Effects, EssenceInsectEffectFor(variety.Id));
+        else if (friendly && !baseDamage.IsZero)
+        {
+            int attackLevel = effect < 0 ? 1 : catalog.MonsterEffectLevel(effect, level);
+            double effectiveness = catalog.DamageCoefficients(effect, attackLevel).Added / 10000d;
+            FriendlyAttackDamageInputs.Add(attack, new(baseDamage, mods.Effects, level, effectiveness));
+        }
         var skill = effect >= 0
             ? catalog.FindByRow(attack.SkillId, effect, level,
                 MonsterActionSkillStats(player, effect, level, attack, mods.Effects)) : null;
@@ -3258,6 +3264,13 @@ public static partial class Game
         // Untiring: avoidance, suppression and what a block keeps out count as prevented; damage taken as another type does not.
         PreventedDamageOf(player).Add(now, shifted[DamageType.Physical].Min - physicalDamage);
         if (!blocked) m.HitPlayerAt = now;
+        if (StatOf(Stat.BaseElementalDamageHeals) != 0)
+        {
+            int elemental = Math.Max(0, damage - physicalDamage - chaosDamage);
+            RecoverElementalDamageAsLife(player, elemental, StatOf);
+            damage -= elemental;
+            ailmentTaken = ailmentTaken.Select((type, range) => DamageTypes.IsElemental(type) ? default : range);
+        }
         if (m.Hostile && damage > 0 && HasFrostShieldZones(player))
         {
             int kept = AbsorbFrostShield(player, player.Walk.Position(now), m.Walk.Position(now), damage, now);

@@ -249,6 +249,14 @@ public sealed class MonsterIgnites
     /// <see cref="Stacks"/> strongest together).</summary>
     public double PerSecond(double now) => Dealing(active.Where(i => i.From <= now && now < i.Until).ToList(), 0);
 
+    public double StrongestDamagePerSecond(double now)
+    {
+        double strongest = 0;
+        foreach (var ignite in active)
+            if (ignite.From <= now && now < ignite.Until) strongest = Math.Max(strongest, ignite.DamagePerSecond);
+        return strongest;
+    }
+
     /// <summary>A hit that dealt fire damage tries to ignite. Critical hits always do; otherwise the chance rolls, then the
     /// target's avoidance. The damage per second is an independent roll in the context's range, as the incoming
     /// ailments roll theirs (<c>ApplyPlayerAilmentsLocked</c>). True when an ignite was added.</summary>

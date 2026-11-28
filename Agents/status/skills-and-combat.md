@@ -71,7 +71,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Own-aura restriction (#304). Docs: [11](../docs/protocol/11-skills.md) Â§10c.
 - Spell skills deal no damage (#293). Docs: [20](../docs/protocol/20-damage.md) Â§2g.
 - Spells are released at the cast animation's contact keyframe. Docs: [11](../docs/protocol/11-skills.md) Â§9.
-- Pride on enemies. Docs: [11](../docs/protocol/11-skills.md) Â§12.
+- Pride and Flesh and Stone track enemy effects from each player independently in shared areas.
+  Docs: [11](../docs/protocol/11-skills.md) §12.
 
 - Bladestorm swings around the player and creates timed Blood or Sand storms with their respective buffs.
 - Chain Hook pulls and hits at beam contact at range, and uses the weapon stance's swing at close range.
@@ -290,7 +291,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Watcher's Eye modifiers for Pride combat, elemental and critical penetration, Grace blind, Haste debuff expiry,
   and Clarity mana recovery apply while the matching aura is active. The legacy Zealotry modifiers apply to
   owned Consecrated Ground and grant Arcane Surge when creating it.
-- Flesh and Stone and Blood and Sand. Docs: [11](../docs/protocol/11-skills.md) Â§12.
+- Flesh and Stone and Blood and Sand.
+  Royale Precision, Vitality, Clarity and Blood and Sand use their own gem values.
+  Docs: [11](../docs/protocol/11-skills.md) §12.
 - Passive-granted skills and Summon Elemental Relic.
   Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md).
 - Equipment-granted Bear Trap, Wintertide Brand, Decoy Totem, Smite, Frostblink, Summon Stone Golem, Convocation,
@@ -433,7 +436,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Blood Rage: attack speed, physical attack life leech, Frenzy Charge chance on kill and its physical degeneration;
   a kill refreshes it (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Auras, reservation, Pride, heralds (Herald of Thunder's bolts drawn in the worn skin; walls block them) and
-  permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) Â§13.
+  permanent spell buffs, including Mana-Infused Staff's fixed reservation and block wave and Spellslinger's linked
+  reservations and wand triggers.
+  Docs: [11](../docs/protocol/11-skills.md) §13.
 - Animated equipment, including Self Reflection. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Animated Guardian keeps its equipment on death and is unavailable in that non-hideout instance.
 - Summons: quality, source recovery, spell repeats, and enemy-seeking undamageable Skitterbots; mines and traps
@@ -454,7 +459,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Ball Lightning applies repeated bolts with one hit interval per target and release. Orbiting steers one orb along
   a widening spiral, checks clearance at each grid step and shares the client's seeded launch speed for hand casts.
   Static places a finite orb for self-casts, damage triggers and mines and uses the same hit interval.
-- Frost Bomb uses its crystal duration and pulse or detonation behavior for supported triggers and totems.
+- Frost Bomb variants use their crystal duration and pulse or detonation behavior.
+  Forthcoming scales hits and damaging ailments independently by duration, including traps, mines and totems.
 - Detonate Dead and Volatile Dead use eligible corpses and their timed effects across supported cast and proxy paths.
 - Cremation variants place finite geysers and resolve their corpse and impact effects.
 - Unearth pierces along its flight and creates a usable Bone Archer corpse at the landing.
@@ -473,6 +479,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Arc cannot chain straight back. Arc of Oscillating can, while Arc of Surging turns chain modifiers into more split
   targets. Spell totems, traps and mines use their linked Arc variant. Vaal Arc branches twice without reusing targets
   and grants a timed Lucky Arc buff.
+- Hexblast and its variants keep their primary target, hex-gated splash and hex consumption when cast by spell totems.
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
@@ -493,6 +500,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   `ActionResultFlag` encoder, and chance-based instant cooldown reset sync (`0x50cd`/`0x52e2`; not checked live).
   Docs: [11](../docs/protocol/11-skills.md) §5, §9, §10g.
 - Predictive/monster `0x1ae` channel end, Divine Ire `0x233f` stages, Flame Dash `0x2c8` segment (not checked live).
+- Paid stationary Predictive channels continue with an unchanged aim; moving channels retain the aim timeout.
+- Blood of Corruption grants Gluttony of Elements. Its timed Vaal aura converts elemental damage into Life recovery,
+  grants curse immunity and prevents soul gain while active.
 - Incremental `0x00c6` flask charges, `0x0174` item-use results and 0x00bb/0x00bc/0x01c9/0x01ca/0x02d9 encoders.
 - Vaal Animate Weapon transforms eligible melee drops and landed Bladefall of Trarthus blades into temporary unique weapons.
 - Conversion Trap temporarily changes the triggering enemy's allegiance. Converted enemies can attack hostiles,
@@ -501,7 +511,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Skewers impales with its secondary hit and shares the killing-blow reflection.
 - Blade Trap and its variants sweep with two blades, with their own rotation count or duration and a shared
   per-target hit interval.
-- Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) Â§12.
+- Hexes and marks: Punishment Debilitate, Alchemist's/Sniper's/Poacher's Marks, Mark on Hit, Impending Doom,
+  Cursed Ground, Hextoad Bursting Toad and Royale hexes/marks.
+  Docs: [11](../docs/protocol/11-skills.md) §12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing. Eligible placements can summon
   two totems. Skill bars without a saved attack-in-place mask use each bound skill's default.
@@ -567,6 +579,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Both Charged Dash gems channel in place, hit along the steered path and release a final wave. Only the base gem teleports.
   The normal gem moves to a legal landing; the Projection variant stays in place.
   Docs: [11](../docs/protocol/11-skills.md#charged-dash-projection-and-release).
+- Player-cast Divine Ire zaps a limited number of nearby enemies while building stages. Release uses the current aim
+  and the gem’s beam or burst, with independent hit and damaging ailment multipliers.
+- Player-cast Stormbind paints runes that Hinder until they expire or explode. Rune Blast spends mana to improve
+  them and detonates a connected field on release. The Teleportation variant can land on the targeted rune.
+- Orb of Storms splits periodic and lightning-use bolts. Squalls strikes on placement and moves to a struck enemy.
 - Player-cast Flameblast gains paid stages and explodes at its aimed location on release. Celerity also explodes at
   maximum stages, and Contraction loses radius as it stages.
 - Player-cast Lightning Tendrils follows the channel aim, with gem-specific strong pulses and Escalation radius growth.

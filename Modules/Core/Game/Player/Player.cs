@@ -82,7 +82,7 @@ public static partial class Game
                     ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency,
                     IsHerald: IsHeraldAura(effectId),
                     ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual)
-                    { FixedManaReservation = reservation.FixedMana };
+                    { FixedManaReservation = reservation.FixedMana, FixedLifeReservation = reservation.FixedLife };
                 candidate = WithCasterAuraStamps(player, candidate, CharacterStatSources(player).Stats);
                 candidates.Add(stanceSource ? candidate with { StanceOwner = new object() } : candidate);
             }
@@ -1169,7 +1169,7 @@ public static partial class Game
     // The game clock excludes pause; scheduling/network delays change the step size, never the per-second rate.
     static void StartResourceRecovery(Player player, PlayerUpdatesState updates)
     {
-        double lifeCarry = 0, manaCarry = 0, burnCarry = 0, trapCarry = 0, flaskCarry = 0, last = updates.Schedule.Now(player);
+        double lifeCarry = 0, manaCarry = 0, burnCarry = 0, trapCarry = 0, elementalHealingCarry = 0, flaskCarry = 0, last = updates.Schedule.Now(player);
         double lifeRate = 0, esFromLifeRate = 0, manaRate = 0, burnPerSecond = 0, preventedPerSecond = 0, lifeRegenFactor = 1;
         bool zealotsOath = false, convertLifeRegen = false, vaalPact = false, piousEsActive = false;
         double? periodicRegenStart = null;
@@ -1315,7 +1315,7 @@ public static partial class Game
                     ClearPlayerDecay(player);
                     ClearCorruptedBlood(player);
                     ClearEssenceAuraExposure(player);
-                    lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0;
+                    lifeCarry = manaCarry = burnCarry = trapCarry = elementalHealingCarry = flaskCarry = 0;
                     player.NonChaosDotBypassCarry = player.NonChaosDotTakenCarry =
                         player.ChaosDotBypassCarry = 0;
                     FortificationOf(player).Clear();
@@ -1370,10 +1370,11 @@ public static partial class Game
                     burnCarry += (InGracePeriod(player) ? 0 : burnPerSecond * player.ElementalAilments.DamageTakenFactor(now))
                         * seconds * takenFactor;
                     int burnWhole = (int)Math.Truncate(burnCarry); burnCarry -= burnWhole;
-                    int lifeBurn = IncomingResourceDefences.DamageOverTime(player.EnergyShield, burnWhole,
+                    bool healsElemental = ConvertsElementalDamageToHealing(DamageType.Fire, IncomingStat);
+                    int lifeBurn = healsElemental ? 0 : IncomingResourceDefences.DamageOverTime(player.EnergyShield, burnWhole,
                         IncomingStat(IncomingResourceDefences.BypassStat), now, ref player.NonChaosDotBypassCarry);
-                    // Physical trap degeneration shares received Focus and non-chaos DoT bypass with the other sources.
-                    trapCarry += player.TrapDegenPerSecond * seconds * trapTakenFactor;
+                    double elementalDegen = healsElemental ? player.Degens.Elemental : 0;
+                    trapCarry += Math.Max(0, player.TrapDegenPerSecond - elementalDegen) * seconds * trapTakenFactor;
                     int trapWhole = (int)Math.Truncate(trapCarry); trapCarry -= trapWhole;
                     int lifeTrap = IncomingResourceDefences.DamageOverTime(player.EnergyShield, trapWhole,
                         IncomingStat(IncomingResourceDefences.BypassStat), now, ref player.NonChaosDotBypassCarry);
@@ -1411,8 +1412,14 @@ public static partial class Game
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
                     // conversions under Zealot's Oath above still apply (the stats are not removed).
                     if (vaalPact) { nonFlaskLife = leeched.Life; life = 0; }
+                    double elementalHealing = healsElemental && !player.Immune && !LifeRecovery.NonLeechBlocked(RecoveryStat)
+                        ? burnWhole + elementalDegen * seconds * trapTakenFactor : 0;
+                    elementalHealingCarry = elementalHealing > 0 ? elementalHealingCarry + elementalHealing : 0;
+                    double wholeHealing = Math.Truncate(elementalHealingCarry);
+                    elementalHealingCarry -= wholeHealing;
+                    nonFlaskLife += wholeHealing;
                     // Only the base regeneration rate is known to the client; every other source reaches it by the update.
-                    lifeUnpredicted = instantLifeChanged || life > 0 || leeched.Life > 0 || recoupLife > 0 || lifeRecharge > 0
+                    lifeUnpredicted = instantLifeChanged || wholeHealing > 0 || life > 0 || leeched.Life > 0 || recoupLife > 0 || lifeRecharge > 0
                         || (!zealotsOath && (periodicLife > 0 || fortificationLife > 0 || wardBreakLife > 0
                             || unhingedHitLife > 0 || preventedLife > 0));
                     AdvanceTincturesLocked(player, now, seconds, recoveryStats, out double tinctureManaDrain,
@@ -1462,7 +1469,7 @@ public static partial class Game
                     {
                         DeactivateAllTincturesOnDeathLocked(player, now, recoveryStats, ref deactivatedTinctures);
                         ailmentDeathEpoch = player.IncomingHitEpoch; dead = true;
-                        lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0; manaAfter = manaBefore;
+                        lifeCarry = manaCarry = burnCarry = trapCarry = elementalHealingCarry = flaskCarry = 0; manaAfter = manaBefore;
                     }
                     else
                     {

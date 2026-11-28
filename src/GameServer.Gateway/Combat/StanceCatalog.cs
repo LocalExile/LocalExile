@@ -14,7 +14,7 @@ public static class StanceCatalog
     /// <summary>The stable GrantedEffects family of either stance source.</summary>
     public static string SourceFamily(string? effectId) => effectId switch
     {
-        BloodAndSand or Blood or Sand => BloodAndSand,
+        BloodAndSand or "BloodAndSandRoyale" or Blood or Sand => BloodAndSand,
         FleshAndStone => FleshAndStone,
         _ => "",
     };
