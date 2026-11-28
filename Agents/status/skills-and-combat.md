@@ -449,7 +449,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   guard refuses the next before its cost. Immortal Call also sends its cast art, whose sound events are the
   activation sound an instant skill's own 0x1ce does not play. Docs: [11](../docs/protocol/11-skills.md) §12.
   Immortal Call reduces physical and elemental damage over time for the portion of each tick within the buff's duration.
-  Steelskin clears existing bleeding and grants bleeding immunity for its duration.
+  Steelskin clears existing bleeding and grants bleeding immunity for its duration. Molten Shell and its Vaal
+  variant centre reflected damage on the caster's position when the guard explodes or pulses.
 - Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use
   swaps it for its more melee physical damage (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Crushing Fist, Glacial Shield Swipe, Swordstorm, Eviscerate and Shield of Light open a use window on block.

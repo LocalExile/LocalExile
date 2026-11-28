@@ -40,7 +40,7 @@ public static partial class Game
             int absorbed = guard.AbsorbedSincePulse;
             guard.AbsorbedSincePulse = 0;
             guard.NextPulseAt += Math.Floor(now - guard.NextPulseAt) + 1;
-            ReflectMoltenShellDamage(player, guard, absorbed);
+            ReflectMoltenShellDamage(player, guard, absorbed, now);
         }
         if (guard.Until > 0 && now >= guard.Until) EndTriggeredGuard(player, guard, guard.Until);
         return guard;
@@ -87,7 +87,7 @@ public static partial class Game
         ushort buff = guard.Buff; guard.Buff = 0;
         if (buff != 0) player.Area.Buffs.Clear(player.Id, GuardRow(guard.Effect), player.Id);
         if (triggerExplosion && MoltenShellGuard(guard.Effect))
-            ReflectMoltenShellDamage(player, guard, guard.Absorbed);
+            ReflectMoltenShellDamage(player, guard, guard.Absorbed, now);
         player.Pools = PoolsFor(player, player.Pools.Level);
         // Built now and marked sent, so the stats send's own cooldown refresh does not publish the entry a second time:
         // every repeat restarts the bar's cooldown animation on this client (live 2026-11-18).
@@ -100,18 +100,19 @@ public static partial class Game
                 "0x02bc guard cooldown counts after its buff"));
     }
 
-    static void ReflectMoltenShellDamage(Player player, TriggeredGuard guard, int absorbed)
+    static void ReflectMoltenShellDamage(Player player, TriggeredGuard guard, int absorbed, double now)
     {
         if (absorbed == 0 || guard.Reflection <= 0 || guard.Session is not { } session || guard.Gem is not { } gem)
             return;
         double reflected = absorbed * (guard.Reflection / 100d);
         int radius = SkillRadius(player, gem.Stats, true, gem.Effect);
         string name = guard.Effect == VaalMoltenShellEffect ? "Vaal Molten Shell" : "Molten Shell";
+        // Movement can advance while earlier output is still queued. The burst starts where the guard triggered.
+        var centre = player.Walk.Position(now);
         session.Enqueue(async () =>
         {
             if (!session.Active || player.PlayerLife == 0 || player.LeavingArea) return;
             double at = AreaTime(player);
-            var centre = player.Walk.Position(at);
             var deaths = new List<(uint Id, SpawnedMonster M)>();
             foreach (var (id, monster) in player.Area.Monsters.ToArray())
             {
