@@ -3,7 +3,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static bool FrostBombEffect(string? effect) => effect is "FrostBomb" or "FrostBombAltX" or "FrostBombRoyale";
+    static bool FrostBombEffect(string? effect) => effect is "FrostBomb" or "FrostBombAltX" or "FrostBombAltY" or "FrostBombRoyale";
     const ushort FrostBombDebuffRow = 473;
     sealed record FrostBombDebuff(double Started, double Until, int Regeneration);
     static readonly RuleTable<SpawnedMonster, FrostBombDebuff> FrostBombDebuffs = new();
