@@ -528,7 +528,6 @@ public static partial class MonsterSkills
         double walkSpeed, chargeSpeed;
         walkSpeed = m.Walk.Speed;
         chargeSpeed = walkSpeed / Math.Max(.01, 1 + ownPct / 100.0) * Math.Max(.01, 1 + (ownPct + bonusPct) / 100.0);
-        SetStats(player, id, [(Stat.MovementVelocityPlusPct, ownPct + bonusPct)]);
         double startedAt = 0, arrives = 0;
         ushort seq = player.NextActionSequence();
         (int X, int Y) from = default, target = default;
@@ -544,6 +543,8 @@ public static partial class MonsterSkills
             // server's run stopped at, 1 to 10 cells along).
             foreach (var cell in GameServer.Core.World.ClientPathfinder.Line(from, target))
                 if (player.Barrier.Contains(cell) || (cell != from && !m.Walk.Floor(cell.X, cell.Y))) return null;
+            // Only apply the charge movement bonus once the charge is actually admitted at the gate.
+            SetStats(player, id, [(Stat.MovementVelocityPlusPct, ownPct + bonusPct)]);
             // A lockstep client starts the run later than the order (ten charges, sync trace 2026-11-17: it left its cell
             // and arrived 85 ms after the server's walk on average, 12-169 ms), so the walk and the impact wait for it.
             double runsFrom = startedAt + (player.Connection.LockstepClient ? ChargeStartDelay : 0);
@@ -557,9 +558,9 @@ public static partial class MonsterSkills
             m.BusyUntil = Math.Max(m.BusyUntil, arrives + player.LockstepActionTail);
             return InstanceProtocol.ActionStarted(id, from.X, from.Y, target.X, target.Y, a.SkillId, seq, player.MonsterOrderFlags);
         }, $"0x01ab monster 0x{id:x} ({m.Label}) charges with skill 0x{a.SkillId:x4} at {ownPct + bonusPct:+0;-0}% movement speed");
-        if (sent)
-            Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) charge from {from} to {target}: arrives in {arrives - startedAt:0.00} s");
-        bool arrived = sent && await WaitMonsterActionTime(player, id, m, action, arrives);
+        if (!sent) return;
+        Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) charge from {from} to {target}: arrives in {arrives - startedAt:0.00} s");
+        bool arrived = await WaitMonsterActionTime(player, id, m, action, arrives);
         // The step pass runs on frames, so the walk can be a cell or two short at its arrival time; it ends as a charge only
         // once the pass has stepped past the arrival, or a body next to the end stops its last step (sync traces
         // 2026-11-17: 2 cells short of the client's beside the player; then, waiting only for the walk's own clock, 1 to 3

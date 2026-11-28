@@ -303,7 +303,7 @@ public static partial class MapStrongboxes
 
     public static async Task Enter(Player player)
     {
-        if (player.Instance is null || InTown(player) || player.Layout.Walkable is null) return;
+        if (player.Instance is null || IsNonCombatHub(player) || player.Layout.Walkable is null) return;
         var area = Areas.GetOrCreateValue(player.Instance);
         await area.Gate.WaitAsync();
         try
@@ -387,7 +387,13 @@ public static partial class MapStrongboxes
         var area = Areas.GetOrCreateValue(player.Instance);
         if (!area.Shown.TryGetValue(box.Id, out var was) || !ReferenceEquals(was, box))
         {
-            if (was is not null) await SendWorldRemoval(player, box.Id, null);
+            if (was is not null)
+            {
+                int miIdx = type.Components.ToList().IndexOf("MinimapIcon");
+                if (miIdx >= 0)
+                    await SendWorldRecord(player, box.Id, InstanceEntities.HideMinimapIcon(box.Id, (byte)miIdx), null);
+                await SendWorldRemoval(player, box.Id, null);
+            }
             // Chest bit 1 is the box's activated flag: the client plays a trap mod's warning sound (chest_play_warning_sound)
             // and drops the nameplate. Set only once the box is open — a closed box created with it showed no label at all
             // (live 2026-11-22).

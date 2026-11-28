@@ -504,9 +504,10 @@ public sealed class AreaFrames
                     continue;
                 }
                 // Woken at the next frame end, on the Gateway's 1 ms timer (WindowsTimerResolution): a poll of a third of a
-                // frame landed just before a boundary often enough to send frames 22 and 44 ms apart.
+                // frame landed just before a boundary often enough to send frames 22 and 44 ms apart. Truncating to whole ms
+                // avoids adding a systematic +0.5..1 ms bias on top of OS timer slack (and any sub-ms early wake loops once).
                 double wait = next - watch.Elapsed.TotalSeconds;
-                if (wait > 0) await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(wait * 1000)));
+                if (wait > 0) await Task.Delay(Math.Max(1, (int)(wait * 1000)));
                 double now = watch.Elapsed.TotalSeconds;
                 if (now < next) continue;
                 // A frame missed by a late timer goes out now; each one ends after the loops stepped at its start ran.

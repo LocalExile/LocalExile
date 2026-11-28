@@ -129,6 +129,7 @@ public sealed class GameModule : IModule, IDisposable
         global::StrongboxCatalog.LoadGameData();
         global::StrongboxMods.LoadGameData();
         global::MapStrongboxes.LoadGameData();
+        Rules.LoadCampaignCombatAreas();
         global::CampaignDoors.LoadGameData();
         global::CampaignChests.LoadGameData();
         global::WeaponIdentity.LoadGameData();

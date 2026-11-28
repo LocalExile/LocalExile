@@ -403,8 +403,14 @@ public sealed class ExpeditionEncounter : IDisposable
             if (player.TalkingTo == leader) { player.TalkingTo = 0; player.InNpcTalk = false; }
             // Anyone still in the instance keeps the leader: only the last one out removes its bodies.
             if (Clients(player).Any(c => !ReferenceEquals(c, player))) return;
+            int leaderMi = -1;
+            if (player.Area.Monsters.TryGetValue(leader, out var leaderBody) && leaderBody.Variety is { } lv)
+                leaderMi = lv.ComponentsOrBase.ToList().IndexOf("MinimapIcon");
             if (player.Area.Monsters.Remove(leader, out var body)) { body.Dead = true; body.Life = 0; body.ActionGeneration++; }
             player.Instance.World.MonsterOrigins.TryRemove(leader, out _);
+            if (leaderMi >= 0)
+                await SendWorldRecord(player, leader, InstanceEntities.HideMinimapIcon(leader, (byte)leaderMi),
+                    $"0x02bc hide Expedition leader 0x{leader:x} minimap icon");
             await SendWorldRemoval(player, leader, $"Expedition leader 0x{leader:x} removed: {why}");
             state.LeaderId = 0;
             state.LeaderNpc = null;
@@ -623,7 +629,8 @@ public sealed class ExpeditionEncounter : IDisposable
         state.Revealed = true;
         // The detonator's official creates: Animated 0x40, and InteractionAction 0x01 while it can be used.
         await Keep(player, state, state.DetonatorId, DetonatorType, "detonator", () => ExpeditionWire.Object(DetonatorType, plan.Detonator,
-            plan.Rotation, animated: 0x40, interaction: (byte)(state.Stage < Stage.Chain ? 0x01 : 0x00), stateValues: DetonatorStates(state)));
+            plan.Rotation, animated: 0x40, interaction: (byte)(state.Stage < Stage.Chain ? 0x01 : 0x00), stateValues: DetonatorStates(state),
+            hideMinimapIcon: state.Stage >= Stage.Chain));
         for (int i = 0; i < plan.Markers.Count; i++)
         {
             var marker = plan.Markers[i] with { Id = player.TakeObjectId() };
@@ -640,7 +647,8 @@ public sealed class ExpeditionEncounter : IDisposable
             // created as it stands (its StateMachine at 0, 1, 1), for an area made again.
             await Keep(player, state, remnant.Id, RelicType, "remnant", () => ExpeditionWire.Object(RelicType, remnant.Cell, remnant.Rotation,
                 ao: ExpeditionTables.RelicAo, mods: [.. remnant.Mods.Select(m => new ItemMod(ModSection.Explicit, m.Hash, m.Values))],
-                stateValues: state.Broken.Contains(index) ? BrokenRemnant : null));
+                stateValues: state.Broken.Contains(index) ? BrokenRemnant : null,
+                hideMinimapIcon: state.Broken.Contains(index)));
         }
     }
 
@@ -846,6 +854,8 @@ public sealed class ExpeditionEncounter : IDisposable
         await UpdateDetonator(player, state);
         await Update(player, state.DetonatorId, ExpeditionWire.ComponentUpdate(state.DetonatorId, DetonatorType, "InteractionAction", 0x00),
             "Expedition detonator interaction off");
+        await Update(player, state.DetonatorId, ExpeditionWire.ComponentUpdate(state.DetonatorId, DetonatorType, "MinimapIcon", 0x06),
+            "Expedition detonator hide minimap icon");
         double t = state.Clock + ExpeditionTables.FirstFuseFrames / ExpeditionTables.FramesPerSecond;
         for (int k = 0; k < state.Explosives.Count; k++)
         {
@@ -879,6 +889,8 @@ public sealed class ExpeditionEncounter : IDisposable
                 await Effect(player, state, ExpeditionTables.ShockwaveAo, remnant.Cell, "shockwave", baseData: true, ShockwaveFrames);
                 // [capture] a destroyed remnant's StateMachine goes to 0, 1, 1.
                 await Update(player, remnant.Id, ExpeditionWire.StateUpdate(remnant.Id, RelicType, BrokenRemnant, false), "Expedition remnant destroyed");
+                await Update(player, remnant.Id, ExpeditionWire.ComponentUpdate(remnant.Id, RelicType, "MinimapIcon", 0x06),
+                    "Expedition remnant hide minimap icon");
             }
         var broken = state.Broken.Select(i => plan.Remnants[i].Mods).SelectMany(m => m).ToList();
         var active = ExpeditionTables.SumStats(broken);
@@ -900,7 +912,8 @@ public sealed class ExpeditionEncounter : IDisposable
                 // The official dug chest: the area level in its Chest component, its one shared state (encounter) at 1; it
                 // goes on as the chest becomes ready (2) and is opened (3).
                 if (await Keep(player, state, chestId, marker.ChestType, "chest", () => ExpeditionWire.Object(chest.Type, chest.Cell, 0, level,
-                    interaction: (byte)(chest.Ready && !chest.Opened ? 0x01 : 0x00), stateValues: [chest.Opened ? 3 : chest.Ready ? 2 : 1])) is null) continue;
+                    interaction: (byte)(chest.Ready && !chest.Opened ? 0x01 : 0x00), stateValues: [chest.Opened ? 3 : chest.Ready ? 2 : 1],
+                    hideMinimapIcon: chest.Opened)) is null) continue;
                 state.Chests[chestId] = chest;
                 Schedule(state, state.Clock + ExpeditionTables.ChestReadyFrames / ExpeditionTables.FramesPerSecond, "chest", (int)chestId);
                 continue;
@@ -967,6 +980,7 @@ public sealed class ExpeditionEncounter : IDisposable
         if (!state.Chests.TryGetValue(chestId, out var chest) || !chest.Ready || chest.Opened) return;
         chest.Opened = true;
         await Update(player, chestId, ExpeditionWire.ComponentUpdate(chestId, chest.Type, "InteractionAction", 0x00), "Expedition chest interaction off");
+        await Update(player, chestId, ExpeditionWire.ComponentUpdate(chestId, chest.Type, "MinimapIcon", 0x06), "Expedition chest hide minimap icon");
         await Update(player, chestId, ExpeditionWire.ComponentUpdate(chestId, chest.Type, "ObjectMagicProperties", 0x08, 0x00, 0x00, 0x00),
             "Expedition chest opened");
         await Update(player, chestId, ExpeditionWire.StateUpdate(chestId, chest.Type, [3], true), "Expedition chest state 3");

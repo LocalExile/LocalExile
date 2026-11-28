@@ -87,9 +87,8 @@ public static class CampaignDoors
 
     static async Task EnsureAndPresent(Player player)
     {
-        if (!Enabled() || player.Instance is null || InTown(player)
-            || HideoutCatalog.ByArea(player.Layout.Hash) is not null
-            || player.Layout.Id == TutorialObjects.Strand
+        if (!Enabled() || player.Instance is null || IsNonCombatHub(player)
+            || !IsCampaignCombatArea(player.Layout.Id)
             || MapDevices.IsMapArea(player.Layout.Hash)
             || player.Layout.Level is not { } level
             || LabyrinthTrials.InLabyrinth(player.Layout.Id))

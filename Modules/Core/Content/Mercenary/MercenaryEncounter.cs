@@ -399,12 +399,22 @@ public sealed partial class MercenaryModule
 
     async Task Remove(Player player, uint id)
     {
+        int miIdx = -1;
+        if (player.Area.Monsters.TryGetValue(id, out var existing) && existing.Variety is { } ev)
+            miIdx = IndexOf(ev.ComponentsOrBase, "MinimapIcon");
+        else if (player.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+            miIdx = IndexOf(origin.Object.Components, "MinimapIcon");
         player.Instance.World.MonsterOrigins.TryRemove(id, out _);
         foreach (var member in Members(player))
         {
             member.Area.Monsters.Remove(id);
             lock (member.Npcs) member.Npcs.Remove(id);
         }
+        // Hide MinimapIcon before 0x02bd: MercenaryEncounter (row 668) has __col3 == 0, so removing a visible
+        // entity detaches and permanently pins its crossed-swords icon on the minimap/tab map.
+        if (miIdx >= 0)
+            await Everyone(player, member => SendWorldRecord(member, id, InstanceEntities.HideMinimapIcon(id, (byte)miIdx),
+                $"0x02bc hide mercenary 0x{id:x} minimap icon"));
         await Everyone(player, member => SendWorldRemoval(member, id, $"0x02bd remove mercenary 0x{id:x}"));
     }
 
@@ -952,7 +962,8 @@ public sealed partial class MercenaryModule
         uint id = await SpawnMonster(player, allied, run.Level, MonsterRarity.Unique, at.X, at.Y, friendly: true, instanceOwned: true,
             scripted: true, ownedLooks: GearOf(kind, build, run.Level, run.Seed, run), shape: m => m with
             {
-                Name = displayName, Team = MercenaryWire.AlliedTeam, StateMachine = hired, MercenaryBuild = build.Hash16, NpcFlags = 0, InteractionFlags = 1,
+                Name = displayName, Team = MercenaryWire.AlliedTeam, StateMachine = hired, MercenaryBuild = build.Hash16,
+                NpcFlags = 0, InteractionFlags = 1, HideMinimapIcon = true,
             });
         if (id == 0) return;
         if (player.Area.Monsters.TryGetValue(id, out var body)) body.States = hired;

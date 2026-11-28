@@ -274,7 +274,7 @@ public sealed class RitualEncounter
         if (player.Instance is not { } instance) return "no instance";
         if (_states.TryGetValue(instance, out _)) return "the instance has its Ritual already";
         var layout = player.Layout;
-        if (InTown(player) || HideoutCatalog.ByArea(layout.Hash) is not null) return "town or hideout";
+        if (IsNonCombatHub(player)) return "town, hideout, or hub";
         if (layout.Walkable is null || !RitualTables.Loaded) return "no walk map or no Ritual tables";
 
         bool isMap = MapDevices.IsMapArea(layout.Hash);

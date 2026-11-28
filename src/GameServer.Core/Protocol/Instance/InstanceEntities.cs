@@ -301,6 +301,12 @@ public static class InstanceEntities
     public static byte[] ComponentUpdate(uint entityId, byte componentIndex, byte[] data) =>
         new LoginWriter().U16(ComponentUpdateId).U32(entityId).U32(0).U16(0).Blob([componentIndex, .. data]).ToArray();
 
+    /// <summary>S→C 0x02bc MinimapIcon update (slot 20 0x141e75c60): flags 0x06 (has_hidden_override | is_hidden)
+    /// hides the icon in place and prevents Minimap::OnEntityRemoved (0x142193210) from detaching and pinning sticky
+    /// (<c>MinimapIcons.__col3 == 0</c>) icons when a 0x02bd removal follows.</summary>
+    public static byte[] HideMinimapIcon(uint entityId, byte componentIndex) =>
+        ComponentUpdate(entityId, componentIndex, [0x06]);
+
     /// <summary>
     /// S→C 0x2c1 (world group, factory 0x1421cda1c, class 0x1435e81c8, read 0x141fe6dd0; world handler
     /// 0x14218f011 → 0x141dedf80): live base-data KV update. 10-byte object header (u32 entity id, u32 order key,
@@ -1049,6 +1055,8 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>Optional <c>MinimapIcons.dat</c> 1-based override (<c>MinimapIcon</c> flags bit 0 + u16 LE); 0 leaves the
     /// type's default icon unset.</summary>
     public ushort MinimapIcon { get; init; }
+    /// <summary>Writes <c>MinimapIcon</c> flags <c>0x06</c> (override + hidden) at creation so the client shows no icon.</summary>
+    public bool HideMinimapIcon { get; init; }
     /// <summary>The Actor's native stance byte, retained in an instance's creation snapshot.</summary>
     public byte ActorStance { get; init; }
     /// <summary>Clip index within <see cref="PlayerObject.DeadPoseAnimation"/> when created dead (<c>Life == 0</c>).</summary>
@@ -1193,9 +1201,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // event interpreter (0x141df0e19).
                 case "Transitionable": w.U8((byte)(TransitionState & 0x7f)); break;
                 case "MinimapIcon":
-                    if (MinimapIcon > 0) w.U8(1).U16(MinimapIcon);
+                    if (HideMinimapIcon) w.U8(0x06);
+                    else if (MinimapIcon > 0) w.U8(1).U16(MinimapIcon);
                     else w.U8(0);
-                    break;      // slot 20 0x141e75c60: u8 flags (bit 0 -> u16 icon override)
+                    break;      // slot 20 0x141e75c60: u8 flags (bit 0 -> u16 icon override, 0x06 -> hidden)
                 // A boss that speaks (Fairgraves, Merveil, the Siren: their .ot chain reads NPC after Transitionable): the NPC
                 // component's two bytes as NpcObject writes them, without dialogue (+0x20 0: no NPCTalk rows offered) and
                 // no component that must be alive (+0x21 0xff), 17-npcs.md.

@@ -705,8 +705,16 @@ public static partial class Game
         ItemsFor(player).Find(itemId) is { } type && (carried.Contains(type.Hash)
             || type.Quest is { } quest && QuestItems.Removed(quest, f => ClientHasQuestFlag(player, f)));
 
-    // MinimapIcon has no component-update reader. Recreate only the source object with its explicit hidden bit;
-    // keep the opened model, blockers and per-player quest state. Other party members keep their own markers.
+    // Hide the minimap icon on the old entity (0x02bc MinimapIcon 0x06) before 0x02bd removal so sticky (__col3 == 0)
+    // QuestObject markers are erased cleanly instead of detached and pinned on the minimap/tab map.
+    static Task HideQuestObjectMinimapIcon(Player player, uint id, string type)
+    {
+        int miIdx = QuestObjectTypes.Find(type)?.Components.ToList().IndexOf("MinimapIcon") ?? -1;
+        return miIdx >= 0
+            ? SendWorldRecord(player, id, InstanceEntities.HideMinimapIcon(id, (byte)miIdx), null)
+            : Task.CompletedTask;
+    }
+
     public static async Task HideCollectedQuestMarkers(Player player)
     {
         List<(uint Id, Quests.ChestRule Rule, GlyphQuest.Placement At)> chests;
@@ -726,6 +734,7 @@ public static partial class Game
             lock (player.QuestChests) { player.QuestChests.Remove(id); player.QuestChests[next] = (rule, at); }
             player.RemoveBlocker(id);
             player.SetObjectBlocker(next, at.X, at.Y, QuestChestSize, QuestObjectTypes.Find(rule.ChestType)?.ActorOrChest ?? true);
+            await HideQuestObjectMinimapIcon(player, id, rule.ChestType);
             await SendWorldRemoval(player, id, null);
             await SendWorldCreate(player, next, () => InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(rule.ChestType),
                 QuestChestBlob(player, rule, at, rule.Guards is not null || player.Instance.ChestOpened(at.X, at.Y), hideMinimapIcon: true)),
@@ -739,6 +748,7 @@ public static partial class Game
             lock (player.GlyphNests) { player.GlyphNests.Remove(id); player.GlyphNests[next] = nest; }
             player.RemoveBlocker(id);
             player.SetObjectBlocker(next, nest.At.X, nest.At.Y, GlyphQuest.NestSize, QuestObjectTypes.Find(nest.Type)?.ActorOrChest ?? true);
+            await HideQuestObjectMinimapIcon(player, id, nest.Type);
             await SendWorldRemoval(player, id, null);
             await SendWorldCreate(player, next, () => InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(nest.Type),
                 GlyphQuest.NestBlob(nest.At, player.Instance.ChestOpened(nest.At.X, nest.At.Y), hideMinimapIcon: true)),
@@ -789,6 +799,7 @@ public static partial class Game
         lock (player.QuestChests) { player.QuestChests.Remove(use.TargetId); player.QuestChests[opened] = (rule, at); }
         player.RemoveBlocker(use.TargetId);
         player.SetObjectBlocker(opened, at.X, at.Y, QuestChestSize, QuestObjectTypes.Find(rule.ChestType)?.ActorOrChest ?? true);
+        await HideQuestObjectMinimapIcon(player, use.TargetId, rule.ChestType);
         await Game.SendWorldRemoval(player, use.TargetId, null);
         await SendWorldCreate(player, opened, () => InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(player, rule, at, true)),
             $"0x02bb opened quest chest 0x{opened:x} (was 0x{use.TargetId:x})", wake: true, awaitBirth: false);

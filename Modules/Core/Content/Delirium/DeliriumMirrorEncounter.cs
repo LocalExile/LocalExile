@@ -453,12 +453,12 @@ public sealed class DeliriumMirrorEncounter
             int smIdx = MirrorComponents().ToList().IndexOf("StateMachine");
             var animation = smIdx >= 0 && entityId != 0
                 ? InstanceEntities.StateMachineUpdate(entityId, (byte)smIdx, MirrorStates(true)) : null;
+            if (animation is not null)
+                await SendWorldRecord(player, entityId, animation, $"0x02bc Delirium Mirror 0x{entityId:x} interacted = 1");
             foreach (var peer in Clients(player))
             {
                 if (snap is not null)
                     await PlayerOf(peer).Send((byte[])snap.Clone(), "0x02c9 ruleset AfflictionEncounterRules mode 0 (mirror activated)");
-                if (animation is not null)
-                    await PlayerOf(peer).Send((byte[])animation.Clone(), $"0x02bc Delirium Mirror 0x{entityId:x} interacted = 1");
             }
         }
         finally { state.Gate.Release(); }

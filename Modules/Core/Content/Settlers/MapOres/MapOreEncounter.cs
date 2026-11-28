@@ -194,8 +194,8 @@ public sealed class MapOreEncounter
         if (player.Instance is not { } instance) return "no instance";
         if (_instances.TryGetValue(instance, out _)) return "already populated";
         var layout = player.Layout;
-        if (InTown(player) || HideoutCatalog.ByArea(layout.Hash) is not null || layout.Walkable is null)
-            return "town, hideout, or no walk grid";
+        if (IsNonCombatHub(player) || layout.Walkable is null)
+            return "town, hideout, hub, or no walk grid";
 
         // Never spawn map ores inside Kingsmarch or Settlers boss arenas themselves.
         if (layout.Id is "KalguuranSettlersLeague" or MapOreTables.StarfallAreaId

@@ -84,8 +84,7 @@ public sealed class HeistCacheEncounter
     {
         var player = area.Player;
         var layout = player.Layout;
-        if (layout.Walkable is null || InTown(player)
-            || HideoutCatalog.ByArea(layout.Hash) is not null
+        if (layout.Walkable is null || IsNonCombatHub(player)
             || layout.Id == TutorialObjects.Strand
             || LabyrinthTrials.InLabyrinth(layout.Id)) return;
         var state = For(player);
