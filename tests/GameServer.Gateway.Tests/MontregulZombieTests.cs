@@ -52,7 +52,13 @@ public sealed class MontregulZombieTests
     }
 
     [Fact]
-    public async Task Montregul_s_grasp_scales_zombie_stats_wire_size_and_live_equip_refresh()
+    public async Task Montregul_s_grasp_scales_zombies_refreshes_live_and_explodes_hit_kills()
+    {
+        await VerifyScalingWireSizeAndLiveRefresh();
+        await VerifyHitKillExplosionAndGuards();
+    }
+
+    static async Task VerifyScalingWireSizeAndLiveRefresh()
     {
         using var f = new TriggeredSummonTests.Fixture();
         var player = f.Player;
@@ -164,8 +170,7 @@ public sealed class MontregulZombieTests
         }
     }
 
-    [Fact]
-    public async Task Montregul_s_grasp_zombie_hit_kills_explode_for_50_pct_fire_without_chaining_or_brutality_bypass()
+    static async Task VerifyHitKillExplosionAndGuards()
     {
         using var f = new TriggeredSummonTests.Fixture();
         var player = f.Player;
@@ -205,6 +210,14 @@ public sealed class MontregulZombieTests
         Assert.Equal(0u, chainVictim.Life);
         Assert.False(chainVictim.CorpseConsumed);
         Assert.Contains(chainVictimId, player.Area.Monsters.Keys);
+
+        // An already-consumed/shattered corpse killed by a zombie's hit does not explode onto nearby enemies.
+        uint consumedTargetId = player.TakeObjectId();
+        var consumedTarget = SpawnHostile(player, consumedTargetId, (101, 100), maxLife: 1000, life: 1);
+        consumedTarget.CorpseConsumed = true;
+        uint bystanderBeforeConsumed = bystander.Life;
+        Assert.True(Game.GolemHitLocked(player, zombie, attack, consumedTargetId, consumedTarget, now: 5.5));
+        Assert.Equal(bystanderBeforeConsumed, bystander.Life);
 
         // Brutality Support prohibits zombie fire explosion damage (0 dealt to bystander), while still consuming the killed enemy.
         ushort brutalRaiseId = PutBodySkillGems(player, "Raise Zombie", "Brutality Support");

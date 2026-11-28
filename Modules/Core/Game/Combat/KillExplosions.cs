@@ -383,17 +383,16 @@ public static partial class Game
     {
         if (!corpse.Hostile || player.Closed || player.LeavingArea || player.PlayerLife == 0
             || HardcoreProgressBlocked(player)) return;
-        int percent = CharacterPlayerStats(player).GetValueOrDefault(Stat.ZombieExplodeOnKillPctFireDamageToDeal);
+        var playerStats = CharacterPlayerStats(player);
+        int percent = playerStats.GetValueOrDefault(Stat.ZombieExplodeOnKillPctFireDamageToDeal);
         if (percent <= 0) return;
+        if (corpse.CorpseConsumed || !ReferenceEquals(player.Area.Monsters.GetValueOrDefault(corpseId), corpse)) return;
         var at = corpse.Walk.Position(now);
-        if (!corpse.CorpseConsumed && ReferenceEquals(player.Area.Monsters.GetValueOrDefault(corpseId), corpse))
-        {
-            corpse.CorpseConsumed = true;
-            player.Area.Monsters.Remove(corpseId);
-            player.Minions.OutputQueue.Add(new([], "zombie kill explosion removes corpse", WorldId: corpseId, RemovesObject: true));
-            if (player.Connection.Connected && TakeExplosionArt(player, now))
-                QueueExplosionEffect(player, at, KillExplosionAo, "zombie fire kill explosion");
-        }
+        corpse.CorpseConsumed = true;
+        player.Area.Monsters.Remove(corpseId);
+        player.Minions.OutputQueue.Add(new([], "zombie kill explosion removes corpse", WorldId: corpseId, RemovesObject: true));
+        if (player.Connection.Connected && TakeExplosionArt(player, now))
+            QueueExplosionEffect(player, at, KillExplosionAo, "zombie fire kill explosion");
         double factor = MinionAreaDamageFactor(zombie.Monster, DamageType.Fire, zombie.Own)
             * MinionNecromancerCorpseDamage(zombie.Monster.Effects)
             * (1 + 0.04 * (zombie.CombatCharges?.Held(ChargeType.Frenzy) ?? 0));
@@ -402,7 +401,6 @@ public static partial class Game
         var packet = DamagePacket.Of(DamageType.Fire, raw, raw);
         var penetration = Penetration.Of(zombie.Monster.Effects.Stats, Stats, attack: false, zombie.Own);
         double radius = MinionFireRadius(zombie, 22);
-        var playerStats = CharacterPlayerStats(player);
         int cannotPenetrate = zombie.Monster.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances];
         foreach (var (targetId, target) in player.Area.MonstersNear(at, radius))
         {

@@ -160,7 +160,7 @@ public sealed class RecoveryKeystoneTests
     }
 
     [Fact]
-    public void Zealots_oath_converts_flat_percent_and_periodic_regeneration_to_energy_shield()
+    public void Zealots_oath_and_pious_path_convert_and_mirror_life_regeneration_to_energy_shield()
     {
         // Sorrow of the Divine's local flask mod grants RegenerateEnergyShieldInsteadOfLife during flask effect.
         var flaskLocal = new Dictionary<uint, int> { [Stat.LocalFlaskZealotsOath] = 1 };
@@ -182,129 +182,130 @@ public sealed class RecoveryKeystoneTests
             new(Recent: new HashSet<string>([StatConditions.BeenHit]), KnownRecent: new HashSet<string>([StatConditions.BeenHit])));
         Assert.Equal(0, hitStats.GetValueOrDefault(Stat.KeystoneZealotsOath));
 
-        using var f = new TriggeredSummonTests.Fixture();
-        var player = f.Player;
-        var custom = new Dictionary<uint, int>();
-        using var source = GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
         {
-            if (!ReferenceEquals(owner, player)) return stats;
-            foreach (var (k, v) in custom) stats[k] = v;
-            return stats;
-        });
-        player.Pools = player.Pools with { Life = 2000, EnergyShield = 400 };
-        Game.InitializeCharacterVitals(player);
+            using var f = new TriggeredSummonTests.Fixture();
+            var player = f.Player;
+            var custom = new Dictionary<uint, int>();
+            using var source = GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
+            {
+                if (!ReferenceEquals(owner, player)) return stats;
+                foreach (var (k, v) in custom) stats[k] = v;
+                return stats;
+            });
+            player.Pools = player.Pools with { Life = 2000, EnergyShield = 400 };
+            Game.InitializeCharacterVitals(player);
 
-        custom[Stat.BaseLifeRegenerationRatePerMinute] = 600;
-        custom[Stat.LifeRegenerationRatePerMinutePct] = 300;
-        custom[Stat.LifeRegenerationRatePlusPct] = 100;
-        custom[Stat.LifeRecoveryRatePlusPct] = 100;
-        custom[Stat.EnergyShieldRegenerationRatePlusPct] = 50;
-        custom[Stat.EnergyShieldRecoveryRatePlusPct] = 20;
-        custom[Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal] = -10;
-        custom[Stat.RegenerateEnergyShieldInsteadOfLife] = 1;
-        custom[Stat.KeystoneEternalYouth] = 1;
-        custom[Stat.KeystoneVaalPact] = 1;
+            custom[Stat.BaseLifeRegenerationRatePerMinute] = 600;
+            custom[Stat.LifeRegenerationRatePerMinutePct] = 300;
+            custom[Stat.LifeRegenerationRatePlusPct] = 100;
+            custom[Stat.LifeRecoveryRatePlusPct] = 100;
+            custom[Stat.EnergyShieldRegenerationRatePlusPct] = 50;
+            custom[Stat.EnergyShieldRecoveryRatePlusPct] = 20;
+            custom[Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal] = -10;
+            custom[Stat.RegenerateEnergyShieldInsteadOfLife] = 1;
+            custom[Stat.KeystoneEternalYouth] = 1;
+            custom[Stat.KeystoneVaalPact] = 1;
 
-        // Flat (600) + 5%/s of 400 max ES (1200) = 1800 base/min, scaled by ES multipliers (1.5 * 1.2 * 0.9 = 1.62) = 2916/min.
-        // Life regen is 0; Life rates and Eternal Youth do not apply; Vaal Pact leaves converted ES regen intact.
-        var values = Game.CharacterPlayerStatsCore(player, out double lifeRate, out double esRate);
-        Assert.Equal(2916, values.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
-        Assert.Equal(2916, values.GetValueOrDefault(Stat.EnergyShieldRecoveryPerMinute));
-        Assert.Equal(0, values.GetValueOrDefault(Stat.TotalLifeRecoveryPerMinuteFromRegeneration));
-        Assert.Equal(0, values.GetValueOrDefault(Stat.LifeRecoveryPerMinute));
-        Assert.Equal(2916d / 60, lifeRate, 6);
-        Assert.Equal(2916d / 60, esRate, 6);
+            // Flat (600) + 5%/s of 400 max ES (1200) = 1800 base/min, scaled by ES multipliers (1.5 * 1.2 * 0.9 = 1.62) = 2916/min.
+            // Life regen is 0; Life rates and Eternal Youth do not apply; Vaal Pact leaves converted ES regen intact.
+            var values = Game.CharacterPlayerStatsCore(player, out double lifeRate, out double esRate);
+            Assert.Equal(2916, values.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
+            Assert.Equal(2916, values.GetValueOrDefault(Stat.EnergyShieldRecoveryPerMinute));
+            Assert.Equal(0, values.GetValueOrDefault(Stat.TotalLifeRecoveryPerMinuteFromRegeneration));
+            Assert.Equal(0, values.GetValueOrDefault(Stat.LifeRecoveryPerMinute));
+            Assert.Equal(2916d / 60, lifeRate, 6);
+            Assert.Equal(2916d / 60, esRate, 6);
 
-        // Untiring's flat life regen scales by ES multiplier under Zealot's Oath.
-        custom[Stat.GainPctTotalPhysDamagePreventedInThePast10SecAsLifeRegenPerSec] = 1000;
-        var untiring = Game.CachedPlayerStats(player, out _);
-        Assert.Equal(1.62, PreventedDamageRecovery.PerSecond(untiring.GetValueOrDefault), 6);
-        custom.Remove(Stat.GainPctTotalPhysDamagePreventedInThePast10SecAsLifeRegenPerSec);
+            // Untiring's flat life regen scales by ES multiplier under Zealot's Oath.
+            custom[Stat.GainPctTotalPhysDamagePreventedInThePast10SecAsLifeRegenPerSec] = 1000;
+            var untiring = Game.CachedPlayerStats(player, out _);
+            Assert.Equal(1.62, PreventedDamageRecovery.PerSecond(untiring.GetValueOrDefault), 6);
+            custom.Remove(Stat.GainPctTotalPhysDamagePreventedInThePast10SecAsLifeRegenPerSec);
 
-        // NoEnergyShieldRegeneration / NoLifeRegeneration drop converted ES regen to 0.
-        foreach (uint block in new[] { Stat.CannotRegenerateEnergyShield, Stat.NoEnergyShieldRechargeOrRegeneration, Stat.NoLifeRegeneration })
-        {
-            custom[block] = 1;
-            var blocked = Game.CachedPlayerStats(player, out _);
-            Assert.Equal(0, blocked.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
-            custom.Remove(block);
+            // NoEnergyShieldRegeneration / NoLifeRegeneration drop converted ES regen to 0.
+            foreach (uint block in new[] { Stat.CannotRegenerateEnergyShield, Stat.NoEnergyShieldRechargeOrRegeneration, Stat.NoLifeRegeneration })
+            {
+                custom[block] = 1;
+                var blocked = Game.CachedPlayerStats(player, out _);
+                Assert.Equal(0, blocked.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
+                custom.Remove(block);
+            }
+
+            // Without Zealot's Oath, x%_life_regeneration_applies_to_energy_shield applies 20% to ES (maxES + ES multipliers)
+            // while keeping Life regen (maxLife + Life multipliers, blocked from Life display by Vaal Pact).
+            custom.Remove(Stat.RegenerateEnergyShieldInsteadOfLife);
+            custom[Stat.KeystoneEternalYouth] = 0;
+            custom[Stat.XPctLifeRegenerationAppliesToEnergyShield] = 20;
+            var split = Game.CachedPlayerStats(player, out double splitLifeRate);
+            // Life: (600 + 2000 * 3) * 2.0 * 2.0 * 0.9 = 6600 * 3.6 = 23760/min -> 396/s.
+            Assert.Equal(396, splitLifeRate, 6);
+            Assert.Equal(0, split.GetValueOrDefault(Stat.LifeRecoveryPerMinute));
+            // ES: (600*0.2 + 400*0.6) * 1.62 = 360 * 1.62 = 583.2 -> 583/min.
+            Assert.Equal(583, split.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
+
+            // Periodic 4s % life regen (Time of Need / Hunter / Life Mastery) uses maxES * ES multiplier under Zealot's Oath.
+            Assert.Equal(1, Game.PeriodicRegenSeconds(5) - Game.PeriodicRegenSeconds(4));
+            Assert.Equal(1.62, EnergyShield.RegenerationMultiplier(values.GetValueOrDefault), 6);
         }
 
-        // Without Zealot's Oath, x%_life_regeneration_applies_to_energy_shield applies 20% to ES (maxES + ES multipliers)
-        // while keeping Life regen (maxLife + Life multipliers, blocked from Life display by Vaal Pact).
-        custom.Remove(Stat.RegenerateEnergyShieldInsteadOfLife);
-        custom[Stat.KeystoneEternalYouth] = 0;
-        custom[Stat.XPctLifeRegenerationAppliesToEnergyShield] = 20;
-        var split = Game.CachedPlayerStats(player, out double splitLifeRate);
-        // Life: (600 + 2000 * 3) * 2.0 * 2.0 * 0.9 = 6600 * 3.6 = 23760/min -> 396/s.
-        Assert.Equal(396, splitLifeRate, 6);
-        Assert.Equal(0, split.GetValueOrDefault(Stat.LifeRecoveryPerMinute));
-        // ES: (600*0.2 + 400*0.6) * 1.62 = 360 * 1.62 = 583.2 -> 583/min.
-        Assert.Equal(583, split.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
-
-        // Periodic 4s % life regen (Time of Need / Hunter / Life Mastery) uses maxES * ES multiplier under Zealot's Oath.
-        Assert.Equal(1, Game.PeriodicRegenSeconds(5) - Game.PeriodicRegenSeconds(4));
-        Assert.Equal(1.62, EnergyShield.RegenerationMultiplier(values.GetValueOrDefault), 6);
-    }
-
-    [Fact]
-    public void Pious_path_mirrors_active_life_regeneration_to_energy_shield_and_stops_under_zealots_oath()
-    {
-        using var f = new TriggeredSummonTests.Fixture();
-        var player = f.Player;
-        var custom = new Dictionary<uint, int>();
-        using var source = GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
+        // Pious Path mirrors active Life regeneration to Energy Shield on Consecrated Ground and stops under Zealot's Oath.
         {
-            if (!ReferenceEquals(owner, player)) return stats;
-            foreach (var (k, v) in custom) stats[k] = v;
-            return stats;
-        });
-        player.Pools = player.Pools with { Life = 2000, EnergyShield = 400 };
-        Game.InitializeCharacterVitals(player);
+            using var f = new TriggeredSummonTests.Fixture();
+            var player = f.Player;
+            var custom = new Dictionary<uint, int>();
+            using var source = GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
+            {
+                if (!ReferenceEquals(owner, player)) return stats;
+                foreach (var (k, v) in custom) stats[k] = v;
+                return stats;
+            });
+            player.Pools = player.Pools with { Life = 2000, EnergyShield = 400 };
+            Game.InitializeCharacterVitals(player);
 
-        custom[Stat.BaseLifeRegenerationRatePerMinute] = 600;
-        custom[Stat.LifeRegenerationRatePerMinutePct] = 300;
-        custom[Stat.LifeRegenerationRatePlusPct] = 50;
-        custom[Stat.LifeRecoveryRatePlusPct] = 40;
-        custom[Stat.EnergyShieldRegenerationRatePlusPct] = 80;
-        custom[Stat.EnergyShieldRecoveryRatePlusPct] = 20;
-        custom[Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal] = -10;
-        custom[Stat.ConsecratedGroundAlliesRecoverEsAsWellAsLifeFromLifeRegeneration] = 1;
-        custom[Stat.YourConsecratedGroundEffectLingersForMsAfterLeavingTheArea] = 4000;
+            custom[Stat.BaseLifeRegenerationRatePerMinute] = 600;
+            custom[Stat.LifeRegenerationRatePerMinutePct] = 300;
+            custom[Stat.LifeRegenerationRatePlusPct] = 50;
+            custom[Stat.LifeRecoveryRatePlusPct] = 40;
+            custom[Stat.EnergyShieldRegenerationRatePlusPct] = 80;
+            custom[Stat.EnergyShieldRecoveryRatePlusPct] = 20;
+            custom[Stat.MapPlayerLifeAndEsRecoverySpeedPlusPctFinal] = -10;
+            custom[Stat.ConsecratedGroundAlliesRecoverEsAsWellAsLifeFromLifeRegeneration] = 1;
+            custom[Stat.YourConsecratedGroundEffectLingersForMsAfterLeavingTheArea] = 4000;
 
-        // Off Consecrated Ground: Pious Path is inactive.
-        var offGround = Game.CachedPlayerStats(player, out _);
-        Assert.Equal(0, offGround.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
+            // Off Consecrated Ground: Pious Path is inactive.
+            var offGround = Game.CachedPlayerStats(player, out _);
+            Assert.Equal(0, offGround.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
 
-        // Standing on Consecrated Ground (adds 300%/min = 5%/s life regen + activates Pious Path via PlayerStatSteps):
-        // Base life = 600 + 2000 * (300 + 300)/100 = 12600/min; * 1.5 LifeRegenRate = 18900/min before recovery rate.
-        // Life = 18900 * 1.4 * 0.9 = 23814/min; Pious Path ES = 18900 * 1.2 * 0.9 = 20412/min (ignores ES regen rate 80%).
-        player.FlaskGrounds.Configure(0, 4000);
-        player.FlaskGrounds.SetConsecrated(true, () => 1);
-        var onGround = Game.CachedPlayerStats(player, out _);
-        Assert.Equal(1, onGround.GetValueOrDefault(Stat.RecoverEsAsWellAsLifeFromLifeRegeneration));
-        Assert.Equal(23814, onGround.GetValueOrDefault(Stat.TotalLifeRecoveryPerMinuteFromRegeneration));
-        Assert.Equal(20412, onGround.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
+            // Standing on Consecrated Ground (adds 300%/min = 5%/s life regen + activates Pious Path via PlayerStatSteps):
+            // Base life = 600 + 2000 * (300 + 300)/100 = 12600/min; * 1.5 LifeRegenRate = 18900/min before recovery rate.
+            // Life = 18900 * 1.4 * 0.9 = 23814/min; Pious Path ES = 18900 * 1.2 * 0.9 = 20412/min (ignores ES regen rate 80%).
+            player.FlaskGrounds.Configure(0, 4000);
+            player.FlaskGrounds.SetConsecrated(true, () => 1);
+            var onGround = Game.CachedPlayerStats(player, out _);
+            Assert.Equal(1, onGround.GetValueOrDefault(Stat.RecoverEsAsWellAsLifeFromLifeRegeneration));
+            Assert.Equal(23814, onGround.GetValueOrDefault(Stat.TotalLifeRecoveryPerMinuteFromRegeneration));
+            Assert.Equal(20412, onGround.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
 
-        // Eternal Youth halves active Life regeneration and thus halves Pious Path's ES mirror.
-        custom[Stat.KeystoneEternalYouth] = 1;
-        var youth = Game.CachedPlayerStats(player, out _);
-        Assert.Equal(11907, youth.GetValueOrDefault(Stat.TotalLifeRecoveryPerMinuteFromRegeneration));
-        Assert.Equal(10206, youth.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
-        custom.Remove(Stat.KeystoneEternalYouth);
+            // Eternal Youth halves active Life regeneration and thus halves Pious Path's ES mirror.
+            custom[Stat.KeystoneEternalYouth] = 1;
+            var youth = Game.CachedPlayerStats(player, out _);
+            Assert.Equal(11907, youth.GetValueOrDefault(Stat.TotalLifeRecoveryPerMinuteFromRegeneration));
+            Assert.Equal(10206, youth.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
+            custom.Remove(Stat.KeystoneEternalYouth);
 
-        // CannotRegenerateEnergyShield stops Pious Path's ES recovery while Life regeneration keeps running.
-        custom[Stat.CannotRegenerateEnergyShield] = 1;
-        var blockedEs = Game.CachedPlayerStats(player, out _);
-        Assert.Equal(23814, blockedEs.GetValueOrDefault(Stat.TotalLifeRecoveryPerMinuteFromRegeneration));
-        Assert.Equal(0, blockedEs.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
-        custom.Remove(Stat.CannotRegenerateEnergyShield);
+            // CannotRegenerateEnergyShield stops Pious Path's ES recovery while Life regeneration keeps running.
+            custom[Stat.CannotRegenerateEnergyShield] = 1;
+            var blockedEs = Game.CachedPlayerStats(player, out _);
+            Assert.Equal(23814, blockedEs.GetValueOrDefault(Stat.TotalLifeRecoveryPerMinuteFromRegeneration));
+            Assert.Equal(0, blockedEs.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
+            custom.Remove(Stat.CannotRegenerateEnergyShield);
 
-        // When Zealot's Oath is also active, active Life regeneration becomes 0 so Pious Path stops mirroring to ES;
-        // only Zealot's Oath's ES conversion remains: (600 + 400 * 6) * 1.8 * 1.2 * 0.9 = 3000 * 1.944 = 5832/min.
-        custom[Stat.KeystoneZealotsOath] = 1;
-        var withOath = Game.CachedPlayerStats(player, out _);
-        Assert.Equal(0, withOath.GetValueOrDefault(Stat.TotalLifeRecoveryPerMinuteFromRegeneration));
-        Assert.Equal(5832, withOath.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
+            // When Zealot's Oath is also active, active Life regeneration becomes 0 so Pious Path stops mirroring to ES;
+            // only Zealot's Oath's ES conversion remains: (600 + 400 * 6) * 1.8 * 1.2 * 0.9 = 3000 * 1.944 = 5832/min.
+            custom[Stat.KeystoneZealotsOath] = 1;
+            var withOath = Game.CachedPlayerStats(player, out _);
+            Assert.Equal(0, withOath.GetValueOrDefault(Stat.TotalLifeRecoveryPerMinuteFromRegeneration));
+            Assert.Equal(5832, withOath.GetValueOrDefault(Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration));
+        }
     }
 }
