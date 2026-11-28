@@ -379,7 +379,7 @@ public static partial class Game
                     Console.WriteLine($"[gateway] {player.Connection.Remote} {gem.Name} on 0x{id:x} ({m.Label}) evaded ({hitChance}% chance to hit)");
                     continue;
                 }
-                if (MonsterBlocks(m, AreaRng(player), spell: false, now, skillStats))
+                if (MonsterBlocks(m, AreaRng(player), spell: false, now, skillStats, attacker: playerStats))
                 {
                     Console.WriteLine($"[gateway] {player.Connection.Remote} {gem.Name} on 0x{id:x} ({m.Label}) blocked");
                     continue;

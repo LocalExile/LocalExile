@@ -152,6 +152,8 @@ public static partial class Game
                 AddTo(stats, Stat.AttackSpeedPlusPct, totemSpeed);
                 AddTo(stats, Stat.CastSpeedPlusPct, totemSpeed);
             }
+            if (player.RecentEvents.Happened(TotemPlacementCriticalEvent, now))
+                AddTo(stats, Stat.CriticalStrikeChancePlusPct, TotemPlacementCriticalIncrease);
             int castSpeedPerSpell = GetIn(stats, Stat.CastSpeedPlusPctPerNumUniqueSpellsCastRecently);
             int attackMorePerCast = GetIn(stats, Stat.InquisitorAttackDamagePlusPctFinalPerNonInstantSpellCastIn8SecondsMax30Pct);
             if (castSpeedPerSpell != 0 || attackMorePerCast != 0)
@@ -212,7 +214,15 @@ public static partial class Game
             int heraldEffectPct = GetIn(stats, Stat.HeraldEffectOnSelfPlusPct);
             int damagePerHerald = GetIn(stats, Stat.DamagePlusPctForEachHeraldAffectingYou);
             int auraPerHerald = GetIn(stats, Stat.AuraEffectOnSelfFromSkillsPlusPctPerHeraldEffectingYou);
-            int heralds = damagePerHerald == 0 && auraPerHerald == 0 ? 0 : ActiveHeraldCount(auras);
+            int heraldElementalDamage = GetIn(stats, Stat.ElementalDamagePlusPctWhileAffectedByAHerald);
+            int heraldAilmentChance = GetIn(stats, Stat.ChanceToFreezeShockIgnitePctWhileAffectedByAHerald);
+            int heralds = damagePerHerald == 0 && auraPerHerald == 0 && heraldElementalDamage == 0 && heraldAilmentChance == 0
+                ? 0 : ActiveHeraldCount(auras);
+            if (heralds != 0)
+            {
+                AddTo(stats, Stat.ElementalDamagePlusPct, heraldElementalDamage);
+                AddTo(stats, Stat.ChanceToFreezeShockIgnitePct, heraldAilmentChance);
+            }
             if (damagePerHerald != 0 && heralds != 0) AddTo(stats, Stat.DamagePlusPct, (long)damagePerHerald * heralds);
             if (GetIn(stats, Stat.DamagePlusPctPerYourAuraOrHeraldSkillAffectingYou) is int damagePerAura and not 0)
             {
@@ -292,6 +302,16 @@ public static partial class Game
                 FireResistance = Resistance(player, DamageType.Fire), ColdResistance = Resistance(player, DamageType.Cold),
                 LightningResistance = Resistance(player, DamageType.Lightning), ChaosResistance = Resistance(player, DamageType.Chaos),
             })) if (seen.Add(k)) stats[k] = v;
+            if (GetIn(stats, Stat.UnaffectedByIgniteAndShockWhileMaxLifeManaWithin500) != 0
+                && Math.Abs((long)player.Pools.Life - player.Pools.Mana) <= 500)
+            {
+                stats[Stat.UnaffectedByIgnite] = 1;
+                stats[Stat.UnaffectedByShock] = 1;
+            }
+            int attributeCritical = LowestStrengthOrIntelligenceCriticalIncrease(player.Pools,
+                GetIn(stats, Stat.IncreaseCritChanceByLowestOfStrOrInt));
+            if (attributeCritical != 0)
+                AddTo(stats, Stat.CriticalStrikeChancePlusPct, attributeCritical);
         });
         // The overcapped lightning resistance's increased crit (PoolsFor derived it once into Pools): the spell consumers read
         // the raw increased stats here (SpellCriticalStrike), while the attack and panel chances already fold the same value
@@ -300,13 +320,31 @@ public static partial class Game
         {
             if (player.Pools.LightningOvercapCritPct is int overCrit and not 0 && Stat.CriticalStrikeChancePlusPct is var critInc)
                 stats[critInc] = (int)Math.Clamp((long)stats.GetValueOrDefault(critInc) + overCrit, int.MinValue, int.MaxValue);
+            bool firePenetration = GetIn(stats, Stat.OvercappedFireResistanceGainAsFirePenetration) != 0;
+            int coldDot = GetIn(stats, Stat.ColdDamageOverTimeMultiplierPlusPer4PctOvercappedColdResistance);
+            if (firePenetration)
+                AddTo(stats, Stat.BaseReduceEnemyFireResistancePct,
+                    Math.Min(200, DamageModel.Overcap(Resistance(player, DamageType.Fire), MaxResistance(player, DamageType.Fire))));
+            if (coldDot != 0)
+            {
+                int overcap = DamageModel.Overcap(Resistance(player, DamageType.Cold), MaxResistance(player, DamageType.Cold));
+                AddTo(stats, Stat.ColdDotMultiplierPlus, (long)coldDot * (overcap / 4));
+            }
+            if (firePenetration || coldDot != 0)
+            {
+                double now = AreaTime(player);
+                if (player.RuleAilments.NextExpiry((int)AlternateKind.Scorch, now) is double expiry)
+                    StatsChangeIn(expiry - now);
+            }
         });
         // "#% increased Damage per 1% Chance to Block Attack Damage": the capped attack block chance in Pools.
         Step(PlayerStatStep.BlockDamage, (player, stats, _) =>
         {
+            int block = Math.Clamp(player.Pools.BlockChance, 0, player.Pools.BlockChanceMax);
             if (GetIn(stats, Stat.DamagePlusPctPer1PctBlockChance) is int perBlock and not 0)
-                AddTo(stats, Stat.DamagePlusPct,
-                    (long)perBlock * Math.Clamp(player.Pools.BlockChance, 0, player.Pools.BlockChanceMax));
+                AddTo(stats, Stat.DamagePlusPct, (long)perBlock * block);
+            if (GetIn(stats, Stat.CriticalStrikeMultiplierPlusPer1PctBlockChance) is int critPerBlock and not 0)
+                AddTo(stats, Stat.BaseCriticalStrikeMultiplierPlus, (long)critPerBlock * block);
         });
         // The passives' conditional attack speed is already one final value in Pools. main_hand_attack_speed_+% is the
         // total the client swings with, so Unarmed reads only it.
@@ -323,8 +361,11 @@ public static partial class Game
         Step(PlayerStatStep.UtilityFlasks, (player, stats, _) =>
         {
             int FlaskGet(uint name) => GetIn(stats, name);
+            int groundEffect = FlaskGet(Stat.ConsecratedGroundEffectPlusPct);
             var running = UtilityStats(player, FlaskGet)
-                .Concat(player.FlaskGrounds.PlayerStats(FlaskGet(Stat.ConsecratedGroundEffectPlusPct))).ToList();
+                .Concat(player.FlaskGrounds.PlayerStats(groundEffect)).ToList();
+            if (OwnConsecratedGroundAccuracy(player, FlaskGet) is long accuracy and not 0)
+                AddTo(stats, Stat.AccuracyRatingPlusPct, accuracy);
             AddItemUtilityFlaskRawStats(stats, running, Stats);
             ApplyWiseOak(stats, running);
             if (player.FlaskGrounds.Consecrated

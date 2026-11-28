@@ -108,7 +108,8 @@ public static partial class Game
         state.Started = now; state.CarriedAge = 0;
         state.NightbladeMultiplier = nightblade ? Skill(Stat.NightbladeElusiveGrantsCriticalStrikeMultiplierPlusToSupportedSkills) : null;
         state.Initial = Math.Max(0, 100d + input.Effect + (double)power * input.PowerEffect
-            + (nightblade ? Skill(Stat.ElusiveEffectPlusPct) : 0));
+            + (nightblade ? Skill(Stat.ElusiveEffectPlusPct) + (double)Skill(Stat.SkillsSupportedByNightbladeHaveElusiveEffectPlusPct)
+                + StatSourceValues(player).GetValueOrDefault(Stat.SkillsSupportedByNightbladeHaveElusiveEffectPlusPct) : 0));
         state.Rate = 20 / Math.Max(.01, 1 + input.LossRate / 100d);
         state.Minimum = Math.Max(0, input.Minimum);
         state.RisingSeconds = Math.Max(0, input.RisingMs) / 1000d;

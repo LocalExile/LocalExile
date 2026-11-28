@@ -77,6 +77,7 @@ public static class Flasks
     {
         // An accepted recipient snapshot, independent of the Game assembly that admitted the paid use.
         public bool CopyManaToLife { get; set; }
+        public int RecoverLifeAtEndPct { get; init; }
         public bool RestoresMana => ManaPerSecond > 0 || ManaAtEnd > 0;
 
         /// <summary>Whether a full pool ends it: a life effect when life is full, a mana one when mana is (a hybrid one when
@@ -108,6 +109,7 @@ public static class Flasks
         readonly List<Running> _lastEnded = [];
         readonly Lock _lock = new();
         const double Done = 1e-9;
+        double advancedThrough;
 
         /// <summary>Whether any flask is recovering.</summary>
         public bool Any
@@ -143,6 +145,7 @@ public static class Flasks
         /// <summary>Starts an effect: it recovers at once, or waits in its queue. Nothing is replaced (null).</summary>
         public Effect? Start(Effect effect) => Changing<Effect?>(() =>
         {
+            if (_running.Count == 0) advancedThrough = effect.Started;
             _running.Add(new Running(effect));
             return null;
         });
@@ -151,6 +154,39 @@ public static class Flasks
         public double Remaining(Effect effect)
         {
             lock (_lock) return _running.FirstOrDefault(r => ReferenceEquals(r.Effect, effect))?.Remaining ?? 0;
+        }
+
+        /// <summary>Reanchors the recovery queue when a new writer takes over without consuming the interval between writers.</summary>
+        public void ResumeAt(double at)
+        {
+            lock (_lock) advancedThrough = at;
+        }
+
+        /// <summary>The effect's projected finish if it ends by the given time, infinity if it is still active then,
+        /// or null if the use has not started or has already been retired. Does not advance recovery or its consumers.</summary>
+        public double? ExpectedEnd(Effect effect, double at)
+        {
+            if (effect.Started > at) return null;
+            lock (_lock)
+            {
+                var current = _running.FirstOrDefault(r => ReferenceEquals(r.Effect, effect));
+                if (current is null || current.Remaining <= Done) return null;
+                if (at <= advancedThrough) return double.PositiveInfinity;
+                double earliestEnd = Math.Max(advancedThrough, effect.Started) + current.Remaining;
+                if (at < earliestEnd) return double.PositiveInfinity;
+                if (effect.Queue == 0) return earliestEnd;
+                var pending = _running.Where(r => r.Effect.Queue == effect.Queue)
+                    .Select(r => new Running(r.Effect) { Remaining = r.Remaining }).ToList();
+                double endAt = double.PositiveInfinity;
+                AdvanceQueue(pending, effect.Queue, advancedThrough, at, (r, started, seconds) =>
+                {
+                    r.Remaining -= seconds;
+                    if (r.Remaining > Done) return;
+                    pending.Remove(r);
+                    if (ReferenceEquals(r.Effect, effect)) endAt = started + seconds;
+                });
+                return endAt;
+            }
         }
 
         /// <summary>The earliest instant at which a running recovery effect can finish, or null when none are running.</summary>
@@ -168,11 +204,15 @@ public static class Flasks
         /// <summary>The life and mana recovered between <paramref name="from"/> and <paramref name="to"/>, and the effects
         /// that ran out by <paramref name="to"/> (removed; one with mana at the end gives it then).</summary>
         public (double Life, double Mana, List<Effect> Ended) Advance(double from, double to,
-            Action<Effect, double>? continuousStep = null)
+            Action<Effect, double>? continuousStep = null) => Advance(from, to, continuousStep, null);
+
+        /// <summary>Advances recovery and reports each consumed effect's exact end, including the time it spent queued.</summary>
+        public (double Life, double Mana, List<Effect> Ended) Advance(double from, double to,
+            Action<Effect, double>? continuousStep, Action<Effect, double>? completedAt)
         {
             double life = 0, mana = 0;
             List<Effect> ended = [];
-            void Run(Running r, double seconds)
+            void Run(Running r, double started, double seconds)
             {
                 life += r.Effect.LifePerSecond * seconds;
                 mana += r.Effect.ManaPerSecond * seconds;
@@ -182,31 +222,41 @@ public static class Flasks
                 mana += r.Effect.ManaAtEnd;
                 _running.Remove(r);
                 ended.Add(r.Effect);
+                completedAt?.Invoke(r.Effect, started + seconds);
             }
             return Changing(() =>
             {
                 foreach (var r in _running.Where(r => r.Effect.Queue == 0).ToList())
-                    Run(r, Math.Min(r.Remaining, Math.Max(0, to - Math.Max(from, r.Effect.Started))));
-                foreach (int queue in new[] { 1, 2 })
-                    for (double t = from; t < to - Done;)
-                    {
-                        var waiting = _running.Where(r => r.Effect.Queue == queue).ToList();
-                        var now = waiting.Where(r => r.Effect.Started <= t + Done).ToList();
-                        double nextStart = waiting.Where(r => r.Effect.Started > t + Done).Select(r => r.Effect.Started).DefaultIfEmpty(to).Min();
-                        if (now.Count == 0)
-                        {
-                            if (nextStart >= to) break;
-                            t = nextStart;
-                            continue;
-                        }
-                        // The highest rate first; of equal ones the earlier.
-                        var first = now.OrderByDescending(r => r.Effect.Rate).ThenBy(r => r.Effect.Started).First();
-                        double seconds = Math.Min(first.Remaining, Math.Min(nextStart, to) - t);
-                        Run(first, seconds);
-                        t += seconds;
-                    }
+                {
+                    double started = Math.Max(from, r.Effect.Started);
+                    Run(r, started, Math.Min(r.Remaining, Math.Max(0, to - started)));
+                }
+                AdvanceQueue(_running, 1, from, to, Run);
+                AdvanceQueue(_running, 2, from, to, Run);
+                advancedThrough = to;
                 return (life, mana, ended);
             });
+        }
+
+        static void AdvanceQueue(List<Running> running, int queue, double from, double to, Action<Running, double, double> run)
+        {
+            for (double t = from; t < to - Done;)
+            {
+                var waiting = running.Where(r => r.Effect.Queue == queue).ToList();
+                var current = waiting.Where(r => r.Effect.Started <= t + Done).ToList();
+                double nextStart = waiting.Where(r => r.Effect.Started > t + Done).Select(r => r.Effect.Started).DefaultIfEmpty(to).Min();
+                if (current.Count == 0)
+                {
+                    if (nextStart >= to) break;
+                    t = nextStart;
+                    continue;
+                }
+                // The highest rate first; of equal ones the earlier.
+                var first = current.OrderByDescending(r => r.Effect.Rate).ThenBy(r => r.Effect.Started).First();
+                double seconds = Math.Min(first.Remaining, Math.Min(nextStart, to) - t);
+                run(first, t, seconds);
+                t += seconds;
+            }
         }
 
         /// <summary>Of the effects a full pool ended (<paramref name="ended"/>, from <see cref="End"/>), the ones that stay at

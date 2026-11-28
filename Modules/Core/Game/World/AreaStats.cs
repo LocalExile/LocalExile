@@ -29,6 +29,15 @@ public static partial class Game
             && ActiveMainHand(player)?.Type?.Class != "Sceptre" && ActiveOffHand(player)?.Type?.Class != "Sceptre")
             stats.Remove(Stat.GladiatorAreaOfEffectPlusPctFinalWhileWieldingMace);
         int typed = SkillArea.TypedIncrease(Get, types);
+        if (known && skills.IsSpell(effect) && skills.IsNova(effect)
+            && Get(Stat.LocalRingNovaSpellsAreaOfEffectPlusPctFinal) is not 0 and var ringNova)
+        {
+            const uint more = Stat.SkillAreaOfEffectPlusPctFinalFromSkillSpecificStat;
+            stats[more] = ActorScale.Saturate(Math.Max(0L, 100L + Get(more)) * Math.Max(0L, 100L + ringNova) / 100 - 100);
+        }
+        if (types.Attack && Get(Stat.UniqueAttacksHaveAreaPlusPctWhileInMainHand) != 0 && ActiveMainHand(player) is { } main)
+            typed = ActorScale.Saturate((long)typed + PlainItemSum(main.Item, ItemsFor(player).Mods)
+                .GetValueOrDefault(Stat.UniqueAttacksHaveAreaPlusPctWhileInMainHand));
         if (Get(Stat.RetaliationSkillAreaOfEffectPlusPct) is int retaliationArea and not 0 && known && skills.IsRetaliation(effect))
             typed = ActorScale.Saturate((long)typed + retaliationArea);
         if (known && skills.EffectId(effect) is { } id)

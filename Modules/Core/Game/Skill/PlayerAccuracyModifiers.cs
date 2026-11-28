@@ -73,6 +73,6 @@ public static partial class Game
             localDifference = (local?.GetValueOrDefault(Stat.LocalAccuracyRating) ?? 0L)
                 - (MainHandLocalSources(player)?.GetValueOrDefault(Stat.LocalAccuracyRating) ?? 0);
         return PlayerAccuracyModifiers.Selected(player.Pools, weapons, Own,
-            GolemStat(playerStats, Stat.BootsImplicitAccuracyRatingPlusPctFinal), localDifference, PlayerBlindValue(player, playerStats).Less);
+            GolemStat(playerStats, Stat.BootsImplicitAccuracyRatingPlusPctFinal), localDifference, PlayerBlindPenalty(player, playerStats));
     }
 }

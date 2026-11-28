@@ -178,11 +178,14 @@ public static partial class Game
         var raw = StatSourceValues(player);
         if (activated && effect >= 0) BlindOnElementalSkillUseLocked(player, effect, now, raw);
         ApplySiphoningSkillUseLocked(player, now, raw);
-        int loss = activated ? raw.GetValueOrDefault(Stat.LoseXManaWhenYouUseSkill) : 0;
+        long loss = activated ? Math.Max(0, raw.GetValueOrDefault(Stat.LoseXManaWhenYouUseSkill)) : 0;
+        if (activated && raw.GetValueOrDefault(Stat.LosePctOfManaWhenYouUseAnAttackSkill) is > 0 and var percent
+            && (effect < 0 || SkillsFor(player).IsAttack(effect)))
+            loss += (long)player.Pools.Mana * Math.Min(percent, 100) / 100;
         if (loss > 0 && player.PlayerMana != 0)
         {
             uint before = player.PlayerMana, maximum = player.Pools.Mana;
-            uint after = before - Math.Min(before, (uint)loss);
+            uint after = before - (uint)Math.Min(before, loss);
             player.PlayerMana = after;
             if (maximum > 0 && (before >= maximum && after < maximum
                 || (long)before * 2 > maximum && (long)after * 2 <= maximum))
@@ -217,6 +220,7 @@ public static partial class Game
             if (HasMapHexes(MapModsOf(player))) RecomputePoolsAndSpeed(player);
             MarkPlayerStats(player, PlayerStatStep.SelfVulnerability);
         }
+        AdvanceWardLocked(player, now);
         AdvancePlayerAilmentsLocked(player, from, now, stats);
         if (player.PlayerLife > 0) AdvanceSiphoningDamageLocked(player, now, stats);
         if (player.PlayerLife > 0) AdvanceHerEmbraceDamageLocked(player, now, stats);

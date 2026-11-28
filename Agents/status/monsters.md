@@ -201,7 +201,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   possessed exiles (Torment) and the special and exceptional rewards' contents are guesses or missing; the active Atlas
   preset is the last one changed.
   Docs: [league encounters](../docs/game/league-encounters.md).
-- Bestiary: maps roll Einhar's mission from their master-mission stats; red and yellow beasts, captured at the kill.
+- Bestiary: maps use their mission and Bestiary Atlas rules, including Bestial Rage on spawned beasts.
 - Abyss: pit, crack arms, wave, reward chest per instance. [Docs](../docs/game/league-encounters.md)
 - Mercenaries & Luminary: Act 3+ campaign and map encounters (`0xa1`/`0xa2`, `0x7b` `0x60`/`0x61`, `0x010c`),
   Take Item/Rucksack, Rematch Warrants, temporary recruits, persistent 3-slot permanent roster (`Mercenary1..3`),

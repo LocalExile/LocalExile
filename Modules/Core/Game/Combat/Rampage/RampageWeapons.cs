@@ -28,12 +28,15 @@ public static partial class Game
         var packet = SkillsFor(player).HitDamage(effect, job.Level).Scale(multiplier);
         double addedEffectiveness = AddedEffectiveness(player, effect, job.Level) * multiplier;
         session.Schedule(ProjectileRuntime.Time(job.At), () => RampageEffectCurrent(player, job.Epoch), () =>
-            new ProjectileUse(profile, new(player.Id, player.ProjectileEpoch), emitter, 1,
+        {
+            var caster = CharacterPlayerStats(player);
+            return new ProjectileUse(profile, new(player.Id, player.ProjectileEpoch), emitter, 1,
                 new(job.Origin.X, job.Origin.Y), new(job.Origin.X + 100, job.Origin.Y))
             { Payload = new ProjectileOffense(packet, true, 10000, own.SpellCriticalChance, 150, job.Tier.Skill.Id)
                 { RampageEpoch = job.Epoch, RampageSkill = own, Effect = effect, Level = job.Level,
                     RampageAddedEffectiveness = addedEffectiveness,
-                    NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(CharacterPlayerStats(player)) } });
+                    TargetCritical = TargetCriticalBonuses.From(caster, null), NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(caster) } };
+        });
     }
 
     static async Task AdvanceRampageWeapons(Player player)

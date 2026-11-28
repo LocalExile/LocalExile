@@ -62,6 +62,8 @@ public sealed class DeliriumMirrorEncounter
         public int[] RewardPoints { get; set; } = [];
         public int[] RewardCounts { get; set; } = [];
         public int InitialRewards { get; set; }
+        public bool MapCompletionRewardHandled { get; set; }
+        public int MapCompletionRewardTypes { get; set; }
         public HashSet<uint> Monsters { get; set; } = [];
         public HashSet<string> SpawnedBosses { get; set; } = [];
         public Dictionary<uint, string> Bosses { get; set; } = [];
@@ -160,13 +162,19 @@ public sealed class DeliriumMirrorEncounter
             int baseTiles = Math.Clamp(InitialRewards > 0 ? InitialRewards : 1, 1, MaxRewardTiles);
             int firstCount = RewardCounts.Length > 0 ? RewardCounts[0] : 0;
             int tierUnlocks = firstCount >= 3 ? (firstCount - 1) / 2 : 0;
-            int desiredTiles = Math.Min(MaxRewardTiles, baseTiles + tierUnlocks);
+            UnlockRewardTiles(baseTiles + tierUnlocks + MapCompletionRewardTypes);
+            TilesDirty = true;
+        }
+
+        public void UnlockRewardTiles(int desiredTiles)
+        {
+            desiredTiles = Math.Min(MaxRewardTiles, desiredTiles);
             if (desiredTiles > Rewards.Length)
             {
                 var list = Rewards.ToList();
                 var pts = RewardPoints.ToList();
                 var cnts = RewardCounts.ToList();
-                int seed = HashCode.Combine(MirrorX, MirrorY, Kills, nextTotal);
+                int seed = HashCode.Combine(MirrorX, MirrorY, Kills, RewardCounts.Sum());
                 while (list.Count < desiredTiles)
                 {
                     int pick = MirrorRewardPool[(int)((uint)(seed = unchecked(seed * 31 + 17)) % (uint)MirrorRewardPool.Length)];
@@ -178,8 +186,8 @@ public sealed class DeliriumMirrorEncounter
                 Rewards = [.. list];
                 RewardPoints = [.. pts];
                 RewardCounts = [.. cnts];
+                TilesDirty = true;
             }
-            TilesDirty = true;
         }
     }
 
@@ -426,6 +434,7 @@ public sealed class DeliriumMirrorEncounter
             {
                 if (state.Stage != MirrorStage.Ready || !Current(player)) return;
                 state.Stage = MirrorStage.Active;
+                state.MapCompletionRewardHandled = global::Game.CurrentMapBossesKilled(player, checkCurrentMonsters: true);
                 state.OuterElapsed = WaveStart;
                 state.OutOfFogSeconds = 0f;
                 state.FogPaused = false;
@@ -557,6 +566,7 @@ public sealed class DeliriumMirrorEncounter
             lock (state)
             {
                 if (state.Stage != MirrorStage.Active) return;
+                ApplyMapCompletionRewardsLocked(player, state);
                 state.LastTickAt = nowTime;
                 bool pauseChanged = pausedNow != state.FogPaused;
                 if (pauseChanged)
@@ -667,6 +677,17 @@ public sealed class DeliriumMirrorEncounter
             (px, py) => SpawnPackAt(player, state, (px, py), 3));
     }
 
+    static void ApplyMapCompletionRewardsLocked(Player player, MirrorState state, bool checkCurrentMonsters = false)
+    {
+        if (state.MapCompletionRewardHandled) return;
+        int extra = player.Instance.AreaStats(() => AreaLeagueStats(player))
+            .GetValueOrDefault(Stat.MapAfflictionAdditionalRewardOnMapComplete);
+        if (extra <= 0 || !global::Game.CurrentMapBossesKilled(player, checkCurrentMonsters)) return;
+        state.MapCompletionRewardHandled = true;
+        state.MapCompletionRewardTypes = Math.Min(MaxRewardTiles, extra);
+        state.UnlockRewardTiles(state.Rewards.Length + state.MapCompletionRewardTypes);
+    }
+
     static readonly ConditionalWeakTable<ItemCatalog, string[]> ClusterJewelBases = [];
 
     static string[] ClusterBases(Player player) => ClusterJewelBases.GetValue(ItemsFor(player),
@@ -767,6 +788,7 @@ public sealed class DeliriumMirrorEncounter
             lock (state)
             {
                 if (state.Stage != MirrorStage.Active) return;
+                ApplyMapCompletionRewardsLocked(player, state, checkCurrentMonsters: true);
                 state.Stage = MirrorStage.Ended;
                 state.FogPaused = false;
                 state.LastTimerSeconds = 0;

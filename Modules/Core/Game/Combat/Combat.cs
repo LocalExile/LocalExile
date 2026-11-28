@@ -687,7 +687,7 @@ public static partial class Game
                     Console.WriteLine($"[gateway] {player.Connection.Remote} attack on 0x{targetId:x} evaded ({hitChance}% chance to hit)");
                     return true;
                 }
-                if (MonsterBlocks(m, AreaRng(player), spell: false))   // Stalwart: nothing of the hit happens
+                if (MonsterBlocks(m, AreaRng(player), spell: false, now: 0, skill: null, attacker: playerStats))
                 {
                     Console.WriteLine($"[gateway] {player.Connection.Remote} attack on 0x{targetId:x} ({m.Label}) blocked");
                     return true;
@@ -752,10 +752,11 @@ public static partial class Game
                 AlchemistChargeOnHitLocked(player, m, contactAt);
                 if (m.Life == 0 && weapon.Melee)
                     FearsomeWarriorOnMeleeKillLocked(player, m, contactAt,
-                        playerStats.GetValueOrDefault(Stat.ChanceToIntimidateNearbyEnemiesOnMeleeKillPct), AreaRng(player));
+                        playerStats.GetValueOrDefault(Stat.ChanceToIntimidateNearbyEnemiesOnMeleeKillPct),
+                        playerStats.GetValueOrDefault(Stat.EnemiesYouIntimidateHaveStunDurationOnSelfPlusPct), AreaRng(player));
                 CaptureHitCorpseDestructionLocked(player, m, directPlayerHit: true, playerStats);
                 CaptureEquippedHitExplosionLocked(m, playerStats);
-                CaptureAttackKillExplosionLocked(m, playerStats);
+                CaptureAttackKillExplosionLocked(m, playerStats, wand: weapon.ItemClass == "Wand");
                 if (stageStarts)
                 {
                     CommitBossStage(player, targetId, m, ProjectileWorldTime(player));
@@ -792,7 +793,7 @@ public static partial class Game
                     WithWeaponAilmentStats(ownPenetration, weapon.LocalSources, offHand: hand == AttackHand.Off),
                     at, AreaRng(player), poison: prehit.Poison,
                     blind: BlindHitInput.Capture(playerStats), attackGains: AttackAilmentGains.Capture(playerStats, attack: true),
-                    projectileDamage: false, projectileFreezeChance: 0,
+                    projectileDamage: false, projectileFreezeChance: 0, meleeAttack: weapon.Melee,
                     weaponWitherChance: weapon.LocalSources?.GetValueOrDefault(Stat.LocalWitheredOnHitFor2SecondsPctChance) ?? 0);
                 if (critical) TryDeathmarkedLocked(player, m, at, playerStats);
                 nativeKnockback = TakeNativeKnockbackLocked(m);
@@ -1410,7 +1411,7 @@ public static partial class Game
         }
         bool Current()
         {
-            return !player.Closed && !player.LeavingArea && !player.RageRetired
+            return !player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0
                 && (cooldownUse?.Current(player) ?? (actionToken is null || PlayerActionCurrent(player, action)))
                 && (vaalUse is null || VaalAdmissionCurrent(player, vaalUse))
                 && (channelGeneration is not int generation || ChannelCurrent(player, skillId, action, generation));
@@ -1786,6 +1787,11 @@ public static partial class Game
         if (!locationInstant && gem.Name is not null && placedAdmission is null)
         {
             RecordAcceptedGemUse(player, gem.Effect, to);
+            if (player.PlayerLife == 0)
+            {
+                AbortStartedChannel(player, channelGeneration);
+                return true;
+            }
             if (player.ProjectileRuntime is { Active: true } stormRuntime)
             {
                 lock (LevelUpdatesFor(player).Gate)
@@ -1981,7 +1987,27 @@ public static partial class Game
     {
         RecordUsedSkillLocked(player, acceptedAt, effect, activated);
         bool movement = SkillsFor(player).IsMovement(effect);
-        if (movement) player.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
+        if (movement)
+        {
+            player.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
+            if (activated && StatSourceValues(player).GetValueOrDefault(Stat.SelfPhysicalDamageOnMovementSkillUse) is > 0 and var physical)
+            {
+                using var mutation = ProjectileMutation(player, advance: false);
+                if (player.PlayerLife == 0) return;
+                ApplySelfHitLocked(player, DamagePacket.Of(DamageType.Physical, physical, physical), acceptedAt);
+                var session = ProjectilesFor(player);
+                if (player.PlayerLife == 0)
+                {
+                    int deathEpoch = player.IncomingHitEpoch;
+                    session.Enqueue(() => PlayerDiedAtEpoch(player, "death from movement skill self-damage", deathEpoch));
+                    return;
+                }
+                player.Frames.Area?.Life.Changed(player);
+                if (player.Frames.Area is null)
+                    session.World(player.Id, PlayerLifeUpdate(player), "life after movement skill self-damage");
+                ReleaseDamageTakenTriggers(player, session);
+            }
+        }
         if (SkillsFor(player).IsTravel(effect)) player.RecentEvents.Record(UsedTravelSkillRecently, acceptedAt);
         if (movement && IsDashEffect(SkillsFor(player).EffectId(effect)))
             player.RecentEvents.Record(StatConditions.UsedDash, acceptedAt);
@@ -2149,7 +2175,8 @@ public static partial class Game
                     if (current != gem || cooldownUse?.Current(player) == false
                         || GemSkillInstanceDisabled(player, gem.Effect, skillId) is not null) return null;
                     (int X, int Y) rawAim;
-                    from = player.Walk.Position(ProjectileWorldTime(player));
+                    double acceptedAt = ProjectileWorldTime(player);
+                    from = player.Walk.Position(acceptedAt);
                     if (targetObjectId is uint target)
                     {
                         if (!InstantLocationSkill.TryCommitObject(player, epoch, target, InTown(player), CurrentStats(),
@@ -2182,12 +2209,13 @@ public static partial class Game
                         });
                     }
                     accepted = true;
+                    RecordAcceptedGemUseAt(player, gem.Effect, to, acceptedAt);
                     return PlayerInstantAction(player, skillId, rawAim, targetObjectId);
                 }
             });
         if (accepted)
         {
-            RecordAcceptedGemUse(player, gem.Effect, to);
+            if (player.PlayerLife == 0) return;
             if (SkillsFor(player).IsTravel(gem.Effect)) { QueueFlaskTrigger(player, FlaskEnchantments.Trigger.Travel); LoyaltyTravelSkillTriggered(player); }
             await FrostblinkAreas(player, gem, from, to, cooldownUse);
             await SendNativeCooldownRefresh(player);
@@ -3613,6 +3641,16 @@ public static partial class Game
         CleaveArc? cleave = null;
         bool cleaveAttack = !spell && CleaveAttack(effectId);
         bool tumultContact = channelGeneration is not null && effectId == "CycloneAltX" && radiusOverride is null;
+        if (channelGeneration is int paidGeneration && radiusOverride is null
+            && player.PaidChannel is { } paidRadius && paidRadius.Generation == paidGeneration
+            && paidRadius.Skill == skillId && paidRadius.Effect == gem.Effect
+            && Stat(global::Stat.LightningTendrilsChannelledBaseRadiusPlusPerSecondWhileChannelling) is > 0 and var radiusPerSecond)
+        {
+            double elapsed = Math.Max(0, AreaTime(player) - paidRadius.StartedAt);
+            int basis = SkillArea.BaseRadius(effectId, key => areaStats.GetValueOrDefault(key));
+            int expanded = (int)Math.Min(int.MaxValue, basis + Math.Floor(elapsed * radiusPerSecond));
+            radiusOverride = SkillRadius(player, expanded, areaStats, spell, gem.Effect);
+        }
         int radius = tumultContact || cleaveAttack ? 0 : lacerate?.Waves.Radius ?? shieldWaves?.CentreRadius
             ?? (int)Math.Round((radiusOverride ?? (divineBlast && !immediate
             ? SkillRadius(player, Stat(global::Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius), areaStats, spell: false, gem.Effect)
@@ -4581,7 +4619,8 @@ public static partial class Game
                     int hitChance = spell || sunderShockwave ? 100 : AttackHitChanceAt(player, id, m, ProjectileWorldTime(player), accuracy, playerStats);
                     if (!spell && !sunderShockwave && !accuracy.CannotBeEvaded && hammer?.CannotBeEvaded != true
                         && !m.AttackEvasion.Hits(hitChance, ProjectileWorldTime(player), player.AttackAccuracyRandom)) continue;
-                    if (MonsterBlocks(m, AreaRng(player), spell, ProjectileWorldTime(player), skillStats))
+                    if (MonsterBlocks(m, AreaRng(player), spell, ProjectileWorldTime(player), skillStats,
+                            attacker: !spell && SkillsFor(player).IsAttack(gem.Effect) ? playerStats : null))
                     {
                         Console.WriteLine($"[gateway] {player.Connection.Remote} {gem.Name} on 0x{id:x} ({m.Label}) blocked");
                         continue;
@@ -4713,8 +4752,9 @@ public static partial class Game
                     uint lifeBefore = m.Life;
                     var cull = Cull.Of(playerStats, skillStats, critical, spell).WithWeapon(weaponLocal);
                     if (shatterFrozen && !splashMore.ContainsKey(id)) cull = cull with { ShatterFrozen = true };
-                    applied = ApplyMonsterHitLocked(player, m, damage, rampageSource, rampagePlayer, allyAt: null,
-                        cull: cull, cullPlayer: playerStats, chaosDamage: chaosDamage);
+                    applied = ApplyMonsterHitCoreLocked(player, m, damage, rampageSource, rampagePlayer, allyAt: null,
+                        cull: cull, cullPlayer: playerStats, chaosDamage: chaosDamage,
+                        ignoresProximityShield: Stat(global::Stat.IgnoresProximityShield) != 0);
                     if (applied is not null)
                     {
                         if (elementalHitStruck is not null && victim < elementalHitContacts)
@@ -4789,7 +4829,9 @@ public static partial class Game
                         if (ownerContact && applied.Value.Life == 0)
                         {
                             DevourOnKill(player, m, skillStats);
-                            if (!spell && SkillsFor(player).IsAttack(gem.Effect)) CaptureAttackKillExplosionLocked(m, playerStats);
+                            if (!spell && SkillsFor(player).IsAttack(gem.Effect))
+                                CaptureAttackKillExplosionLocked(m, playerStats,
+                                    wand: sweepWeaponClass == "Wand" || secondSweepWeaponClass == "Wand");
                         }
                         AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, multiplier, playerStats, ailmentSkillStats!, at,
                             AreaRng(player), sourceEffect: gem.Effect, reflected: ownerContact ? reflected : null,
@@ -4804,7 +4846,7 @@ public static partial class Game
                         if (critical && hitPlan.Kind == SkillHitKind.Attack)
                             TryDeathmarkedLocked(player, m, at, playerStats);
                         if (GolemStat(skillStats, global::Stat.RemoveChillOnEnemyWhenYouHit) != 0)
-                            m.Ailments.RemoveActive(MonsterElementalAilments.Kind.Chill, at);
+                            if (m.Ailments.RemoveActive(MonsterElementalAilments.Kind.Chill, at)) EndGlacialCageChills(m, at);
                         if (scheduledSession is not null || (melee ?? !spell) || damage > 0)
                             nativeKnockback = TakeNativeKnockbackLocked(m);
                         if (flameSurgeGroundDps > 0)
@@ -5281,7 +5323,7 @@ public static partial class Game
     static MonsterHit? ApplyMonsterHitCoreLocked(Player player, SpawnedMonster m, int damage,
         bool? rampageSource, IReadOnlyDictionary<uint, int>? playerStats, (int X, int Y)? allyAt,
         Cull cull, IReadOnlyDictionary<uint, int>? cullPlayer, int chaosDamage, ImpaleContact? impale = null,
-        bool bypassesShell = false, bool? ownHit = null, bool hitContact = true)
+        bool bypassesShell = false, bool ignoresProximityShield = false, bool? ownHit = null, bool hitContact = true)
     {
         if (m.Dead || m.Life == 0) return null;
         // The Divine shrine's aura: a monster wearing base_cannot_be_damaged (MonsterAuraEffect puts it in the monster's
@@ -5289,7 +5331,8 @@ public static partial class Game
         // path through this funnel leaves its life alone.
         if (m.Effects[Stat.BaseCannotBeDamaged] > 0) return null;
         // A Misery essence's or Temporal rare's proximity shield blocks a hit from outside its ring; Scorn's avoid_damage_% can avoid the hit.
-        if (MapEssences.ProximityShieldBlocksLocked(player, m, allyAt) || MonsterProximityShieldBlocksLocked(player, m, allyAt)) return null;
+        if (!ignoresProximityShield && (MapEssences.ProximityShieldBlocksLocked(player, m, allyAt)
+            || MonsterProximityShieldBlocksLocked(player, m, allyAt))) return null;
         if (damage > 0 && m.Effects[Stat.AvoidDamagePct] is > 0 and var avoid && Random.Shared.Next(100) < avoid) return null;
         double hitNow = ProjectileWorldTime(player);
         if (impale is { } contact)
@@ -5428,7 +5471,7 @@ public static partial class Game
 
     static PlayerRecoveryIntent? CommitPlayerHitRecoveryLocked(Player player, int damage, double now, uint attacker)
     {
-        if (damage <= 0) return null;
+        if (damage <= 0 || KiaraImmunityAt(player, now)) return null;
         var stats = CharacterPlayerStats(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
         void Trace(string reason)
@@ -5795,6 +5838,7 @@ public static partial class Game
     static async Task MonsterKilledBy(Player player,
         uint id, SpawnedMonster m, bool playerKill, bool byHit = true, IReadOnlyDictionary<uint, int>? skillStats = null)
     {
+        if (m.ShockedAtDeath is null) CaptureLootAilmentsAtDeath(m, ProjectileWorldTime(player));
         // Guarantee the mini life bar is hidden for every kill path (AreaStats deduplicates when already set at the hit/DoT site).
         SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
         if (m.HasCurses || playerKill && m.Hostile && (HitMarkedMonsters.TryGetValue(m, out _)
@@ -5832,6 +5876,8 @@ public static partial class Game
         if (SpreadContagion(player, id, m) is { } contagion)
             await ShowContagionSpread(player, contagion.At, contagion.Radius, contagion.Ao);
         double now = AreaTime(player);
+        int flaskChargesPct = ActorScale.Saturate((long)(tinctureKill?.FlaskChargesPct ?? 0)
+            + BleedingKillFlaskChargesPct(player, m.BleedSourcesAtDeath?.Contains(player.Id) == true));
         (int X, int Y) at, playerAt;
         at = m.Walk.Position(now); playerAt = player.Walk.Position(now);
         var explosionEquipment = playerKill ? CaptureKillEquipment(player, m, at, now) : default;
@@ -5909,8 +5955,8 @@ public static partial class Game
             have = player.Character.Experience;
             if (have < needed) await GainExperience(player, needed - have, $"quest: {m.Label} killed, level {level}");
         }
-        if (!MonsterGivesNoRewards(m))
-            await GainKillCharges(player, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed", tinctureKill?.FlaskChargesPct ?? 0);
+        if (MonsterGrantsKillFlaskCharges(m))
+            await GainKillCharges(player, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed", flaskChargesPct);
         await DropLoot(player, m, at, firstBossKill);
     }
 

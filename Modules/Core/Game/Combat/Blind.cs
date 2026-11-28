@@ -52,16 +52,24 @@ public static partial class Game
         var value = state.PlayerBlind.Read(now, player.PlayerLife == 0);
         if (state.PlayerBlind.NextEnd is double end) StatsChangeAt(end, () => ResourceEffectsTime(player));
         var stats = playerStats ?? StatSourceValues(player);
-        bool selfBlinded = player.PlayerLife > 0 && stats.GetValueOrDefault(Stat.KeystoneBlindMonk) != 0;
+        bool selfBlinded = player.PlayerLife > 0 && (stats.GetValueOrDefault(Stat.KeystoneBlindMonk) != 0
+            || stats.GetValueOrDefault(Stat.YouAreBlind) != 0);
         if ((value.Less > 0 || selfBlinded) && BlindImmune(player, stats))
             return state.PlayerBlind.Read(now, true);
         return selfBlinded && value.Less < 20 ? (20, double.PositiveInfinity) : value;
     }
+    static int PlayerBlindPenalty(Player player, IReadOnlyDictionary<uint, int>? playerStats = null)
+    {
+        int less = PlayerBlindValue(player, playerStats).Less;
+        return less != 0 && (playerStats ?? StatSourceValues(player)).GetValueOrDefault(Stat.UnaffectedByBlind) != 0
+            ? 0 : less;
+    }
+
     public static int PlayerBlindAccuracy(Player player, int rating, IReadOnlyDictionary<uint, int>? playerStats = null) =>
-        TimedBlind.Apply(rating, PlayerBlindValue(player, playerStats).Less);
+        TimedBlind.Apply(rating, PlayerBlindPenalty(player, playerStats));
     public static int PlayerAccuracy(Player player, IReadOnlyDictionary<uint, int>? playerStats = null)
     {
-        int blindLess = PlayerBlindValue(player, playerStats).Less;
+        int blindLess = PlayerBlindPenalty(player, playerStats);
         if (blindLess == 0) return player.Pools.Accuracy;
         // BaseStats calls this while building the final dictionary; read raw sources when that dictionary is absent.
         uint moreKey = PlayerAccuracyModifiers.BootsMore;
@@ -70,9 +78,9 @@ public static partial class Game
         return PlayerAccuracyModifiers.Unselected(player.Pools, more, blindLess);
     }
     public static int PlayerEvasion(Player player, IReadOnlyDictionary<uint, int>? playerStats = null) =>
-        TimedBlind.Apply(PlayerEvasionBase(player, ResourceEffectsTime(player)), PlayerBlindValue(player, playerStats).Less);
+        TimedBlind.Apply(PlayerEvasionBase(player, ResourceEffectsTime(player)), PlayerBlindPenalty(player, playerStats));
     public static int PlayerEvasion(Player player, double now) =>
-        TimedBlind.Apply(PlayerEvasionBase(player, now), PlayerBlindValue(player).Less);
+        TimedBlind.Apply(PlayerEvasionBase(player, now), PlayerBlindPenalty(player));
     // The steps that read the player's blind.
     internal static void MarkPlayerBlind(Player player)
     {
@@ -84,7 +92,10 @@ public static partial class Game
     {
         var blind = PlayerBlindValue(player, stats);
         if (blind.Less > 0 || player.ResourceEffectsState is ResourceEffectsState state && state.PlayerBlind.Sent.Less > 0)
-        { stats[973] = blind.Less > 0 ? 1 : 0; stats[15023] = stats[15024] = -blind.Less; }
+        {
+            stats[973] = blind.Less > 0 ? 1 : 0;
+            stats[15023] = stats[15024] = stats.GetValueOrDefault(Stat.UnaffectedByBlind) != 0 ? 0 : -blind.Less;
+        }
     }
     public static bool InflictPlayerBlind(Player player, double seconds, int effect = 0,
         IReadOnlyDictionary<uint, int>? playerStats = null)

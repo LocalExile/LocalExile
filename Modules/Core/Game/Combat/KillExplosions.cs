@@ -62,7 +62,9 @@ public static partial class Game
 
     public readonly record struct KillEquipmentSnapshot(int CursedCorpsePhysicalPct, int PrideChance, int CursedVictimChaosChance)
     {
-        public bool Any => CursedCorpsePhysicalPct > 0 || PrideChance > 0 || CursedVictimChaosChance > 0;
+        public int BannerPhysicalChance { get; init; }
+        public bool Any => CursedCorpsePhysicalPct > 0 || PrideChance > 0 || CursedVictimChaosChance > 0
+            || BannerPhysicalChance > 0;
     }
 
     static KillEquipmentSnapshot CaptureKillEquipment(Player player, SpawnedMonster victim, (int X, int Y) at, double now,
@@ -74,8 +76,14 @@ public static partial class Game
             corpsePercent = 0;
         int prideChance = stats.GetValueOrDefault(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePctWhileUsingPride);
         if (prideChance != 0 && ReservationAura(player, "Pride") is null) prideChance = 0;
+        int bannerChance = stats.GetValueOrDefault(Stat.BannerAffectedEnemiesExplodeFor10PctLifeAsPhysicalOnKillChancePct);
+        if (bannerChance > 0 && (!Banners.TryGetValue(player, out var owner) || owner.Active is not { } banner
+            || player.Instance is not { } instance || !AreaBanners.TryGetValue(instance, out var placed)
+            || !placed.ContainsKey(banner.Object) || now >= banner.Until || Dist(at, banner.At) > banner.Radius))
+            bannerChance = 0;
         return new(corpsePercent, prideChance,
-            victim.CursedAtDeath ? stats.GetValueOrDefault(Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct) : 0);
+            victim.CursedAtDeath ? stats.GetValueOrDefault(Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct) : 0)
+            { BannerPhysicalChance = bannerChance };
     }
 
     static void CaptureEquippedHitExplosionLocked(SpawnedMonster target, IReadOnlyDictionary<uint, int> playerStats)
@@ -84,14 +92,16 @@ public static partial class Game
             target.HitFireExplosionPercent = percent;
     }
 
-    sealed record AttackKillExplosion(int Chance);
+    sealed record AttackKillExplosion(int PhysicalChance, int WandChaosChance);
     static readonly RuleTable<SpawnedMonster, AttackKillExplosion> AttackKillExplosions = new();
 
-    static void CaptureAttackKillExplosionLocked(SpawnedMonster victim, IReadOnlyDictionary<uint, int> stats)
+    static void CaptureAttackKillExplosionLocked(SpawnedMonster victim, IReadOnlyDictionary<uint, int> stats, bool wand = false)
     {
-        if (victim.Life == 0 && victim.Hostile
-            && stats.GetValueOrDefault(Stat.EnemiesExplodeOnDeathByAttackFor10PctLifeAsPhysicalDamage) is > 0 and var chance)
-            AttackKillExplosions.AddOrUpdate(victim, new(chance));
+        if (victim.Life != 0 || !victim.Hostile) return;
+        int physical = stats.GetValueOrDefault(Stat.EnemiesExplodeOnDeathByAttackFor10PctLifeAsPhysicalDamage);
+        int chaos = wand ? stats.GetValueOrDefault(Stat.EnemiesExplodeOnDeathByWandHitFor25PctLifeAsChaosDamagePctChance) : 0;
+        if (physical > 0 || chaos > 0)
+            AttackKillExplosions.AddOrUpdate(victim, new(Math.Max(0, physical), Math.Max(0, chaos)));
     }
 
     // Oriath's End is secondary damage: global/elemental/area modifiers and conversion apply, but attack/spell
@@ -193,6 +203,7 @@ public static partial class Game
         if (equipment is not null) return false;
         return stats.GetValueOrDefault(CursedCorpseBlast) > 0
             || stats.GetValueOrDefault(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePctWhileUsingPride) > 0
+            || stats.GetValueOrDefault(Stat.BannerAffectedEnemiesExplodeFor10PctLifeAsPhysicalOnKillChancePct) > 0
             || stats.GetValueOrDefault(Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct) > 0;
     }
 
@@ -210,15 +221,17 @@ public static partial class Game
         // are separate sources on the same kill).
         var captured = equipment ?? CaptureKillEquipment(player, corpse, at, AreaTime(player), playerStats);
         long percent = (long)generic + (bleeding ? bleedingPercent : 0) + captured.CursedCorpsePhysicalPct;
-        long physicalChance = (long)Get(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct) + captured.PrideChance;
+        long physicalChance = (long)Get(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct)
+            + captured.PrideChance + captured.BannerPhysicalChance;
+        long chaosChance = (long)Get(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct) + captured.CursedVictimChaosChance;
         if (AttackKillExplosions.TryGetValue(corpse, out var attack))
         {
-            physicalChance += attack.Chance;
+            physicalChance += attack.PhysicalChance;
+            chaosChance += attack.WandChaosChance;
             AttackKillExplosions.Remove(corpse);
         }
         if (physicalChance > 0 && AreaRng(player).Next(100) < physicalChance) percent += 10;
-        // The same quarter-life chaos explosion can come from a general or a cursed-enemy source.
-        long chaosChance = (long)Get(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct) + captured.CursedVictimChaosChance;
+        // Quarter-life chaos sources share the same roll and damage.
         int chaosPercent = chaosChance > 0 && AreaRng(player).Next(100) < chaosChance ? 25 : 0;
         // Oriath's End: "(20-30)% chance for Enemies you Kill during Effect to Explode, dealing 10% of their maximum
         // Life as Damage of a Random Element" (the flask's local stat becomes this one while it runs, UtilityFlasks).

@@ -68,6 +68,7 @@ public static class WeaponTypeDamage
             Physical = ActorScale.Saturate((long)weaponIncreases.Physical + rangedPhysical),
             Elemental = ActorScale.Saturate((long)weaponIncreases.Elemental + localElemental),
             MeleePhysicalMorePct = get(Stat.WarBannerPhysicalDamagePlusPctFinalWithMeleeSkills),
+            AdditionalMeleePhysicalMorePct = get(Stat.UniqueLionsRoarMeleePhysicalDamagePlusPctFinal),
             MaximumMore = (DamageTypeHistory.Physical, get(Stat.MaximumPhysicalAttackDamagePlusPctFinal)),
             AttackMorePct = get(Game.NonInstantAttackMore),
         };

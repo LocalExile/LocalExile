@@ -10,6 +10,9 @@ using DamageModel = GameServer.Core.World.DamageModel;
 
 public static partial class Game
 {
+    const string TotemPlacementCriticalEvent = "totem_placement_critical";
+    const int TotemPlacementCriticalIncrease = 40;
+
     /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
     public static void LoadTotemsRulesData()
     {
@@ -442,6 +445,7 @@ public static partial class Game
             var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura, ownStrike, grantedId, ownDevour,
                 row: variety.Row, varietyId: variety.Id, level: level, effectRow: effect)
             { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
+                PhysicalDamageReductionPct = Get(Stat.TotemAdditionalPhysicalDamageReductionPct),
                 SourceHost = SupportedSkill(player, skillId).Host, SourceItem = SupportedSkill(player, skillId).SourceGem,
                 DecoyRadius = decoy && grantedId != 0 ? TotemTargetRange(player, skillId) : 0, BodySize = Math.Max(0, bodySize),
                 PlacementGroup = placementGroup };
@@ -603,7 +607,13 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> stats)
     {
         player.RecentEvents.Record(StatConditions.SummonedTotem, now);
-        if (stats.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPctOnPlacingTotem) != 0)
+        int criticalDuration = stats.GetValueOrDefault(Stat.IncreasedCriticalStrikeChanceBuffForXMillisecondsOnPlacingATotem);
+        if (criticalDuration > 0)
+        {
+            player.RecentEvents.Record(TotemPlacementCriticalEvent, now, criticalDuration / 1000d);
+            EnsureConditionalItemPools(player);
+        }
+        if (criticalDuration > 0 || stats.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPctOnPlacingTotem) != 0)
         {
             MarkPlayerStats(player, PlayerStatStep.Sources);
             PresentStats(player);
@@ -616,7 +626,8 @@ public static partial class Game
             foreach (var (_, enemy) in player.Area.MonstersNear(at, hinderRadius))
                 if (enemy.Hostile && !enemy.Dead && enemy.Life > 0 && !enemy.Invulnerable
                     && Dist(enemy.Walk.Position(now), at) <= hinderRadius)
-                    ApplyHinderLocked(enemy, now, fromTotem: true);
+                    ApplyHinderLocked(enemy, now, fromTotem: true,
+                        regeneration: stats.GetValueOrDefault(Stat.EnemiesYouHinderHaveLifeRegenerationRatePlusPct));
 
         return stats.GetValueOrDefault(Stat.HasOnslaughtIfTotemSummonedRecently) != 0
             && KillOnslaughtOf(player).Gain(now, RecentlySeconds) && Marked(player, PlayerStatStep.Onslaught);
@@ -989,7 +1000,7 @@ public static partial class Game
                 || covers?.Invoke(targetAt) == false || targetFilter?.Invoke(id, targetAt) == false) return;
             if (attack && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(
                 AttackHitChanceAt(player, id, m, now, accuracy, caster), now, player.AttackAccuracyRandom)) return;
-            if (MonsterBlocks(m, AreaRng(player), spell: !attack)) return;
+            if (MonsterBlocks(m, AreaRng(player), spell: !attack, now: 0, skill: null, attacker: caster)) return;
             var addedPhysical = PoachersAddedPhysical(m, now);
             var contactHit = hit;
             if (!addedPhysical.IsZero)
@@ -1015,7 +1026,7 @@ public static partial class Game
             int directDamage = damage;
             if (spellImpale)
             {
-                var settings = ImpaleStats.From(caster, Stats, attack: false, skill.Stats, critical: crit);
+                var settings = WithRingImpaleDuration(ImpaleStats.From(caster, Stats, attack: false, skill.Stats, critical: crit), caster);
                 damage = WithImpaleHitLocked(player, m, damage, rolled, crit,
                     sourceMultiplier + FullLifeCriticalMultiplier(m, caster, skill.Stats), settings).Damage;
             }

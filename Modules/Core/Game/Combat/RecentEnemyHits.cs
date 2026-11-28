@@ -33,9 +33,26 @@ public static partial class Game
     {
         // The caller captures membership before ALL stat readers, which may prune a later clock boundary.
         int Get(uint key) => stats.GetValueOrDefault(key);
-        int chance = RecentEnemyHits.Chance(priorContacts, Get(RecentEnemyHits.PerHit), Get(RecentEnemyHits.GenericChance));
+        int doubleArmourChance = RecentEnemyHits.Chance(priorContacts, Get(RecentEnemyHits.PerHit), Get(RecentEnemyHits.GenericChance));
         int armour = HitArmour(player, player.Pools.Armour, stats);
-        return RecentEnemyHits.Resolve(armour, chance, relevant, player.IncomingHitRandom);
+        if (!relevant || armour <= 0 || doubleArmourChance == 100)
+            return RecentEnemyHits.Resolve(armour, doubleArmourChance, relevant, player.IncomingHitRandom);
+        int perMissingShield = Get(Stat.ChanceToDefendWith150PctArmourPctPer5PctMissingEnergyShield);
+        uint maximumShield = player.EnergyShield.Maximum;
+        if (perMissingShield <= 0 || maximumShield == 0)
+            return RecentEnemyHits.Resolve(armour, doubleArmourChance, relevant, player.IncomingHitRandom);
+        long missing = maximumShield - Math.Min(maximumShield, player.EnergyShield.Current);
+        int masteryChance = (int)Math.Min(100L, 20 * missing / maximumShield * perMissingShield);
+        if (masteryChance == 0)
+            return RecentEnemyHits.Resolve(armour, doubleArmourChance, relevant, player.IncomingHitRandom);
+
+        // One draw accounts for both chances. Double armour wins if both would succeed.
+        int doubleThreshold = doubleArmourChance * 100;
+        int masteryThreshold = doubleThreshold + (100 - doubleArmourChance) * masteryChance;
+        int roll = player.IncomingHitRandom.Next(10_000);
+        if (roll < doubleThreshold) return new(ActorScale.Saturate(2L * armour), doubleArmourChance, true);
+        if (roll < masteryThreshold) armour = ActorScale.Saturate(3L * armour / 2);
+        return new(armour, doubleArmourChance, false);
     }
 
     static int HitArmour(Player player, int ordinary, IReadOnlyDictionary<uint, int> stats)

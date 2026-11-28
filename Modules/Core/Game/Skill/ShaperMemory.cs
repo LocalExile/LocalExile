@@ -141,6 +141,7 @@ public static partial class Game
                 additional: new()
                 {
                     MeleePhysicalMorePct = Get(Stat.WarBannerPhysicalDamagePlusPctFinalWithMeleeSkills),
+                    AdditionalMeleePhysicalMorePct = Get(Stat.UniqueLionsRoarMeleePhysicalDamagePlusPctFinal),
                     MaximumMore = (DamageTypeHistory.Physical, Get(Stat.MaximumPhysicalAttackDamagePlusPctFinal)),
                     AttackMorePct = Get(NonInstantAttackMore),
                 });
@@ -190,12 +191,15 @@ public static partial class Game
                 {
                     if (!Alive()) return;
                     double now = AreaTime(player);
+                    double end = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+                    double start = end - step / (double)ProjectileRuntime.QuantaPerSecond;
                     foreach (var (enemyId, enemy) in area.MonstersNear(centre, reach))
                         if (enemy is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
                             && enemy.Effects[Stat.BaseCannotBeDamaged] == 0
                             && InsideBondBeam(enemy.Walk.Position(now), from, aim, radius))
                         {
-                            int damage = ActorScale.Saturate((long)packet.Components.Sum(p => p.Range.Min * MonsterDotTaken(enemy, p.Type, now)));
+                            int damage = ActorScale.Saturate((long)packet.Components.Sum(p => p.Range.Min
+                                * MonsterDotTakenOver(enemy, p.Type, start, end, now)));
                             Damage(enemyId, enemy, damage, true, now);
                         }
                 });

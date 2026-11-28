@@ -24,13 +24,17 @@ public static partial class Game
     /// <summary>One debuff on the player: its 0x1c1 instance, row, the object it came from, its stats, when it ends
     /// (connection clock seconds; infinity while held) and its holder (null for a timed one).</summary>
     public sealed record PlayerDebuff(ushort Instance, ushort Row, uint Caster, IReadOnlyDictionary<uint, int> Stats,
-        double Until, object? Holder);
+        double Until, object? Holder)
+    {
+        public bool EndsOnDeath { get; init; }
+    }
 
     sealed class PlayerDebuffSet
     {
         public readonly List<PlayerDebuff> Active = [];
         public object? Area;
         public readonly Dictionary<ushort, PlayerDebuff> ActiveCurses = [];
+        public double HinderImmuneUntil = double.NegativeInfinity, MaimImmuneUntil = double.NegativeInfinity;
     }
 
     static readonly ConditionalWeakTable<Player, PlayerDebuffSet> DebuffsOf = new();
@@ -38,6 +42,9 @@ public static partial class Game
     /// <summary>A debuff for its time (seconds): a curse, Withered, an immobilise.</summary>
     public static Task AddPlayerDebuff(Player player, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats,
         double seconds) => ApplyPlayerDebuff(player, row, caster, stats, seconds, null);
+
+    internal static Task AddPlayerDebuff(Player player, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats,
+        double seconds, bool endsOnDeath) => ApplyPlayerDebuff(player, row, caster, stats, seconds, null, endsOnDeath);
 
     /// <summary>A debuff kept until <see cref="ReleasePlayerDebuff"/> with the same holder (a ground's, while the player
     /// stands in it). Holding the same row with the same stats again changes nothing.</summary>
@@ -92,12 +99,13 @@ public static partial class Game
     }
 
     static async Task ApplyPlayerDebuff(Player player, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats,
-        double seconds, object? holder)
+        double seconds, object? holder, bool endsOnDeath = false)
     {
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player) || seconds <= 0) return;
-        if (row == MaimedBuffRow && PlayerAvoidsMaim(PlayerStatValues(player).GetValueOrDefault, AreaRng(player)))
-            return;
         double now = AreaTime(player);
+        if (FlaskMovementImmune(player, row, now)
+            || row == MaimedBuffRow && PlayerAvoidsMaim(PlayerStatValues(player).GetValueOrDefault, AreaRng(player)))
+            return;
         bool curse = PlayerCurseRows.TryGetValue(row, out var definition);
         bool isCurse = curse || row == SilencePlayerBuffRow;
         bool exposure = Array.IndexOf(ExposureBuffRows, row) >= 0;
@@ -120,14 +128,27 @@ public static partial class Game
             else Reflect(player.Area);
         }
         if (defence is not null && (exposure && defence.GetValueOrDefault(Stat.ImmuneToExposure) != 0
-            || isCurse && (CurseImmunity(defence.GetValueOrDefault) || player.FlaskGrounds.CurseImmune || WitchbaneImmunityActive(player, now)
+            || isCurse && (PlayerCurseImmunityAt(player, now, defence.GetValueOrDefault) || player.FlaskGrounds.CurseImmune
+                || WitchbaneImmunityActive(player, now)
                 || row == SilencePlayerBuffRow && PlayerUnaffectedByCurse(player, defence.GetValueOrDefault, row))))
             return;
+        if (exposure && defence?.GetValueOrDefault(Stat.ExposureEffectPlusPct) is int exposureEffect and not 0)
+        {
+            long scale = Math.Max(0L, 100L + exposureEffect);
+            stats = stats.ToDictionary(pair => pair.Key,
+                pair => ActorScale.Saturate((long)pair.Value * scale / 100));
+        }
         var set = DebuffsOf.GetValue(player, _ => new());
         var info = BuffRows.Of(row);
         List<PlayerDebuff> replaced = [];
         ushort instance;
-        if (!ReferenceEquals(set.Area, player.Layout)) { set.Active.Clear(); set.Area = player.Layout; set.ActiveCurses.Clear(); }
+        if (!ReferenceEquals(set.Area, player.Layout))
+        {
+            set.Active.Clear();
+            set.Area = player.Layout;
+            set.ActiveCurses.Clear();
+            set.HinderImmuneUntil = set.MaimImmuneUntil = double.NegativeInfinity;
+        }
         if (holder is not null && set.Active.FirstOrDefault(d => ReferenceEquals(d.Holder, holder) && d.Row == row) is { } held)
         {
             if (SameStats(held.Stats, stats)) return;
@@ -153,7 +174,8 @@ public static partial class Game
                 set.Active.Remove(same);
             }
         instance = player.NextBuff++;
-        set.Active.Add(new(instance, row, caster, stats, holder is null ? now + seconds : double.PositiveInfinity, holder));
+        set.Active.Add(new(instance, row, caster, stats, holder is null ? now + seconds : double.PositiveInfinity, holder)
+            { EndsOnDeath = endsOnDeath });
         foreach (var old in replaced) ClearPlayerDebuff(player, old);
         // Each debuff is a buff of its own (its instance number is its tag: a row that stacks has several from one caster).
         // Curses never stack across casters or held/timed sources: RefreshDebuffedPlayer presents only the strongest active
@@ -197,12 +219,19 @@ public static partial class Game
             || player.ReceivedAuras.Values.Any(aura => aura.EffectId == GluttonyOfElementsEffect);
         List<PlayerDebuff> gone = [];
         bool areaChanged = !ReferenceEquals(set.Area, player.Layout);
-        foreach (var d in set.Active.Where(d => areaChanged || d.Until <= now || gluttonyImmune && PlayerCurseRows.ContainsKey(d.Row)).ToArray())
+        bool dead = player.PlayerLife == 0;
+        foreach (var d in set.Active.Where(d => areaChanged || d.Until <= now || dead && d.EndsOnDeath
+            || gluttonyImmune && PlayerCurseRows.ContainsKey(d.Row)).ToArray())
         {
             if (!areaChanged) gone.Add(d);
             set.Active.Remove(d);
         }
-        if (areaChanged) { set.Area = player.Layout; set.ActiveCurses.Clear(); }
+        if (areaChanged)
+        {
+            set.Area = player.Layout;
+            set.ActiveCurses.Clear();
+            set.HinderImmuneUntil = set.MaimImmuneUntil = double.NegativeInfinity;
+        }
         else if (removeCurses > 0)
         {
             // Persistent sources keep their own conditions; this dispels applied, timed curses.
@@ -217,6 +246,55 @@ public static partial class Game
         await EndPlayerDebuffs(player, set, gone);
     }
 
+    static bool FlaskMovementImmune(Player player, ushort row, double now) =>
+        (row is MaimedBuffRow or HinderedBuffRow) && DebuffsOf.TryGetValue(player, out var set)
+            && ReferenceEquals(set.Area, player.Layout)
+            && now < (row == MaimedBuffRow ? set.MaimImmuneUntil : set.HinderImmuneUntil);
+
+    static void ClearFlaskMovementImmunity(Player player)
+    {
+        if (DebuffsOf.TryGetValue(player, out var set))
+            set.HinderImmuneUntil = set.MaimImmuneUntil = double.NegativeInfinity;
+    }
+
+    static void ProtectFlaskMovementDebuffsLocked(Player player, IReadOnlyDictionary<uint, int> local, double now)
+    {
+        if (!DebuffsOf.TryGetValue(player, out var set) || !ReferenceEquals(set.Area, player.Layout)) return;
+        int maim = local.GetValueOrDefault(Stat.LocalFlaskImmuneToMaimForXSecondsIfMaimed);
+        int hinder = local.GetValueOrDefault(Stat.LocalFlaskImmuneToHinderForXSecondsIfHindered);
+        bool removeMaim = maim > 0 && HasPlayerDebuff(player, MaimedBuffRow);
+        bool removeHinder = hinder > 0 && HasPlayerDebuff(player, HinderedBuffRow);
+        if (removeMaim) set.MaimImmuneUntil = Math.Max(set.MaimImmuneUntil, now + maim);
+        if (removeHinder) set.HinderImmuneUntil = Math.Max(set.HinderImmuneUntil, now + hinder);
+        if (removeMaim || removeHinder) RemoveMovementDebuffsLocked(player, set, removeMaim, removeHinder);
+    }
+
+    static void RemoveFlaskMovementDebuffsLocked(Player player, int removesMovementDebuffs)
+    {
+        if (removesMovementDebuffs != 0 && DebuffsOf.TryGetValue(player, out var set)
+            && ReferenceEquals(set.Area, player.Layout))
+            RemoveMovementDebuffsLocked(player, set, removeMaim: true, removeHinder: true);
+    }
+
+    static void RemoveMovementDebuffsLocked(Player player, PlayerDebuffSet set, bool removeMaim, bool removeHinder)
+    {
+        bool removed = false;
+        for (int i = set.Active.Count - 1; i >= 0; i--)
+        {
+            var debuff = set.Active[i];
+            if (!(removeMaim && debuff.Row == MaimedBuffRow) && !(removeHinder && debuff.Row == HinderedBuffRow)) continue;
+            set.Active.RemoveAt(i);
+            ClearPlayerDebuff(player, debuff);
+            if (debuff.Row == HinderedBuffRow && PlayerMonsterAuraExposures.TryGetValue(player, out var exposure)
+                && ReferenceEquals(debuff.Holder, exposure.HinderHolder))
+                exposure.Hindered = false;
+            removed = true;
+        }
+        if (!removed) return;
+        MarkPlayerStats(player, PlayerStatStep.Sources);
+        Automation(player).StatRevision++;
+    }
+
     static void ClearPlayerDebuff(Player player, PlayerDebuff debuff)
     {
         if (debuff.Row != 0 && !IsPlayerCurseRow(debuff.Row))
@@ -228,6 +306,15 @@ public static partial class Game
         if (!player.Closed)
             foreach (var debuff in debuffs) ClearPlayerDebuff(player, debuff);
         await RefreshDebuffedPlayer(player);
+    }
+
+    static async Task ClearDeathDebuffs(Player player)
+    {
+        if (!DebuffsOf.TryGetValue(player, out var set) || !ReferenceEquals(set.Area, player.Layout)) return;
+        var ended = set.Active.Where(debuff => debuff.EndsOnDeath).ToArray();
+        if (ended.Length == 0) return;
+        set.Active.RemoveAll(debuff => debuff.EndsOnDeath);
+        await EndPlayerDebuffs(player, set, ended);
     }
 
     /// <summary>The player's pools, movement and degeneration after the debuffs changed, and the stats the client shows.</summary>
@@ -326,6 +413,7 @@ public static partial class Game
     {
         if (!DebuffsOf.TryGetValue(player, out var set) || set.Active.Count == 0 || !ReferenceEquals(set.Area, player.Layout)) return sources;
         double now = AreaTime(player);
+        bool protectElementalResistance = sources.GetValueOrDefault(Stat.ElementalResistanceCannotBeLoweredByCurses) != 0;
         foreach (var debuff in set.Active.Where(d => d.Until > now))
         {
             bool isCurse = IsPlayerCurseRow(debuff.Row);
@@ -335,6 +423,9 @@ public static partial class Game
             foreach (var (name, value) in debuff.Stats)
             {
                 if (unaffected && !IsCurseFlagStat(name)) continue;
+                if (isCurse && protectElementalResistance && value < 0 && name is Stat.BaseResistAllElementsPct
+                    or Stat.BaseFireDamageResistancePct or Stat.BaseColdDamageResistancePct or Stat.BaseLightningDamageResistancePct)
+                    continue;
                 sources[name] = sources.GetValueOrDefault(name) + value;
             }
         }

@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 public static partial class Game
 {
@@ -8,9 +9,12 @@ public static partial class Game
     // (0x142829960) and PassiveBonus add non_curse_aura_effect_+%_while_linked (Absolution) only while it is nonzero.
     static Dictionary<uint, int> WithLinks(Player player, Dictionary<uint, int> sources)
     {
-        int count;
-        count = player.Links.Count;
+        int count = player.Links.Count;
         if (count > 0 && Stat.NumberOfActiveLinks is var key) sources[key] = sources.GetValueOrDefault(key) + count;
+        if (count >= 2 && sources.GetValueOrDefault(Stat.MovementSpeedPlusPctWhileYouHaveTwoLinkedTargets) is int movement and not 0)
+            sources[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)sources.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct) + movement);
+        if (count >= 4 && sources.GetValueOrDefault(Stat.DefencesPlusPctWhileYouHaveFourLinkedTargets) is int defences and not 0)
+            sources[Stat.GlobalDefencesPlusPct] = ActorScale.Saturate((long)sources.GetValueOrDefault(Stat.GlobalDefencesPlusPct) + defences);
         return WithPlayerLinkSources(player, sources);
     }
 
@@ -77,7 +81,11 @@ public static partial class Game
             return false;
         }
         uint target = recipient.Id;
-        if (player.Links.Count == 0) player.Links.PaidAt = now; // the cost runs from the first link
+        if (player.Links.Count == 0)
+        {
+            LinkedManaWaiverEnds.Remove(player);
+            player.Links.PaidAt = now; // the cost runs from the first link
+        }
         foreach (var old in player.Links.All.Where(l => l.SkillId == skillId || l.Target == target).ToArray())
             EndLinkLocked(player, old, bytes);
         if (recipient.Peer?.Links.Incoming is { } oldIncoming)
@@ -94,6 +102,7 @@ public static partial class Game
         link = new(target, skillId, effectId)
         {
             SkillStats = gem.Stats,
+            BreakGraceSeconds = Player(Stat.LinkGracePeriod8SecondOverride) != 0 ? 8 : LinkSkills.BreakSeconds,
             PlayerTarget = recipient.Peer,
             StartedAt = now,
             Until = infinite ? double.PositiveInfinity : now + seconds,
@@ -111,6 +120,8 @@ public static partial class Game
         else if (recipient.Minion is { } minion)
             LinkTargetTags.Add(link, new(isCompanion: false, isPermanent: false, minion.Monster, minion));
         player.Links.Add(link);
+        if (RandomRolls.Chance(Player(Stat.ChanceToStartEnergyShieldRechargePctOnLinkingTarget), 100, AreaRng(player)))
+            player.EnergyShield.StartRecharge(now, Player);
         if (effectId == "IntuitiveLink") CaptureIntuitiveLink(player, link, gem);
         uint? buffDuration = infinite ? null : Buff.Seconds(seconds);
         player.Area.Buffs.Set(player.Id, new(rows.Source, player.Id, skillId, U68: buffDuration, Tag: link.SourceBuff));
@@ -204,7 +215,7 @@ public static partial class Game
         && ReferenceEquals(held, minion.Monster) && !held.Dead && held.Life > 0;
 
     static double LinkEndAt(LinkSkills.Link link) => link.AwaySince is double away
-        ? Math.Min(link.Until, away + LinkSkills.BreakSeconds) : link.Until;
+        ? Math.Min(link.Until, away + link.BreakGraceSeconds) : link.Until;
 
     static double LinkTargetDeathAt(LinkSkills.Link link, double now)
     {
@@ -386,7 +397,9 @@ public static partial class Game
                 if (paysMana && link.ManaPerMinute > 0)
                 {
                     double from = Math.Max(links.PaidAt, link.StartedAt);
-                    due += link.ManaPerMinute * Math.Max(0, Math.Min(now, end) - from) / 60;
+                    double to = Math.Min(now, end);
+                    double billable = to > from ? Math.Max(0, (to - from) - LinkedManaWaiverSeconds(player, from, to)) : 0;
+                    due += link.ManaPerMinute * billable / 60;
                 }
             }
         }
@@ -423,13 +436,14 @@ public static partial class Game
                 uint payment = Lifetap.PayOngoingLife(player.PlayerLife, link.LifePerMinute * seconds / 60,
                     ref link.LifeCarry, out bool exhausted);
                 player.PlayerLife -= payment;
+                if (payment > 0) player.RecentEvents.Record(StatConditions.SpentLife, now);
                 lifePaid += payment;
                 link.LifePaidAt = now;
                 if (exhausted) why = "not enough life";
             }
             if (why is null && now >= end)
                 why = expiryReason ?? (end == link.Until ? "its duration ended"
-                    : $"out of range ({range} cells) or line of sight for 4 s");
+                    : $"out of range ({range} cells) or line of sight for {link.BreakGraceSeconds:0.##} s");
             var position = why is null ? LinkTargetPosition(player, link, now) : null;
             if (why is null)
             {

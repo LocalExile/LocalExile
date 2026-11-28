@@ -194,7 +194,9 @@ public static partial class Game
         use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true,
             VoidstormDriver = transform is null ? shot.VoidstormDriver : null,
             FromTrapOrMine = shot.FromTrapOrMine || from is not null,
-            FromMine = shot.FromMine || placedKind.Mine } };
+            FromMine = shot.FromMine || placedKind.Mine,
+            Penetration = placedKind.Mine && !shot.FromMine
+                ? WithMinePenetration(shot.Penetration, shot.ActualCaster ?? playerStats, own) : shot.Penetration } };
         if (id == ConflagrationEffect)
         {
             ReleaseConflagration(session, use, skill, gem.Effect, own, playerStats,

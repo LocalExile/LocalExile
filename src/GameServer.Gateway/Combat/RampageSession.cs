@@ -16,9 +16,23 @@ public sealed class RampageSession
     public Action? Changed;
 
     public RampageState.Value Current => state.Current;
-    public RampageState.Carried Carry(double now) { pendingTiers.Clear(); pendingThresholds.Clear(); return state.Carry(now); }
+    public int KillsInStreak { get; private set; }
+
+    public RampageState.Carried Carry(double now)
+    {
+        pendingTiers.Clear();
+        pendingThresholds.Clear();
+        var carried = state.Carry(now);
+        return carried with { KillsInStreak = carried.Remaining > 0 ? KillsInStreak : 0 };
+    }
     public void Restore(RampageState.Carried carried, double now)
-    { pendingTiers.Clear(); pendingThresholds.Clear(); state.Restore(carried, now); Changed?.Invoke(); }
+    {
+        pendingTiers.Clear();
+        pendingThresholds.Clear();
+        state.Restore(carried, now);
+        KillsInStreak = Current.Active ? carried.KillsInStreak : 0;
+        Changed?.Invoke();
+    }
     public int[] TakeTiers()
     {
         int[] result = pendingTiers.ToArray(); pendingTiers.Clear(); return result;
@@ -33,7 +47,12 @@ public sealed class RampageSession
         var before = Current;
         state.Advance(now);
         if (!enabled || !alive || !active) { Clear(); return Current; }
-        if (before.Active && !Current.Active) { pendingTiers.Clear(); pendingThresholds.Clear(); }
+        if (before.Active && !Current.Active)
+        {
+            pendingTiers.Clear();
+            pendingThresholds.Clear();
+            KillsInStreak = 0;
+        }
         return Current;
     }
 
@@ -49,6 +68,7 @@ public sealed class RampageSession
         Observe(now, enabled, alive, active);
         if (!enabled || !alive || !active || !hostile || creditedKills.Contains(monster) || !Gain(now)) return false;
         creditedKills.Add(monster);
+        KillsInStreak++;
         return true;
     }
 
@@ -63,6 +83,7 @@ public sealed class RampageSession
 
     public void Clear()
     {
+        KillsInStreak = 0;
         if (state.Clear()) Changed?.Invoke();
         pendingTiers.Clear(); pendingThresholds.Clear();
         // Keep credited kills across source changes/expiry: delayed notices cannot grant them again.

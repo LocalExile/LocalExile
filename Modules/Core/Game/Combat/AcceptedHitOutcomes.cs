@@ -24,7 +24,7 @@ public static partial class Game
         var events = accepted.Select(e => e.KillEvent
             ? (ChargeEvent)new ChargeEvent.Kill(e.Rarity, e.Frozen, e.Poisons, SkillLookup(e))
             : new ChargeEvent.Hit(e.Critical, true, null, e.Rarity, e.Effect, SkillLookup(e), e.Killed, e.Primary, e.Frozen,
-                e.Bleeding, e.Marked, e.SelfBleeding, e.SelfPoisoned));
+                e.Bleeding, e.Marked, e.SelfBleeding, e.SelfPoisoned) { NoArmour = e.NoArmour });
         var step = session.Admit(accepted.Max(e => e.At), events, Get, () => WeaponProfileFor(player), player.PlayerLife > 0, AreaRng(player));
         foreach (string line in step.Log) Console.WriteLine($"[gateway] {player.Connection.Remote} {line} (accepted contact)");
         // Charge counts change on almost every hit; the charge ticker publishes the stats once per step instead of

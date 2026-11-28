@@ -165,7 +165,11 @@ public static class SupportedAttackDamage
             conversion.AddGain(DamageType.Physical, DamageType.Lightning, gain)
                 .AddGain(DamageType.Physical, DamageType.Cold, gain)
                 .AddGain(DamageType.Physical, DamageType.Fire, gain);
-        if (weapon.WieldingWand && get is not null) AddWandGains(conversion, get);
+        if (weapon.WieldingWand && get is not null)
+        {
+            conversion.AddGlobal(DamageType.Physical, DamageType.Lightning, get(Stat.WandPhysicalDamagePctToConvertToLightning));
+            AddWandGains(conversion, get);
+        }
         return conversion;
     }
 

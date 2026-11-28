@@ -387,6 +387,8 @@ static partial class Game
                 var previous = row is PestilentStrikeDamageRow or SoulrendBuffRow ? dot.Active : null;
                 int damage = 0;
                 if (m.Dead || m.Life == 0) dot.Clear();
+                else if (MaimDotTaken.TryGetValue(m, out _))
+                    damage = dot.Advance(now, (from, until) => MonsterDotTakenOver(m, DamageType.Chaos, from, until, now));
                 else damage = dot.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now));
                 if (damage > 0)
                 {
@@ -434,6 +436,7 @@ static partial class Game
                 m.Aggro = m.Life > 0;
                 if (m.Life == 0)
                 {
+                    if (owner is null) CaptureLootAilmentsAtDeath(m, now);
                     m.Dead = true;
                     CleanupDeadMonsterLocked(player.Area, id, m);
                     m.LastHitBy = owner;

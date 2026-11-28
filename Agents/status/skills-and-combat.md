@@ -80,9 +80,17 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Unarmed melee attacks apply Rigwald's Curse's claw-speed increase and Seven Teachings' final multiplier. The default
+  attack's skill record uses the same speed as the server. Live attack timing remains to be checked.
 - Vaal Immortal Call protects the last point of Life from on-kill Life loss while active.
 - Aura-dependent recovery, mana-spent charges and the wearer's Withered hit modifiers resolve on the server.
 - The equipped weapon and the target's pre-hit ailments govern qualified hit recovery and debuffs.
+- Recent critical strikes can grant Tailwind. Glacial Cage counts a player's applied chill intervals once, including
+  cold ground, Frost Shield, Frigid Bond and nearby chills. Sadist reads accepted ailments from those same sources.
+- Skill payment samples current Shock and Low Life. Kiara's Determination's immunities and Lavianga's Spirit's free
+  Mana costs follow the paid effects' clocks, including linked and continuous skill costs at recovery expiry.
+- Missing Energy Shield can grant 150% armour to eligible hits. Docs: [20](../docs/protocol/20-damage.md).
+- Righteous Providence scales attack and spell critical chance. Docs: [11](../docs/protocol/11-skills.md).
 - Frost Shield and Sigil of Power run staged areas. Docs: [11](../docs/protocol/11-skills.md).
 - Supreme Ego changes the caster's aura reservation, effect and recipients. Docs: [11](../docs/protocol/11-skills.md).
 - Native keystone damage shifts, charge replacement and Ward rules have server consumers (live combat checks pending).
@@ -91,10 +99,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Witchbane grants its timed immunity on player kills, and minion curse explosions use the killing minion's damage.
 - Hit-kill corpse destruction (`enemies_explode_on_kill` from Axe Mastery / Kitava's Feast, Unhinged, and ignited corpse
   destruction from Pyre / Cremator) removes corpses on lethal hits before death skills or corpse consumers run.
-- Hex Master and Defiled Forces govern curse duration and ailment refresh. Firestorm schedules timed hits.
+- Hex Master and Defiled Forces govern curse duration and ailment refresh.
+  A completed manual curse can remove the player's active alternative elemental ailments as well.
+  Firestorm schedules timed hits.
 - Player curses (monster, strongbox, Harbinger, Doedre pillar, and map hexes) deduplicate per curse type so only the
-  strongest active source applies; Temporal Chains enforces the -75% action-speed cap and unaffected-by-Temporal-Chains
-  protections, and walk speed follows stat publication on application and removal.
+  strongest active source applies; Temporal Chains uses its buff row, enforces the -75% action-speed cap and
+  unaffected-by-Temporal-Chains protections, and updates walk speed on stat publication and removal.
 - Linked spells resolve offline. See [linked spells](../docs/protocol/25-gem-supports.md#native-linked-spell-payloads).
 - Mark Mastery blinds around the live marked enemy in offline tests, using the server's 35-cell nearby blind reach.
 - Weapon-local Bloodseeker instant Life leech, Elder life gained against blinded enemies and culling against bleeding

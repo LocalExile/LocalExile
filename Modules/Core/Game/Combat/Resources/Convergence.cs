@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 
 public static partial class Game
 {
@@ -44,6 +45,42 @@ public static partial class Game
             stats[Stat.BaseSkillAreaOfEffectPlusPct] = ActorScale.Saturate(
                 (long)stats.GetValueOrDefault(Stat.BaseSkillAreaOfEffectPlusPct) + increasedArea);
         }
+    }
+
+    const ushort RetributionConfluxBuffRow = 626;
+    const double RetributionConfluxSeconds = 4;
+    sealed record RetributionConfluxWindow(GameArea Area, double Until);
+    static readonly RuleTable<Player, RetributionConfluxWindow> RetributionConflux = new();
+
+    public static void GrantRetributionConflux(KillContext kill)
+    {
+        var player = kill.Player;
+        if (!kill.PlayerKill || !kill.Monster.Hostile || player.PlayerLife == 0 || player.Closed || player.LeavingArea
+            || player.Frames.Area is not { } area) return;
+        int chance = PlayerStat(player, Stat.ElementalistAllDamageCausesChillShockAndIgniteFor4SecondsOnKillPct);
+        if (!RandomRolls.Chance(chance, 100, AreaRng(player))) return;
+        RetributionConflux.AddOrUpdate(player, new(area, ProjectileWorldTime(player) + RetributionConfluxSeconds));
+        area.Buffs.Set(player.Id, BuffRows.Spec(RetributionConfluxBuffRow, player.Id, null, RetributionConfluxSeconds));
+        MarkPlayerStats(player, PlayerStatStep.Sources);
+    }
+
+    static void AddRetributionConfluxStats(Player player, Dictionary<uint, int> stats)
+    {
+        if (!RetributionConflux.TryGetValue(player, out var window) || player.PlayerLife == 0
+            || !ReferenceEquals(window.Area, player.Frames.Area) || ProjectileWorldTime(player) >= window.Until) return;
+        StatsChangeAt(window.Until, () => ProjectileWorldTime(player));
+        stats[Stat.AllDamageCanChillIgniteShock] = stats[Stat.AllDamageCanChill] = 1;
+        stats[Stat.AllDamageCanIgnite] = stats[Stat.AllDamageCanShock] = 1;
+        stats[Stat.BaseChanceToIgnitePct] = Math.Max(100, stats.GetValueOrDefault(Stat.BaseChanceToIgnitePct));
+        stats[Stat.ChanceToShockPct] = Math.Max(100, stats.GetValueOrDefault(Stat.ChanceToShockPct));
+    }
+
+    static void ClearRetributionConflux(Player player)
+    {
+        if (!RetributionConflux.TryGetValue(player, out var window)) return;
+        RetributionConflux.Remove(player);
+        window.Area.Buffs.Clear(player.Id, RetributionConfluxBuffRow, player.Id);
+        MarkPlayerStats(player, PlayerStatStep.Sources);
     }
 
     static void ClearConvergence(Player player)

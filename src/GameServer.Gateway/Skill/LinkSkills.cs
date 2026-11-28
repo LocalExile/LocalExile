@@ -37,6 +37,7 @@ public sealed class LinkSkills
         public IReadOnlyDictionary<uint, int> SkillStats { get; init; } = new Dictionary<uint, int>();
         public double StartedAt { get; init; }
         public double Until;
+        public double BreakGraceSeconds { get; init; } = BreakSeconds;
         public double ManaPerMinute, LifePerMinute, LifeCarry, LifePaidAt;
         // Its two buffs' rows, and the tags that tell this link's apart (Buff.Tag).
         public ushort SourceBuff, TargetBuff, SourceRow, TargetRow;

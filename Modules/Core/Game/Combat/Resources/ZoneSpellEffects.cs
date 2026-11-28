@@ -118,7 +118,7 @@ public static partial class Game
         var state = ZoneSpellAreas.GetOrCreateValue(instance);
         if (frost)
         {
-            if (state.Shields.Remove(player, out var old)) EndZoneSpell(old);
+            if (state.Shields.Remove(player, out var old)) EndZoneSpell(old, now);
             var shield = new FrostShieldZone(player, skill, gem.Effect, source, centre, radius, now, duration, gem.Stats, area);
             state.Shields.Add(player, shield);
             ShowZoneSpell(shield, "Metadata/Effects/Spells/FrostGlobe/shield/FrostGlobe.ao", basis);
@@ -127,7 +127,7 @@ public static partial class Game
         }
         else
         {
-            if (state.Sigils.Remove(player, out var old)) EndZoneSpell(old);
+            if (state.Sigils.Remove(player, out var old)) EndZoneSpell(old, now);
             var sigil = new SigilZone(player, skill, gem.Effect, source, centre, radius, now, duration, gem.Stats);
             state.Sigils.Add(player, sigil);
             ShowZoneSpell(sigil, "Metadata/Effects/Spells/circle_of_power/circle_of_power.ao", basis);
@@ -155,7 +155,7 @@ public static partial class Game
             if (!shield.Active(now) || !shield.SourceCurrent())
             {
                 area.Shields.Remove(player);
-                EndZoneSpell(shield);
+                EndZoneSpell(shield, now);
             }
             else
             {
@@ -169,7 +169,7 @@ public static partial class Game
             if (!sigil.Active(now) || !sigil.SourceCurrent())
             {
                 area.Sigils.Remove(player);
-                EndZoneSpell(sigil);
+                EndZoneSpell(sigil, now);
             }
             else UpdateZoneRecipients(sigil, now, changedStage: false);
         }
@@ -180,17 +180,18 @@ public static partial class Game
     {
         if (!TryZoneSpellArea(player, out var area)) return;
         var activeArea = player.Area;
+        double now = AreaTime(player);
         void Remove(GameArea _)
         {
             using var mutation = ProjectileMutation(player, advance: false);
-            if (area.Shields.Remove(player, out var shield)) EndZoneSpell(shield);
-            if (area.Sigils.Remove(player, out var sigil)) EndZoneSpell(sigil);
+            if (area.Shields.Remove(player, out var shield)) EndZoneSpell(shield, now);
+            if (area.Sigils.Remove(player, out var sigil)) EndZoneSpell(sigil, now);
         }
         if (activeArea.Driven && !activeArea.Owned) activeArea.Defer(Remove);
         else Remove(activeArea);
     }
 
-    static void EndZoneSpell(ZoneSpell zone)
+    static void EndZoneSpell(ZoneSpell zone, double now)
     {
         if (zone.Ended) return;
         zone.Ended = true;
@@ -199,7 +200,10 @@ public static partial class Game
         if (zone is FrostShieldZone shield)
         {
             foreach (var monster in shield.Chilled)
+            {
                 monster.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, shield.ChillSource);
+                EndGlacialCageAuraChill(monster, shield.Owner.Id, shield.ChillSource, Math.Min(now, shield.Until));
+            }
             shield.Chilled.Clear();
         }
         zone.Owner.UntrackProjectileObject(zone.Object);
@@ -257,15 +261,23 @@ public static partial class Game
         {
             if (Chills(monster)) return false;
             monster.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, zone.ChillSource);
+            EndGlacialCageAuraChill(monster, zone.Owner.Id, zone.ChillSource, now);
             return true;
         });
         foreach (var (_, monster) in zone.Area.MonstersNear((zone.Centre.X, zone.Centre.Y), zone.Radius))
         {
             if (!Chills(monster)) continue;
-            monster.Ailments.ApplyAura(MonsterElementalAilments.Kind.Chill, zone.ChillSource, Math.Min(.3, zone.Until - now), now,
-                zone.ColdStats.GetValueOrDefault, key => monster.Effects[key], stated: null,
-                coldTakenFromChill: zone.ColdStats.GetValueOrDefault(Stat.KeystoneColdPurist) != 0);
-            zone.Chilled.Add(monster);
+            var applied = monster.Ailments.ApplyAuraEffect(MonsterElementalAilments.Kind.Chill, zone.ChillSource,
+                Math.Min(.3, zone.Until - now), now, zone.ColdStats.GetValueOrDefault, key => monster.Effects[key],
+                stated: null, coldTakenFromChill: zone.ColdStats.GetValueOrDefault(Stat.KeystoneColdPurist) != 0, owner: 0);
+            if (applied is not null)
+            {
+                zone.Chilled.Add(monster);
+                zone.Owner.RecentEvents.Record(StatConditions.ChilledEnemy, now);
+            }
+            else zone.Chilled.Remove(monster);
+            RecordGlacialCageAuraChill(monster, zone.Owner.Id, zone.ChillSource, now, applied?.Until ?? now,
+                zone.ColdStats.GetValueOrDefault(Stat.PermanentDamagePlusPctPerSecondOfChill));
         }
     }
 
@@ -388,7 +400,7 @@ public static partial class Game
         if (best.Life <= 0)
         {
             area.Shields.Remove(best.Owner);
-            EndZoneSpell(best);
+            EndZoneSpell(best, now);
         }
         return damage - absorb;
     }

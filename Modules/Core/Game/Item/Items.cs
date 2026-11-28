@@ -881,25 +881,36 @@ public static partial class Game
         recoveryOwner = ResourceEffectsOf(player);
         r = FlaskRecovery.For(use, flask.Item, local,
             stat => flaskCharacter(stat) + (stat == Stat.FlaskLifeToRecoverPlusPct ? Lifetap.FlaskRecovery(player) : 0),
-            player.PlayerLife, player.PlayerMaxLife, playerLevel, finalMultiplier);
+            player.PlayerLife, player.PlayerMaxLife, playerLevel, finalMultiplier,
+            lifeAmountMultiplier: Get(Stat.KeystoneEmperorsHeart) != 0 ? .7 : 1);
         copyLife = ManaFlaskCopiesLife(r, character);
-        bool appliesToPlayer = Get(Stat.CannotBeAffectedByFlasks) == 0;
-        bool lifeFlaskBlocked = use.LifePerUse > 0 && Get(Stat.CannotUseLifeFlasks) != 0;
-        canRecover = !lifeFlaskBlocked && (appliesToPlayer && (Flasks.CanRecover(use, player.PlayerLife, LifeCap(player),
-                player.PlayerMana, (uint)UnreservedMana(player)) || copyLife && player.PlayerLife < LifeCap(player)
-            || ConditionalFlaskAilmentProtectionTriggered(player, local, AreaTime(player)))
-            || CanRecoverRaisedMinionsWithFlask(player, use, Get));
+        string? RecoveryUseRestriction(Func<uint, int> read)
+        {
+            if (use.LifePerUse > 0 && read(Stat.CannotUseLifeFlasks) != 0) return "life flask use disabled";
+            if (use.ManaPerUse > 0 && read(Stat.CannotUseManaFlasks) != 0) return "mana flask use disabled";
+            return null;
+        }
+        string? blockedReason = RecoveryUseRestriction(Get);
+        bool RecoveryTargetAvailable(Func<uint, int> read)
+        {
+            uint lifeCap = LifeCap(player);
+            return read(Stat.CannotBeAffectedByFlasks) == 0
+                && (Flasks.CanRecover(use, player.PlayerLife, lifeCap, player.PlayerMana, (uint)UnreservedMana(player))
+                    || copyLife && player.PlayerLife < lifeCap || use.LifePerUse > 0 && CanRecoverFlaskEnergyShield(player, read)
+                    || ConditionalFlaskAilmentProtectionTriggered(player, local, AreaTime(player)))
+                || CanRecoverRaisedMinionsWithFlask(player, use, read);
+        }
+        canRecover = blockedReason is null && RecoveryTargetAvailable(Get);
         bool CurrentRecovery()
         {
-            return ResourceEffectsCurrent(player, recoveryOwner) && CurrentGameWork
-                && !player.LeavingArea && player.PlayerLife > 0
-                && (use.LifePerUse <= 0 || CharacterPlayerStats(player).GetValueOrDefault(Stat.CannotUseLifeFlasks) == 0)
-                && (appliesToPlayer || CanRecoverRaisedMinionsWithFlask(player, use, Get))
-                && items.Items(PlayerInventories.Flask).Any(i => i.Id == flask.Id && i.X == slot);
+            if (!ResourceEffectsCurrent(player, recoveryOwner) || !CurrentGameWork || player.LeavingArea || player.PlayerLife == 0
+                || !items.Items(PlayerInventories.Flask).Any(i => i.Id == flask.Id && i.X == slot)) return false;
+            var current = CharacterPlayerStats(player);
+            return RecoveryUseRestriction(current.GetValueOrDefault) is null && RecoveryTargetAvailable(current.GetValueOrDefault);
         }
         if (!canRecover)
         {
-            string reason = lifeFlaskBlocked ? "life flask use disabled" : "recovery pools full";
+            string reason = blockedReason ?? "recovery pools full";
             await Send(player, InstanceItems.ItemUsed(flask.Item.TypeHash,
                 PlayerInventories.InventoryId(PlayerInventories.Flask), flask.Id, result: 0x4e2),
                 $"0x0263 flask {slot} ({type.Name}) refused: {reason} (0x4e2), charges unchanged");
@@ -920,10 +931,17 @@ public static partial class Game
         var during = UtilityFlasks.DuringEffectSources(local,
             FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel, local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct),
                 finalMultiplier: finalMultiplier));
+        // This flag stays with its paid recovery rather than entering the reusable character stat snapshot.
+        uint freeMana = Stat.LocalUniqueFlaskNoManaCostWhileHealing;
+        if (local.GetValueOrDefault(freeMana) != 0)
+            during.Add(new("recovery mana cost waiver", freeMana, 1));
         int? deathEpoch = null;
-        await SpendFlask(player, flask, charges, slot, CurrentRecovery,
-            spent => deathEpoch = AcceptRecoveryFlaskLocked(player, slot, spent, type, use, r, copyLife, local, Get,
-                appliesToPlayer, during));
+        await SpendFlask(player, flask, charges, slot, CurrentRecovery, spent =>
+        {
+            var current = CharacterPlayerStats(player);
+            deathEpoch = AcceptRecoveryFlaskLocked(player, slot, spent, type, use, r, copyLife, local, current.GetValueOrDefault,
+                current.GetValueOrDefault(Stat.CannotBeAffectedByFlasks) == 0, during);
+        });
         if (deathEpoch is int epoch)
             await RunOnAreaFrame(player, () => PlayerDiedAtEpoch(player, $"death from {type.Name}", epoch));
     }

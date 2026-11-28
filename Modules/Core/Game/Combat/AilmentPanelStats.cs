@@ -46,6 +46,7 @@ public static class AilmentPanelStats
     // (GemSupportDamage applies those to the hit, with the generic and typed ones here).
     static readonly More[] SupportMore =
     [
+        new(Stat.ActiveSkillAilmentDamagePlusPctFinal),
         new(Stat.DoedreAuraDamagePlusPctFinal), new(Stat.CastOnDamageTakenDamagePlusPctFinal),
         new(Stat.SupportCastWhileChannellingTriggeredSkillDamagePlusPctFinal),
         new(Stat.SupportDivineCryDamagePlusPctFinal),

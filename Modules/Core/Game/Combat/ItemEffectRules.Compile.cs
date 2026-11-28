@@ -198,6 +198,7 @@ sealed partial class ItemEffectRules
             },
             ("hit", "enemy_frozen") when !negate && NoArgs() => static (e, _) => e is ChargeEvent.Hit { Frozen: true },
             ("hit", "enemy_bleeding") when !negate && NoArgs() => static (e, _) => e is ChargeEvent.Hit { Bleeding: true },
+            ("hit", "enemy_no_armour") when !negate && NoArgs() => static (e, _) => e is ChargeEvent.Hit { NoArmour: true },
             ("hit", "enemy_marked") when !negate && NoArgs() => static (e, _) => e is ChargeEvent.Hit { Marked: true },
             ("hit", "enemy_killed") when !negate && NoArgs() => static (e, _) => e is ChargeEvent.Hit { Killed: true },
             ("hit", "self_bleeding") when !negate && NoArgs() => static (e, _) => e is ChargeEvent.Hit { SelfBleeding: true },

@@ -419,10 +419,11 @@ public static partial class Game
         var playerStats = FinalPlayerStats(player).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         var skill = SupportedSkill(player, skillId);
         var skills = SkillsFor(player);
+        var scope = SkillCostScopeFor(skills, skill);
+        var costStats = WithManaPoolCost(player, skill, WithBlessingCost(player, skill), ManaCostPool(player, skill));
+        bool? shocked = LightningCostShock(player, scope, playerStats, costStats);
         MergeSkillStatsInto(playerStats.GetValueOrDefault, (key, value) => playerStats[key] = value,
-            WithManaPoolCost(player, skill, WithBlessingCost(player, skill), ManaCostPool(player, skill)),
-            skills.IsChannelled(skill.Effect), SkillCostMore(player, skill.Stats),
-            SkillCostScopeFor(skills, skill));
+            costStats, skills.IsChannelled(skill.Effect), SkillCostMore(player, skill.Stats), scope, shocked);
         return playerStats;
     }
 
@@ -449,21 +450,47 @@ public static partial class Game
     }
 
     [Flags]
-    enum SkillCostScope { None = 0, Spell = 1, Curse = 2, Spectre = 4, Minion = 8, Trap = 16, Mark = 32 }
+    enum SkillCostScope { None = 0, Spell = 1, Curse = 2, Spectre = 4, Minion = 8, Trap = 16, Mark = 32, Lightning = 64, Mine = 128 }
 
-    static SkillCostScope SkillCostScopeFor(SkillCatalog skills, SupportedGem skill) =>
-        (skills.IsSpell(skill.Effect) ? SkillCostScope.Spell : SkillCostScope.None)
-        | (skills.HasType(skill.Effect, "AppliesCurse") ? SkillCostScope.Curse : SkillCostScope.None)
-        | (skills.HasType(skill.Effect, "Mark") ? SkillCostScope.Mark : SkillCostScope.None)
-        | (skills.EffectId(skill.Effect) is "RaiseSpectre" or "RaiseSpectreAltX" ? SkillCostScope.Spectre : SkillCostScope.None)
-        | (skills.HasType(skill.Effect, "Minion") ? SkillCostScope.Minion : SkillCostScope.None)
-        | (PlacedKind(skill).Trap ? SkillCostScope.Trap : SkillCostScope.None);
+    static SkillCostScope SkillCostScopeFor(SkillCatalog skills, SupportedGem skill)
+    {
+        var placed = PlacedKind(skill);
+        return (skills.IsSpell(skill.Effect) ? SkillCostScope.Spell : SkillCostScope.None)
+            | (skills.HasType(skill.Effect, "AppliesCurse") ? SkillCostScope.Curse : SkillCostScope.None)
+            | (skills.HasType(skill.Effect, "Mark") ? SkillCostScope.Mark : SkillCostScope.None)
+            | (skills.EffectId(skill.Effect) is "RaiseSpectre" or "RaiseSpectreAltX" ? SkillCostScope.Spectre : SkillCostScope.None)
+            | (skills.HasType(skill.Effect, "Minion") ? SkillCostScope.Minion : SkillCostScope.None)
+            | (placed.Trap ? SkillCostScope.Trap : SkillCostScope.None)
+            | (placed.Mine ? SkillCostScope.Mine : SkillCostScope.None)
+            | (skills.HasType(skill.Effect, "Lightning") ? SkillCostScope.Lightning : SkillCostScope.None);
+    }
 
     static double SkillCostMore(Player player, IReadOnlyDictionary<uint, int> own)
     {
         int Get(uint key) => own.GetValueOrDefault(key);
         return BloodCharges.Uses(Get) ? BloodCharges.More(Get(BloodCharges.CostPerCharge), player.BloodCharges) : 1;
     }
+
+    static bool? LightningCostShock(Player player, SkillCostScope scope, IReadOnlyDictionary<uint, int> character,
+        IReadOnlyDictionary<uint, int> skill) => (scope & SkillCostScope.Lightning) != 0
+        && (long)character.GetValueOrDefault(Stat.LightningSkillManaCostPlusPctFinalWhileShocked)
+            + skill.GetValueOrDefault(Stat.LightningSkillManaCostPlusPctFinalWhileShocked) != 0
+        ? ShockedForSkillCost(player) : null;
+
+    static bool ShockedForSkillCost(Player player) =>
+        player.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Shock, ProjectileWorldTime(player)) > 0;
+
+    static double ScopedManaCostMore(double more, bool lightning, Func<uint, int> read, bool? shocked = null) =>
+        lightning && (shocked ?? (read(Stat.IsShocked) != 0))
+            ? more * Math.Max(0, 1 + read(Stat.LightningSkillManaCostPlusPctFinalWhileShocked) / 100d)
+            : more;
+
+    static double ScopedManaCostMore(Player player, double more, bool lightning, Func<uint, int> read) =>
+        ScopedManaCostMore(more, lightning, read, lightning
+            && read(Stat.LightningSkillManaCostPlusPctFinalWhileShocked) != 0 && ShockedForSkillCost(player));
+
+    static int LowLifeSkillCost(int cost, int lowLifeCost) =>
+        (int)Math.Clamp((long)cost * Math.Max(0L, 100L + lowLifeCost) / 100, 0, int.MaxValue);
 
     // Generosity: the increased effect a support gives the aura it supports, and whether the aura may affect the player
     // ("Supported Auras do not affect you", aura_cannot_affect_self).
@@ -479,10 +506,10 @@ public static partial class Game
         MergeSkillStats(player, own, channelled, costMore, SkillCostScope.None);
 
     static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
-        bool? channelled, double costMore, SkillCostScope scope)
+        bool? channelled, double costMore, SkillCostScope scope, bool? shocked = null)
     {
         var result = new Dictionary<uint, int>(player);
-        MergeSkillStatsInto(result.GetValueOrDefault, (key, value) => result[key] = value, own, channelled, costMore, scope);
+        MergeSkillStatsInto(result.GetValueOrDefault, (key, value) => result[key] = value, own, channelled, costMore, scope, shocked);
         return result;
     }
 
@@ -493,7 +520,7 @@ public static partial class Game
         MergeSkillStatsInto(read, write, own, channelled, costMore, SkillCostScope.None);
 
     static void MergeSkillStatsInto(Func<uint, int> read, Action<uint, int> write, IReadOnlyDictionary<uint, int> own,
-        bool? channelled, double costMore, SkillCostScope scope)
+        bool? channelled, double costMore, SkillCostScope scope, bool? shocked = null)
     {
         foreach (var (key, value) in own)
         {
@@ -513,7 +540,8 @@ public static partial class Game
         long conditionalEfficiency = ((scope & SkillCostScope.Spell) != 0 ? (long)read(Stat.BaseSpellManaCostEfficiencyPlusPct) : 0)
             + ((scope & SkillCostScope.Curse) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfCurseSkills) : 0)
             + ((scope & SkillCostScope.Mark) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMarkSkills) : 0)
-            + ((scope & SkillCostScope.Minion) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMinionSkills) : 0);
+            + ((scope & SkillCostScope.Minion) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMinionSkills) : 0)
+            + ((scope & (SkillCostScope.Trap | SkillCostScope.Mine)) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfTrapAndMineSkills) : 0);
         if (conditionalEfficiency != 0)
             write(ItemChargeCosts.ManaEfficiency, ActorScale.Saturate(read(ItemChargeCosts.ManaEfficiency) + conditionalEfficiency));
         if (Stat.ManaCost is var mana && own.TryGetValue(mana, out int baseCost))
@@ -522,7 +550,8 @@ public static partial class Game
                 + ((scope & SkillCostScope.Minion) != 0 ? read(Stat.MinionSkillManaCostPlusPct) : 0);
             int ManaInput(uint name) => name == Stat.ManaCostPlusPct
                 ? ActorScale.Saturate(read(name) + scopedCost) : read(name);
-            write(mana, ManaRecoveryRules.Cost(baseCost, ManaInput, channelled, costMore));
+            double manaMore = ScopedManaCostMore(costMore, (scope & SkillCostScope.Lightning) != 0, read, shocked);
+            write(mana, ManaRecoveryRules.Cost(baseCost, ManaInput, channelled, manaMore));
         }
         // "Socketed Movement Skills Cost no Mana": the item's support grants no_mana_cost to the skills it supports.
         if (own.GetValueOrDefault(Stat.NoManaCost) != 0) write(Stat.ManaCost, 0);
@@ -635,6 +664,13 @@ public static partial class Game
     public static double SupportedOffHandAttackSeconds(Player player, ushort skillId, SkillCatalog.Unarmed offHand) =>
         SupportedAttackSecondsFor(player, skillId, offHand);
 
+    static int BarrageTimingProjectileCount(Player player, int effect, Func<uint, int> get)
+    {
+        if (ResolveProjectilePanelParameters(effect) is not { } parameters) return 0;
+        var projectiles = parameters.Resolve(get, 1, ArrowsFor(player, effect));
+        return get(Stat.ProjectilesRain) != 0 && projectiles.EndEmission is { } rain ? rain.Child.Count : projectiles.Count;
+    }
+
     public static double SupportedAttackSecondsFor(Player player, ushort skillId, SkillCatalog.Unarmed? offHand,
         bool clampToTick = true, bool proxy = false) => SupportedAttackTiming(player, skillId, offHand, clampToTick, proxy).Seconds;
 
@@ -660,11 +696,13 @@ public static partial class Game
         var stats = new Dictionary<uint, int>(SupportedStats(player, skillId));
         int Get(uint k) => stats.GetValueOrDefault(k);
         var gem = SupportedSkill(player, skillId);
+        var skills = SkillsFor(player);
+        var profile = WeaponProfileFor(player);
+        bool unarmedMelee = offHand is null && profile.Unarmed && skills.IsMelee(gem.Effect) && !skills.RequiresShield(gem.Effect);
         if (Stat.AttackSpeedPlusPct is var raw && Stat.MainHandAttackSpeedPlusPct is var final)
         {
-            var profile = WeaponProfileFor(player);
             double factor = 1 + InherentAttackSpeedMore(profile, Get) / 100d;
-            int skillSpeed = gem.Stats.GetValueOrDefault(raw) + TaggedAttackAndCastSpeedPct(SkillsFor(player), gem.Effect, Get);
+            int skillSpeed = gem.Stats.GetValueOrDefault(raw) + TaggedAttackAndCastSpeedPct(skills, gem.Effect, Get);
             if (Get(Stat.AttackSpeedPlusPctWithMovementSkills) is int movementSpeed and not 0
                 && SkillsFor(player).IsMovement(gem.Effect))
                 skillSpeed = ActorScale.Saturate((long)skillSpeed + movementSpeed);
@@ -673,7 +711,10 @@ public static partial class Game
                 skillSpeed += stanceSpeed;
             if (Supports.Of(gem.Effect)?.Types.Contains(120) == true)
                 skillSpeed += Get(Stat.RetaliationSkillSpeedPlusPct);
-            stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(skillSpeed * factor);
+            int skillSpeedAfterMore = (int)Math.Round(skillSpeed * factor);
+            long increase = unarmedMelee
+                ? ResolvedUnarmedAttackSpeedIncrease(player.Pools, Get, skillSpeed, skillSpeedAfterMore) : skillSpeedAfterMore;
+            stats[final] = ActorScale.Saturate(Get(final) + increase);
             // "Chain Hook and Shield Charge have X% increased Attack Speed per 10 Rampage Kills".
             if (SkillsFor(player).EffectId(gem.Effect) is { } effectId
                 && (effectId.StartsWith("ChainHook", StringComparison.Ordinal)
@@ -696,7 +737,11 @@ public static partial class Game
             * Math.Max(.01, 1 + Get(Stat.SupportPulveriseAttackSpeedPlusPctFinal) / 100.0)
             // Vicious Projectiles: "10% less Attack Speed".
             * Math.Max(.01, 1 + Get(Stat.SupportProjectileAttackSpeedPlusPctFinal) / 100.0);
-        if (proxy) more *= Math.Max(.01, 1 + Get(Stat.SupportAttackTotemAttackSpeedPlusPctFinal) / 100d);
+        if (unarmedMelee && Get(Stat.UniqueBodyArmourUnarmedMeleeAttackSpeedPlusPctFinal) is not 0 and var unarmedMeleeSpeed)
+            more *= UnarmedMeleeAttackSpeedMultiplier(unarmedMeleeSpeed);
+        if (proxy)
+            more *= Math.Max(.01, 1 + Get(Stat.SupportAttackTotemAttackSpeedPlusPctFinal) / 100d)
+                * Math.Max(.01, 1 + Get(Stat.SupportFocusedBallistaTotemAttackSpeedPlusPctFinal) / 100d);
         if (!proxy && Get(Stat.CycloneAttackSpeedPlusPctFinalPerStage) is int cycloneSpeed and not 0)
             more *= Math.Max(.01, 1 + cycloneSpeed * (double)CycloneStageCount(player, skillId) / 100);
         if (!proxy && gem.Stats.GetValueOrDefault(Stat.DoubleStrikeAttackSpeedPlusPctFinalPerStage) is int stageSpeed and not 0)
@@ -706,14 +751,9 @@ public static partial class Game
             more *= Math.Max(.01, 1 + (double)stageSpeed * Math.Clamp(stages + (startingPair ? 1 : 0), 0, Math.Max(0, maximum)) / 100);
         }
         int barrageTime = Get(Stat.SupportBarrageAttackTimePlusPctPerProjectileFired);
-        if (barrageTime > 0 && ResolveProjectilePanelParameters(gem.Effect) is { } projectileParameters)
-        {
-            var projectiles = projectileParameters.Resolve(Get, 1, ArrowsFor(player, gem.Effect));
-            int count = Get(Stat.ProjectilesRain) != 0 && projectiles.EndEmission is { } rain
-                ? rain.Child.Count : projectiles.Count;
+        if (barrageTime > 0)
             // The native final-speed consumer divides by 1 + the per-projectile time penalty before rounding.
-            more /= 1 + (double)barrageTime * count / 100;
-        }
+            more /= 1 + (double)barrageTime * BarrageTimingProjectileCount(player, gem.Effect, Get) / 100;
         // Rage Support: "19% increased Attack Speed with at least 10 Rage" (the rage stat set carries current_rage).
         if (Get(Stat.CurrentRage) >= 10 && Get(Stat.AttackSpeedPlusPctWithAtLeast10Rage) is int rageSpeed and > 0
             && Stat.MainHandAttackSpeedPlusPct is var rageBucket)
@@ -864,8 +904,10 @@ public static partial class Game
         var skills = SkillsFor(player);
         bool iceShot = GatewayProjectileSkillProfiles.IsIceShot(skills.EffectId(gem.Effect));
         int manaPool = ManaCostPool(player, gem);
-        var stats = MergeSkillStats(caster, WithManaPoolCost(player, gem, gem.Stats, manaPool),
-            skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats), SkillCostScopeFor(skills, gem));
+        var scope = SkillCostScopeFor(skills, gem);
+        var ownCostStats = WithManaPoolCost(player, gem, gem.Stats, manaPool);
+        var stats = MergeSkillStats(caster, ownCostStats, skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats), scope,
+            LightningCostShock(player, scope, caster, ownCostStats));
         if (gem.Stats.Count > 0 && ExpandSkillChargeStats(player, caster, gem.Stats) is { Count: > 0 } expanded)
             foreach (var (stat, bonus) in expanded)
                 stats[stat] = ActorScale.Saturate((long)stats.GetValueOrDefault(stat) + bonus);
@@ -1082,7 +1124,7 @@ public static partial class Game
             if (Math.Clamp(Get(Stat.BaseAttackSkillCostLifeInsteadOfManaPct), 0, 100) is int split and > 0
                 && attack && gem.Stats.TryGetValue(Stat.ManaCost, out int baseMana))
                 (manaCost, _, _) = ManaRecoveryRules.SplitCostToLife(baseMana, Get, skills.IsChannelled(gem.Effect),
-                    SkillCostMore(player, gem.Stats), split);
+                    ScopedManaCostMore(player, SkillCostMore(player, gem.Stats), skills.HasType(gem.Effect, "Lightning"), Get), split);
             if (manaCost > 0)
                 raw = raw.Scale(Math.Max(0, 1 + (double)manaforgedPerMana * manaCost / 100.0));
         }

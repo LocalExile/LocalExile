@@ -873,8 +873,7 @@ public static partial class MapHarbinger
     {
         if (player.Immune || InGracePeriod(player)) return true;
         var stats = CharacterPlayerStats(player);
-        return stats.GetValueOrDefault(Stat.ImmuneToCurses) != 0
-            || stats.GetValueOrDefault(Stat.VirtualImmuneToCurses) != 0
+        return PlayerCurseImmunityAt(player, AreaTime(player), stats.GetValueOrDefault)
             || stats.GetValueOrDefault(Stat.Hexproof) != 0;
     }
 

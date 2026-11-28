@@ -64,10 +64,10 @@ public static partial class Game
             });
         }
         double now = ProjectileWorldTime(player);
-        var (frozen, bleeding, marked, selfBleeding, selfPoisoned) = ChargeHitFacts(player, m, now);
+        var facts = ChargeHitFacts(player, m, now);
         ChargesOf(player).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(player).EffectId(effect) : null,
-            skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: frozen, Bleeding: bleeding, Marked: marked,
-            SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned));
+            skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: facts.Frozen, Bleeding: facts.Bleeding, Marked: facts.Marked,
+            SelfBleeding: facts.SelfBleeding, SelfPoisoned: facts.SelfPoisoned) { NoArmour = facts.NoArmour });
         CurseCharges(player, m, death: false, now);
         PlayerGrantsNearbyChargesLocked(player, kill: false, now);
     }
@@ -113,7 +113,7 @@ public static partial class Game
     }
 
     // The target's and the player's state at a hit, as the "on hit" charge rules read it.
-    internal static (bool Frozen, bool Bleeding, bool Marked, bool SelfBleeding, bool SelfPoisoned) ChargeHitFacts(
+    internal static (bool Frozen, bool Bleeding, bool Marked, bool SelfBleeding, bool SelfPoisoned, bool NoArmour) ChargeHitFacts(
         Player player, SpawnedMonster m, double now)
     {
         bool marked = false;
@@ -121,7 +121,8 @@ public static partial class Game
         foreach (var curse in m.Curses.All.Values)
             if (curse.Mark && curse.Caster == player.Id) { marked = true; break; }
         return (m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0, m.Bleeds.Burning, marked,
-            player.IncomingAilments.Bleeding(now), player.IncomingAilments.PoisonStacks(now) > 0);
+            player.IncomingAilments.Bleeding(now), player.IncomingAilments.PoisonStacks(now) > 0,
+            m.Effects.Armour(Monsters.BaseArmour(m.Variety, m.Level) ?? 0) == 0);
     }
 
     // A hostile monster the player killed (MonsterKilled): its "on kill" gains, "on Killing a Frozen Enemy" too when the
@@ -142,6 +143,9 @@ public static partial class Game
         if (player.ProjectileRuntime is { Active: true } projectiles) projectiles.ColdSnapFrenzyOnKill(m, now);
         SpiritChargeOnKill(player, AreaTime(player));
         SelfBuffsOnKill(player);
+        var stats = PlayerStatValues(player);
+        if (RandomRolls.Chance(stats.GetValueOrDefault(Stat.EnergyShieldRechargesOnKillPct), 100, AreaRng(player)))
+            player.EnergyShield.StartRecharge(AreaTime(player), stats.GetValueOrDefault);
         CurseCharges(player, m, death: true, now);
         PlayerGrantsNearbyChargesLocked(player, kill: true, now);
     }
@@ -363,7 +367,7 @@ public static partial class Game
             + PlayerDamageTaken.Flat(type, attack, Get));
         if (type == DamageType.Physical) value = WardBreakEffects.RangedPhysical(value, ranged, Get);
         double now = AreaTime(player);
-        return (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now, increased)
+        return (int)Math.Round(value * PlayerAilmentDamageTakenFactor(player, now, increased)
             * WindDancerHitFactor(player, attack, now, stats));
     }
 
@@ -417,12 +421,13 @@ public static partial class Game
             int radius = SkillRadius(player, WarcryRadius, own, spell: false, effect);
             double now = AreaTime(player);
             var here = player.Walk.Position(now);
-            int taunted = TauntLocked(player, here, radius, now, taunt);
+            bool intimidating = effectId == "IntimidatingCry";
+            int taunted = intimidating
+                ? ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now, !suppressBuffs, skillId, radius)
+                : TauntLocked(player, here, radius, now, taunt);
             Console.WriteLine($"[gateway] {effectId}: taunts {taunted} monster(s) within {radius} cells for {taunt:0.##} s");
             int affectedAllies = 0;
-            if (effectId == "IntimidatingCry")
-                ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now, applyMovementBuff: !suppressBuffs, skillId: skillId);
-            else if (!suppressBuffs)
+            if (!intimidating && !suppressBuffs)
                 affectedAllies = GrantWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
             else if (effectId == "RallyingCry")
                 affectedAllies = RallyingCryNearbyAlliesLocked(player, here, radius, now);

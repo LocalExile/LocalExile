@@ -425,6 +425,7 @@ public sealed class MonsterModCatalog
         Stat.LifeRegenerationRatePerMinutePct, Stat.RareMonsterModSpellDamageTakenPlusPctFinal, Stat.BaseDamageTakenPlusPct,
         Stat.MonsterBaseBlockPct, Stat.BaseCannotBeStunned, Stat.HitDamagePlusPctPer10PctMissingEnemyLife,
         Stat.SelfTakeNoExtraDamageFromCriticalStrikes, Stat.AvoidImpalePct, Stat.CannotHaveLifeLeechedFrom,
+        Stat.CannotHaveManaLeechedFrom, Stat.GlobalAlwaysHit, Stat.MonsterGrantsNoFlaskCharges,
         Stat.GlobalBleedOnHit, Stat.BleedingDamagePlusPct, Stat.BaseBleedDurationPlusPct, Stat.MonsterBleedingDamagePlusPctFinal,
         Stat.GlobalPoisonOnHit, Stat.BasePoisonDamagePlusPct, Stat.BasePoisonDurationPlusPct, Stat.MonsterPoisonDamagePlusPctFinal,
         Stat.BleedOnHitWithAttacksPct, Stat.BaseAttacksPoison, Stat.ChanceToPoisonOnHitWithAttacksPct,

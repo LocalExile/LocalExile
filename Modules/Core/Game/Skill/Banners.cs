@@ -41,21 +41,28 @@ public static partial class Game
             Stacks: (ushort)Math.Min(ushort.MaxValue, Math.Floor(state.Valour)), KeepInstance: true));
     }
 
+    static long MaximumValour(IReadOnlyDictionary<uint, int> stats) =>
+        Math.Max(0, 50L + stats.GetValueOrDefault(Stat.BannerResourceMaximumPlus));
+
     static void GainValourFromMeleeLocked(Player player, SpawnedMonster monster, bool killed, double now,
         IReadOnlyDictionary<uint, int> stats)
     {
         if (player.PlayerLife == 0 || !monster.Hostile
             || !killed && monster.Rarity is not (MonsterRarity.Rare or MonsterRarity.Unique)) return;
-        if (Banners.TryGetValue(player, out var current)
-            && (now < current.NextValourAt || current.Active is not null
-                && stats.GetValueOrDefault(Stat.CanGainBannerResourceWhileBannerIsPlaced) == 0)) return;
-        if (!HasBannerSource(player)) return;
+        if (Banners.TryGetValue(player, out var current) && now < current.NextValourAt) return;
+        if (GainValourLocked(player, stats, 1) is { } state) state.NextValourAt = now + .5;
+    }
+
+    static BannerState? GainValourLocked(Player player, IReadOnlyDictionary<uint, int> stats, int amount)
+    {
+        if (amount <= 0 || !HasBannerSource(player)) return null;
+        if (Banners.TryGetValue(player, out var current) && current.Active is not null
+            && stats.GetValueOrDefault(Stat.CanGainBannerResourceWhileBannerIsPlaced) == 0) return null;
         var state = current ?? Banners.GetOrCreateValue(player);
-        long maximum = Math.Max(0, 50L + stats.GetValueOrDefault(Stat.BannerResourceMaximumPlus));
-        state.Valour = Math.Min(maximum, state.Valour
-            + Math.Max(0, 1 + stats.GetValueOrDefault(Stat.BannerResourceGainedPlusPct) / 100d));
-        state.NextValourAt = now + .5;
+        state.Valour = Math.Min(MaximumValour(stats), state.Valour
+            + amount * Math.Max(0, 1 + stats.GetValueOrDefault(Stat.BannerResourceGainedPlusPct) / 100d));
         ShowValour(player, state);
+        return state;
     }
 
     static bool CanUseBanner(Player player, ushort skill) => Banners.TryGetValue(player, out var state)
@@ -78,6 +85,19 @@ public static partial class Game
         }
     }
 
+    static void BannerRecipientChanged(Player recipient, PlacedBanner banner)
+    {
+        // A higher-effect banner of the same kind can displace a resistance grant even if it grants none itself.
+        bool resistanceMayChange = banner.Stats.ContainsKey(Stat.BaseResistAllElementsPct)
+            || recipient.Instance is { } instance && AreaBanners.TryGetValue(instance, out var placed)
+                && placed.Values.Any(other => other.Row == banner.Row && other.Recipients.Contains(recipient)
+                    && other.Stats.ContainsKey(Stat.BaseResistAllElementsPct));
+        if (resistanceMayChange && !recipient.Closed && !recipient.LeavingArea)
+            PlayerStatBuffsChanged(recipient);
+        else
+            MarkPlayerStats(recipient, PlayerStatStep.Sources);
+    }
+
     static void StepBannerAuraLocked(Player owner, PlacedBanner banner, double now)
     {
         void For(Player recipient)
@@ -85,7 +105,7 @@ public static partial class Game
             if (!BannerReaches(recipient, banner, now) || ReferenceEquals(owner, recipient) && !banner.AffectsOwner) return;
             if (!banner.Recipients.Add(recipient)) return;
             owner.Area.Buffs.Set(recipient.Id, BuffRows.Spec(banner.Row, banner.Object, banner.Stats));
-            MarkPlayerStats(recipient, PlayerStatStep.Sources);
+            BannerRecipientChanged(recipient, banner);
         }
 
         foreach (var recipient in banner.Recipients.ToArray())
@@ -93,7 +113,7 @@ public static partial class Game
             {
                 owner.Area.Buffs.Clear(recipient.Id, banner.Row, banner.Object);
                 banner.Recipients.Remove(recipient);
-                MarkPlayerStats(recipient, PlayerStatStep.Sources);
+                BannerRecipientChanged(recipient, banner);
             }
         For(owner);
         foreach (var ally in owner.Instance.PlayersExcept(owner.Id)) For(ally);
@@ -109,7 +129,7 @@ public static partial class Game
         foreach (var recipient in banner.Recipients)
         {
             player.Area.Buffs.Clear(recipient.Id, banner.Row, banner.Object);
-            MarkPlayerStats(recipient, PlayerStatStep.Sources);
+            BannerRecipientChanged(recipient, banner);
         }
         banner.Recipients.Clear();
         player.ProjectileObjects.Remove(banner.Object);
@@ -156,7 +176,7 @@ public static partial class Game
                 int Combined(uint id) => ActorScale.Saturate((long)Own(id) + stats.GetValueOrDefault(id));
                 double now = AreaTime(player), valour = Math.Floor(state.Valour);
                 double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration),
-                    id => stats.GetValueOrDefault(id), Own, DurationKinds(player, gem.Effect));
+                    id => stats.GetValueOrDefault(id), Own, DurationKinds(player, gem.Effect) | SkillDurationModifiers.Kinds.Banner);
                 if (duration <= 0 || !PayMana(player, skill, out mana, out life)) return (false, false);
                 activated = true;
                 var areaStats = new Dictionary<uint, int>(gem.Stats);
@@ -176,11 +196,24 @@ public static partial class Game
                     _ => [Stat.BaseMovementVelocityPlusPct, Stat.BaseSpellSuppressionChancePct, Stat.DamageTakenPlusFromSuppressedHits],
                 };
                 var values = fields.ToDictionary(id => id, id => ActorScale.Saturate((long)Math.Truncate(Own(id) * effect)));
+                int resist = Combined(Stat.BannerResistAllElementsPct);
+                if (resist != 0)
+                    values[Stat.BaseResistAllElementsPct] = ActorScale.Saturate((long)Math.Truncate(resist * effect));
+                int regeneration = Combined(Stat.YouAndAlliesAffectedByYourPlacedBannersRegeneratePctLifePerMinutePerResource);
+                if (regeneration != 0)
+                    values[Stat.LifeRegenerationRatePerMinutePct] = ActorScale.Saturate((long)(valour * regeneration));
                 uint id = player.TakeObjectId();
                 var at = player.Walk.Position(now);
                 var banner = new PlacedBanner(skill, gem, source, id, row, at, radius, now + duration, values, effect,
                     Own(Stat.AuraCannotAffectSelf) == 0);
                 state.Active = banner;
+                if (valour >= MaximumValour(stats))
+                {
+                    int endurance = Combined(Stat.BannerGainXEnduranceChargesWhenPlacedWithMaxResources);
+                    int frenzy = Combined(Stat.BannerGainXFrenzyChargesWhenPlacedWithMaxResources);
+                    if (endurance > 0) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, endurance, "banner"));
+                    if (frenzy > 0) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Frenzy, frenzy, "banner"));
+                }
                 state.Valour = 0;
                 ShowValour(player, state);
                 AreaBanners.GetOrCreateValue(player.Instance)[id] = banner;

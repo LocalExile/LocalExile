@@ -245,12 +245,15 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapBeyond.PlayerStats);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapBeyond.Describe);
         module.Lifetime.Own(IncomingResourceDefences.HandOverFinalTaken([MapBeyond.BossLessDamageStat, Stat.SoulLinkGrantsDamageTakenPlusPctFinal]));
+        module.Lifetime.Own(IncomingResourceDefences.HandOverOverTimeMoreStat(Stat.PassiveMasteryDamageTakenOverTimePlusPctFinal));
+        module.Lifetime.Own(EnergyShield.HandOverRechargeMoreStat(Stat.UniqueSoullessEleganceEnergyShieldRechargeRatePlusPctFinal));
         module.Lifetime.Own(MonsterModEffects.HandOverMore(Rules.AtlasMoreLife, Rules.AtlasMoreDamage));
         module.Lifetime.Own(MonsterModEffects.HandOverMore([MapTorment.LifeStat, MapBeyond.LifeStat], [], [MapTorment.TaperStat]));
         // Secrets of Suffering's "Cannot Ignite, Chill, Freeze or Shock" and Stormblood's Sap and Brittle
         // (MonsterAlternateAilments).
         module.Lifetime.Own(MonsterElementalAilments.HandOverInflictProhibitions(Rules.SecretsOfSufferingProhibitions));
-        module.Lifetime.Own(UtilityFlasks.HandOverDuringEffectFlags(Rules.AlternateAilmentFlaskFlags));
+        module.Lifetime.Own(UtilityFlasks.HandOverDuringEffectFlags(
+            Rules.AlternateAilmentFlaskFlags));
         module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Rules.InitializeAccountHideouts(module.Settings<Rules.HideoutMigrationSettings>().LegacySourceCharacter);
         // Build the optional melee clock tables before combat can admit an action, rather than inside its send gate.
@@ -340,6 +343,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::AtlasBosses.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::AtlasBosses.Leaving(player));
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
+        GameEvents.Kill.Add(module.Manifest.Id, Rules.GrantRetributionConflux);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.GrantLinkedMinionRareModifiers);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ItemMinionsOnKill);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.AkoyaItemOnKill);
@@ -501,7 +505,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IW
     {
         Rules.ReleaseCharacter(player);
         Rules.ForgetVitalsAdmission(player);
-        Rules.ClearPyroclastAuras(player);
+        Rules.ClearEnemyMineAuras(player);
         Rules.ForgetSourceValues(player);
         // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
         Rules.KeepInstanceMonsters(player);

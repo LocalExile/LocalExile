@@ -141,7 +141,7 @@ public static partial class Game
         double physReduction = PlayerDamageReduction(conn, player).Physical;
         double amount = raw * Math.Max(0, until - from)
             * Math.Max(0, 1 - physReduction / 100d)
-            * conn.ElementalAilments.DamageTakenFactor(until, 0) * lethe + state.Carry;
+            * PlayerAilmentDamageTakenFactor(conn, until, 0) * lethe + state.Carry;
         int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount));
         state.Carry = amount - damage;
         damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref state.TakenCarry,

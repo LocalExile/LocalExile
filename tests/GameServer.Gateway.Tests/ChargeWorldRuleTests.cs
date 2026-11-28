@@ -323,7 +323,7 @@ public sealed class ChargeWorldRuleTests
             0 => new ChargeEvent.Kill(One(rarities), Coin(), pick.Next(8), Skill()),
             1 => new ChargeEvent.Hit(Coin(), Coin(), One<bool?>([null, true, false]), One(rarities),
                 One<string?>([null, "Sweep", "IceSpear", "PowerSiphon", "Frenzy", "Fireball"]), Skill(), Coin(), Coin(),
-                Coin(), Coin(), Coin(), Coin(), Coin()),
+                Coin(), Coin(), Coin(), Coin(), Coin()) { NoArmour = Coin() },
             2 => new ChargeEvent.WhenHit(Coin()),
             3 => new ChargeEvent.Block(Coin()),
             4 => new ChargeEvent.Stun(Coin(), Skill()),

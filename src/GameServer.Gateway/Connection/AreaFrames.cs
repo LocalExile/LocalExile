@@ -515,6 +515,8 @@ public sealed class AreaFrames
                     long t0 = Stopwatch.GetTimestamp();
                     // What the last step's work still had to do, before its frame ends.
                     Pump();
+                    // The pump can detach the last member during catch-up. Stop before stepping an empty area.
+                    if (Prune() == 0) return;
                     long t1 = Stopwatch.GetTimestamp();
                     BeginBudget();
                     double boundary = next;
@@ -644,11 +646,15 @@ public sealed class AreaFrames
     // Leaves the closed members; with none left the driver ends (running off under the same lock, so a Join starts a new one).
     int Prune()
     {
+        static bool Departed(Member m) => m.Detached
+            || m.Inbox is null && (m.Player.Closed || m.Player.Connection.WorldOutput.Closed);
+
         Member[] gone;
         int count;
         lock (gate)
         {
-            gone = [.. members.Where(m => m.Detached || m.Inbox is null && (m.Player.Closed || m.Player.Connection.WorldOutput.Closed))];
+            if (members.Count > 0 && !members.Exists(Departed)) return members.Count;
+            gone = [.. members.Where(Departed)];
             foreach (var m in gone) members.Remove(m);
             if (members.Count == 0)
             {

@@ -202,14 +202,16 @@ public sealed class DamagePacket
     public DamagePacket Round() =>
         Select((_, range) => range.Round());
 
-    public DamagePacket Roll(Random random, int extraRolls = 0)
+    public DamagePacket Roll(Random random, int extraRolls = 0) => Roll(random, extraRolls, extraRolls);
+
+    public DamagePacket Roll(Random random, int extraRolls, int physicalExtraRolls)
     {
         var ranges = new DamageRange[5];
         var physicalOrigin = _physicalOrigin is null ? null : new DamageRange[5];
         for (int i = 0; i < ranges.Length; i++)
         {
             var range = _ranges[i];
-            int roll = range.Roll(random, extraRolls);
+            int roll = range.Roll(random, i == (int)DamageType.Physical ? physicalExtraRolls : extraRolls);
             ranges[i] = new(roll, roll);
             if (physicalOrigin is null || _physicalOrigin![i].IsZero) continue;
             var physical = _physicalOrigin[i];

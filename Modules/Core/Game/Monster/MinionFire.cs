@@ -103,7 +103,7 @@ public static partial class Game
             var field = fields.FirstOrDefault(f => Dist(f.At, at) <= f.Radius + LivingCollision.Size(target));
             if (field.Dps <= 0 || field.Owner != player.Id) continue;
             state.Burning.Add(target);
-            double total = field.Dps * elapsed * MonsterDotTaken(target, DamageType.Fire, now);
+            double total = field.Dps * elapsed * MonsterDotTakenOver(target, DamageType.Fire, now - elapsed, now, now);
             if (state.Carry.TryGetValue(id, out var carry) && ReferenceEquals(carry.Target, target)) total += carry.Remainder;
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(total));
             state.Carry[id] = (target, total - Math.Floor(total));

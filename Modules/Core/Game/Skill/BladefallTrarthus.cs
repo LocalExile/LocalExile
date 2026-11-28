@@ -26,7 +26,7 @@ public static partial class Game
         if (player.BladefallTrarthus is not null || player.PlayerLife == 0 || player.Closed || player.LeavingArea) return false;
         var stats = CharacterPlayerStats(player);
         bool paysLife = Lifetap.ConvertsCostToLife(gem.Stats, stats);
-        bool freeMana = stats.GetValueOrDefault(Stat.NoManaCost) != 0;
+        bool freeMana = NoManaCostFor(player, stats.GetValueOrDefault(Stat.NoManaCost));
         if (paysLife ? player.PlayerLife <= 1 : !freeMana && player.PlayerMana == 0) return false;
         int rate = BladefallVolleys.ManaPerMinute(Own(Stat.BaseManaCostPctPerMinute), paysLife ? player.Pools.Life : player.Pools.Mana);
         state = new(player.NextBuff++, player.NextBuff++, skillId)
@@ -57,8 +57,12 @@ public static partial class Game
 
     // The mana Bladefall of Trarthus spends over this recovery step (StartResourceRecovery takes it off with regeneration).
     public static double BladefallManaSpent(Player player, double seconds) =>
+        BladefallManaSpent(player, seconds, RecoveryFlaskWaivesManaCost(player) ? seconds : 0);
+
+    static double BladefallManaSpent(Player player, double seconds, double waivedSeconds) =>
         player.BladefallTrarthus is { Ended: false, PaysLife: false } state
-        && CharacterPlayerStats(player).GetValueOrDefault(Stat.NoManaCost) == 0 ? state.CostPerMinute / 60.0 * seconds : 0;
+        && CharacterPlayerStats(player).GetValueOrDefault(Stat.NoManaCost) == 0
+            ? state.CostPerMinute / 60.0 * Math.Max(0, seconds - waivedSeconds) : 0;
 
     public static async Task EndBladefallTrarthus(Player player, string why)
     {

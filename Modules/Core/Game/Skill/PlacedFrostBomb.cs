@@ -10,18 +10,6 @@ public static partial class Game
     static readonly RuleTable<SpawnedMonster, FrostBombDebuff> FrostBombDebuffs = new();
     internal readonly record struct FrostBombImpact((int X, int Y) Centre, int Radius, double At, double HitMore, double AilmentMore);
 
-    static double FrostBombRegenerationFactor(SpawnedMonster monster, double from, double to)
-    {
-        if (!FrostBombDebuffs.TryGetValue(monster, out var active)) return 1;
-        if (from >= active.Until)
-        {
-            FrostBombDebuffs.Remove(monster);
-            return 1;
-        }
-        double overlap = Math.Max(0, Math.Min(to, active.Until) - Math.Max(from, active.Started));
-        return 1 - overlap / (to - from) * Math.Clamp(-active.Regeneration / 100d, 0, 1);
-    }
-
     public sealed partial class ProjectileSession
     {
         internal void SchedulePlacedFrostBomb(PlacedAreaHit placement, Func<bool> current)

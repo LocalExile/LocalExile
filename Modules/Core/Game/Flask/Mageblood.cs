@@ -94,7 +94,7 @@ public static partial class Game
     /// ones. Callers apply this once, not the two sets separately.</summary>
     public static IReadOnlyList<(uint Stat, int Value)> UtilityStats(Player player, Func<uint, int> character,
         int? playerLevel = null) =>
-        CombineUtilitySources(player.UtilityFlaskEffects.Sources()
+        CombineUtilitySources(player.UtilityFlaskEffects.Sources(null, CharacterUtilitySource)
             .Concat(KillOnslaughtSources(player, character))
             .Concat(CatOnslaughtSources(player, character))
             .Concat(ChargeOnslaughtSources(player, character))

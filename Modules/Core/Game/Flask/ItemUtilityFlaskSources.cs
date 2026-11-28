@@ -11,10 +11,28 @@ public static partial class Game
         (Stat.LocalUniqueFlaskPhysicalDamagePctToAddAsChaosWhileHealing, Stat.PhysicalDamagePctToAddAsChaos, false),
         (Stat.LocalUniqueFlaskElementalDamagePctToAddAsChaosWhileHealing, Stat.ElementalDamagePctToAddAsChaos, false),
         (Stat.LocalUniqueFlaskLifeLeechFromChaosDamagePermyriadWhileHealing, Stat.BaseLifeLeechFromChaosDamagePermyriad, false),
+        (Stat.LocalUniqueFlaskLeechLightningDamagePctAsLifeDuringFlaskEffect, Stat.BaseLifeLeechFromLightningDamagePermyriad, false),
+        (Stat.LocalUniqueFlaskMinimumAddedLightningDamageToAttacksDuringFlaskEffect, Stat.AttackMinimumAddedLightningDamage, false),
+        (Stat.LocalUniqueFlaskMaximumAddedLightningDamageToAttacksDuringFlaskEffect, Stat.AttackMaximumAddedLightningDamage, false),
+        (Stat.LocalFlaskZealotsOath, Stat.KeystoneZealotsOath, true),
+        (Stat.LocalFlaskLifeRecoveryFromFlasksAlsoRecoversEnergyShield, Stat.LifeRecoveryFromFlasksAlsoRecoversEnergyShield, true),
+        (Stat.LocalFlaskLifeLeechFromAttackDamagePermyriadWhileHealing, Stat.BaseLifeLeechFromAttackDamagePermyriad, false),
+        (Stat.LocalFlaskEnergyShieldLeechFromSpellDamagePermyriadWhileHealing, Stat.BaseEnergyShieldLeechFromSpellDamagePermyriad, false),
         (Stat.LocalUniqueFlaskPhysicalDamagePctToAddAsColdWhileHealing, Stat.PhysicalDamagePctToAddAsCold, false),
         (Stat.LocalUniqueFlaskAvoidChillPctWhileHealing, Stat.BaseAvoidChillPct, false),
         (Stat.LocalUniqueFlaskAvoidFreezePctWhileHealing, Stat.BaseAvoidFreezePct, false),
+        (Stat.LocalUniqueFlaskKiarasDetermination, Stat.BaseImmuneToFreeze, true),
+        (Stat.LocalUniqueFlaskKiarasDetermination, Stat.BaseImmuneToChill, true),
+        (Stat.LocalUniqueFlaskKiarasDetermination, Stat.ImmuneToCurses, true),
+        (Stat.LocalUniqueFlaskKiarasDetermination, Stat.BaseCannotBeStunned, true),
+        (Stat.LocalFlaskNonDamagingAilmentEffectPlusPctDuringFlaskEffect, Stat.NonDamagingAilmentEffectPlusPct, false),
+        (Stat.LocalChanceToPoisonOnHitPctDuringFlaskEffect, Stat.BaseChanceToPoisonOnHitPct, false),
+        (Stat.LocalFlaskAddsKnockbackWhileHealing, Stat.MeleeKnockback, true),
+        (Stat.LocalUniqueLionsRoarMeleePhysicalDamagePlusPctFinalDuringFlaskEffect,
+            Stat.UniqueLionsRoarMeleePhysicalDamagePlusPctFinal, false),
+        (Stat.LocalUniqueFlaskCriticalPoisonDotMultiplierPlusDuringFlaskEffect, Stat.CriticalPoisonDotMultiplierPlus, false),
         (Stat.LocalNoCriticalStrikeMultiplierDuringFlaskEffect, Stat.NoCriticalStrikeMultiplier, true),
+        (Stat.LocalUniqueChaosDamageDoesNotBypassEnergyShieldDuringFlaskEffect, Stat.ChaosDamageDoesNotBypassEnergyShield, true),
         (Stat.LocalFlaskCullingStrikeDuringFlaskEffect, Stat.KillEnemyOnHitIfUnder10PctLife, true),
         (Stat.LocalUniqueFlaskVaalSkillDamagePlusPctDuringFlaskEffect, Stat.VaalSkillDamagePlusPct, false),
         (Stat.LocalUniqueFlaskVaalSkillCriticalStrikeChancePlusPctDuringFlaskEffect, Stat.VaalSkillCriticalStrikeChancePlusPct, false),
@@ -24,6 +42,23 @@ public static partial class Game
         (TasteOfHateShift, Stat.LightningDamageTakenPctAsCold, false),
         (Stat.LocalUniqueFlaskPhysicalDamageTakenPctAsColdWhileHealing, Stat.PhysicalDamageTakenPctAsCold, false),
     ];
+
+    // Combat and the wire read the paid effect at their own time. Baking these flags into the character graph
+    // would let an action in the frame that starts or ends the effect see the previous frame's immunity.
+    static bool KiaraImmunityAt(Player player, double now) =>
+        player.UtilityFlaskEffects.HasActiveLocalStat(Stat.LocalUniqueFlaskKiarasDetermination, now);
+
+    public static Func<uint, int> PlayerElementalDefencesAt(Player player, double now, Func<uint, int> read) =>
+        KiaraImmunityAt(player, now)
+            ? stat => stat is Stat.ImmuneToChill or Stat.ImmuneToFreeze ? 1 : read(stat)
+            : read;
+
+    static readonly uint[] KiaraClientImmunities = [Stat.BaseImmuneToChill, Stat.ImmuneToChill,
+        Stat.BaseImmuneToFreeze, Stat.ImmuneToFreeze, Stat.BaseCannotBeStunned, Stat.CannotBeStunned, Stat.ImmuneToCurses];
+
+    static bool CharacterUtilitySource(UtilityFlasks.Active effect, UtilityFlasks.Source source) =>
+        Array.IndexOf(KiaraClientImmunities, source.Stat) < 0
+        || !(effect.LocalStats?.GetValueOrDefault(Stat.LocalUniqueFlaskKiarasDetermination) > 0);
 
     static readonly (uint Uncapped, uint Penetration, uint Taken)[] WiseOakElements =
     [

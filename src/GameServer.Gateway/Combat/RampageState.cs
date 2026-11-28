@@ -39,7 +39,10 @@ public sealed class RampageState
 
     /// <summary>Last observed state. Advance the clock before using it for damage, movement or presentation.</summary>
     public Value Current => new(stacks, expiresAt);
-    public readonly record struct Carried(int Stacks, double Remaining);
+    public readonly record struct Carried(int Stacks, double Remaining)
+    {
+        public int KillsInStreak { get; init; }
+    }
     public Carried Carry(double now)
     {
         Advance(now);

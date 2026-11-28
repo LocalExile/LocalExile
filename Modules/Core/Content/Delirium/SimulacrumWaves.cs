@@ -108,6 +108,14 @@ public sealed partial class DeliriumModule
             [Stat.MapMonstersPctPhysicalDamageToAddAsFire] = Stat.PhysicalDamagePctToAddAsFire,
             [Stat.MapMonstersPctPhysicalDamageToAddAsCold] = Stat.PhysicalDamagePctToAddAsCold,
             [Stat.MapMonstersPctPhysicalDamageToAddAsLightning] = Stat.PhysicalDamagePctToAddAsLightning,
+            [Stat.MapMonstersPctPhysicalDamageToAddAsChaos] = Stat.PhysicalDamagePctToAddAsChaos,
+            [Stat.MapMonsterSkillsChainXAdditionalTimes] = Stat.NumberOfChains,
+            [Stat.MapMonstersPoisonOnHit] = Stat.BaseChanceToPoisonOnHitPct,
+            [Stat.MapMonstersChanceToImpalePct] = Stat.MapMonstersChanceToImpalePct,
+            [Stat.MapMonstersCriticalStrikeChancePlusPct] = Stat.CriticalStrikeChancePlusPct,
+            [Stat.MapMonstersCriticalStrikeMultiplierPlus] = Stat.BaseCriticalStrikeMultiplierPlus,
+            [Stat.MapMonstersBaseSelfCriticalStrikeMultiplierMinusPct] = Stat.BaseSelfCriticalStrikeMultiplierMinusPct,
+            [Stat.MapMonstersRemoveChargesOnHitPct] = Stat.RemoveChargesOnHitPct,
             [Stat.Of("map_monsters_chaos_damage_%_to_add_as_chaos")] = Stat.NonChaosDamageToAddAsChaosDamagePct,
             [Stat.Of("map_monsters_base_resist_all_elements_%")] = Stat.BaseResistAllElementsPct,
             [Stat.Of("map_monsters_base_chaos_damage_resistance_%")] = Stat.BaseChaosDamageResistancePct,
@@ -140,8 +148,11 @@ public sealed partial class DeliriumModule
             affixes.Add(rolled);
             for (int i = 0; i < mod.Stats.Count; i++)
             {
-                string stat = Stats.Name(supported[mod.Stats[i].Id]);
-                effects[stat] = effects.GetValueOrDefault(stat) + rolled.Values[i];
+                uint source = mod.Stats[i].Id;
+                string stat = Stats.Name(supported[source]);
+                int value = rolled.Values[i];
+                if (source == Stat.MapMonstersPoisonOnHit) value = value != 0 ? 100 : 0;
+                effects[stat] = effects.GetValueOrDefault(stat) + value;
             }
             foreach (int family in mod.Families) families.Add(family);
             descriptions.Add(mods.Describe(rolled));

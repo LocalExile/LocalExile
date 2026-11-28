@@ -11,6 +11,54 @@ public sealed class IncomingHitEventsTests
         public override double NextDouble() => 0;
     }
 
+    sealed class ArmourRoll(int value) : Random
+    {
+        public int Draws { get; private set; }
+
+        public override int Next(int maxValue)
+        {
+            Draws++;
+            return value * maxValue / 10_000;
+        }
+    }
+
+    [Fact]
+    public void Missing_energy_shield_uses_its_own_armour_multiplier()
+    {
+        var player = new Player(new(1, "armour-mastery-test", 100, 100, 10, 10, null, []), 1, 1)
+        {
+            Pools = new(1, 1000, 100, 0, 0, Armour: 1000),
+        };
+        const uint mastery = Stat.ChanceToDefendWith150PctArmourPctPer5PctMissingEnergyShield;
+        var stats = new Dictionary<uint, int> { [mastery] = 2 };
+        int Defend(int roll, int draws, bool relevant = true)
+        {
+            var random = new ArmourRoll(roll);
+            player.IncomingHitRandom = random;
+            int effectiveArmour = Game.IncomingArmourLocked(player, relevant, 0, stats).EffectiveArmour;
+            Assert.Equal(draws, random.Draws);
+            return effectiveArmour;
+        }
+
+        Assert.Equal(1000, Defend(0, 0));
+        player.EnergyShield.SetMaximum(100, refill: true);
+        Assert.Equal(1000, Defend(0, 0));
+        player.EnergyShield.Damage(4, bypass: false, now: 0);
+        Assert.Equal(1000, Defend(0, 0));
+        player.EnergyShield.Damage(21, bypass: false, now: 0);
+        Assert.Equal(1500, Defend(999, 1));
+        Assert.Equal(1000, Defend(1000, 1));
+        Assert.Equal(1000, Defend(0, 0, relevant: false));
+
+        stats[RecentEnemyHits.GenericChance] = 5;
+        Assert.Equal(2000, Defend(499, 1));
+        Assert.Equal(1500, Defend(500, 1));
+        Assert.Equal(1500, Defend(1449, 1));
+        Assert.Equal(1000, Defend(1450, 1));
+        stats.Remove(mastery);
+        Assert.Equal(1000, Defend(500, 1));
+    }
+
     [Fact]
     public async Task Real_and_synthetic_hits_record_the_same_block_suppression_and_recovery_events()
     {

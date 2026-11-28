@@ -72,6 +72,60 @@ public sealed class AttackAddedInputTests : IDisposable
         Mods = [new(ModSection.Explicit, Program.Items.Mods.ById(mod)!.Hash, [minimum, maximum])],
     };
 
+    [Fact]
+    public void Unarmed_default_attack_speed_and_Righteous_Providence_critical_chance_follow_equipment()
+    {
+        Unarmed_default_attacks_use_the_same_equipment_speed_on_the_server_and_in_the_skill_record();
+        Righteous_Providence_increases_attack_and_spell_critical_chance_from_the_lower_attribute();
+    }
+
+    void Righteous_Providence_increases_attack_and_spell_critical_chance_from_the_lower_attribute()
+    {
+        player.Character.ClassRow = Program.Skills.RowOfClass(1); // Marauder starts with more Strength than Intelligence.
+        var items = Game.ItemsOf(player);
+        items.Add(PlayerInventories.Weapon1, 0, 0, Make("Driftwood Wand"));
+
+        Item Ring(string modifier) => Make("Coral Ring") with
+        {
+            ItemLevel = 86,
+            Rarity = ItemRarity.Magic,
+            Mods = [new(ModSection.Explicit, Program.Items.Mods.ById(modifier)!.Hash, [50])],
+        };
+
+        CharacterStats.Pools CheckCriticalChance()
+        {
+            Set(Stat.IncreaseCritChanceByLowestOfStrOrInt, 0);
+            var ordinary = Game.PoolsFor(player, 100);
+            player.Pools = ordinary;
+            int ordinaryRaw = Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.CriticalStrikeChancePlusPct);
+            Set(Stat.IncreaseCritChanceByLowestOfStrOrInt, 1);
+            player.Pools = Game.PoolsFor(player, 100);
+            int increase = Math.Min(ordinary.Strength, ordinary.Intelligence);
+            Assert.True(increase > 0);
+            Assert.Equal(ordinary.CriticalStrikeChancePct + increase, player.Pools.CriticalStrikeChancePct);
+            Assert.Equal(ordinary.SpellCriticalStrikeChancePct + increase, player.Pools.SpellCriticalStrikeChancePct);
+            Assert.True(player.Pools.AttackCriticalStrikeChance > ordinary.AttackCriticalStrikeChance);
+            Assert.True(player.Pools.SpellCriticalStrikeChance > ordinary.SpellCriticalStrikeChance);
+            Assert.Equal(ordinaryRaw + increase,
+                Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.CriticalStrikeChancePlusPct));
+            return ordinary;
+        }
+
+        var baseline = CheckCriticalChance();
+        var strengthRing = items.Add(PlayerInventories.Ring2, 0, 0, Ring("Strength8"))!;
+        var higherStrength = CheckCriticalChance();
+        Assert.Equal(baseline.Intelligence, higherStrength.Intelligence);
+        Assert.True(higherStrength.Strength > baseline.Strength);
+        items.Remove(PlayerInventories.Ring2, strengthRing.Id);
+        items.Add(PlayerInventories.Ring1, 0, 0, Ring("Intelligence8"));
+        var withIntelligence = CheckCriticalChance();
+        items.Add(PlayerInventories.Ring2, 0, 0, Ring("Strength8"));
+        var withStrength = CheckCriticalChance();
+        Assert.True(baseline.Intelligence < baseline.Strength);
+        Assert.True(withIntelligence.Strength < withIntelligence.Intelligence);
+        Assert.True(withStrength.Intelligence < withStrength.Strength);
+    }
+
     static Item Solaris()
     {
         var catalogue = new UniqueCatalog(Program.Items);
@@ -81,6 +135,66 @@ public sealed class AttackAddedInputTests : IDisposable
         // Faun's Horn's own "Adds # to # Fire Damage to Spells and Attacks" stays out: these checks measure the
         // light-radius fire alone.
         return item with { Mods = [.. item.Mods.Where(m => m.Section != ModSection.Implicit)] };
+    }
+
+    void Unarmed_default_attacks_use_the_same_equipment_speed_on_the_server_and_in_the_skill_record()
+    {
+        Set(Stat.ClawAttackSpeedPlusPct, 20);
+        var items = Game.ItemsOf(player);
+        var catalogue = new UniqueCatalog(Program.Items);
+        var curse = Assert.IsType<Item>(catalogue.Create("Rigwald's Curse", new Random(7)));
+        var chest = Assert.IsType<UniqueCatalog.Definition>(catalogue.Find("Seven Teachings"));
+        var teachings = Assert.IsType<Item>(catalogue.Create(chest with
+        { Ranges = [new("UnarmedMoreMeleeAttackSpeedUnique__1", 0, 7, 7)] }, new Random(7)));
+        var helmet = items.Add(PlayerInventories.Helmet, 0, 0, Make("Iron Hat") with
+        {
+            Sockets = [new(SocketColour.White, Make("Infernal Blow")), new(SocketColour.White, Make("Shield Charge")),
+                new(SocketColour.White, Make("Explosive Concoction"))],
+            Links = [1, 1, 1],
+        })!;
+        var shield = items.Add(PlayerInventories.Offhand1, 0, 0, Make("Splintered Tower Shield"))!;
+
+        int DefaultAttackSpeed()
+        {
+            player.Pools = Game.PoolsFor(player, 100);
+            var stats = Game.CharacterPlayerStats(player);
+            var final = Game.FinalPlayerStatsCore(player).ToList();
+            Assert.Contains((Stat.MainHandAttackSpeedPlusPct, player.Pools.AttackSpeedPct), final);
+            var attack = Assert.Single(Game.PlayerDefaultSkills(player, final, stats), skill => skill.Id == SkillCatalog.FirstSkillId);
+            int published = Assert.Single(attack.Stats!, stat => stat.Key == Stat.MainHandAttackSpeedPlusPct).Value;
+            double seconds = Math.Max(Program.TickSeconds, Game.WeaponFor(player).AttackMs / 1000d / (1 + published / 100d));
+            Assert.Equal(seconds, Game.DefaultAttackSeconds(player, AttackHand.Main, stats), precision: 9);
+            return published;
+        }
+
+        var attacks = Game.GemSkillEffects(player).ToDictionary(g => g.Name!, g => g.Id);
+        ushort melee = attacks["Infernal Blow"], shieldCharge = attacks["Shield Charge"], concoction = attacks["Explosive Concoction"];
+        double ShieldTime() => Game.SupportedOffHandAttackSeconds(player, shieldCharge,
+            Assert.IsType<SkillCatalog.Unarmed>(Game.ShieldWeapon(player, shieldCharge)));
+
+        Assert.Equal(10, DefaultAttackSpeed());
+        int meleeSpeed = Game.SupportedMainHandAttackSpeedPct(player, melee);
+        double shieldTime = ShieldTime(), concoctionTime = Game.SupportedAttackSeconds(player, concoction);
+        var amulet = items.Add(PlayerInventories.Amulet, 0, 0, curse);
+        Assert.Equal(32, DefaultAttackSpeed());
+        Assert.Equal(meleeSpeed + 22, Game.SupportedMainHandAttackSpeedPct(player, melee));
+        double amuletMeleeTime = Game.SupportedAttackSeconds(player, melee);
+        var body = items.Add(PlayerInventories.BodyArmour, 0, 0, teachings);
+        Assert.Equal(41, DefaultAttackSpeed());
+        Assert.True(Game.SupportedAttackSeconds(player, melee) < amuletMeleeTime);
+        Assert.Equal(shieldTime, ShieldTime(), precision: 9);
+        Assert.Equal(concoctionTime, Game.SupportedAttackSeconds(player, concoction), precision: 9);
+        var claw = items.Add(PlayerInventories.Weapon1, 0, 0, Make("Nailed Fist"));
+        Assert.Equal(20, DefaultAttackSpeed());
+        items.Remove(PlayerInventories.Amulet, amulet.Id);
+        Assert.Equal(20, DefaultAttackSpeed());
+        items.Remove(PlayerInventories.Weapon1, claw.Id);
+        Assert.Equal(18, DefaultAttackSpeed());
+        items.Remove(PlayerInventories.BodyArmour, body.Id);
+        Assert.Equal(10, DefaultAttackSpeed());
+        items.Remove(PlayerInventories.Helmet, helmet.Id);
+        items.Remove(PlayerInventories.Offhand1, shield.Id);
+        overrides.Remove(Stat.ClawAttackSpeedPlusPct);
     }
 
     [Fact]

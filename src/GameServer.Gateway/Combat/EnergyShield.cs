@@ -2,6 +2,11 @@
 /// Character.ot supplies 2000%/minute recharge (one third of maximum per second). Caller supplies game time.</summary>
 public sealed class EnergyShield
 {
+    static readonly FinalStatMultipliers RechargeMultipliers = new();
+
+    /// <summary>Registers a stat that applies a final multiplier to the recharge rate.</summary>
+    public static IDisposable HandOverRechargeMoreStat(uint stat) => RechargeMultipliers.Register(stat);
+
     public readonly record struct Snapshot(uint Current, double Fraction, double? InterruptedSecondsAgo);
 
     public uint Current { get => current; private set { bool was = Full; if (current != value) { current = value; Changed?.Invoke(); } if (Full != was) ConditionsChanged?.Invoke(); } }
@@ -130,6 +135,7 @@ public sealed class EnergyShield
 
     public static double BaseRechargePerMinute(uint max, Func<uint, int> get) =>
         max * 20.0 * Math.Max(0, 1 + get(Stat.EnergyShieldRechargeRatePlusPct) / 100.0)
+        * RechargeMultipliers.Factor(get)
         // Wicked Ward: "40% less Energy Shield Recharge Rate".
         * (get(Stat.KeystoneWickedWard) != 0 ? 0.6 : 1)
         // Eldritch Battery: "50% less Energy Shield Recharge Rate".
@@ -149,7 +155,9 @@ public sealed class EnergyShield
         * Math.Max(0, 1 + get(Stat.EnergyShieldRecoveryRatePlusPct) / 100.0) * PanelStats.MapRecoveryMultiplier(get);
 
     public static double RegenPerMinute(uint max, Func<uint, int> get) =>
-        Math.Max(0, get(Stat.BaseEnergyShieldRegenerationRatePerMinute) + max * get(Stat.BaseEnergyShieldRegenerationRatePerMinutePct) / 100.0)
+        Math.Max(0, get(Stat.BaseEnergyShieldRegenerationRatePerMinute)
+            + 60d * get(Stat.EnergyShieldRegenerationRatePerSecond)
+            + max * get(Stat.BaseEnergyShieldRegenerationRatePerMinutePct) / 100.0)
         * RegenerationMultiplier(get);
 
     /// <summary>Whether life regeneration converted or mirrored to Energy Shield (Zealot's Oath / Pious Path) may run.</summary>

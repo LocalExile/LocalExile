@@ -35,7 +35,7 @@ public static partial class Game
                 Get(Stat.GainXFrenzyChargesAfterSpending200Mana), Get(Stat.LocalDisplayGainPowerChargeOnSpendingMana) > 0 ? 1 : 0);
         // A new immunity removes the ailments it rejects; the stats that read them follow.
         var ailments = player.ElementalAilments.Snapshot(AreaTime(player));
-        player.ElementalAilments.Reconcile(Get);
+        player.ElementalAilments.Reconcile(PlayerElementalDefencesAt(player, now, Get));
         if (player.ElementalAilments.Snapshot(AreaTime(player)) != ailments)
             foreach (var step in PlayerStatChangeReaders[(int)PlayerStatChange.ElementalAilments]) MarkPlayerStats(player, step);
         if (player.IncomingAilments.Reconcile(Get))

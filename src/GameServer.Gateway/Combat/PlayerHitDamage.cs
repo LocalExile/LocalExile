@@ -98,6 +98,8 @@ public static class PlayerHitDamage
             {
                 range = range.Scale(Math.Max(0, 1 + get(Stat.HeraldOfPurityPhysicalDamagePlusPctFinal) / 100.0));
                 if (attack) range = range.Scale(Math.Max(0, 1 + get(Stat.CombinedAttackPhysicalDamagePlusPctFinal) / 100.0));
+                if (melee && additional.AdditionalMeleePhysicalMorePct != 0)
+                    range = range.Scale(Math.Max(0, 1 + additional.AdditionalMeleePhysicalMorePct / 100d));
                 if (melee && additional.MeleePhysicalMorePct != 0)
                     range = range.Scale(Math.Max(0, 1 + additional.MeleePhysicalMorePct / 100d));
             }
@@ -156,6 +158,8 @@ public readonly record struct HitIncreases(int Physical = 0, int Elemental = 0,
     IReadOnlyList<(DamageTypeHistory History, int Increased)>? Typed = null)
 {
     public int MeleePhysicalMorePct { get; init; }
+    /// <summary>A second, independently multiplied more/less melee physical modifier supplied by the caller.</summary>
+    public int AdditionalMeleePhysicalMorePct { get; init; }
     public (DamageTypeHistory History, int Percent) MaximumMore { get; init; }
     public int AttackMorePct { get; init; }
 }

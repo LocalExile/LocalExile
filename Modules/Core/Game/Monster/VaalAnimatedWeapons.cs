@@ -30,7 +30,7 @@ public static partial class Game
         }
     }
 
-    internal static async Task<bool> ReleaseVaalWeapons(Player player, ushort source, SupportedGem gem, (int X, int Y) aim, double duration, Func<bool> current)
+    static async Task<bool> ReleaseVaalWeapons(Player player, ushort source, SupportedGem gem, (int X, int Y) aim, Func<bool> current)
     {
         // The client supplies no radius for its ground search. Use the ordinary animated-item pickup radius.
         const double searchRadius = 15;
@@ -54,6 +54,7 @@ public static partial class Game
                         candidates.Add((blade.Id, blade.At, null, state));
         }
         if (candidates.Count == 0) return true;
+        double duration = SummonDuration(player, definition, gem);
         int minimum = GolemStat(gem.Stats, Stat.VaalAnimateWeaponMinimumLevelRequirement);
         int maximum = GolemStat(gem.Stats, Stat.AnimateItemMaximumLevelRequirement);
         using var weapons = RollVaalWeapons(player, minimum, maximum).GetEnumerator();

@@ -45,6 +45,7 @@ public static partial class Game
         if (shield > 0) player.EnergyShield.Recover(shield);
         if (RandomRolls.Chance(Get(Stat.EnergyShieldRechargesOnBlockPct), 100, player.IncomingHitRandom))
             player.EnergyShield.StartRecharge(now, Get);
+        TryRestoreBrokenWard(player, now, Get(Stat.RestoreWardOnBlockPct), player.IncomingHitRandom);
         TrimLeechLocked(player);
     }
 }

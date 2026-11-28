@@ -128,7 +128,8 @@ public static class StatConditions
         "_while_not_ignited_frozen_shocked", "_while_ignited", "_while_chilled", "_while_frozen", "_while_shocked", "_while_fortified", "_while_you_have_fortify",
         "_while_blinded", "_while_you_are_ignited",
         "_while_unarmed", "_while_wielding_staff", "_while_wielding_sword",
-        "_while_life_leeching", "_while_mana_leeching", "_while_energy_shield_leeching", "_while_es_leeching", "_while_leeching",
+        "_while_life_leeching", "_while_mana_leeching", "_while_energy_shield_leeching", "_while_es_leeching",
+        "_while_leeching_energy_shield", "_while_leeching",
         "_while_at_maximum_endurance_charges", "_while_at_maximum_frenzy_charges", "_while_at_maximum_power_charges",
         "_while_using_flask", "_during_flask_effect", DuringAnyFlaskEffect, "_if_affected_by_no_flasks",
         "_while_bleeding", "_while_poisoned", "_while_on_consecrated_ground",
@@ -137,7 +138,7 @@ public static class StatConditions
         {
             $"_while_no_{type}_charges", $"_while_you_have_no_{type}_charges", $"_while_have_any_{type}_charges",
         }),
-        "_while_onslaught_is_active", "_while_have_onslaught", "_while_channelling", "_while_not_channelling",
+        "_while_onslaught_is_active", "_while_have_onslaught", "_during_onslaught", "_while_channelling", "_while_not_channelling",
         "_while_you_have_active_physical_aegis", "_while_you_have_depleted_physical_aegis",
         "_while_unhinged", "_while_not_unhinged",
         "_while_you_have_avatar_of_fire", "_while_you_do_not_have_avatar_of_fire",
@@ -343,6 +344,8 @@ public static class StatConditions
             "armour" or "armour_+" or "X_armour" => "base_physical_damage_reduction_rating",
             "local_chance_to_bleed_%" => "local_chance_to_bleed_on_hit_%",
             "physical_damage_reduction_rating_%" => "physical_damage_reduction_rating_+%",
+            "chance_to_block_attack_damage_%" => "additional_block_%",
+            "chance_to_block_spells_%" => "base_spell_block_%",
             "maximum_es_+%" or "energy_shield_+%" => "maximum_energy_shield_+%",
             "energy_shield_recharge_+%" => "energy_shield_recharge_rate_+%",
             "armour_and_evasion_+%" or "armour_evasion_+%" => "evasion_and_physical_damage_reduction_rating_+%",
@@ -351,7 +354,8 @@ public static class StatConditions
             "spell_damage_taken_+%" => "base_spell_damage_taken_+%",
             "life_regeneration_per_minute" => "base_life_regeneration_rate_per_minute",
             "life_regeneration_rate_per_minute" => "base_life_regeneration_rate_per_minute",
-            "life_regeneration_per_minute_%" => "life_regeneration_rate_per_minute_%",
+            "elemental_ailment_duration_on_self_+%" => "self_elemental_status_duration_-%",
+            "life_regeneration_per_minute_%" or "life_regeneration_%_per_minute" => "life_regeneration_rate_per_minute_%",
             "energy_shield_regeneration_%_per_minute" or "energy_shield_regeneration_rate_per_minute_%"
                 => "base_energy_shield_regeneration_rate_per_minute_%",
             // The historical "recharge" ids on equipment collection conditions describe flat regeneration.
@@ -438,6 +442,8 @@ public static class StatConditions
             "maximum_added_spell_fire_damage" => "spell_maximum_added_fire_damage",
             "minimum_added_spell_cold_damage" => "spell_minimum_added_cold_damage",
             "maximum_added_spell_cold_damage" => "spell_maximum_added_cold_damage",
+            "minimum_added_lightning_damage" => "global_minimum_added_lightning_damage",
+            "maximum_added_lightning_damage" => "global_maximum_added_lightning_damage",
             "minimum_added_spell_lightning_damage" => "spell_minimum_added_lightning_damage",
             "maximum_added_spell_lightning_damage" => "spell_maximum_added_lightning_damage",
             _ => plain,
@@ -499,7 +505,8 @@ public static class StatConditions
 
     public static int ValueForFold(string statId, int value) => PlainOf(statId) switch
     {
-        "extra_damage_taken_from_crit_+%" or "debuff_time_passed_-%" => ActorScale.Saturate(-(long)value),
+        "extra_damage_taken_from_crit_+%" or "debuff_time_passed_-%"
+            or "elemental_ailment_duration_on_self_+%" => ActorScale.Saturate(-(long)value),
         "intimidate_enemies_on_hit" or "inflict_withered_for_2_seconds_on_hit" or "inflict_fire_exposure"
             or "inflict_cold_exposure" or "inflict_lightning_exposure" => value == 0 ? 0 : 100,
         _ => value,
@@ -555,9 +562,12 @@ public static class StatConditions
         ("taunted_an_enemy", TauntedEnemy, false), ("detonated_mines", DetonatedMine, false),
         ("detonated_mine", DetonatedMine, false),
         ("frozen_enemy", FrozeEnemy, false), ("shocked", ShockedEnemy, false), ("ignited_an_enemy", IgnitedEnemy, false),
+        ("enemy_chilled", ChilledEnemy, false), ("enemy_shocked", ShockedEnemy, false), ("enemy_ignited", IgnitedEnemy, false),
+        ("placed_trap_or_mine", PlacedTrapOrMine, false),
         ("gained_frenzy_charge", GainedFrenzyCharge, false), ("gained_power_charge", GainedPowerCharge, false),
         ("gained_endurance_charge", GainedEnduranceCharge, false),
-        ("used_a_skill", UsedSkill, false), ("spent_mana", SpentMana, false),
+        ("used_a_skill", UsedSkill, false), ("spent_mana", SpentMana, false), ("spent_life", SpentLife, false),
+        ("player_minion_died", OwnedMinionDied, false), ("crit_with_a_herald_skill", CritWithHerald, false),
         ("crit", Crit, false), ("hit", BeenHit, false),
     ];
 
@@ -565,6 +575,9 @@ public static class StatConditions
     public const string HitEnemyWithWeapon = "hit_enemy_with_weapon";
     public const string HitUniqueEnemy = "hit_unique_enemy";
     public const string SummonedTotem = "summoned_totem";
+    public const string OwnedMinionDied = "player_minion_died";
+    public const string SpentLife = "spent_life";
+    public const string CritWithHerald = "crit_with_a_herald_skill";
     public const string HitEnemy = "hit_enemy", KilledEnemy = "killed_enemy", KilledCursedEnemy = "killed_cursed_enemy",
         ShatteredEnemy = "shattered_enemy", FrozeEnemy = "froze_enemy", Crit = "crit", Blocked = "blocked",
         BlockedStun = "blocked_stun", TakenSavageHit = "taken_savage_hit", BeenHit = "been_hit", BeenStunned = "been_stunned",
@@ -580,6 +593,7 @@ public static class StatConditions
         GainedFrenzyCharge = "gained_frenzy_charge", GainedPowerCharge = "gained_power_charge",
         GainedEnduranceCharge = "gained_endurance_charge",
         BlockedAttack = "blocked_attack", BlockedSpell = "blocked_spell", ShockedEnemy = "shocked_enemy", IgnitedEnemy = "ignited_enemy";
+    public const string ChilledEnemy = "chilled_enemy", PlacedTrapOrMine = "placed_trap_or_mine";
 
     /// <summary>
     /// The condition of one stat id against one subject.

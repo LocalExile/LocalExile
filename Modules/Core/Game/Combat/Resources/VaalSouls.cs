@@ -14,7 +14,11 @@ public static partial class Game
     {
         // The selector describes this skill, not the caster. Only an explicit developer replacement is global.
         if (key == VaalSoulCost.Aura) return own.GetValueOrDefault(key);
-        return (int)Math.Clamp((long)playerStats.GetValueOrDefault(key) + own.GetValueOrDefault(key), int.MinValue, int.MaxValue);
+        long value = (long)playerStats.GetValueOrDefault(key) + own.GetValueOrDefault(key);
+        if (key is VaalSoulCost.AuraMultiplier or VaalSoulCost.NonAuraMultiplier)
+            value += (long)playerStats.GetValueOrDefault(Stat.VaalSkillSoulRequirementPlusPct)
+                + own.GetValueOrDefault(Stat.VaalSkillSoulRequirementPlusPct);
+        return (int)Math.Clamp(value, int.MinValue, int.MaxValue);
     }
 
     public static void PublishVaalSoulInputs(Player player, IReadOnlyDictionary<uint, int> playerStats,

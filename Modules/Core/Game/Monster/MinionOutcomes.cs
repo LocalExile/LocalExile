@@ -92,6 +92,7 @@ public static partial class Game
 
     public static void CommitAcceptedKillLocked(Player player, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
+        if (monster.ShockedAtDeath is null) CaptureLootAilmentsAtDeath(monster, now);
         SpreadPestilentStrike(player, victimId, monster, now);
         RememberCursedCorpse(player, victimId, monster);
         QueueInfernalBlowDeath(monster, now);
@@ -174,8 +175,11 @@ public static partial class Game
                 state.OutputQueue.Add(new([], "0x0033 current passive skill tree (accepted level)", Kind: PlayerMinions.OutputKind.Passives));
             }
         }
-        if (!MonsterGivesNoRewards(monster))
-            state.FlaskRewards.Add(new(monster.Rarity));
+        if (MonsterGrantsKillFlaskCharges(monster))
+            state.FlaskRewards.Add(new(monster.Rarity)
+            {
+                KillChargesPct = BleedingKillFlaskChargesPct(player, monster.BleedSourcesAtDeath?.Contains(player.Id) == true),
+            });
         var rng = AreaRng(player);
         var stacked = RollKillLoot(player, monster, at, rng, firstBossKill);
         if (stacked.Count == 0) return;
@@ -374,9 +378,9 @@ public static partial class Game
                         || ItemsFor(player).FlaskChargesOf(type) is not { } basis) continue;
                     var local = ItemModStats.Local(flask.Item, ItemsFor(player).Mods); var charges = FlaskCharges.Of(basis, local);
                     if (flask.Item.Charges >= charges.MaxCharges) continue;
-                    double gain = reward.CritGains is { } gains ? gains.GetValueOrDefault(flask.Id) : FlaskCharges.FullShortcut ? int.MaxValue : FlaskCharges.KillCharges(reward.Rarity, ItemsFor(player).Mods);
+                    double gain = reward.CritGains is { } gains ? gains.GetValueOrDefault(flask.Id) : FlaskCharges.FullShortcut ? int.MaxValue : FlaskCharges.KillCharges(reward.Rarity, ItemsFor(player).Mods, reward.KillChargesPct);
                     int whole = player.FlaskChargeCarry.Take(flask.Id,
-                        gain * FlaskCharges.GainMultiplier(local, Get, areaIncrease));
+                        gain * FlaskGainMultiplier(player, flask.Id, local, Get, areaIncrease));
                     if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, item => Flasks.Gain(item, charges, whole)) is { } done) changed.Add(done);
                 }
                 return ([.. changed.Select(i => i.Id)], changed);

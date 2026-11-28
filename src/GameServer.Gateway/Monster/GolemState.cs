@@ -24,6 +24,7 @@ public sealed class GolemState
         public double FreshMeatUntil;
         public double OnslaughtUntil;
         public double Regeneration;
+        public double RagingSpiritSelfDamageCarry;
         public Flasks.Effects? RecoveryFlasks;
         public UtilityFlasks.Effects? UtilityFlasks;
         public StolenMods? LinkedModifiers;

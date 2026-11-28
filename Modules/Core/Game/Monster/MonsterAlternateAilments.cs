@@ -261,7 +261,8 @@ public static partial class Game
             return;
         double seconds = AlternateAilmentSeconds
             * Math.Max(0, 1 - (get(Stat.SelfElementalStatusDurationMinusPct) - get(Stat.BaseAllAilmentDurationOnSelfPlusPct)) / 100.0);
-        player.RuleAilments.Add((int)a.Kind, now, seconds, magnitude);
+        if (player.RuleAilments.Add((int)a.Kind, now, seconds, magnitude) is not null && a.Kind == AlternateKind.Scorch)
+            MarkPlayerStats(player, PlayerStatStep.OvercapCrit);
     }
 
     /// <summary>Mirrored: the Scorch and Brittle a hit added act on the player as well, the effect they landed with
@@ -273,6 +274,13 @@ public static partial class Game
         foreach (var (a, instance) in added)
             AlternateOnPlayerLocked(player, a, Math.Min(a.Cap, Math.Floor(instance.Magnitude * AlternateEffectOnSelf(a, playerStats))),
                 now, playerStats, random);
+    }
+
+    static void RemovePlayerAlternateElementalAilments(Player player, double now)
+    {
+        foreach (var ailment in AlternateAilments)
+            if (player.RuleAilments.RemoveActive((int)ailment.Kind, now) && ailment.Kind == AlternateKind.Scorch)
+                MarkPlayerStats(player, PlayerStatStep.OvercapCrit);
     }
 
     /// <summary>Scorch on the player: its fire, cold and lightning resistances lowered by its strongest scorch.</summary>

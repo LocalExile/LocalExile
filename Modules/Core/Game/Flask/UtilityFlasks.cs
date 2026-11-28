@@ -50,7 +50,8 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0070 use flask {slot} ({type.Name}): refused, {refused}");
             return false;
         }
-        var (stats, seconds, effectPower, selfChaosRate) = UtilityFlaskUseFor(player, (byte)slot, flask.Item, utility, local, Get, playerLevel);
+        var (stats, seconds, effectPower, selfChaosRate, flatSelfChaosRate) =
+            UtilityFlaskUseFor(player, (byte)slot, flask.Item, utility, local, Get, playerLevel);
         bool gainedSouls = false, gainedOnslaught = false;
         if (FlaskGrounds.OnUse(local).Any(g => g.Kind != FlaskGrounds.Kind.Taunt)) _ = FlaskGroundArt;
         // Payment and installation are one admitted transaction. A reload after the inventory send cannot
@@ -66,6 +67,9 @@ public static partial class Game
                     ApplyMinionUtilityFlaskLocked(player, minion, flask, type, utility, local, Get, now);
             FlaskToLinkedTargetsLocked(player, flask.Item, local, utility, Get);
             QueueMapFlaskMeteor(player, now);
+            TryRestoreBrokenWard(player, now, Get(Stat.WardPctChanceToRestoreOnFlaskUse), AreaRng(player));
+            if (Get(Stat.CannotBeAffectedByFlasks) == 0) ProtectFlaskMovementDebuffsLocked(player, local, now);
+            RemoveFlaskMovementDebuffsLocked(player, Get(Stat.RemoveMaimAndHinderOnFlaskUse));
             if (Get(Stat.CannotBeAffectedByFlasks) != 0)
             {
                 TryGrantAlchemistsGenius(player);
@@ -81,7 +85,10 @@ public static partial class Game
                 .Select(row => (Buff: player.NextBuff++, Row: row)).ToArray();
             var effect = new UtilityFlasks.Active(flask.Id, (byte)slot, type.Name, utility, player.NextBuff++,
                 utility.Extra is null ? null : player.NextBuff++, stats, now, now + seconds)
-                { SelfChaosDamageLifePctPerMinute = selfChaosRate, LocalStats = local, SuffixBuffs = suffixBuffs };
+                {
+                    SelfChaosDamageLifePctPerMinute = selfChaosRate, SelfChaosDamageFlatPerMinute = flatSelfChaosRate,
+                    LocalStats = local, SuffixBuffs = suffixBuffs,
+                };
             AccrueUtilityFlaskDamage(player, now);
             if (player.UtilityFlaskEffects.Of(flask.Id) is { } previous)
                 QueueUtilityFlaskEnd(player, state, previous, "refreshed");
@@ -96,7 +103,10 @@ public static partial class Game
             }
             ApplyConditionalFlaskAilmentProtectionLocked(player, local, now);
             if (UtilityFlasks.RestoreWardAfterPaidUse(player.Ward, name => local.GetValueOrDefault(name), now))
+            {
+                WardRestoredLocked(player, now);
                 Console.WriteLine($"[gateway] Ward restored on paid {type.Name}: {player.Ward.Current}/{player.Ward.Maximum}");
+            }
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0070 use flask {slot} ({type.Name}): {utility.BuffId} for {seconds:0.##} s: " +
                 string.Join(", ", stats.Select(s => $"{s.Stat} {s.Value}")) + $"; walk estimate {player.Walk.Speed:0.##} cells/s");
             state.Packets.Add(new([], $"0x01c1 player buff: {type.Name} (flask {slot}), {seconds:0.##} s",
@@ -131,14 +141,16 @@ public static partial class Game
         var (stats, seconds) = ItemUtilityFlaskFor(utility, flask, local, flaskCharacter, playerLevel, finalMultiplier);
         int heal = local.GetValueOrDefault(Stat.LocalUniqueFlaskInstantlyRecoversPctMaximumLife);
         int selfChaos = local.GetValueOrDefault(Stat.LocalUniqueFlaskChaosDamagePctOfMaximumLifeToDealPerMinuteWhileHealing);
-        double effectPower = heal > 0 || selfChaos > 0 ? FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel,
+        int flatSelfChaos = local.GetValueOrDefault(Stat.LocalChaosDamageTakenPerMinuteDuringFlaskEffect);
+        double effectPower = heal > 0 || selfChaos > 0 || flatSelfChaos > 0 ? FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel,
             local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct), finalMultiplier: finalMultiplier) : 1;
         int selfChaosRate = selfChaos > 0 ? UtilityFlasks.Scale(selfChaos, effectPower) : 0;
-        return new(stats, seconds, effectPower, selfChaosRate);
+        int flatSelfChaosRate = flatSelfChaos > 0 ? UtilityFlasks.Scale(flatSelfChaos, effectPower) : 0;
+        return new(stats, seconds, effectPower, selfChaosRate, flatSelfChaosRate);
     }
 
     readonly record struct UtilityFlaskUse(IReadOnlyList<UtilityFlasks.Source> Stats, double Seconds, double EffectPower,
-        int SelfChaosRate);
+        int SelfChaosRate, int FlatSelfChaosRate);
 
     static string? NamedFlaskRecent(string baseTypeId) => baseTypeId switch
     {
@@ -187,11 +199,32 @@ public static partial class Game
     // innate boss rarity (MonsterDroppedItemRarityPlusPct above the baseline rarity tier) uses soft diminishing
     // returns so Act Bosses (+10,000-15,000% IIR) drop abundant rares and elevated uniques (~3-4.5x) without
     // turning half their drops into uniques.
+    static void CaptureLootAilmentsAtDeath(SpawnedMonster monster, double now)
+    {
+        monster.ShockedAtDeath = monster.Ailments.ShockedAtDeath(now);
+        monster.FrozenAtDeath = monster.Ailments.FrozenAtDeath(now);
+        monster.BleedSourcesAtDeath ??= AilmentOn(monster, AilmentType.Bleed, now)
+            ? monster.SourceMarks(InflictedKeys[(int)AilmentType.Bleed])
+                .Where(mark => mark.Until > now).Select(mark => mark.Source).ToArray()
+            : [];
+    }
+
     public static int IncreasedItemRarity(Player player, SpawnedMonster? monster = null)
     {
         var stats = PlayerStatValues(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
-        int rawPlayerIir = Get(Stat.BaseItemFoundRarityPlusPct) + Get(Stat.ItemFoundRarityPlusPct);
+        int rawPlayerIir = ActorScale.Saturate((long)Get(Stat.BaseItemFoundRarityPlusPct) + Get(Stat.ItemFoundRarityPlusPct)
+            + (monster?.Rarity == MonsterRarity.Magic ? Get(Stat.MagicMonsterDroppedItemRarityPlusPct) : 0));
+        if (monster is not null)
+        {
+            double at = ProjectileWorldTime(player);
+            bool shocked = monster.ShockedAtDeath ?? monster.Ailments.ShockedAtDeath(at);
+            bool frozen = monster.Ailments.Shattered || (monster.FrozenAtDeath ?? monster.Ailments.FrozenAtDeath(at));
+            rawPlayerIir = ActorScale.Saturate((long)rawPlayerIir
+                + (shocked ? Get(Stat.KilledMonsterDroppedItemRarityPlusPctWhenShocked) : 0)
+                + (frozen ? Get(Stat.KilledMonsterDroppedItemRarityPlusPctWhenFrozen) : 0)
+                + (shocked || frozen ? Get(Stat.KilledMonsterDroppedItemRarityPlusPctWhenFrozenOrShocked) : 0));
+        }
         double effectivePlayerIir = ItemDrops.EffectivePlayerIir(rawPlayerIir)
             + Math.Max(0, monster?.KilledWithItemRarityPct ?? 0);
         double monsterIirFactor = 1.0;
@@ -224,7 +257,11 @@ public static partial class Game
     {
         var stats = PlayerStatValues(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
-        int rawPlayerIiq = Get(Stat.BaseItemFoundQuantityPlusPct) + Get(Stat.ItemFoundQuantityPlusPct);
+        bool frozen = monster is not null
+            && (monster.Ailments.Shattered || (monster.FrozenAtDeath ?? monster.Ailments.FrozenAtDeath(ProjectileWorldTime(player))));
+        int rawPlayerIiq = ActorScale.Saturate((long)Get(Stat.BaseItemFoundQuantityPlusPct) + Get(Stat.ItemFoundQuantityPlusPct)
+            + (monster?.Rarity == MonsterRarity.Normal ? Get(Stat.NormalMonsterDroppedItemQuantityPlusPct) : 0)
+            + (frozen ? Get(Stat.KilledMonsterDroppedItemQuantityPlusPctWhenFrozen) : 0));
         double playerValue = Math.Max(0, 1.0 + ItemDrops.EffectivePlayerIiq(rawPlayerIiq));
         double monsterIiqFactor = 1.0;
         if (monster is not null)
@@ -256,7 +293,7 @@ public static partial class Game
             var stats = CharacterPlayerStats(player);
             int Get(uint key) => stats.GetValueOrDefault(key);
             player.Phasing = UtilityFlasks.Phasing(UtilityStats(player, Get));
-            player.ElementalAilments.Reconcile(Get);
+            player.ElementalAilments.Reconcile(PlayerElementalDefencesAt(player, AreaTime(player), Get));
             player.ApplyMovementSpeedAt(AreaTime(player));
         }
     }

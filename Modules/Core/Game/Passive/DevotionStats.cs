@@ -37,14 +37,38 @@ public static class DevotionStats
         [Stat.ShieldDefencesPlusPctPer10Devotion] = [new(Stat.CombinedShieldDefencesPlusPct)],
     };
 
+    static readonly (uint Input, uint Output)[] ThresholdTargets =
+    [
+        (Stat.PhysicalDamagePctToConvertToFireAtDevotionThreshold, Stat.PhysicalDamagePctToConvertToFire),
+        (Stat.PhysicalDamagePctToConvertToColdAtDevotionThreshold, Stat.PhysicalDamagePctToConvertToCold),
+        (Stat.PhysicalDamagePctToConvertToLightningAtDevotionThreshold, Stat.PhysicalDamagePctToConvertToLightning),
+        (Stat.ManaPctToAddAsEnergyShieldAtDevotionThreshold, Stat.ManaPctToAddAsEnergyShield),
+        (Stat.MinimumEnduranceChargesAtDevotionThreshold, Stat.BaseMinimumEnduranceCharges),
+        (Stat.MinimumFrenzyChargesAtDevotionThreshold, Stat.BaseMinimumFrenzyCharges),
+        (Stat.MinimumPowerChargesAtDevotionThreshold, Stat.BaseMinimumPowerCharges),
+        (Stat.PhysicalDamageReductionPctAtDevotionThreshold, Stat.BaseAdditionalPhysicalDamageReductionPct),
+        (Stat.AdditionalMaximumAllResistancesPctAtDevotionThreshold, Stat.AdditionalMaximumAllResistancesPct),
+        (Stat.InflictFireExposureOnHitPctChanceAtDevotionThreshold, Stat.BaseInflictFireExposureOnHitPctChance),
+        (Stat.InflictColdExposureOnHitPctChanceAtDevotionThreshold, Stat.BaseInflictColdExposureOnHitPctChance),
+        (Stat.InflictLightningExposureOnHitPctChanceAtDevotionThreshold, Stat.BaseInflictLightningExposureOnHitPctChance),
+    ];
+
+    static readonly uint[] ElementalAilmentImmunity =
+    [
+        Stat.ImmuneToIgnite, Stat.ImmuneToChill, Stat.ImmuneToFreeze, Stat.ImmuneToShock,
+        Stat.ImmuneToScorch, Stat.ImmuneToSap, Stat.CannotGainBrittle,
+    ];
+
     /// <summary>Replaces every per-10-Devotion stat in <paramref name="sources"/> with its normal stat(s) times the
     /// number of whole 10 Devotion steps. The raw per-Devotion key is removed even at zero Devotion, so it cannot leak
     /// into a panel as a flat stat.</summary>
-    public static void Apply(Dictionary<uint, int> sources, StatCatalog stats)
+    public static void Apply(Dictionary<uint, int> sources, StatCatalog stats) => Apply(sources, stats, null);
+
+    public static void Apply(Dictionary<uint, int> sources, StatCatalog stats,
+        IReadOnlyDictionary<string, bool>? conditions)
     {
-        int steps = Devotion is var devotionKey && sources.TryGetValue(devotionKey, out int devotion)
-            ? Math.Max(0, devotion) / 10
-            : 0;
+        int devotion = sources.GetValueOrDefault(Devotion);
+        int steps = Math.Max(0, devotion) / 10;
         foreach (var (perStat, targets) in Targets)
         {
             if (!sources.Remove(perStat, out int value)) continue;
@@ -54,5 +78,19 @@ public static class DevotionStats
                     sources[targetKey] = ActorScale.Add(targetKey, sources.GetValueOrDefault(targetKey),
                         value * steps * target.Factor);
         }
+
+        bool reachedThreshold = devotion >= 150;
+        void Add(uint key, int amount) =>
+            sources[key] = ActorScale.Add(key, sources.GetValueOrDefault(key), amount);
+        foreach (var (input, output) in ThresholdTargets)
+            if (sources.Remove(input, out int value) && reachedThreshold)
+                Add(output, value);
+
+        if (sources.Remove(Stat.GainArcaneSurgeOnHitAtDevotionThreshold, out int surge) && reachedThreshold && surge > 0)
+            Add(Stat.GainArcaneSurgeOnHitPctChance, 100);
+        if (sources.Remove(Stat.ImmuneToElementalAilmentsWhileOnConsecratedGroundAtDevotionThreshold, out int immune)
+            && reachedThreshold && immune > 0 && conditions?.GetValueOrDefault("_while_on_consecrated_ground") == true)
+            foreach (uint key in ElementalAilmentImmunity)
+                Add(key, 1);
     }
 }

@@ -178,21 +178,28 @@ public static partial class Game
         {
             if (!RampageEffectCurrent(player, epoch) || player.Paused || target.Dead || !target.Hostile
                 || target.OwnerId is not null || !ReferenceEquals(player.Area.Monsters.GetValueOrDefault(id), target)) return false;
+            double now = ProjectileWorldTime(player);
             int hitChance = 100;
             if (attack)
             {
-                hitChance = RampageAttackHitChance(player, id, target, accuracy, ProjectileWorldTime(player));
+                hitChance = RampageAttackHitChance(player, id, target, accuracy, now);
                 if (!DamageModel.Hits(hitChance, AreaRng(player).Next(100))) return false;
             }
             if (MonsterBlocks(target, AreaRng(player), !attack)) return false;
             // An attack that rolled to hit takes the critical confirmation roll against the same chance, as the
             // Rampage bow projectile and every other attack do; a spell always hits.
             bool critical = AreaRng(player).Next(10000) < (attack ? 500 : own?.SpellCriticalChance ?? 0)
-                + BrittleCriticalChance(target, ProjectileWorldTime(player))
+                + BrittleCriticalChance(target, now)
                 && (!attack || EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
-            var added = PoachersAddedPhysical(target, ProjectileWorldTime(player)).Scale(addedEffectiveness);
-            (damage, _) = MonsterDamage(target, packet.Add(DamageType.Physical, added).Roll(AreaRng(player)), critical, attack, default);
-            if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(target, 150, CharacterPlayerStats(player)));
+            var added = PoachersAddedPhysical(target, now).Scale(addedEffectiveness);
+            damage = RampageOwnedDamage(target, packet.Add(DamageType.Physical, added).Roll(AreaRng(player)), critical, attack, now);
+            if (critical)
+            {
+                var caster = CharacterPlayerStats(player);
+                // The animated weapon attacks with its own critical stats. The direct effects use the player's source.
+                int multiplier = attack ? CriticalMultiplierOn(target, 150, caster) : CriticalMultiplierOn(target, 150, now, caster);
+                damage = DamageModel.CriticalDamage(damage, multiplier);
+            }
             hit = ApplyMonsterHitLocked(player, target, damage, rampageSource: true); // Proven by this contact's effect guard.
             if (hit is null) return false;
             player.RecentEvents.RecordCriticalOutcome(ProjectileWorldTime(player), critical);
@@ -211,6 +218,11 @@ public static partial class Game
             await SendRampageStun(player, stun);
         return hit.Value.Life == 0;
     }
+
+    // Rampage's existing damage path does not take a general debuff timestamp. The mine aura still uses this contact.
+    static int RampageOwnedDamage(SpawnedMonster target, DamagePacket rolled, bool critical, bool attack, double now) =>
+        ResolveMonsterHit(target, rolled, critical, attack, double.NaN, default,
+            additionalTakenPct: StormblastDamageTaken(target, now)).Damage;
 
     /// <summary>The chance a Rampage attack has to hit this target, the value its hit roll is taken against. The
     /// critical strike's confirmation roll is taken against the same chance (Path of Building's

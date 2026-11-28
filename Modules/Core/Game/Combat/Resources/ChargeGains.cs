@@ -13,7 +13,10 @@ public abstract record ChargeEvent
     /// the player's own: <paramref name="SelfBleeding"/>, <paramref name="SelfPoisoned"/>.</summary>
     public sealed record Hit(bool Critical, bool Spell, bool? Melee, MonsterRarity Rarity, string? SkillEffect = null,
         Func<uint, int>? Skill = null, bool Killed = false, bool Primary = true, bool Frozen = false,
-        bool Bleeding = false, bool Marked = false, bool SelfBleeding = false, bool SelfPoisoned = false) : ChargeEvent;
+        bool Bleeding = false, bool Marked = false, bool SelfBleeding = false, bool SelfPoisoned = false) : ChargeEvent
+    {
+        public bool NoArmour { get; init; }
+    }
 
     /// <summary>The player killed a hostile monster; <paramref name="Frozen"/>: it was frozen when it died, shattered
     /// included (MonsterElementalAilments.FrozenAtDeath); <paramref name="Poisons"/>: the poisons on it when it died;
@@ -139,6 +142,7 @@ public static class ChargeGains
         new(Stat.GainFrenzyChargeOnHittingUniqueEnemyPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit { Rarity: MonsterRarity.Unique }),
         new(Stat.GainPowerChargeOnHitPctChanceAgainstFrozenEnemy, ChargeType.Power, (e, _) => e is ChargeEvent.Hit { Frozen: true }),
         new(Stat.ChanceToGainEnduranceChargeOnHitPctVsBleedingEnemy, ChargeType.Endurance, (e, _) => e is ChargeEvent.Hit { Bleeding: true }),
+        new(Stat.EnduranceChargeOnHitPctVsNoArmour, ChargeType.Endurance, (e, _) => e is ChargeEvent.Hit { NoArmour: true }),
         new(Stat.GainFrenzyChargeOnHittingMarkedEnemyPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit { Marked: true }),
         new(Stat.GainPowerChargeOnHitWhileBleeding, ChargeType.Power, (e, _) => e is ChargeEvent.Hit { SelfBleeding: true }, Flag: true),
         new(Stat.AddPowerChargeOnHitWhilePoisonedPct, ChargeType.Power, (e, _) => e is ChargeEvent.Hit { SelfPoisoned: true }),

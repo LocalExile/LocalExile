@@ -21,6 +21,17 @@ public sealed class RuleAilments
     /// <summary>Nothing runs and nothing is shown.</summary>
     public bool Idle { get { lock (instances) return instances.Count == 0 && shown.Count == 0; } }
 
+    public double? NextExpiry(int kind, double now)
+    {
+        lock (instances)
+        {
+            double next = double.PositiveInfinity;
+            foreach (var instance in instances)
+                if (instance.Kind == kind && instance.Until > now) next = Math.Min(next, instance.Until);
+            return double.IsPositiveInfinity(next) ? null : next;
+        }
+    }
+
     /// <summary>The strongest running magnitude of <paramref name="kind"/> at <paramref name="now"/> (0 without one, or
     /// without a time).</summary>
     public double Magnitude(int kind, double now)
@@ -66,6 +77,17 @@ public sealed class RuleAilments
 
     /// <summary>Ends every instance; the next <see cref="Present"/> reports the kinds that were shown as gone.</summary>
     public void Clear() { lock (instances) { instances.Clear(); count = 0; } }
+
+    /// <summary>Removes active instances of the specified kind and leaves other kinds and future effects alone.</summary>
+    public bool RemoveActive(int kind, double now)
+    {
+        lock (instances)
+        {
+            int removed = instances.RemoveAll(e => e.Kind == kind && e.From <= now && now < e.Until);
+            count = instances.Count;
+            return removed > 0;
+        }
+    }
 
     /// <summary>The kinds whose strongest magnitude (truncated) at <paramref name="now"/> differs from what was last
     /// presented, with the old and new values (0: none), in kind order; expired instances are dropped.</summary>

@@ -10,7 +10,7 @@ public static class SkillDurationModifiers
     /// Func{string, int}, Kinds)"/>): a CreatesMinion skill's, a warcry's, a Vaal skill's, a Buff skill's, or a skill's
     /// secondary duration (base_secondary_skill_effect_duration) instead of its primary one, or a bow skill's.</summary>
     [Flags]
-    public enum Kinds { None = 0, Minion = 1, Warcry = 2, Vaal = 4, Buff = 8, Secondary = 16, Brand = 32, Bow = 128 }
+    public enum Kinds { None = 0, Minion = 1, Warcry = 2, Vaal = 4, Buff = 8, Secondary = 16, Brand = 32, Banner = 64, Bow = 128 }
 
     // The increases scoped to a kind, from the player and the skill alike. base_minion_duration_+% is the player's only
     // (PoB SkillStatMap: Duration INC for SkillType.CreatesMinion).
@@ -18,7 +18,7 @@ public static class SkillDurationModifiers
     [
         (Kinds.Warcry, Stat.WarcryDurationPlusPct), (Kinds.Vaal, Stat.VaalSkillEffectDurationPlusPct), (Kinds.Buff, Stat.BuffDurationPlusPct),
         (Kinds.Secondary, Stat.SecondarySkillEffectDurationPlusPct), (Kinds.Brand, Stat.SigilDurationPlusPct),
-        (Kinds.Bow, Stat.SkillEffectDurationPlusPctWithBowSkills),
+        (Kinds.Banner, Stat.BannerDurationPlusPct), (Kinds.Bow, Stat.SkillEffectDurationPlusPctWithBowSkills),
     ];
 
     // Supports' more or less duration, on the supported skill's own stats.

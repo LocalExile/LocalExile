@@ -20,6 +20,16 @@ public static partial class Game
         player.EnergyShield.Spend(HitResourceLoss(player.EnergyShield.Current, player.EnergyShield.Maximum, percent));
     }
 
+    static void ApplyCurrentResourceLossOnHitLocked(Player player, SpawnedMonster source)
+    {
+        if (player.PlayerLife == 0) return;
+        int manaPercent = Math.Clamp(source.Effects[Stat.RemovePctOfCurrentManaOnHit], 0, 100);
+        int shieldPercent = Math.Clamp(source.Effects[Stat.RemovePctOfCurrentEnergyShieldOnHit], 0, 100);
+        uint mana = player.PlayerMana, shield = player.EnergyShield.Current;
+        if (manaPercent != 0) player.PlayerMana -= HitResourceLoss(mana, mana, manaPercent);
+        if (shieldPercent != 0) player.EnergyShield.Spend(HitResourceLoss(shield, shield, shieldPercent));
+    }
+
     static int NearbyAllyDamageTaken(Player player, (int X, int Y) here, double now)
     {
         int perAlly = MapModsOf(player)?.Get(Stat.MapDamageTakenPlusPctPerNearbyAlly) ?? 0;

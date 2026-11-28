@@ -132,6 +132,7 @@ public static partial class Game
         else
         {
             if (target.Effects[Stat.CannotHaveLifeLeechedFrom] != 0) amounts.Life = 0;
+            if (target.Effects[Stat.CannotHaveManaLeechedFrom] != 0) amounts.Mana = 0;
             if (target.Effects[Stat.CannotHaveEnergyShieldLeechedFrom] != 0)
             {
                 amounts.EnergyShield = 0;
@@ -146,8 +147,17 @@ public static partial class Game
             sources.Attack, sources.Melee, sources.WeaponLifeLeechInstant, powerInstant);
         if (instant.Life > 0 && RecoverVampiricRecipients(player, instant.Life, now)) instant.Life = 0;
         var gain = sources.GainOnHit;
+        var cursedGain = sources.GainOnCursedAttackHit;
+        if (sources.Attack && (cursedGain.Life > 0 || cursedGain.Mana > 0) && target.HasCurses
+            && target.Curses.All.Values.Any(curse => curse.Until > now))
+        {
+            gain.Life = ActorScale.Saturate((long)gain.Life + cursedGain.Life);
+            gain.Mana = ActorScale.Saturate((long)gain.Mana + cursedGain.Mana);
+        }
         if (sources.LifeOnBleedingHit > 0 && target.Bleeds.IgnitedAt(now))
             gain.Life = ActorScale.Saturate((long)gain.Life + sources.LifeOnBleedingHit);
+        if (sources.LifeOnIgnitedHit > 0 && target.Ignites.IgnitedAt(now))
+            gain.Life = ActorScale.Saturate((long)gain.Life + sources.LifeOnIgnitedHit);
         if (sources.LifeOnBlindedHit > 0)
         {
             if (targetId == 0) targetId = player.Area.Monsters.FirstOrDefault(entry => ReferenceEquals(entry.Value, target)).Key;

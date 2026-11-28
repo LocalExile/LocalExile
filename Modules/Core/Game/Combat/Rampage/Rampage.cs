@@ -42,6 +42,7 @@ public static partial class Game
             m.TauntedAtDeath = m.TauntedUntil > now || DecoyTarget(m, now) is not null
                 || ActiveMinionTaunter(player, m.ObjectId, m, now) is not null;
             m.WitherStacksAtDeath = ReadWithered(m, now).Count;
+            CaptureLootAilmentsAtDeath(m, now);
             m.CursedAtDeath = false;
             m.NonAuraHexUntilAtDeath = 0;
             foreach (var curse in m.Curses.All.Values)
@@ -104,7 +105,10 @@ public static partial class Game
         double now = ProjectileWorldTime(player);
         ReconcileRampage(player, enabled, now);
         int movement = player.Rampage.Current.MovementPercent;
-        player.Rampage.Kill(now, target, enabled, true, true, true);
+        if (player.Rampage.Kill(now, target, enabled, true, true, true)
+            && player.Rampage.KillsInStreak % 50 == 0
+            && (playerStats ?? StatSourceValues(player)).GetValueOrDefault(Stat.AddFrenzyChargeEvery50RampageStacks) != 0)
+            ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Frenzy, 1, "Rampage kill"));
         RampageThresholdEffects(player);
         if (movement != player.Rampage.Current.MovementPercent) player.ApplyMovementSpeedAt(now);
     }
@@ -191,7 +195,8 @@ public static partial class Game
                 stats[key] = (int)Math.Clamp((long)stats.GetValueOrDefault(key) + amount, int.MinValue, int.MaxValue);
         }
         Add(Stat.DamagePlusPct, value.DamagePercent);
-        Add(Stat.MovementVelocityPlusPct, value.MovementPercent);
+        if (!player.Pools.FixedMovementVelocity)
+            Add(Stat.MovementVelocityPlusPct, value.MovementPercent);
         // "1% increased Rarity of Items found per X Rampage Kills": the streak's stack count.
         if (Stat.ItemFoundRarityPlus1PctPerXRampageStacks is var rarityPerStacks
             && stats.GetValueOrDefault(rarityPerStacks) is int perKills)

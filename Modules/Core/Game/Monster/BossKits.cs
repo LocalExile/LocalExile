@@ -525,7 +525,11 @@ public static class BossKits
             if (Shaped(player, variety, level, effect, attack, setOff: true, body) is not { } payload || !Acts(payload)) return null;
             return attack with { Trap = payload, Projectile = null, Release = null, ReleaseEffect = null, AreaRadius = 0, Ground = null };
         }
-        attack = attack with { Debuffs = SkillDebuffs(catalog, effect, kind, Get, names) };
+        attack = attack with
+        {
+            Debuffs = SkillDebuffs(catalog, effect, kind, Get, names),
+            AlwaysBleedsOnHit = attack.AlwaysBleedsOnHit || Get(Stat.GlobalBleedOnHit) != 0,
+        };
         if (body) attack = attack with { Summon = null };
         else if (attack.Summon is not null) return attack;
         else if (Get(Stat.IsTotem) != 0 || Get(Stat.BaseSkillIsTotemified) != 0

@@ -97,6 +97,7 @@ public static partial class Game
             captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
         {
             WeaponAttack = true,
+            WeaponClass = sourceWeapon.ItemClass,
             DirectAttackContact = true,
             TinctureKill = TinctureKillBonusFor(player, character, hand),
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
@@ -202,8 +203,27 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> character)
     {
         var counts = OrdinaryRangedCountStats(player, character);
-        var keys = counts.Select(s => s.Item1).ToHashSet();
-        var skills = SkillsFor(player).PlayerDefaults([.. stats.Where(s => !keys.Contains(s.Item1)), .. counts]);
+        var overrides = counts.ToDictionary(s => s.Item1, s => s.Item2);
+        if (character.GetValueOrDefault(Stat.ModifiersToClawAttackSpeedAlsoAffectUnarmedMeleeAttackSpeed) != 0
+            || character.GetValueOrDefault(Stat.UniqueBodyArmourUnarmedMeleeAttackSpeedPlusPctFinal) != 0)
+        {
+            var weapon = WeaponFor(player);
+            int speed = weapon.IncreasedAttackSpeed(character);
+            foreach (var (key, value) in stats)
+                if (key == Stat.MainHandAttackSpeedPlusPct) speed = value;
+            int defaultSpeed = DefaultMainHandAttackSpeed(player.Pools, weapon, character, speed);
+            if (defaultSpeed != speed)
+            {
+                // This projection is for the default attack record. Gem skills start with the shared character speed
+                // and apply their own melee and weapon conditions.
+                var defaultStats = new Dictionary<uint, int>(character) { [Stat.MainHandAttackSpeedPlusPct] = defaultSpeed };
+                foreach (var (key, value) in WeaponStats(player, weapon, defaultStats))
+                    if (key is Stat.MainHandAttackSpeedPlusPct or Stat.HundredTimesAttacksPerSecond or Stat.HundredTimesDamagePerSecond)
+                        overrides[key] = value;
+            }
+        }
+        var skills = SkillsFor(player).PlayerDefaults([.. stats.Where(s => !overrides.ContainsKey(s.Item1)),
+            .. overrides.Select(s => (s.Key, s.Value))]);
         player.Connection.DefaultAttackRecordLockstep = player.Connection.LockstepClient;
         player.Connection.ClientDrawnShot = counts.Count > 0 && skills.Count > 0
             ? OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(player, activeSet: true)) : null;

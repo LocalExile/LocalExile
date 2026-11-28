@@ -274,6 +274,7 @@ public static partial class Game
         }
 
         bool spell = tempest;
+        bool herald = IsHeraldAura(aura.EffectId);
         int Player(uint n) => GolemStat(playerStats, n);
         int Own(uint n) => GolemStat(skill.Stats, n);
         var hitRolls = HitRollsFor(playerStats).ForSkill(Own, spell);
@@ -296,7 +297,8 @@ public static partial class Game
                 string? igniteLog = null;
                 int criticalChance = spell ? SupportedCriticalChance(player, aura.SkillId)
                     : Player(Stat.GlobalCannotCrit) != 0 || Own(Stat.GlobalCannotCrit) != 0 ? 0
-                    : CriticalChanceFinal.Project((long)Player(AddedBaseCriticalStrike.Generic) + Own(AddedBaseCriticalStrike.Generic),
+                    : CriticalChanceFinal.Project((long)Player(AddedBaseCriticalStrike.Generic) + Own(AddedBaseCriticalStrike.Generic)
+                        + (herald ? Player(Stat.AdditionalCriticalStrikeChancePermyriadWithHeraldSkills) : 0),
                         (long)Player(Stat.CriticalStrikeChancePlusPct) + Own(Stat.CriticalStrikeChancePlusPct), Player, Own);
                 bool critical = RandomRolls.Chance(criticalChance + BrittleCriticalChance(m, now), 10000, AreaRng(player));
                 int multiplier = spell ? SupportedCriticalMultiplier(player, aura.SkillId)
@@ -314,6 +316,7 @@ public static partial class Game
                 int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage,
                     new HitTakenRules(0, witheredElemental, false));
                 if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage) is not { } hit) continue;
+                if (critical && herald) player.RecentEvents.Record(StatConditions.CritWithHerald, now);
                 if (hit.StageStarts)
                 { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
                 {
@@ -357,7 +360,7 @@ public static partial class Game
         // Overkill is already final hit damage. Only burning/DoT (including typed DoT multipliers) scales this burn.
         double dps = overkill * ReservationStat(player, aura, Stat.HeraldOfAshBurningPctOverkillDamagePerMinute) / 6000.0
             * Math.Max(0, 1 + (Get(Stat.BurnDamagePlusPct) + Get(Stat.DamageOverTimePlusPct)
-                + Get(Stat.DamagePlusPctWithHeraldSkills)) / 100.0)
+                + Get(Stat.DamagePlusPctWithHeraldSkills) + Get(Stat.DamageOverTimePlusPctWithHeraldSkills)) / 100.0)
             * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100.0)
             * Math.Max(0, 1 + ReservationStat(player, aura, Stat.HeraldOfAshBurningDamagePlusPctFinal) / 100.0)
             * DamageStats.ElementalMore(Get(Stat.CombinedElementalDamagePlusPctFinal))

@@ -157,7 +157,7 @@ public static partial class Game
         static void RemoveDamageGround(GameArea area, DamageGround ground)
         {
             foreach (var monster in ground.Chilled)
-                monster.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource);
+                RemoveGroundChill(ground, monster, ProjectileWorldTime(ground.Source.Player));
             if (ground.Visual is not { } visual) return;
             visual.Ended = true;
             ground.Source.Player.UntrackProjectileObject(visual.Id);
@@ -169,6 +169,12 @@ public static partial class Game
                 area.Delta.RemoveSharedObject(visual.Id, InstanceProtocol.RemoveObject(visual.Id));
             }
             else ground.Source.WorldRecords(visual.Id, () => [endGround, InstanceProtocol.RemoveObject(visual.Id)], remove: true);
+        }
+
+        static void RemoveGroundChill(DamageGround ground, SpawnedMonster monster, double now)
+        {
+            monster.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource);
+            EndGlacialCageAuraChill(monster, ground.Source.Player.Id, ground.ChillSource, now);
         }
 
         internal void PlaceCausticCloud(ProjectileVector centre, ProjectileOffense.CausticCloudSpec spec) =>
@@ -336,7 +342,7 @@ public static partial class Game
                     ground.Chilled.RemoveWhere(monster =>
                     {
                         if (chillLeft > 0 && Covers(monster)) return false;
-                        monster.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource);
+                        RemoveGroundChill(ground, monster, at);
                         return true;
                     });
                 (double queryX, double queryY, double queryRadius) = ground.SegmentEnd is { } end
@@ -348,12 +354,24 @@ public static partial class Game
                     if (!Covers(monster)) continue;
                     if (ground.ChillStats is { } chill && chillLeft > 0)
                     {
-                        monster.Ailments.ApplyAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource, chillLeft, at,
+                        uint owner = ground.Source.Player.Id;
+                        var applied = monster.Ailments.ApplyAuraEffect(MonsterElementalAilments.Kind.Chill, ground.ChillSource, chillLeft, at,
                             key => chill.GetValueOrDefault(key), key => monster.Effects[key],
                             chill.GetValueOrDefault(Stat.ChilledGroundBaseMagnitudeOverride) is > 0 and var magnitude
                                 ? magnitude : null,
-                            coldTakenFromChill: chill.GetValueOrDefault(Stat.KeystoneColdPurist) != 0);
-                        ground.Chilled.Add(monster);
+                            coldTakenFromChill: chill.GetValueOrDefault(Stat.KeystoneColdPurist) != 0, owner: owner);
+                        if (applied is { } effect)
+                        {
+                            ground.Chilled.Add(monster);
+                            ground.Source.Player.RecentEvents.Record(StatConditions.ChilledEnemy, at);
+                            RecordGlacialCageAuraChill(monster, owner, ground.ChillSource, at, effect.Until,
+                                chill.GetValueOrDefault(Stat.PermanentDamagePlusPctPerSecondOfChill));
+                        }
+                        else
+                        {
+                            ground.Chilled.Remove(monster);
+                            EndGlacialCageAuraChill(monster, owner, ground.ChillSource, at);
+                        }
                     }
                     if (ground.Dps <= 0) continue;
                     if (!exposures.TryGetValue(id, out var exposure)) exposures.Add(id, exposure = new(monster));
@@ -368,7 +386,8 @@ public static partial class Game
                 int Accrue(DamageGround? ground, ref double fraction)
                 {
                     if (ground is null) return 0;
-                    double total = fraction + seconds * ground.Dps * MonsterDotTaken(monster, ground.Type, at);
+                    double total = fraction + seconds * ground.Dps
+                        * MonsterDotTakenOver(monster, ground.Type, at - seconds, at, at);
                     double whole = Math.Floor(total);
                     fraction = total - whole;
                     return (int)Math.Clamp(whole, 0, int.MaxValue);

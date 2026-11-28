@@ -11,6 +11,7 @@ public static partial class Game
         if (dead.DeathEffectsApplied || !GolemCurrent(player, dead) || player.PlayerLife == 0
             || dead.Definition.Kind is ItemHarbingerFamily or "DoedresEffigy" || SpectreGroundHex(dead.Definition.Kind) is not null) return;
         dead.DeathEffectsApplied = true;
+        player.RecentEvents.Record(StatConditions.OwnedMinionDied, now);
         var stats = PlayerStatValues(player);
         int recovery = GolemStat(stats, Stat.MinionRecoverPctMaximumLifeOnMinionDeath);
         if (recovery > 0)

@@ -134,7 +134,7 @@ public sealed partial class Player
         }
         long fallbackMovementPct = movementPctOverride is int overridePct
             ? overridePct
-            : (long)Pools.MovementVelocityPct + Rampage.Current.MovementPercent;
+            : (long)Pools.MovementVelocityPct + (Pools.FixedMovementVelocity ? 0 : Rampage.Current.MovementPercent);
         Walk.SetSpeed(Math.Max(1, Program.WalkSpeed * (100L + fallbackMovementPct) / 100.0
             * (Program.GameLogicOrNull?.PlayerActionFactor(this)
                 ?? ElementalAilments.ActionFactor(at)) * extra * channel), at);

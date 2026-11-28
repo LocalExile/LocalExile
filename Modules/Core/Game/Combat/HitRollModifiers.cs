@@ -7,12 +7,15 @@ public readonly record struct HitRollModifiers(int DamageExtraRolls = 0, int Ene
     int TripleDamageChance = 0, int DamageMorePct = 0, int InvertElementalResistanceChance = 0, int EnemyHitsNinetyResistanceChance = 0,
     int DoubleDamageChance = 0, int SpellDoubleDamageChance = 0)
 {
+    public int EnemyPhysicalExtraRolls { get; init; }
+
     public static HitRollModifiers From(Func<uint, int> get) => new(
         get(Stat.BaseExtraDamageRolls), get(Stat.BaseEnemyExtraDamageRolls),
         get(Stat.BaseChanceToDealTripleDamagePct), get(Stat.MarauderHiddenAscendancyDamagePlusPctFinal),
         get(Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance),
         get(Stat.EnemyHitsPctChanceToTreatElementalResistancesAs90Pct),
-        get(Stat.ChanceToDealDoubleDamagePct), get(Stat.SpellChanceToDealDoubleDamagePct));
+        get(Stat.ChanceToDealDoubleDamagePct), get(Stat.SpellChanceToDealDoubleDamagePct))
+        { EnemyPhysicalExtraRolls = get(Stat.EnemiesExtraDamageRollsWithPhysicalDamage) };
 
     /// <summary>One skill's hit: the skill's own chance to deal double damage (Heavy Strike's gem) adds to the player's,
     /// a spell adds spell_chance_to_deal_double_damage_%, and the final repeat of a spell adds Awakened Spell Echo's
@@ -77,7 +80,8 @@ public readonly record struct HitRollModifiers(int DamageExtraRolls = 0, int Ene
             : RandomRolls.Chance(DoubleDamageChance, 100, random) ? 2 : 1;
 
     /// <summary>Overly Confident changes enemy HIT damage rolls, never damage-over-time ticks.</summary>
-    public DamagePacket RollIncomingHit(DamagePacket hit, Random random) => hit.Roll(random, EnemyDamageExtraRolls);
+    public DamagePacket RollIncomingHit(DamagePacket hit, Random random) => hit.Roll(random, EnemyDamageExtraRolls,
+        ActorScale.Saturate((long)EnemyDamageExtraRolls + EnemyPhysicalExtraRolls));
 
     /// <summary>The inversion is a single outcome for this hit. Cap the actual resistance first, then invert it;
     /// recapping the inverted value would incorrectly help targets with negative resistance.</summary>

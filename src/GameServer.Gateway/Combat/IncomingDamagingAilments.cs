@@ -126,6 +126,32 @@ public sealed class IncomingDamagingAilments
         return true;
     }
 
+    public int ActiveDamagingAilments(double now) =>
+        bleeds.Count(b => Active(b.From, b.Until, now)) + PoisonStacks(now);
+
+    // Keep the settled part of the effect so the recovery owner can still account for damage before the cleanse.
+    public void EndDamagingAilment(double now, int index)
+    {
+        for (int i = 0; i < bleeds.Count; i++)
+        {
+            var bleed = bleeds[i];
+            if (!Active(bleed.From, bleed.Until, now) || index-- != 0) continue;
+            bleeds[i] = bleed with { Until = now };
+            bleedRevision++;
+            Changed?.Invoke();
+            return;
+        }
+        for (int i = 0; i < poisons.Count; i++)
+        {
+            var poison = poisons[i];
+            if (!Active(poison.From, poison.Until, now) || index-- != 0) continue;
+            poisons[i] = poison with { Until = now };
+            poisonRevision++;
+            Changed?.Invoke();
+            return;
+        }
+    }
+
     /// <summary>The poison counterpart of <see cref="RemoveOrProtectBleeding"/>.</summary>
     public bool RemoveOrProtectPoison(double now, double seconds)
     {

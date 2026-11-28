@@ -108,7 +108,7 @@ public static partial class Game
         double raw = player.PlayerMaxLife * source.Aura.ChaosLifePerMinute / 6000d;
         double amount = raw * Math.Max(0, until - from)
             * DamageModel.Mitigate(1d, Resistance(player, DamageType.Chaos) + Get(Stat.AdditionalChaosResistanceAgainstDamageOverTimePct), MaxResistance(player, DamageType.Chaos))
-            * player.ElementalAilments.DamageTakenFactor(until, 0) * lethe + state.Carry;
+            * PlayerAilmentDamageTakenFactor(player, until, 0) * lethe + state.Carry;
         int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount));
         state.Carry = amount - damage;
         damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref state.TakenCarry,

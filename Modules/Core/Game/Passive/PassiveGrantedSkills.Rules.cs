@@ -399,7 +399,7 @@ public static partial class Game
                 int witheredElemental = WitheredElementalHitTaken(m, player.Id, hitAt, playerStats);
                 var (damage, _, mitigated, takenRules) = ResolveMonsterHit(m, rolled, critical, attack: false, hitAt, mods, pen,
                     hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), additionalElementalTakenPct: witheredElemental);
-                if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, multiplier, playerStats, own));
+                if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, multiplier, hitAt, playerStats, own));
                 int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, hitAt, damage, takenRules);
                 var stun = OwnerStun(player, skill.Effect, m, damage, mitigated, melee: false, spell: true, critical, playerStats, own);
                 var applied = ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage);
@@ -432,7 +432,7 @@ public static partial class Game
                 var facts = ChargeHitFacts(player, m, hitAt);
                 charges.Add(new(false, critical, m.Rarity, skill.EffectId, own, id == targets[0].Id, hitAt, landed.Life == 0,
                     facts.Frozen, Bleeding: facts.Bleeding, Marked: facts.Marked, SelfBleeding: facts.SelfBleeding,
-                    SelfPoisoned: facts.SelfPoisoned));
+                    SelfPoisoned: facts.SelfPoisoned) { NoArmour = facts.NoArmour });
                 if (landed.Life == 0) deaths.Add((id, m));
             }
             // All accepted hit consequences and reflected ailments precede the sweep's attributed kills.

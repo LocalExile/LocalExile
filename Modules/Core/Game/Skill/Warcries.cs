@@ -390,6 +390,20 @@ public static partial class Game
             player.RecentEvents.RecordAmount(StatConditions.UsedWarcry, now);
             TriggerEarthshatterSpikesLocked(player, at, radius, now);
             stats = AreaPlayerStats(player);
+            GainValourLocked(player, stats, stats.GetValueOrDefault(Stat.BannerGainXResourcesOnWarcry));
+            int ashMs = stats.GetValueOrDefault(Stat.WarcriesApplyCoverInAshForXMs);
+            bool debilitate = stats.GetValueOrDefault(Stat.WarcriesDebilitateEnemiesFor1Second) != 0;
+            if (ashMs > 0 || debilitate)
+                foreach (var (id, enemy) in player.Area.MonstersNear(at, radius))
+                {
+                    if (!enemy.Hostile || enemy.Dead || enemy.Life == 0 || enemy.Invulnerable
+                        || Dist(enemy.Walk.Position(now), at) > radius) continue;
+                    if (debilitate) ApplyDebilitateLocked(player, id, enemy, now, 1);
+                    double until = now + ashMs / 1000d;
+                    if (ashMs <= 0 || enemy.CoveredInAshUntil >= until) continue;
+                    enemy.CoveredInAshUntil = until;
+                    enemy.PresentationChanged?.Invoke();
+                }
             if (stats.GetValueOrDefault(Stat.WarcryPhysicalDamageReductionRatingPlusPctPer5PowerFor8Seconds) is int armour and > 0)
             {
                 int allies = effectId == "RallyingCry" ? (player.Instance?.PlayersExcept(player.Id) ?? [])

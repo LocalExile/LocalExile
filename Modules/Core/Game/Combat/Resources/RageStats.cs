@@ -19,7 +19,10 @@ public static class RageStats
         GainOnHit: get(Stat.GainXRageOnHit), GainOnAttackHit: get(Stat.GainXRageOnAttackHit),
         GainOnMeleeHit: get(Stat.GainXRageOnMeleeHit), GainOnAttackCritical: get(Stat.GainXRageOnAttackCrit),
         GainOnMeleeCritical: get(Stat.GainXRageOnMeleeCrit), GainWhenHit: get(Stat.GainXRageWhenHit),
-        LossRatePercent: get(Stat.RageDecaySpeedPlusPct), RegenerationPerMinute: get(Stat.BaseRageRegenerationPerMinute));
+        LossRatePercent: get(Stat.RageDecaySpeedPlusPct), RegenerationPerMinute: get(Stat.BaseRageRegenerationPerMinute))
+    {
+        AdditionalLossPerMinute = get(Stat.ShouldNotLoseRage) == 0 ? Math.Max(0, get(Stat.AdditionalRageLossPerMinute)) : 0,
+    };
 
     public static RageState.Inputs Inputs(Player player, Func<uint, int> get) => Inputs(get) with
     {

@@ -194,8 +194,9 @@ public static partial class Game
         // Totems/Totem.ot (the variety's base type) has -80% inherent damage taken. Its elemental and chaos resistances
         // are from MonsterTypes.
         var variety = Monsters.Find(totem.VarietyId);
-        var resisted = variety is null ? rolled : rolled.Select((type, range) =>
-            range.Scale(1 - DamageModel.Capped(Monsters.BaseResistance(variety, totem.Level, type) ?? 0) / 100.0));
+        var resisted = rolled.Select((type, range) => range.Scale(type == DamageType.Physical
+            ? 1 - Math.Clamp(totem.PhysicalDamageReductionPct, 0, 90) / 100d
+            : 1 - DamageModel.Capped(variety is null ? 0 : Monsters.BaseResistance(variety, totem.Level, type) ?? 0) / 100d));
         long damage = Math.Max(0, (long)Math.Round(resisted.AverageTotal * .2));
         uint before = totem.Life;
         totem.Life = (uint)Math.Max(0, before - damage);

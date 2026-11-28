@@ -47,6 +47,7 @@ public static partial class Game
         {
             if (ReferenceEquals(share.Player, host)) continue;
             var other = share.Player;
+            bool inflictedBleed = m.BleedSourcesAtDeath?.Contains(other.Id) == true;
             other.KillShares.Enqueue(async _ =>
             {
                 if (HardcoreProgressBlocked(other)) return;
@@ -60,7 +61,8 @@ public static partial class Game
                     if (gemXp > 0) await GainGemExperience(other, gemXp);
                     if (xp > 0) await GainExperience(other, xp, $"party kill: {m.Rarity} {m.Label} (by {CharacterName(host)})");
                     // Retail party parity: every living party member within kill range receives kill flask charges.
-                    await GainKillCharges(other, m.Rarity, $"party kill: {m.Rarity} {m.Label}");
+                    if (MonsterGrantsKillFlaskCharges(m))
+                        await GainKillCharges(other, m.Rarity, $"party kill: {m.Rarity} {m.Label}", BleedingKillFlaskChargesPct(other, inflictedBleed));
                 }
                 if (QuestsOf(other).LevelAfterKill(other.Layout.Id, variety.Id) is int level and > 1 && level <= CharacterStats.LevelStarts.Count)
                 {

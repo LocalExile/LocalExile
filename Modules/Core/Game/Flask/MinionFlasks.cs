@@ -163,7 +163,7 @@ public static partial class Game
         if (!GolemCurrent(player, minion) || minion.Monster.Dead) return;
         RefreshGolemLocked(player, minion, minion.Player, now);
         var body = minion.Monster;
-        body.Walk.SetSpeed(GolemWalkSpeed(body, now, MonsterActionFactor(body, now)), now);
+        body.Walk.SetSpeed(GolemWalkSpeed(minion, now, MonsterActionFactor(body, now)), now);
     }
 
     static IReadOnlyList<UtilityFlasks.Source> MinionUtilityFlaskSources(Player player, GolemState.Golem minion, double now)

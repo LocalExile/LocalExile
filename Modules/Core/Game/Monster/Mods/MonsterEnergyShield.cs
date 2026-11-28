@@ -195,6 +195,7 @@ public static partial class Game
     /// hit, default melee, and damage-over-time kills.</summary>
     public static void CleanupDeadMonsterLocked(GameArea area, uint id, SpawnedMonster m)
     {
+        MaimDotTaken.Remove(m);
         ClearMonsterEnergyShieldLocked(area, m);
         ClearMonsterAuraCarrier(area, m);
         ClearMonsterChargesLocked(area, id, m);

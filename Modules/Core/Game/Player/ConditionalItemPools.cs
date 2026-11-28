@@ -17,7 +17,11 @@ public static partial class Game
         ItemConditionFlags(player, now, activeItems, out _);
 
     public static IReadOnlyDictionary<string, bool> ItemConditionFlags(Player player, double now,
-        IEnumerable<Item>? activeItems, out LifeReservationConditionSnapshot reservationSnapshot)
+        IEnumerable<Item>? activeItems, out LifeReservationConditionSnapshot reservationSnapshot) =>
+        ItemConditionFlags(player, now, activeItems, out reservationSnapshot, wardNow: now);
+
+    static IReadOnlyDictionary<string, bool> ItemConditionFlags(Player player, double now,
+        IEnumerable<Item>? activeItems, out LifeReservationConditionSnapshot reservationSnapshot, double wardNow)
     {
         // The active items are worked out once: every check below would otherwise ask each worn item again.
         activeItems = activeItems?.ToArray() ?? EquipmentForStats(player)
@@ -79,6 +83,7 @@ public static partial class Game
             ["_while_life_leeching"] = alive && leech.Life,
             ["_while_mana_leeching"] = alive && leech.Mana,
             ["_while_energy_shield_leeching"] = alive && leech.EnergyShield,
+            ["_while_leeching_energy_shield"] = alive && leech.EnergyShield,
             ["_while_es_leeching"] = alive && leech.EnergyShield,
             ["_while_leeching"] = alive && (leech.Life || leech.Mana || leech.EnergyShield),
         };
@@ -101,6 +106,10 @@ public static partial class Game
         flags["_while_bleeding"] = player.IncomingAilments.Bleeding(now);
         flags["_while_poisoned"] = player.IncomingAilments.PoisonStacks(now) > 0;
         flags["_while_on_consecrated_ground"] = player.FlaskGrounds.Consecrated;
+        bool hasWard = alive && player.Ward.Maximum > 0;
+        bool brokenWard = player.Ward.Broken && wardNow < player.Ward.RestoresAt;
+        flags[BrokenWardItemFlag] = hasWard && brokenWard;
+        flags[UnbrokenWardItemFlag] = hasWard && !brokenWard;
         bool onslaught = HasIndependentOnslaught(player);
         flags["independent_onslaught"] = onslaught;
         // "while a Pinnacle Boss is in your Presence": the monster scan behind this flag ran on every
@@ -114,6 +123,7 @@ public static partial class Game
             flags[StatConditions.CelestialBossInPresence] = alive && CelestialBossInPresenceLocked(player, now);
         flags["_while_onslaught_is_active"] = onslaught;
         flags["_while_have_onslaught"] = onslaught;
+        flags["_during_onslaught"] = onslaught;
         // ChannelSkill also hands ordinary casts and placements to the action dispatcher.
         // The payment check here reads combat state only. Skill qualification itself builds item stats.
         bool channelling = player.PaidChannel is { } payment && ChannelPaymentActionCurrent(player, payment, now);
@@ -234,16 +244,18 @@ public static partial class Game
         StatConditions.Blocked, StatConditions.BlockedAttack, StatConditions.BlockedSpell,
         StatConditions.SuppressedSpell, StatConditions.TakenSavageHit, StatConditions.BeenStunned,
         StatConditions.BeenFrozen,
-        StatConditions.FrozeEnemy, StatConditions.ShockedEnemy, StatConditions.IgnitedEnemy,
+        StatConditions.FrozeEnemy, StatConditions.ChilledEnemy, StatConditions.ShockedEnemy, StatConditions.IgnitedEnemy,
+        StatConditions.PlacedTrapOrMine,
         StatConditions.ShatteredEnemy, StatConditions.UsedWarcry, StatConditions.ConsumedCorpse,
         // Accepted-use, mana, flask, stance and charge recorders.
         StatConditions.SpentMana, StatConditions.UsedSkill, StatConditions.UsedMovementSkill, StatConditions.UsedDash,
-        StatConditions.UsedFireSkill, StatConditions.UsedColdSkill, StatConditions.UsedVaalSkill,
+        StatConditions.UsedFireSkill, StatConditions.UsedColdSkill, StatConditions.UsedVaalSkill, StatConditions.UsedRetaliation,
         StatConditions.UsedRubyFlask, StatConditions.UsedSapphireFlask, StatConditions.UsedTopazFlask,
         StatConditions.UsedAmethystFlask, StatConditions.ChangedStance,
         StatConditions.GainedFrenzyCharge, StatConditions.GainedPowerCharge, StatConditions.GainedEnduranceCharge,
         // Hit outcomes (RecordHit/RecordCriticalOutcome), mine detonation; the curse casts come from the constructor.
         StatConditions.NonCrit, StatConditions.Crit8Seconds, StatConditions.DetonatedMine,
+        StatConditions.OwnedMinionDied, StatConditions.SpentLife, StatConditions.CritWithHerald,
     };
     sealed class ConditionalItemPoolState
     {
@@ -252,6 +264,7 @@ public static partial class Game
         public long Revision, Presented;
         public (int Movement, int Avoid) AppliedElusive;
         public int AppliedOnslaughtEffect;
+        public bool AppliedTotemPlacementCritical;
         // The poison count the pools were last built with (-1 before any build through PoolsFor).
         // The sources sum never reads the count, so the cached key keeps the count from the last sum
         // build; only this record can tell whether the pools still match the poison count now.
@@ -332,10 +345,13 @@ public static partial class Game
         var cached = player.StatSourcesCache;
         // Read once for the fast path and both no-rebuild returns below: the cached key keeps the
         // poison count from the last sum build, which a cache hit never refreshes.
-        int poisonStacks = player.IncomingAilments.PoisonStacks(AreaTime(player));
+        double now = AreaTime(player);
+        int poisonStacks = player.IncomingAilments.PoisonStacks(now);
         // -1: the pools were never built through PoolsFor, which as before this record means "no poison seen" (the old
         // first-build shortcut required a zero count), not a change: a rebuild here would reset a fresh player's pools.
         bool samePoison = state.AppliedPoisonStacks < 0 ? poisonStacks == 0 : poisonStacks == state.AppliedPoisonStacks;
+        bool sameTotemCritical = state.AppliedTotemPlacementCritical
+            == player.RecentEvents.Happened(TotemPlacementCriticalEvent, now);
         var elusive = ElusivePanelState(player);
         long itemStatRevision = GameEvents.ItemStatSources.Revision;
         bool providersChanged = state.ItemStatRevision != itemStatRevision;
@@ -344,6 +360,7 @@ public static partial class Game
         // The poison count is compared against the pools' own record (AppliedPoisonStacks), not the cached key:
         // a cache hit never refreshes the key, so the key would fail this check forever once poison is nonzero.
         if (!providersChanged && cached is not null && ReferenceEquals(state.Applied, cached)
+            && WardFlagsCurrent(player, cached.Key.Flags)
             && state.CheckedInventoryMutations == invMutations
             && state.CheckedPassivesCount == passivesCount
             && state.CheckedTattooRevision == tattooRevision
@@ -354,7 +371,7 @@ public static partial class Game
             && !HasAnyBeastCompanionState(player)
             && state.AppliedElusive == elusive
             && GameEvents.ExemptItems(player).Count == 0
-            && samePoison)
+            && samePoison && sameTotemCritical)
             return false;
         state.ItemStatRevision = itemStatRevision;
         EquipmentStatSources(player, EquipmentForStats(player));
@@ -382,7 +399,7 @@ public static partial class Game
         // ReferenceEquals(before, current) alone cannot tell a poison change apart: a cache hit returns
         // the same result object, so the poison count has to be checked against the pools' own record.
         if (current is null || !providersChanged && ReferenceEquals(before, current) && sameElusive && sameOnslaughtEffect
-            && samePoison) return false;
+            && samePoison && sameTotemCritical) return false;
         state.Applied = current;
         state.AppliedElusive = elusive;
         state.AppliedOnslaughtEffect = onslaughtEffect;
@@ -399,7 +416,7 @@ public static partial class Game
         bool sameHerEmbrace = (before?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true)
             == (current.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true);
         if (!providersChanged && sameElusive && sameHerEmbrace && sameOnslaughtEffect
-            && samePoison
+            && samePoison && sameTotemCritical
             && (before is null && !conditionalEquipment
             || before is not null && before.Attributes == current.Attributes
             && before.Inactive.SetEquals(current.Inactive)
@@ -425,5 +442,17 @@ public static partial class Game
         await SendPlayerMana(player);
         // Remember the revision sampled before the await; a later change still needs its own publication.
         state.Presented = revision;
+    }
+
+    static bool WardFlagsCurrent(Player player, IReadOnlyDictionary<string, bool>? cached)
+    {
+        if (cached is not ReadFlags flags) return true;
+        if (!flags.WasRead(BrokenWardItemFlag) && !flags.WasRead(UnbrokenWardItemFlag)) return true;
+        bool hasWard = player.PlayerLife > 0 && player.Ward.Maximum > 0;
+        bool broken = player.Ward.Broken && ResourceEffectsTime(player) < player.Ward.RestoresAt;
+        return SameFlag(BrokenWardItemFlag, hasWard && broken) && SameFlag(UnbrokenWardItemFlag, hasWard && !broken);
+
+        bool SameFlag(string key, bool value) =>
+            !flags.WasRead(key) || flags.TryGetValueUnrecorded(key, out bool old) && old == value;
     }
 }

@@ -56,7 +56,14 @@ public static partial class Game
             poisonSkill, out _, out _);
     public static bool TryPoisonOnHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated,
         bool spell, bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
-        MonsterPoisons.Settings settings, double now, Random random, SkillPoisonStats poisonSkill, out double perSecond, out double seconds)
+        MonsterPoisons.Settings settings, double now, Random random, out double perSecond, out double seconds) =>
+        TryPoisonOnHitLocked(player, target, mitigated, spell, critical, playerStats, skill, settings, now, random,
+            default, out perSecond, out seconds, playerOwned: true);
+
+    public static bool TryPoisonOnHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated,
+        bool spell, bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
+        MonsterPoisons.Settings settings, double now, Random random, SkillPoisonStats poisonSkill, out double perSecond, out double seconds,
+        bool playerOwned = true)
     {
         perSecond = seconds = 0;
         if (target.Dead || target.Life == 0 || settings.Seconds <= 0) return false;
@@ -95,7 +102,7 @@ public static partial class Game
         int extraOnFreshTarget = additionalAllowed ? Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies) : 0;
         int extraWithWeapon = additionalAllowed && !spell && !settings.Secondary ? settings.AdditionalWithWeapon : 0;
         if (!ApplyHitPoisonsLocked(target.Poisons, now, perSecond, seconds, extraOnFreshTarget, doubleChance, random, extraWithWeapon, poisonSkill)) return false;
-        InflictedLocked(player, target, AilmentType.Poison, now + seconds);
+        if (playerOwned) InflictedLocked(player, target, AilmentType.Poison, now + seconds / target.RecipientDebuffRate);
         ReservationPoisonLocked(player, now);
         return true;
     }
@@ -150,7 +157,10 @@ public static partial class Game
                     if (m.Effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0
                         || m.Effects[Stat.VirtualChaosDamageDoesNotBypassEnergyShield] != 0)
                         damageToKill = (uint)Math.Min(uint.MaxValue, (long)m.Life + MonsterEnergyShieldOf(m).Current);
-                    damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now), damageToKill);
+                    if (MaimDotTaken.TryGetValue(m, out var maim) && maim.Overlaps(m.Poisons.AccruedThrough, now))
+                        damage = m.Poisons.Advance(now, maim.Boundaries(m.Poisons.AccruedThrough, now),
+                            at => MonsterDotTaken(m, DamageType.Chaos, at), damageToKill);
+                    else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now, maimTaken: 0), damageToKill);
                 }
                 if (damage > 0)
                 {

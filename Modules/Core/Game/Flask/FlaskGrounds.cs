@@ -171,15 +171,28 @@ public static partial class Game
         if (player.FlaskGrounds.SetConsecrated(on, () => 1) is not { } change) return false;
         if (change.Added) player.Area.Buffs.Set(player.Id, new(FlaskGrounds.ConsecratedBuffRow, player.Id));
         else player.Area.Buffs.Clear(player.Id, FlaskGrounds.ConsecratedBuffRow, player.Id);
+        if (player.StatSourcesCache?.Key.Flags is ReadFlags flags && flags.WasRead("_while_on_consecrated_ground"))
+            MarkPlayerStats(player, PlayerStatStep.Sources);
         return true;
     }
+
+    static long OwnConsecratedGroundAccuracy(Player player, Func<uint, int> get) =>
+        player.FlaskGrounds.Consecrated
+            ? (long)get(Stat.YourConsecratedGroundGrantsAccuracyRatingPlusPct)
+                * Math.Max(0L, 100L + get(Stat.ConsecratedGroundEffectPlusPct)) / 100
+            : 0;
+
+    static bool HasOwnConsecratedGroundAccuracy(Player player) =>
+        StatSourceValues(player).GetValueOrDefault(Stat.YourConsecratedGroundGrantsAccuracyRatingPlusPct) != 0;
 
     static void ClearConsecratedGroundOnResurrect(Player player)
     {
         var state = player.FlaskGrounds;
         bool wasCurseImmune = state.CurseImmune;
         state.OnConsecrated(alive: false, covered: false, now: AreaTime(player));
-        if (!SetConsecratedGroundBuff(player, on: false) && !wasCurseImmune) return;
+        bool changed = SetConsecratedGroundBuff(player, on: false);
+        if (!changed && !wasCurseImmune) return;
+        if (changed && HasOwnConsecratedGroundAccuracy(player)) RecomputePoolsAndSpeed(player);
         Automation(player).StatRevision++;
         MarkPlayerStats(player, PlayerStatStep.UtilityFlasks);
         MarkPlayerStats(player, PlayerStatStep.SelfVulnerability);
@@ -246,7 +259,8 @@ public static partial class Game
         if (consecratedChanged || wasCurseImmune != state.CurseImmune)
         {
             pending.StatRevision++;
-            if (HasMapHexes(MapModsOf(player))) RecomputePoolsAndSpeed(player);
+            if (HasMapHexes(MapModsOf(player)) || consecratedChanged && HasOwnConsecratedGroundAccuracy(player))
+                RecomputePoolsAndSpeed(player);
         }
         state.StopTickerIfIdle();
     }

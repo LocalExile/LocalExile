@@ -65,8 +65,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     `maximum_siphoning_charges_per_elder_or_shaper_item_equipped`), so they need unique definitions beyond
     Mageblood (#60), abyss sockets on the other uniques that have them and a consumer for `Item.Influences`
     ([13](../docs/protocol/13-items.md) §2f). Blitz and Challenger have no 3.29 source.
-  - Penetration: the conditional forms not read yet (Zealotry's critical-only, Enmity's
-    Embrace's overcapped fire, recent kill or block, flask, tincture, while chilled, single-skill).
+  - Penetration: remaining conditional forms include Zealotry's critical-only, recent kills or blocks,
+    flasks, tinctures, chilled targets and single-skill modifiers.
   - Ailments: validate the twelve duration/effect aliases, then ailment chance/eligibility, damaging ranges,
     duration/application and stacking. Left/right ring operators are slot-local: do not sum them globally.
   - Defences: official fractional/group arithmetic, the remaining prohibitions and conversions, all-source immediate
@@ -132,9 +132,11 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     `StateMachine` visibility/state plumbing (`MonsterStateMachine`, `object_type_state_meta`) are implemented with
     automated coverage; live real-client verification and remaining unmapped projectile/combo families stay open.
   - Player stun: ES avoidance, substituted thresholds, conditional defences and monster-specific modifiers.
+  - Verify the missing-Energy-Shield Armour Mastery against incoming physical hits in the supported client.
   - Criticals: other conditional more chance, guaranteed-critical effects, off-hand chance/multiplier publication and
     execution, Focus/curse lifecycles. The off-hand range/timing publication has no critical fields: do not infer
     completion from its other weapon fields.
+  - Confirm Righteous Providence's attack and spell critical chance with the supported client.
   - Whisperer, Arcane Might, Steel Willed, Rampager and Behemoth's remaining scope is in their docs
     ([Whisperer](../docs/game/whisperer.md), [Arcane Might](../docs/game/arcane-might.md),
     [Steel Willed armour](../docs/game/steel-willed-armour.md), [Behemoth](../docs/game/behemoth.md)).

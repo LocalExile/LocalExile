@@ -535,6 +535,9 @@ One lazy decision per unblocked relevant hit supplies physical and enabled chaos
 The current contact records after resolution, including blocked/zero-damage contacts, under the same combat lock.
 Death, shutdown, area entry and delayed-swing epochs use the explicit connection lifecycle.
 The existing stat send gate and player tick publish current counts, including idle expiry.
+The Armour and Energy Shield Mastery reads the shield immediately before impact.
+Each complete 5% missing adds 2% chance to defend with 150% of armour for that hit.
+The hit samples both probabilities once, with double armour taking precedence when both would apply.
 See [Steel Willed armour](../game/steel-willed-armour.md) for primary addresses, model v1, dev-input semantics,
 current-main regressions and the eighteen historical raw-input native checks from original head `777b292`.
 The rebased head and exact batch composition await fresh native verification.

@@ -167,9 +167,10 @@ public sealed partial class BestiaryEncounter
         if (player.Instance is not { } instance || layout.Walkable is not { } walkable) return;
         if (LiveOf(player) is not null) return;
         var rng = new Random(area.Seed ^ 0x42657374);
-        if (!Rolled(layout.Id, AreaLeagueStats(player), MapDevices.IsMapArea(layout.Hash), rng,
+        var stats = AreaLeagueStats(player);
+        if (!Rolled(layout.Id, stats, MapDevices.IsMapArea(layout.Hash), rng,
             LeagueFor(player).HardMode, ForcedChance(Environment.GetEnvironmentVariable("Game_LEAGUE_CHANCES")))) return;
-        if (BestiaryTables.PlanFor(layout.Id, area.Level, rng, AreaLeagueStats(player)) is not { } plan) return;
+        if (BestiaryTables.PlanFor(layout.Id, area.Level, rng, stats) is not { } plan) return;
         var taken = area.Taken.ToList();
         var arrival = AreaPopulation.Reachable(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY));
         (int X, int Y)? Spot()
@@ -184,11 +185,26 @@ public sealed partial class BestiaryEncounter
         }
         var run = new BestiaryRun { MissionId = plan.Mission.Id, Level = area.Level };
         var live = new Live(run, rng);
+        // A real map's saved area stats already include the opener's Atlas bonuses.
+        var rageSources = MapRunOf(player) is not null && instance.KeptAreaStats is { Count: > 0 } mapStats
+            ? mapStats : stats;
+        int rageStacks = Math.Clamp(rageSources.GetValueOrDefault(Stat.MapBestiaryBeastHasXBestialRage), 0, 100);
+        MonsterModSet? rageMods = rageStacks == 0 ? null : new([], [], new MonsterModEffects(new Dictionary<uint, int>
+        {
+            [Stat.BaseActorScalePlusPct] = 10 * rageStacks,
+            [Stat.BaseMovementVelocityPlusPct] = 5 * rageStacks,
+            [Stat.AttackSpeedPlusPct] = 10 * rageStacks,
+            [Stat.DamagePlusPct] = 20 * rageStacks,
+        }));
         async Task Spawn(ushort row, MonsterRarity rarity, (int X, int Y) at, bool red)
         {
             if (Monsters.All[row] is not { Supported: true } variety) return;
-            uint id = await SpawnMonster(player, variety, area.Level, rarity, at.X, at.Y, bulk: true);
-            if (id != 0 && player.Area.Monsters.TryGetValue(id, out var body)) run.Add(id, body, red);
+            uint id = await SpawnMonster(player, variety, area.Level, rarity, at.X, at.Y, bulk: true, extraMods: rageMods);
+            if (id != 0 && player.Area.Monsters.TryGetValue(id, out var body))
+            {
+                run.Add(id, body, red);
+                if (rageStacks > 0) player.Area.Buffs.Set(id, new(2426, id, Stacks: (ushort)rageStacks));
+            }
         }
         foreach (var red in plan.Reds)
             if (Spot() is { } at)

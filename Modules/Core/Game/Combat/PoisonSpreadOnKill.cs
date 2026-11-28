@@ -131,7 +131,7 @@ public static partial class Game
             if (m.Poisons.Add(now, dps, lasts))
             {
                 player.Area.ActivePoisonMonsters.Add(mid);
-                InflictedLocked(player, m, AilmentType.Poison, now + lasts);
+                InflictedLocked(player, m, AilmentType.Poison, now + lasts / m.RecipientDebuffRate);
                 spread++;
             }
         }

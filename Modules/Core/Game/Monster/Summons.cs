@@ -352,8 +352,11 @@ public static partial class Game
         int Read(uint key) => key == SkillDurationModifiers.IncreasedDuration && familyDuration != 0
             ? ActorScale.Saturate((long)GolemStat(playerStats, key) + GolemStat(playerStats, familyDuration))
             : GolemStat(playerStats, key);
-        return SkillDurationModifiers.Seconds(ms, Read, n => GolemStat(gem.Stats, n),
+        double seconds = SkillDurationModifiers.Seconds(ms, Read, n => GolemStat(gem.Stats, n),
             DurationKinds(player, gem.Effect) | (secondary ? SkillDurationModifiers.Kinds.Secondary : 0));
+        if (definition.Family is "AnimatedWeapon" or "VaalAnimatedWeapon")
+            seconds *= Math.Max(0, 100d + GolemStat(playerStats, Stat.JorrhastsBlacksteelAnimateWeaponDurationPlusPctFinal)) / 100d;
+        return seconds;
     }
 
     static bool SummonNeedsCorpse(SummonCatalog.Definition definition, IReadOnlyDictionary<uint, int> playerStats) =>
@@ -455,9 +458,25 @@ public static partial class Game
                             () => current() && (clone == 0 || player.Summons.Fighters.ContainsKey(clone))) is null) return false;
                     released = true;
                 }
-                else if (await SummonFighterCore(player, source, definition, aim, target,
-                    current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse, plannedCorpse: plannedCorpse) != 0)
+                else
+                {
+                    uint summoned = await SummonFighterCore(player, source, definition, aim, target,
+                        current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse, plannedCorpse: plannedCorpse);
+                    if (summoned == 0) continue;
                     released = true;
+                    if (definition.Family == "AnimatedWeapon" && current()
+                        && player.Summons.Fighters.TryGetValue(summoned, out var original) && original.Equipment.Count > 0)
+                    {
+                        int copies = Math.Min(Math.Max(0, SummonLimit(player, definition, gem) - 1), Math.Max(0,
+                            PlayerStat(player, Stat.AnimateWeaponNumberOfAdditionalCopies)));
+                        if (copies == 0) continue;
+                        var copiedWeapon = new AnimatedSource(0, null, new(original.Equipment));
+                        for (int copy = 0; copy < copies && current(); copy++)
+                            if (await SummonFighterCore(player, source, definition, aim,
+                                current: current, triggered: triggered, playerConsumesCorpse: false, preparedEquipment: copiedWeapon) == 0)
+                                break;
+                    }
+                }
             }
             if (released) SaveSummons(player);
             return released;

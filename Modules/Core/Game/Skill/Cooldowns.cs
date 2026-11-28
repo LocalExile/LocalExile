@@ -379,7 +379,12 @@ public static partial class Game
                 paid = (mana, life);
             }
             else if (reserve && bypass is { } unpaidBypass && !ChargesOf(player).Spend(unpaidBypass)) return false;
-            if (reserve && opportunity is { } spent && !retainRetaliationUse) SpendRetaliationWindow(player, spent);
+            if (reserve && opportunity is { } spent)
+            {
+                if (!retainRetaliationUse) SpendRetaliationWindow(player, spent);
+                if (payer is null || paid is not null)
+                    player.RecentEvents.Record(StatConditions.UsedRetaliation, AreaTime(player));
+            }
             // Snapshot the charges still held after paying any cooldown bypass. A later charge gain or expiry
             // must not change the attack already admitted by this ticket.
             int? enduranceCharges = null;

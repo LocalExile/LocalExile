@@ -72,8 +72,8 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
 - **Next:** implement remaining trigger payloads beyond CWDT projectile spells, attack repeats (Multistrike), Ice Nova's
   repeated rings and Spell Echo's final-repeat stats (Greater and Awakened Spell Echo), projectile branching,
   remaining totem payloads (beams, channels and pulses; monsters do not attack totems;
-  [11](../docs/protocol/11-skills.md) §10g), mines, minions, leech and conditional effects; verify each against
-  native data and live behaviour.
+  [11](../docs/protocol/11-skills.md) §10g), mine payloads and Icicle Mine's critical aura, minions, leech and
+  conditional effects. Verify Stormblast Mine's armed damage-taken aura and the remaining payloads with the real client.
   Check Barrage's client animation and per-arrow contacts against its ordered server release.
   Cyclone's item-granted badge letters/colours and supported panel values were checked with the real client.
   Verify native refresh after mod changes and controlled before/after local level/quality changes.

@@ -115,7 +115,7 @@ public static partial class Game
                     int damage = MonsterTakesMitigated(target, mitigated, spell: false, now, additionalElementalTakenPct: witheredElemental);
                     if (critical) damage = DamageModel.CriticalDamage(damage,
                         CriticalMultiplierOn(target, CriticalHitMultiplier(150L + Get(Stat.BaseCriticalStrikeMultiplierPlus),
-                            playerStats), playerStats));
+                            playerStats), now, playerStats));
                     int chaosDamage = MonsterHitChaosDamage(target, mitigated, false, now, damage,
                         new HitTakenRules(0, witheredElemental, false));
                     if (ApplyTypedMonsterHitLocked(player, target, damage, chaosDamage, playerStats: playerStats) is not { } hit) continue;

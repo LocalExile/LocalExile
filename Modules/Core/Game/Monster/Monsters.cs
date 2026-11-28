@@ -3109,13 +3109,20 @@ public static partial class Game
         // indefinitely). A new counter starts after 3.33 s without an attack.
         int baseAccuracy = m.Effects.Accuracy(Monsters.BaseAccuracy(m.Variety, m.Level) ?? 0);
         int monsterAccuracy = MonsterBlindRating(player, id, m, baseAccuracy, now, stats);
-        int evasion = TimedBlind.Apply(PlayerEvasionBase(player, now), PlayerBlindValue(player, stats).Less);
+        int evasion = TimedBlind.Apply(PlayerEvasionBase(player, now), PlayerBlindPenalty(player, stats));
         evasion = EvasionKeystones.Rating(evasion, projectile, !a.Ranged && !a.Spell, StatOf);
         int hitChance = DamageModel.AccuracyHitChance(evasion, monsterAccuracy);
         bool cannotEvade = StatOf(Stat.KeystoneUnwaveringStance) != 0 || StatOf(Stat.CannotEvade) != 0
-            || StatOf(Stat.BaseCannotEvade) != 0 || StatOf(Stat.MapCannotEvade) != 0;
+            || StatOf(Stat.BaseCannotEvade) != 0 || StatOf(Stat.MapCannotEvade) != 0
+            || m.Effects[Stat.GlobalAlwaysHit] != 0;
         if (attackHit && !cannotEvade && StatOf(Stat.ChanceToEvadeAttacksPct) is int additionalEvade and not 0)
             hitChance = (int)Math.Clamp((long)hitChance - additionalEvade, 5L, 100L);
+        if (attackHit && !cannotEvade && !a.Ranged && !projectile
+            && StatOf(Stat.MasteryChanceToEvadeMeleeAttacksPlusPctFinal) is int evadeMore and not 0)
+        {
+            long evade = (100L - hitChance) * Math.Max(0, 100L + evadeMore) / 100;
+            hitChance = (int)Math.Clamp(100 - evade, 5, 100);
+        }
         if (attackHit && !cannotEvade && StatOf(Stat.KeystoneWindDancer) != 0 && player.RecentEvents.Happened(EnemyAttackHit, now))
             hitChance = Math.Max(5, 100 - (100 - hitChance) * 110 / 100);
         if (attackHit && !cannotEvade && EvadesLocked(player, hitChance, now))
@@ -3187,14 +3194,21 @@ public static partial class Game
         int blockChance = a.Spell ? player.Pools.SpellBlockChance : player.Pools.BlockChance;
         if (projectile)
             blockChance = stats.GetValueOrDefault(a.Spell ? Stat.SpellProjectileBlockPct : Stat.ProjectileAttackBlockPct, blockChance);
-        if (map is not null && (map.Get(Stat.MapPlayerCannotBlock) != 0
+        if (attackHit && StatOf(Stat.BlockChancePctVsCursedEnemies) is not 0 and var cursedBlock && m.Curses.HasActive(now))
+            blockChance = (int)Math.Clamp((long)blockChance + cursedBlock, 0, Math.Max(0, player.Pools.BlockChanceMax));
+        if (StatOf(Stat.NeverBlock) != 0 || map is not null && (map.Get(Stat.MapPlayerCannotBlock) != 0
             || map.Get(a.Spell ? Stat.MapPlayerCannotBlockSpells : Stat.MapPlayerCannotBlockAttacks) != 0))
             blockChance = 0;
         bool blocked = !a.Secondary && DamageModel.Blocks(blockChance,
             player.IncomingHitRandom.NextDouble() * 100, a.Spell ? player.Pools.SpellBlockLucky : player.Pools.AttackBlockLucky,
             a.Spell ? player.Pools.SpellBlockUnlucky : player.Pools.AttackBlockUnlucky);
+        int overwhelmChance = m.Effects[Stat.HitsIgnoreEnemyMonsterPhysicalDamageReductionPctChance];
+        bool ignorePhysicalReduction = overwhelmChance > 0 && mitigated[DamageType.Physical].Min > 0
+            && GameServer.Core.World.RandomRolls.Chance(overwhelmChance, 100, player.IncomingHitRandom);
+        int ArmourPercent(DamageType type) => type == DamageType.Physical && ignorePhysicalReduction ? 0
+            : PlayerHitMitigation.ArmourPercent(player.Pools, type, StatOf);
         bool armourRelevant = mitigated.Components.Any(c => !immune.Contains(c.Type)
-            && Math.Round(c.Range.Min) > 0 && PlayerHitMitigation.ArmourPercent(player.Pools, c.Type, StatOf) > 0);
+            && Math.Round(c.Range.Min) > 0 && ArmourPercent(c.Type) > 0);
         var armour = IncomingArmourLocked(player, !blocked && armourRelevant, priorContacts, stats);
         int rawDamage = (int)Math.Round(taken[DamageType.Physical].Min);
         int damage = 0, chaosDamage = 0, physicalDamage = 0;
@@ -3220,8 +3234,8 @@ public static partial class Game
         {
             int value = immune.Contains(type) ? 0 : (int)Math.Round(range.Min);
             value = PlayerHitMitigation.AfterResistance(player.Pools, type, value,
-                reduction.Physical, reduction.Elemental, armour.EffectiveArmour,
-                PlayerHitMitigation.ArmourPercent(player.Pools, type, StatOf),
+                ignorePhysicalReduction ? 0 : reduction.Physical, reduction.Elemental, armour.EffectiveArmour,
+                ArmourPercent(type),
                 imbalancedGuard: StatOf(Stat.KeystoneSacredBastion) != 0);
             // Flat damage taken after resistance and armour, then the multipliers: the increased damage taken adds to the
             // shock's, and a blocked hit deals only its share (PlayerDamageTaken). Monster hits are attacks, and melee
@@ -3230,7 +3244,7 @@ public static partial class Game
             if (type == DamageType.Physical)
                 value = WardBreakEffects.RangedPhysical(value, a.Ranged, StatOf);
             int extraTakenPct = sourceTakenPct + (DamageTypes.IsElemental(type) ? pantheonElemTakenPct : 0);
-            value = (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now,
+            value = (int)Math.Round(value * PlayerAilmentDamageTakenFactor(player, now,
                     extraTakenPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit, projectile: projectile))
                 * reservationFactor * ReservationTypedHitTakenFactor(player, type, now) * windDancer * opportunisticFactor
                 * (halfAreaDamage ? 0.5 : 1.0)
@@ -3289,6 +3303,7 @@ public static partial class Game
         if (!blocked)
         {
             ApplyEqualisingHitLocked(player, m);
+            ApplyCurrentResourceLossOnHitLocked(player, m);
             if (player.PlayerLife > 0) QueueMonsterFlaskChargeLossLocked(player, m);
         }
         TrimLeechLocked(player);
@@ -3300,7 +3315,8 @@ public static partial class Game
             new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))),
             blocked, now, stats, incomingAilments, critical: monsterCritical);
         ApplyMonsterDamagingAilmentsLocked(player, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats,
-            skillPoisonChance: a.PoisonChance, skillPoisonSeconds: a.PoisonSeconds, critical: monsterCritical);
+            skillPoisonChance: a.PoisonChance, skillPoisonSeconds: a.PoisonSeconds, critical: monsterCritical,
+            skillAlwaysBleeds: a.AlwaysBleedsOnHit);
         ApplyMonsterDecayLocked(player, id, m, blocked, now, stats);
         ApplyCorruptedBloodOnHit(player, a, baseHit, blocked, now, stats);
         // Monster on-hit charge gains (of Frenzy, of Power, species charge-on-hit, of Enervation).
@@ -3314,6 +3330,9 @@ public static partial class Game
         }
         RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, damage > 0, monsterCritical,
             projectile: projectile, attack: attackHit, attacker: m);
+        if (suppressed && m.Hostile && !m.Dead && m.Life > 0
+            && StatOf(Stat.DebilitateEnemiesForXMillisecondsWhenSuppressingTheirSpell) is > 0 and var debilitateMs)
+            ApplyDebilitateLocked(player, id, m, now, debilitateMs / 1000d);
         if (suppressed && player.PlayerLife > 0 && StatOf(Stat.EnergyShieldRechargesOnSuppressPct) is int rechargeChance and > 0
             && GameServer.Core.World.RandomRolls.Chance(rechargeChance, 100, player.IncomingHitRandom))
             player.EnergyShield.StartRecharge(now, StatOf);
@@ -3337,7 +3356,7 @@ public static partial class Game
         bool stunEligible = alwaysStun || (!a.Ranged && a.Damage.Components.All(c => c.Type == DamageType.Physical));
         if (!blocked && player.PlayerLife > 0 && stunEligible)
             recovery = CommitPlayerHitRecoveryLocked(player, alwaysStun ? Math.Max(damage, (int)player.PlayerMaxLife) : damage, now, id);
-        else if (blocked && player.PlayerLife > 0 && stunEligible
+        else if (blocked && player.PlayerLife > 0 && stunEligible && !KiaraImmunityAt(player, now)
             && StatOf(Stat.CannotBeStunnedIfHaveBeenStunnedOrBlockedStunningHitInPast2Seconds) != 0)
         {
             int stunCheckDamage = alwaysStun ? (int)player.PlayerMaxLife : Math.Max(rawDamage, damage);

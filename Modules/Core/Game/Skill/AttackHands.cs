@@ -221,10 +221,40 @@ public static partial class Game
     public static double DefaultAttackSeconds(Player player, AttackHand hand, IReadOnlyDictionary<uint, int> playerStats)
     {
         var main = WeaponFor(player);
-        if (hand != AttackHand.Off || OffhandWeaponFor(player) is not { } off) return main.AttackSeconds(playerStats);
+        if (hand != AttackHand.Off || OffhandWeaponFor(player) is not { } off)
+        {
+            int speed = DefaultMainHandAttackSpeed(player.Pools, main, playerStats, main.IncreasedAttackSpeed(playerStats));
+            return Math.Max(TickSeconds, main.AttackMs / 1000d / Math.Max(0.01, 1 + speed / 100d));
+        }
         return DualWieldPanel.OffHandSeconds(off, SkillCatalog.Unarmed.OffHandAttackSpeedPct(main.IncreasedAttackSpeed(playerStats),
             WeaponProfileFor(player, activeSet: true).LocalAttackSpeedPct));
     }
+
+    static int UnarmedClawAttackSpeed(Func<uint, int> get) =>
+        get(Stat.ModifiersToClawAttackSpeedAlsoAffectUnarmedMeleeAttackSpeed) != 0
+            ? get(Stat.ClawAttackSpeedPlusPct) : 0;
+
+    static long ResolvedUnarmedAttackSpeedIncrease(CharacterStats.Pools pools, Func<uint, int> get,
+        int skillSpeed = 0, int skillSpeedAfterMore = 0)
+    {
+        int claw = UnarmedClawAttackSpeed(get);
+        return claw == 0 ? skillSpeedAfterMore
+            : (long)pools.AttackSpeedWithIncrease((long)claw + skillSpeed) - pools.AttackSpeedPct;
+    }
+
+    // Keep the snapshot's timed speed. Claw increases join the pool before the inherent more multiplier, and a
+    // separate final multiplier scales the resulting unarmed melee speed.
+    static int DefaultMainHandAttackSpeed(CharacterStats.Pools pools, SkillCatalog.Unarmed weapon,
+        IReadOnlyDictionary<uint, int> stats, int speed)
+    {
+        if (weapon is not { ItemClass: null, Melee: true }) return speed;
+        speed = ActorScale.Saturate(speed + ResolvedUnarmedAttackSpeedIncrease(pools, stats.GetValueOrDefault));
+        int more = stats.GetValueOrDefault(Stat.UniqueBodyArmourUnarmedMeleeAttackSpeedPlusPctFinal);
+        if (more == 0) return speed;
+        return SkillAttackTiming.FinalSpeedPercent(speed, UnarmedMeleeAttackSpeedMultiplier(more));
+    }
+
+    static double UnarmedMeleeAttackSpeedMultiplier(int more) => Math.Max(.01, 1 + more / 100d);
 
     /// <summary>The default attack's time for this use (its recorded hand), before the action factor.</summary>
     public static double DefaultAttackSeconds(Player player, ushort sequence, IReadOnlyDictionary<uint, int> playerStats) =>

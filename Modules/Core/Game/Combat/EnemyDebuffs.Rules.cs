@@ -18,13 +18,19 @@ public static partial class Game
     /// <paramref name="seconds"/> (a warcry, a Basalt Flask); a new taunt replaces the player's old one on a monster (wiki
     /// Taunt: "you can replace your own taunts"). The enemy-debuff step shows it and takes it off. In the area's frame;
     /// the number taunted.</summary>
-    public static int TauntLocked(Player player, (int X, int Y) at, int radius, double now, double seconds)
+    public static int TauntLocked(Player player, (int X, int Y) at, int radius, double now, double seconds) =>
+        TauntLocked(player, at, radius, now, seconds, intimidate: false, stunDurationPct: 0);
+
+    static int TauntLocked(Player player, (int X, int Y) at, int radius, double now, double seconds,
+        bool intimidate, int stunDurationPct)
     {
         if (!CurrentGameWork || player.PlayerLife == 0 || seconds <= 0) return 0;
         int taunted = 0;
         foreach (var m in player.Area.Monsters.Values)
         {
-            if (Dist(m.Walk.Position(now), at) <= radius && ApplyPlayerTauntLocked(player, m, now, seconds)) taunted++;
+            if (Dist(m.Walk.Position(now), at) > radius || !ApplyPlayerTauntLocked(player, m, now, seconds)) continue;
+            taunted++;
+            if (intimidate) ApplyIntimidateLocked(m, now, m.TauntedUntil, stunDurationPct);
         }
         return taunted;
     }
@@ -39,6 +45,9 @@ public static partial class Game
         target.TauntingPlayerId = player.Id;
         target.TakenFromPlayer = target.TakenFromPlayer with { All = player.EnemyDebuffs.TauntedDamageTakenPct };
         target.PresentationChanged?.Invoke();
+        int chance = StatSourceValues(player).GetValueOrDefault(Stat.ChanceToGainEnduranceChargeWhenYouTauntEnemyPct);
+        if (RandomRolls.Chance(chance, 100, AreaRng(player)))
+            ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, 1, "taunt"));
         return true;
     }
 
@@ -142,12 +151,16 @@ public static partial class Game
         // Each monster's next timed change on the area's timers (the earliest one asked for).
         public readonly Dictionary<uint, double> Wakes = [];
 
-        public void RemoveNearbyChill(SpawnedMonster target) =>
+        public void RemoveNearbyChill(SpawnedMonster target, double now)
+        {
             target.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, ChillSource);
+            EndGlacialCageAuraChill(target, player.Id, ChillSource, now);
+        }
 
         public void ClearNearbyChills()
         {
-            foreach (var target in NearbyChills.Values) RemoveNearbyChill(target);
+            double now = AreaTime(player);
+            foreach (var target in NearbyChills.Values) RemoveNearbyChill(target, now);
             NearbyChills.Clear();
         }
     }
@@ -359,6 +372,7 @@ public static partial class Game
         {
             hash.Add(playerStats.GetValueOrDefault(Stat.VirtualChillEffectPlusPct));
             hash.Add(playerStats.GetValueOrDefault(Stat.ElementalistChillMaximumMagnitudeOverride));
+            hash.Add(playerStats.GetValueOrDefault(Stat.PermanentDamagePlusPctPerSecondOfChill));
         }
         hash.Add(pride?.Buff); hash.Add(prideValues); hash.Add(fleshRadius); hash.Add(fleshPhysical); hash.Add(lightningEquals);
         if (impurities is not null)
@@ -403,7 +417,7 @@ public static partial class Game
             {
                 if (player.Area.Monsters.TryGetValue(id, out var m))
                     StepMonsterDebuffsLocked(player, scope, steps, id, m, now, bytes, counts);
-                else if (steps.NearbyChills.Remove(id, out var departed)) steps.RemoveNearbyChill(departed);
+                else if (steps.NearbyChills.Remove(id, out var departed)) steps.RemoveNearbyChill(departed, now);
             }
             ReconcileBlinds(player, now, scope.CursedCorpses, scope.MarkBlind, counts);
             if (counts[0] + counts[1] > 0)
@@ -428,14 +442,22 @@ public static partial class Game
             bool covered = living && scope.ChillStats is not null && In(NearbyChillZone);
             if (steps.NearbyChills.TryGetValue(id, out var previous) && (!covered || !ReferenceEquals(m, previous)))
             {
-                steps.RemoveNearbyChill(previous);
+                steps.RemoveNearbyChill(previous, now);
                 steps.NearbyChills.Remove(id);
             }
             if (covered && scope.ChillStats is { } chill)
             {
-                if (m.Ailments.KeepPermanentAura(MonsterElementalAilments.Kind.Chill, steps.ChillSource,
-                    now, chill.GetValueOrDefault, name => m.Effects[name])) steps.NearbyChills[id] = m;
+                bool alreadyChilled = steps.NearbyChills.ContainsKey(id);
+                bool applied = m.Ailments.KeepPermanentAura(MonsterElementalAilments.Kind.Chill, steps.ChillSource,
+                    now, chill.GetValueOrDefault, name => m.Effects[name]);
+                if (applied)
+                {
+                    steps.NearbyChills[id] = m;
+                    if (!alreadyChilled) player.RecentEvents.Record(StatConditions.ChilledEnemy, now);
+                }
                 else steps.NearbyChills.Remove(id);
+                RecordGlacialCageAuraChill(m, player.Id, steps.ChillSource, now, applied ? double.PositiveInfinity : now,
+                    chill.GetValueOrDefault(Stat.PermanentDamagePlusPctPerSecondOfChill));
             }
         }
         SetNearbyFireExposure(m, player.Id, living && scope.FireExposure < 0 && In(NearbyFireExposureZone) ? scope.FireExposure : 0);

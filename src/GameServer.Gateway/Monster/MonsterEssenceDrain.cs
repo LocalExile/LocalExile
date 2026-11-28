@@ -63,7 +63,11 @@ public sealed class MonsterEssenceDrain
     /// advance. Ended instances are dropped. Also returns the life leeched from that damage, and hands each dealing
     /// instance's cast, the damage it dealt and its leech to <paramref name="dealt"/> in time order (instances may have
     /// different casters: the leech and a kill belong to the one dealing).</summary>
-    public (int Damage, double Leech) Advance(double now, double factor, Action<Cast, double, double>? dealt = null)
+    public (int Damage, double Leech) Advance(double now, double factor, Action<Cast, double, double>? dealt = null) =>
+        Advance(now, factor, dealt, null);
+
+    public (int Damage, double Leech) Advance(double now, double factor, Action<Cast, double, double>? dealt,
+        Func<double, double, double>? factorBetween)
     {
         if (instances.Count == 0 || !(now > last)) return (0, 0);
         double damage = carry, leech = 0, t = last;
@@ -79,7 +83,7 @@ public sealed class MonsterEssenceDrain
             }
             if (Strongest(t) is { } strongest)
             {
-                double segment = strongest.Cast.DamagePerSecond * (next - t) * Math.Max(0, factor);
+                double segment = strongest.Cast.DamagePerSecond * (next - t) * Math.Max(0, factorBetween?.Invoke(t, next) ?? factor);
                 double share = segment * strongest.Cast.LeechPermyriad / 10000.0;
                 damage += segment;
                 leech += share;
