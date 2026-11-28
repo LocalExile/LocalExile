@@ -195,19 +195,16 @@ public sealed partial class MercenaryModule
 
         var gear = GearOf(kind, build, level, seed, run);
         string displayName = MercenaryTables.FormatName(run.FirstNameHash32, run.SecondNameHash32) ?? build.Name;
+        // MinimapIcon's u16 is the MinimapIcons row + 1: row 668 itself drew row 667's ship's wheel (live 2026-11-27).
+        int iconRow = MercenaryTables.EncounterIconRow;
         uint id = await SpawnMonster(player, variety, level, MonsterRarity.Unique, at.X, at.Y, friendly: true, instanceOwned: true,
             scripted: true, ownedLooks: gear, shape: m => m with
             {
                 Name = displayName, Team = MercenaryWire.MercenaryTeam, StateMachine = met, MercenaryBuild = build.Hash16,
                 HasDialogue = true, NpcFlags = 1, InteractionFlags = 1,
+                MinimapIcon = iconRow >= 0 ? (ushort)(iconRow + 1) : (ushort)0,
             });
         if (id == 0) return false;
-        // The monster create leaves MinimapIcon unset; the encounter's map icon is turned on as Abyss does its pit's.
-        // The record's u16 is the MinimapIcons row + 1: row 668 itself drew row 667's ship's wheel (live 2026-11-27).
-        int iconRow = MercenaryTables.EncounterIconRow;
-        if (iconRow >= 0 && variety.ComponentsOrBase.ToList().IndexOf("MinimapIcon") is int icon and >= 0)
-            await SendWorldRecord(player, id, InstanceEntities.ComponentUpdate(id, (byte)icon, [0x01, (byte)(iconRow + 1), (byte)((iconRow + 1) >> 8)]),
-                "0x02bc Mercenary encounter map icon");
         if (player.Area.Monsters.TryGetValue(id, out var body))
         {
             body.States = met;

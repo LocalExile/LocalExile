@@ -36,11 +36,7 @@ public static class MercenaryEquipment
         var result = new List<Worn>();
         var looks = MercenaryGear.Of(kind, build, level, rng);
         ushort? arrow = Program.Items.Visual("DefaultArrow");
-        // An Infamous Mercenary wears at least one unique: one slot (not the body armour, which a Mercenary cannot wear
-        // unique) is chosen to be one.
-        var uniqueSlots = looks.Where(l => l.Slot != MercenaryGear.Body && !(l.Slot == MercenaryGear.MainHand && l.VisualIdentity == arrow))
-            .Select(l => l.Slot).ToArray();
-        byte? forcedUnique = build.Infamous && uniqueSlots.Length > 0 ? uniqueSlots[rng.Next(uniqueSlots.Length)] : null;
+        var entries = new List<(VisibleItem Look, int Row, ItemCatalog.BaseType[] Pool)>(looks.Count);
         foreach (var look in looks)
         {
             if (look.Slot == MercenaryGear.MainHand && look.VisualIdentity == arrow) continue;
@@ -60,14 +56,35 @@ public static class MercenaryEquipment
                     && !t.Id.Contains("Talisman", StringComparison.Ordinal)).OrderBy(t => t.Id, StringComparer.Ordinal).ToArray();
             }
             if (pool.Length == 0) continue;
+            entries.Add((look, row, pool));
+        }
+
+        List<UniqueCatalog.Definition> UniqueCandidates(ItemCatalog.BaseType[] pool) =>
+            uniques.All.Where(d => !d.EncounterOnly && !d.Corrupted && !d.Mirrored
+                && !MercenaryTables.IsDisabledUnique(d.Name)
+                && Program.Items.Find(d.BaseTypeId) is { } t && pool.Any(p => p.Row == t.Row))
+            .OrderBy(d => d.Name, StringComparer.Ordinal).ToList();
+
+        // An Infamous Mercenary wears at least one unique: choose from non-Body slots that have eligible uniques at this
+        // level so an empty slot pool never silently leaves an Infamous Mercenary with zero uniques.
+        byte? forcedUnique = null;
+        if (build.Infamous && !allUnique)
+        {
+            var eligible = entries.Where(e => e.Look.Slot != MercenaryGear.Body && UniqueCandidates(e.Pool).Count > 0)
+                .Select(e => e.Look.Slot).ToArray();
+            if (eligible.Length > 0) forcedUnique = eligible[rng.Next(eligible.Length)];
+        }
+        bool needInfamousUnique = build.Infamous && !allUnique;
+        bool rolledUnique = false;
+        foreach (var (look, row, pool) in entries)
+        {
             Item? item = null;
-            bool wantUnique = allUnique || look.Slot == forcedUnique
+            bool forceThis = look.Slot == forcedUnique || (needInfamousUnique && !rolledUnique && forcedUnique is null && look.Slot != MercenaryGear.Body);
+            bool wantUnique = allUnique || forceThis
                 || look.Slot != MercenaryGear.Body && rng.Next(100) < UniqueChancePct;
             if (wantUnique)
             {
-                var candidates = uniques.All.Where(d => !d.EncounterOnly && !d.Corrupted && !d.Mirrored
-                    && !MercenaryTables.IsDisabledUnique(d.Name)
-                    && Program.Items.Find(d.BaseTypeId) is { } t && pool.Any(p => p.Row == t.Row)).OrderBy(d => d.Name, StringComparer.Ordinal).ToList();
+                var candidates = UniqueCandidates(pool);
                 while (candidates.Count > 0 && item is null)
                 {
                     // The Mercenary-exclusive uniques drop only from Mercenaries, so they are weighted up among the rest.
@@ -76,6 +93,8 @@ public static class MercenaryEquipment
                     item = uniques.Create(candidates[pick], rng);
                     candidates.RemoveAt(pick);
                 }
+                if (item is not null) rolledUnique = true;
+                else if (look.Slot == forcedUnique) forcedUnique = null;
                 if (item is null && allUnique) throw new InvalidOperationException($"No mercenary unique for equipment class {row}");
             }
             item ??= Program.Rolls.Roll(ItemCatalog.Create(pool[rng.Next(pool.Length)]) with { ItemLevel = (byte)level },
