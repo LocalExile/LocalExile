@@ -639,7 +639,7 @@ Stop-Processes (Get-OwnServers $servers)
 foreach ($port in ($servers | ForEach-Object { $ports[$_] })) {
     foreach ($c in Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) {
         $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $($c.OwningProcess)" -ErrorAction SilentlyContinue
-        if (-not $proc) { continue }
+        if (-not $proc -or [int]$c.OwningProcess -eq 0) { continue }
         $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $($proc.ParentProcessId)" -ErrorAction SilentlyContinue
         if ($proc.Name -in 'dotnet.exe', 'GameServer.Gateway.exe' -and ((Test-Here $proc) -or (Test-Here $parent))) {
             Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
