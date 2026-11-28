@@ -90,7 +90,7 @@ public static class PlayerHitDamage
             // Preserve the existing attack multiply-before-divide projection and spell factor construction.
             // Clamp the complete increased bucket once: a negative original-type subtotal must survive until here.
             var range = spell
-                ? path.Range.Scale(Math.Max(0, 1 + increased / 100.0) * (SpellMore(get, path.History) * charges))
+                ? path.Range.Scale(Math.Max(0, 1 + increased / 100.0) * (SpellDamageMore(get, path.History) * charges))
                 : DamageStats.IncreaseAttackRange(path.Range, increased);
             var support = GemSupportDamage.Multipliers(path.History, modifiers, supportTypes, fullShield, shieldLeech);
             range = range.Scale(support.GeneralOrPhysical).Scale(support.ElementalOrChaos);
@@ -132,9 +132,11 @@ public static class PlayerHitDamage
         return spell || charges == 1 ? result : result.Scale(charges);
     }
 
-    static double SpellMore(Func<uint, int> get, DamageTypeHistory history) =>
+    /// <summary>The caster's spell damage multipliers, including those inherited through conversion.</summary>
+    public static double SpellDamageMore(Func<uint, int> get, DamageTypeHistory history) =>
         Math.Max(0, 1 + get(Stat.SpellDamageAuraSpellDamagePlusPctFinal) / 100.0)
         * Math.Max(0, 1 + get(Stat.RighteousFireSpellDamagePlusPctFinal) / 100.0)
+        * Math.Max(0, 1 + get(Stat.VaalRighteousFireSpellDamagePlusPctFinal) / 100.0)
         // Arcane Surge's own more Spell Damage (Arcane Blessing), a stat of the buff on the player.
         * Math.Max(0, 1 + get(Stat.SpellDamagePlusPctFinalFromArcaneSurge) / 100.0)
         // Pain Attunement: "30% more Spell Damage when on Low Life".

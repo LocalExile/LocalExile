@@ -25,6 +25,7 @@ public static partial class Game
             _ => StatConditions.GainedEnduranceCharge,
         }, at), () => ResourceEffectsTime(player), (from, until) => player.Walk.MovingSeconds(from, until))
         {
+            DegenerationDamageTime = () => GuardDamageOverTime(player, DamageType.Fire),
             OnslaughtFromFrenzy = (at, seconds) =>
             {
                 if (player.PlayerLife == 0 || !KillOnslaughtOf(player).Gain(at, seconds)) return;

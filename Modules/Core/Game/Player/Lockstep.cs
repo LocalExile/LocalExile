@@ -95,8 +95,12 @@ public static partial class Game
                     return;
                 }
                 var aim = m?.Walk.Position(AreaTime(player)) ?? here;
+                bool keepCorpse = target != player.Id && m is (null or { Dead: true })
+                    && GemSkillEffects(player).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem
+                    && DetonateDeadEffect(SkillsFor(player).EffectId(gem.Effect));
                 player.LockstepSkill.Press(aim, target, skill, flags,
-                    (target != player.Id || SelfCastRepeats(player, skill)) && LockstepRepeats(player, skill));
+                    (target != player.Id || SelfCastRepeats(player, skill)) && LockstepRepeats(player, skill),
+                    keepObjectTarget: keepCorpse);
             }
             else
             {
@@ -280,10 +284,14 @@ public static partial class Game
             {
                 // Only the skill's own readiness reaches the target and pending-request clean-up below: a Move taken
                 // inside a totem placement's hold does not touch the held skill's request.
-                if (skillFree && player.LockstepSkill.Target is { } aimedAt && aimedAt != player.Id
+                if (skillFree && player.LockstepSkill is { Active: true, Target: { } aimedAt } request && aimedAt != player.Id
                     && !(player.Area.Monsters.TryGetValue(aimedAt, out var m) && !m.Dead && m.Life > 0)
-                    && LivePlayerLinkTarget(player, aimedAt, player.LockstepSkill.Skill) is null)
-                    player.LockstepSkill.LoseTarget();
+                    && LivePlayerLinkTarget(player, aimedAt, request.Skill) is null)
+                {
+                    // Detonate Dead's explicit corpse stays selected. A consumed corpse ends the held use.
+                    if (!request.KeepObjectTarget) request.LoseTarget();
+                    else if (m is null) request.Clear(finishChannel: true);
+                }
                 // Actor's gate (0x141e941a0 -> 0x141e9479e / 0x141e947aa) lets only Move (0x2909 / 0xc266) cut in after
                 // an attack's contact or while its cancelled backswing lockout (+0x2a0) runs; non-Move uses (object
                 // pickups, spells, attacks) wait for the action to finish (NextAttackAt / LockstepActionBackswingUntil).

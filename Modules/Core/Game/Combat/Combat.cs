@@ -532,7 +532,7 @@ public static partial class Game
         bool cryExerted;
         NotePlayerAttack(player);
         RecordUsedSkillLocked(player, begun);
-        bool eligibleWarcry = weapon.Melee && !ranged;
+        bool eligibleWarcry = weapon.Melee && !ranged && !ConsumeAmbush(player, weapon, criticalRoll);
         var warcries = eligibleWarcry ? CryOf(player) : null;
         bool consumeWarcry = eligibleWarcry && !ExertedAttackKeepsCountLocked(player);
         cryExerted = warcries is not null && IntimidatingCryExerts(player) > 0;
@@ -669,7 +669,7 @@ public static partial class Game
                     return true;
                 }
                 double exertedMore = ExertedAttackMore(ownPenetration, cryExerted,
-                    defaultOtherWarcries, defaultRallying, playerStats);
+                    defaultOtherWarcries, defaultRallying, playerStats, ambush: criticalRoll.AmbushExerted);
                 if (exertedMore != 1)
                     prehit = prehit with
                     {
@@ -705,7 +705,8 @@ public static partial class Game
                 long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(playerStats, ownPenetration);
                 var ownRolled = GameEvents.WithOutgoingDamage(player, playerStats, m,
                     damageRoll.RollBeforeCritical(hit, AreaRng(player), criticalDoubleDamage));
-                int defaultExertedBaseCrit = ExertedAttackBonusCritPermyriad(defaultTotalWarcries, playerStats, ownPenetration);
+                int defaultExertedBaseCrit = ActorScale.Saturate((long)ExertedAttackBonusCritPermyriad(defaultTotalWarcries, playerStats, ownPenetration)
+                    + criticalRoll.AmbushBaseCrit);
                 int defaultCritChance = CriticalChanceOn(player, targetId,
                     HandAttackCriticalChance(player, hand, playerStats, defaultExertedBaseCrit),
                     AttackCriticalChanceVsBlinded(player, playerStats, release: false, hand, defaultExertedBaseCrit),
@@ -716,7 +717,7 @@ public static partial class Game
                 ownRolled = damageRoll.CompleteCriticalMultiplier(ownRolled, AreaRng(player), critical, criticalDoubleDamage);
                 if (exertedMore != 1) ownRolled = ownRolled.Scale(exertedMore);
                 long weaponMultiplier = (long)AttackCriticalMultiplier(player, playerStats)
-                    + ClawDaggerCriticalBonus(weapon, playerStats, ownPenetration);
+                    + ClawDaggerCriticalBonus(weapon, playerStats, ownPenetration) + criticalRoll.AmbushCritMultiplier;
                 int sourceCriticalMultiplier = CriticalMultiplierWithWeapon(
                     CriticalHitMultiplier(weaponMultiplier, playerStats, ownPenetration), m, weapon.LocalSources);
                 double at = ProjectileWorldTime(player);
@@ -1047,6 +1048,7 @@ public static partial class Game
         }
         // Flicker Strike's client action strikes without moving the player: the server teleports it (FlickerStrike).
         bool flicker = moves && SkillsFor(player).ActionHash(gem.Effect) == FlickerStrike.Action, flickers = false;
+        bool ambush = SkillsFor(player).EffectId(gem.Effect) == AmbushEffect;
         var moveEffect = moves ? SkillsFor(player).EffectId(gem.Effect) : null;
         bool flameDash = IsFlameDashEffect(moveEffect);
         ((int X, int Y) Aim, (int X, int Y) Landing)? flameDashTo = null;
@@ -1116,10 +1118,16 @@ public static partial class Game
                 }, out spellUse);
         else admitted = TryBeginSkillCooldownUse(player, use.SkillId, gem.Effect,
             gem.Name is null ? null : CooldownForSkill(player, use.SkillId), false,
-            StartCast, out spellUse, requestedAt: requestedAt, admit: flicker ? FlickerAdmit : null);
+            StartCast, out spellUse, reserve: !ambush, requestedAt: requestedAt, admit: flicker ? FlickerAdmit : ambush ? () =>
+            {
+                double t = ProjectileWorldTime(player);
+                return FindAmbushTarget(player, gem.Effect, use.TargetId, m.Walk.Position(t), t) is not null
+                    && CanPaySkillCost(player, use.SkillId);
+            } : null);
         if (!admitted)
         {
             if (noFlickerTarget) await FlickerRefused(player, gem.Name!);
+            else if (ambush) await SendPlayerMana(player, "Ambush: skill refused, cost back");
             return;
         }
         Action? startCharge = null;
@@ -1300,6 +1308,7 @@ public static partial class Game
             int action = beginAction ? Interlocked.Increment(ref player.ActionCount) : player.ActionCount;
             if (beginAction) player.Walk.Order(from.X, from.Y, acceptedAt);
             player.Walk.Teleport(to.X, to.Y, acceptedAt);
+            PhaseRunOnSkillUse(player, skillId);
             RecordAcceptedGemUseAt(player, effect, to, acceptedAt);
             if (player.ProjectileRuntime is { Active: true } stormRuntime) stormRuntime.StormOrbOnLightningUse(effect, acceptedAt);
             if (CastingSpell(player, effect) && !SkillsFor(player).IsInstant(effect))
@@ -1456,6 +1465,15 @@ public static partial class Game
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: {refused}");
             return false;
+        }
+        if (SkillsFor(player).EffectId(gem.Effect) == AmbushEffect)
+        {
+            using var mutation = ProjectileMutation(player, advance: false);
+            double now = ProjectileWorldTime(player);
+            if (cooldownUse is not { Reserved: false } || spellCastMs is not int duration
+                || FindAmbushTarget(player, gem.Effect, targetId, to, now) is not { } target) return false;
+            RecordSpellWindup();
+            return ScheduleAmbush(player, skillId, gem.Effect, target, duration, action, swingAt, Current);
         }
         // A placed cast (trap, mine) looks for its corpse at the trigger point, and a cost paid when the cooldown use was
         // accepted is already spent: both keep the release's own check.
@@ -1810,12 +1828,9 @@ public static partial class Game
                 && !IsTotemSkill(player, skillId))
                 RecordNonInstantSpellUseLocked(player, gem.Effect, AreaTime(player));
             NoteGemAttackUse(player, skillId, gem.Effect);
-        }
-        if (gem.Name is not null)
-        {
             PhaseRunOnSkillUse(player, skillId);
-            WitheringStepOnSkillUse(player, skillId);
         }
+        if (gem.Name is not null) WitheringStepOnSkillUse(player, skillId);
         using var pactScope = pactSpell is null ? null : new GhorrCastScope(pactSpell);
         using var beidatScope = beidatSpell is null ? null : new BeidatCastScope(beidatSpell);
         var intensity = CaptureIntensityCast(player, skillId, paidIntensity);
@@ -1931,6 +1946,11 @@ public static partial class Game
             return CompleteSupportedUse(ScheduleCallOfSteel(player, skillId, recoveryGeneration, Current));
         if (gem.Name is not null && IsBladefallTrarthus(gem.Effect))
             return CompleteSupportedUse(await ActivateBladefallTrarthus(player, skillId));
+        if (vaalUse?.FireSacrifice is not null)
+        {
+            StartVaalRighteousFire(player, vaalUse);
+            return CompleteSupportedUse(true);
+        }
         if (vaalUse is not null && SkillsFor(player).EffectId(gem.Effect) == VaalArcticArmourEffect)
         {
             StartVaalArcticArmour(player, skillId, CastMs(player, gem.Effect, skillId) ?? SkillsFor(player).CastTimeMs(gem.Effect), AreaTime(player));
@@ -1963,6 +1983,9 @@ public static partial class Game
         if (spellCastMs is int frozenCast && IsFrozenLegionEffect(SkillsFor(player).EffectId(gem.Effect)))
             return CompleteSupportedUse(ScheduleFrozenLegion(player, gem, from, to, sequence, frozenCast,
                 recoveryGeneration, swingAt, cooldownUse, Current));
+        if (spellCastMs is int bladeCast && SkillsFor(player).EffectId(gem.Effect) == EnergyBladeEffect)
+            return CompleteSupportedUse(ScheduleEnergyBlade(player, skillId, gem.Effect, bladeCast,
+                recoveryGeneration, swingAt, Current));
         // The self buffs a player casts by hand: the guards, Phase Run, Blood Rage.
         if (gem.Name is not null && await CastSelfBuff(player, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
@@ -2222,6 +2245,7 @@ public static partial class Game
                             if (player.ProjectileActive(epoch)) _ = SendNativeCooldownRefresh(player);
                         });
                     }
+                    PhaseRunOnSkillUse(player, skillId);
                     accepted = true;
                     RecordAcceptedGemUseAt(player, gem.Effect, to, acceptedAt);
                     return PlayerInstantAction(player, skillId, rawAim, targetObjectId);
@@ -2545,7 +2569,7 @@ public static partial class Game
         if (IsChannelledScourgeArrow(gem.Effect)) return Task.CompletedTask;
         criticalRoll ??= CaptureSkillCriticalRoll(player, skillId);
         var (cryExerted, seismicArea, ancestralTargets, rallyingDamage) = ConsumeMeleeWarcryExertsLocked(player, skillId, gem.Effect, criticalRoll,
-            eligible: channelGeneration is null);
+            eligible: channelGeneration is null, sequence: sequence);
         // The paid charge owns one exertion decision for every path hit and its landing.
         int chargeBonus = ShieldChargeBonusPct(player, skillId, gem.Effect);
         if (chargeBonus != 0)
@@ -3547,7 +3571,7 @@ public static partial class Game
         if (cryExerted is null)
         {
             var (intimidating, seismicArea, extraStrikes, rallying) = ConsumeMeleeWarcryExertsLocked(player, skillId, gem.Effect, criticalRoll,
-                eligible: !immediate && triggeredCurrent is null && repeat == 0 && channelGeneration is null);
+                eligible: !immediate && triggeredCurrent is null && repeat == 0 && channelGeneration is null, sequence: sequence);
             cryExerted = intimidating;
             seismicExerted = seismicArea.HasValue;
             ancestralTargets = extraStrikes;
@@ -3879,7 +3903,7 @@ public static partial class Game
             if (stormPeriod is double interval && strikeIndex == 0)
                 CreateBladestormLocked(player, gem, admittedGem, hand, weapon, offCritical, from, to, interval,
                     sequence, now, radiusMore * chargeRadius, damageMore * hitAndAilmentMore, ruthless, cryExerted,
-                    rallyingDamage, otherWarcries);
+                    rallyingDamage, otherWarcries, criticalRoll);
             if (swordstorm && retainedAttack is null)
             {
                 ScheduleSwordstormLocked(player, gem, admittedGem, weapon, criticalRoll, to, sequence, now, radius, damageMore, ruthless);
@@ -3914,8 +3938,13 @@ public static partial class Game
             }
             if (divineBlast && !immediate && strikeIndex == 0)
                 ProjectilesFor(player).PlaceDivineBlastOrb(gem, centre, admittedGem, criticalRoll);
-            if (strikeIndex == 0 && retainedAttack is null && IsColdSnap(effectId))
-                ProjectilesFor(player).PlaceColdSnapGround(gem, centre, admittedGem, damageMore);
+            if (strikeIndex == 0 && retainedAttack is null)
+            {
+                if (IsColdSnap(effectId))
+                    ProjectilesFor(player).PlaceColdSnapGround(gem, centre, admittedGem, damageMore);
+                else if (IsVortexGround(effectId))
+                    ProjectilesFor(player).PlaceVortexGround(centre, gem.Effect, admittedGem.Stats, damageMore * GhorrDotMore(player, skillId));
+            }
             // Queued mana output may outlast movement: resolve a channel at its current position.
             if (channelGeneration is not null)
             {
@@ -3938,7 +3967,7 @@ public static partial class Game
             if (retainedAttack is null && strikeIndex == 0 && effectId == "VolcanicFissureAltX" && areaAction is { } fissureAction)
             {
                 var source = CaptureExertedAreaAttack(player, skillId, admittedGem, hand, weapon, offCritical,
-                    damageMore, damageMore, "fissure", cryExerted == true, otherWarcries, rallyingDamage);
+                    damageMore, damageMore, "fissure", cryExerted == true, otherWarcries, rallyingDamage, criticalRoll);
                 ScheduleSnakingFissureLocked(player, skillId, gem, source, from, to, now, fissureAction,
                     sequence, repeat, radiusMore * chargeRadius, criticalRoll, ruthless, cryExerted == true, seismicExerted, rallyingDamage);
                 return;
@@ -4580,7 +4609,8 @@ public static partial class Game
                             Poison = RepeatAilment(profile.Poison, repeatMore),
                         };
                     }
-                    double overexertionMore = !attack ? 1 : ExertedAttackMore(skillStats, cryExerted == true, otherWarcries, rallyingDamage, playerStats);
+                    double overexertionMore = !attack ? 1 : ExertedAttackMore(skillStats, cryExerted == true, otherWarcries, rallyingDamage,
+                        playerStats, ambush: retainedAttack?.AmbushExerted ?? criticalRoll.AmbushExerted);
                     if (overexertionMore != 1)
                         profile = profile with
                         {
@@ -4679,8 +4709,10 @@ public static partial class Game
                         m.HallowingFlameUntil = 0;
                     }
                     if (attack)
-                        rolled = WithExertedAttackDamage(rolled, skillStats, cryExerted == true, otherWarcries, rallyingDamage, playerStats);
-                    int exertedCritBonus = !attack ? 0 : ExertedAttackBonusCritPermyriad(hitExertWarcries, playerStats, skillStats);
+                        rolled = WithExertedAttackDamage(rolled, skillStats, cryExerted == true, otherWarcries, rallyingDamage,
+                            playerStats, ambush: retainedAttack?.AmbushExerted ?? criticalRoll.AmbushExerted);
+                    int exertedCritBonus = !attack ? 0 : ActorScale.Saturate((long)ExertedAttackBonusCritPermyriad(hitExertWarcries, playerStats, skillStats)
+                        + criticalRoll.AmbushBaseCrit);
                     // The shared roll meets each target's current chance: a source can change between targets.
                     if (!linkedSource && retainedAttack is { } source)
                     {
@@ -4715,7 +4747,8 @@ public static partial class Game
                             && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
                     }
                     rolled = damageRoll.CompleteCriticalMultiplier(rolled, AreaRng(player), critical, criticalDoubleDamage);
-                    int sourceMultiplier = CriticalMultiplierWithWeapon(sweepMultiplier, m, weaponLocal);
+                    int sourceMultiplier = CriticalMultiplierWithWeapon(
+                        ActorScale.Saturate((long)sweepMultiplier + (attack && retainedAttack is null ? criticalRoll.AmbushCritMultiplier : 0)), m, weaponLocal);
                     double at = ProjectileWorldTime(player);
                     int multiplier = CriticalMultiplierOn(m, sourceMultiplier, at, playerStats, skillStats);
                     // Deferred manual hits use the same lifetime guard as automatic payloads. The native link

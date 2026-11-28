@@ -11,6 +11,9 @@ public static partial class Game
     public sealed partial class ProjectileSession
     {
         const int PlacedCorpseSearchRadius = 60;
+        const int DetonateDeadChainLimit = 8;
+        static double DetonateDeadChainGap(int index) => Math.Max(.04, .22 - .023 * index);
+
         const string DetonateDeadArt = "Metadata/Effects/Spells/detonate_dead_v2/blast_scalable.ao";
 
         internal void SchedulePlacedDetonateDead(PlacedAreaHit placement, Func<bool> current)
@@ -19,17 +22,44 @@ public static partial class Game
             {
                 if (!Active || !current()) return;
                 var device = placement.Device;
-                double now = ProjectileWorldTime(Player);
-                var corpse = PlacedSpellCorpses(device.At, PlacedCorpseSearchRadius, now).FirstOrDefault();
-                if (corpse.Value is null) return;
-                var at = corpse.Value.Walk.Position(now);
+                string? effect = SkillsFor(Player).EffectId(device.Effect);
+                bool scavenging = effect == "DetonateDeadAltX";
+                bool chaining = effect == "DetonateDeadAltY";
+                int count = scavenging ? 1 : chaining ? DetonateDeadChainLimit
+                    : DetonateDeadCorpseCount(device.Own, device.Offense?.Caster ?? CharacterPlayerStats(Player));
                 int radius = SkillRadius(Player, device.Own, spell: true, device.Effect);
+                Detonate(ProjectileWorldTime(Player), 0);
 
-                ConsumeSpellCorpse(corpse.Key, corpse.Value, now, playerConsumes: false);
-                Effect(at.X, at.Y, DetonateDeadArt, ProjectileRuntime.Time(1), radius);
-                placement.Apply(Player, at, radius, now);
-                ApplyCorpseExplosion(device.Skill, corpse.Value.MaxLife, at, radius, now, placement);
+                void Detonate(double now, int index)
+                {
+                    var next = PlacedSpellCorpses(device.At, PlacedCorpseSearchRadius, now)
+                        .FirstOrDefault(entry => !scavenging || !entry.Value.CreatedAsCorpse);
+                    if (next.Value is not { } corpse) return;
+                    var at = corpse.Walk.Position(now);
+                    ConsumeSpellCorpse(next.Key, corpse, now, playerConsumes: false);
+                    Effect(at.X, at.Y, DetonateDeadArt, ProjectileRuntime.Time(1), radius);
+                    if (!scavenging) placement.Apply(Player, at, radius, now);
+                    ApplyCorpseExplosion(device.Skill, corpse.MaxLife, at, radius, now, placement);
+                    if (index + 1 >= count || !Active || !current()) return;
+                    if (!chaining)
+                    {
+                        Detonate(now, index + 1);
+                        return;
+                    }
+
+                    Runtime.Schedule(Runtime.Now + ProjectileRuntime.Time(DetonateDeadChainGap(index)), () =>
+                    {
+                        if (Active && current()) Detonate(ProjectileWorldTime(Player), index + 1);
+                    });
+                }
             });
+        }
+
+        int DetonateDeadCorpseCount(IReadOnlyDictionary<uint, int> skill, IReadOnlyDictionary<uint, int> caster)
+        {
+            const uint key = Stat.DetonateDeadPctChanceToDetonateAdditionalCorpse;
+            int chance = (int)Math.Clamp((long)skill.GetValueOrDefault(key) + caster.GetValueOrDefault(key), 0, 100);
+            return chance > 0 && RandomRolls.Chance(chance, 100, AreaRng(Player)) ? 2 : 1;
         }
 
         IEnumerable<KeyValuePair<uint, SpawnedMonster>> PlacedSpellCorpses((int X, int Y) at, int radius, double now) =>

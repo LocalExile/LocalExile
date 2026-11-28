@@ -54,7 +54,7 @@ public static class BrineKing
         var tide = Tides.GetValue(player, _ => new());
         bool changed;
         double dps = active ? rawDps * (1 - Math.Min(MaxResistance(player, DamageType.Cold), Resistance(player, DamageType.Cold)) / 100.0) : 0;
-        player.Degens.Set(tide, dps, dps);
+        player.Degens.Set(tide, DamageType.Cold, dps);
         tide.Degen = dps;
         changed = tide.Active != active;
         tide.Active = active;

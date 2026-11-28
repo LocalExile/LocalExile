@@ -337,9 +337,11 @@ public static partial class Game
     }
 
     internal static (bool Intimidating, int? SeismicArea, int AncestralTargets, int? RallyingDamage) ConsumeMeleeWarcryExertsLocked(
-        Player player, ushort skill, int effect, SkillCriticalRoll attack, bool eligible)
+        Player player, ushort skill, int effect, SkillCriticalRoll attack, bool eligible, ushort sequence = 0)
     {
         if (!eligible || !WarcryCanExert(player, skill, effect)) return default;
+        if (AmbushBuffs.TryGetValue(player, out _) && ShieldWeapon(player, skill) is null
+            && ConsumeAmbush(player, HandWeapon(player, AttackHandFor(player, skill, sequence)), attack)) return default;
         var cry = CryOf(player);
         IntimidatingCryMovementLocked(player);
         bool consume = !ExertedAttackKeepsCountLocked(player);
@@ -415,10 +417,10 @@ public static partial class Game
                 + (skillStats?.GetValueOrDefault(Stat.EmpoweredAttackAccuracyRatingPlusPct) ?? 0);
 
     static double ExertedAttackMore(IReadOnlyDictionary<uint, int>? skill, bool exerted, int otherWarcries = 0,
-        int? rallyingDamage = null, IReadOnlyDictionary<uint, int>? playerStats = null)
+        int? rallyingDamage = null, IReadOnlyDictionary<uint, int>? playerStats = null, bool ambush = false)
     {
         int warcries = (exerted ? 1 : 0) + otherWarcries + (rallyingDamage.HasValue ? 1 : 0);
-        if (warcries == 0)
+        if (warcries == 0 && !ambush)
             return ((playerStats?.GetValueOrDefault(Stat.NonExertedAttacksDealNoDamage) ?? 0) != 0
                 || (skill?.GetValueOrDefault(Stat.NonExertedAttacksDealNoDamage) ?? 0) != 0) ? 0 : 1;
         double warcryMore = Math.Max(0, 1 + (skill?.GetValueOrDefault(Stat.SupportOverexertionDamagePlusPctFinalPerWarcryExertingAction) ?? 0) / 100d * warcries);
@@ -433,9 +435,9 @@ public static partial class Game
     }
 
     static DamagePacket WithExertedAttackDamage(DamagePacket hit, IReadOnlyDictionary<uint, int>? skill, bool exerted,
-        int otherWarcries = 0, int? rallyingDamage = null, IReadOnlyDictionary<uint, int>? playerStats = null)
+        int otherWarcries = 0, int? rallyingDamage = null, IReadOnlyDictionary<uint, int>? playerStats = null, bool ambush = false)
     {
-        double more = ExertedAttackMore(skill, exerted, otherWarcries, rallyingDamage, playerStats);
+        double more = ExertedAttackMore(skill, exerted, otherWarcries, rallyingDamage, playerStats, ambush);
         return more == 1 ? hit : hit.Scale(more);
     }
 

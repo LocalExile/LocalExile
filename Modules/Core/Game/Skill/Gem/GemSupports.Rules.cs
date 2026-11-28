@@ -43,7 +43,7 @@ public static partial class Game
     /// <summary>Every item-granted source currently present on the supplied equipment, including unsupported/triggered rows.</summary>
     public static IReadOnlyList<WornGrantedSkills.Grant> AllWornGrantedSkillsOf(Player player,
         IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null) =>
-        WornGrantsFor(player, equipment ?? ItemsOf(player).EquipmentSnapshot());
+        WornGrantsFor(player, EnergyBladeEquipment(player, equipment ?? ItemsOf(player).EquipmentSnapshot()));
 
     /// <summary>
     /// Item-granted active skills with an executor. Twister and Spirit Burst have Actor rows for their

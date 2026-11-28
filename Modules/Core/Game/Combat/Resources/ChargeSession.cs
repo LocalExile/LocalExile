@@ -21,7 +21,9 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
 
     public Charges.State State { get; } = state ?? new();
     public ChargeDegeneration Degeneration { get; } = new();
-    public void SettleDegeneration(double now) => Degeneration.Advance(now, this, movingSeconds ?? ((_, _) => 0));
+    internal Func<DamageTakenWindow>? DegenerationDamageTime { get; init; }
+    public void SettleDegeneration(double now) => Degeneration.Advance(now, this, movingSeconds ?? ((_, _) => 0),
+        Degeneration.Active && now > Degeneration.At ? DegenerationDamageTime?.Invoke() ?? default : default);
     readonly ConcurrentQueue<ChargeEvent> events = new();
     readonly ChargeGains.Timers timers = new();
     readonly Charges.Limits[] limits = [Default, Default, Default];

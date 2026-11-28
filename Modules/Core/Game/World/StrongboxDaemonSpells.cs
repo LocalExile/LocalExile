@@ -464,16 +464,17 @@ public static partial class MapStrongboxes
             inside = [.. inside.Where(z => !(unaffected.Burning && z.Type == DamageType.Fire && z.Dps > 0
                 || unaffected.Chilled && z.Ailment == "chill" || unaffected.Shocked && z.Ailment == "shock"))];
         var immune = inside.Length > 0 ? PlayerImmunities(player) : [];
-        double dps = 0, elemental = 0;
-        foreach (var zone in inside.Where(z => z.Dps > 0 && !immune.Contains(z.Type)))
+        double physical = 0, elemental = 0, chaos = 0;
+        foreach (var zone in inside)
         {
-            double rate = zone.Dps * (zone.Type == DamageType.Physical ? 1
-                : 1 - Math.Min(MaxResistance(player, zone.Type), Resistance(player, zone.Type)) / 100.0);
-            dps += rate;
-            if (DamageTypes.IsElemental(zone.Type)) elemental += rate;
+            if (zone.Dps <= 0 || immune.Contains(zone.Type)) continue;
+            if (zone.Type == DamageType.Physical) { physical += zone.Dps; continue; }
+            double resisted = zone.Dps * (1 - Math.Min(MaxResistance(player, zone.Type), Resistance(player, zone.Type)) / 100.0);
+            if (zone.Type == DamageType.Chaos) chaos += resisted;
+            else elemental += resisted;
         }
-        player.Degens.Set(share, dps, elemental);
-        share.Dps = dps;
+        player.Degens.Set(share, physical, elemental, chaos);
+        share.Dps = physical + elemental + chaos;
         foreach (var zone in inside.Where(z => z.Ailment is not null))
         {
             var kind = zone.Ailment == "chill" ? PlayerElementalAilments.Kind.Chill : PlayerElementalAilments.Kind.Shock;

@@ -11,7 +11,7 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, SupportedGem admitted,
         AttackHand hand, SkillCatalog.Unarmed weapon, int? offCritical, (int X, int Y) at, (int X, int Y) aim,
         double interval, ushort sequence, double now, double radiusMore, double damageMore, double ruthless,
-        bool? cryExerted, int? rallyingDamage, int otherWarcries = 0)
+        bool? cryExerted, int? rallyingDamage, int otherWarcries, SkillCriticalRoll critical)
     {
         var stats = CharacterPlayerStats(player);
         int Own(uint key) => admitted.Stats.GetValueOrDefault(key);
@@ -29,7 +29,7 @@ public static partial class Game
             stormStats = new Dictionary<uint, int>(stormStats) { [Stat.BleedOnHitWithAttacksPct] = 100 };
         double more = Math.Max(0, 1 + Own(Stat.BladestormStormDamagePlusPctFinal) / 100d) * damageMore;
         var attack = CaptureExertedAreaAttack(player, gem.Id, admitted with { Stats = stormStats }, hand, weapon, offCritical,
-            more, more, sand ? "sand storm" : "blood storm", cryExerted == true, otherWarcries, rallyingDamage);
+            more, more, sand ? "sand storm" : "blood storm", cryExerted == true, otherWarcries, rallyingDamage, critical);
         var session = ProjectilesFor(player);
         session.PlaceBladestorm(gem, attack, at, aim, sand, limit, radius, sequence, now, interval, duration, ruthless,
             cryExerted, rallyingDamage, Own(Stat.BladestormMovementSpeedPlusPctWhileInSandstorm), sand ? BlindEffectLess(stats) : 0,

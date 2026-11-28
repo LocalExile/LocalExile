@@ -1034,7 +1034,8 @@ public static partial class Game
             double elementalMore = shot.DamageMorePerElementalAilment == 0 ? 1
                 : ElementalHitDamageMore(shot.DamageMorePerElementalAilment, ElementalHitAilmentsOn(target, at));
             double ailmentMore = chainsMore * returnMore * elementalMore * (!exertedAttack ? 1
-                : ExertedAttackMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage, player));
+                : ExertedAttackMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage,
+                    player, ambush: shot.CriticalRoll?.AmbushExerted == true));
             if (ailmentMore != 1)
                 shot = shot with
                 {
@@ -1065,7 +1066,8 @@ public static partial class Game
                 GameEvents.WithOutgoingDamage(Player, player, target,
                     damageRoll.RollBeforeCritical(packet, random, criticalDoubleDamage)), at);
             if (exertedAttack)
-                rolled = WithExertedAttackDamage(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage, player);
+                rolled = WithExertedAttackDamage(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions,
+                    shot.RallyingDamage, player, ambush: shot.CriticalRoll?.AmbushExerted == true);
             bool secondForm = contact.Projectile.Form > 0;
             var formCrit = secondForm ? shot.SecondFormOptions : null;
             int chance = secondForm && shot.SecondFormCriticalChance is int second
@@ -1450,7 +1452,7 @@ public static partial class Game
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
             float animationValue = 0, uint animatedId = 0, int? artRadius = null, (uint Clip, long Length)? endClip = null,
             float rotation = 0, uint? startClip = null, (uint Clip, long After)? thenClip = null, Action<Action>? captureRemoval = null,
-            Action<Action<int, int, float>>? captureMovement = null, Action<Action<uint>>? captureAnimation = null)
+            Action<Action<int, int, float>>? captureMovement = null, Action<Action<uint>>? captureAnimation = null, uint parent = 0)
         {
             // startClip: the clip the art is created playing (Animated bit 3), for art without a default animation or
             // with several; thenClip: the clip that follows it (a ground's loop after its fade-in).
@@ -1463,7 +1465,7 @@ public static partial class Game
             var effect = new EffectObject(x, y, ao)
             {
                 Scale = scale, AnimatedFlags = animatedFlags, Flags0 = positionedFlags0, Rotation = rotation,
-                AnimationWord = animationWord, AnimationValue = animationValue, AnimationId = animatedId
+                AnimationWord = animationWord, AnimationValue = animationValue, AnimationId = animatedId, Parent = parent
             };
             if (radius is not null && ServerTrace.Projectiles)
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile area object={id} position=({x}, {y})"

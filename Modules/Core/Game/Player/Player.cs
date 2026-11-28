@@ -4,6 +4,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using DamageModel = GameServer.Core.World.DamageModel;
 using DamageType = GameServer.Core.World.DamageType;
+using DamageTypeHistory = GameServer.Core.World.DamageTypeHistory;
 using DamageOverTime = GameServer.Core.World.DamageOverTime;
 
 public static partial class Game
@@ -323,6 +324,13 @@ public static partial class Game
         ClearSteelBuffsOnDeath(player);
         ClearSmokeMineSpeed(player);
         ClearResonance(player);
+        bool bladeEnded = false;
+        if (CurrentEnergyBlade(player) is not null)
+        using (ProjectileMutation(player, advance: false))
+        {
+            bladeEnded = ClearEnergyBlade(player);
+            if (bladeEnded) EnergyBladeChanged(player);
+        }
         EndTimedSkillBuffs(player);
         player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
@@ -352,6 +360,7 @@ public static partial class Game
                 $"0x0017 death XP penalty chat ({xpPenaltyPct}%)");
         int deaths = player.PlayerDeaths;
         await SendPlayerDeathPresentation(player, label, deathEpoch, deaths, deathKind);
+        if (bladeEnded) await PublishEnergyBlade(player);
         await GameEvents.RunPlayerDied(player, xpBefore - xpAfter);
         await GameEvents.RunPlayerDeath(new PlayerDiedContext(player, deathKind, deaths, player.Character.Hardcore, xpBefore - xpAfter));
     }
@@ -1442,14 +1451,20 @@ public static partial class Game
                     player.TakingDotLastTick = takingDotNow;
                     double trapTakenFactor = takenFactor
                         * Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.UnhingedSaneDamageFinal) / 100.0);
+                    var elementalWindow = burnPerSecond > 0 || player.Degens.Elemental > 0
+                        ? GuardDamageOverTime(player, DamageType.Fire) : default;
                     burnCarry += (InGracePeriod(player) ? 0 : burnPerSecond * PlayerAilmentDamageTakenFactor(player, now))
-                        * seconds * takenFactor;
+                        * elementalWindow.Seconds(recoveryFrom, now) * takenFactor;
                     int burnWhole = (int)Math.Truncate(burnCarry); burnCarry -= burnWhole;
                     bool healsElemental = ConvertsElementalDamageToHealing(DamageType.Fire, IncomingStat);
                     int lifeBurn = healsElemental ? 0 : IncomingResourceDefences.DamageOverTime(player.EnergyShield, burnWhole,
                         IncomingStat(IncomingResourceDefences.BypassStat), now, ref player.NonChaosDotBypassCarry);
-                    double elementalDegen = healsElemental ? player.Degens.Elemental : 0;
-                    trapCarry += Math.Max(0, player.TrapDegenPerSecond - elementalDegen) * seconds * trapTakenFactor;
+                    double groundDamage = player.Degens.Other * seconds;
+                    if (player.Degens.Physical > 0)
+                        groundDamage += player.Degens.Physical * GuardDamageOverTime(player, DamageType.Physical).Seconds(recoveryFrom, now);
+                    double elementalGroundDamage = player.Degens.Elemental * elementalWindow.Seconds(recoveryFrom, now);
+                    if (!healsElemental) groundDamage += elementalGroundDamage;
+                    trapCarry += groundDamage * trapTakenFactor;
                     int trapWhole = (int)Math.Truncate(trapCarry); trapCarry -= trapWhole;
                     int lifeTrap = IncomingResourceDefences.DamageOverTime(player.EnergyShield, trapWhole,
                         IncomingStat(IncomingResourceDefences.BypassStat), now, ref player.NonChaosDotBypassCarry);
@@ -1492,7 +1507,7 @@ public static partial class Game
                     if (life > 0 && RecoveryFlasksRestoreEnergyShield(RecoveryStat)) player.EnergyShield.Gain(life, esCeiling);
                     if (vaalPact) { nonFlaskLife = leeched.Life; life = 0; }
                     double elementalHealing = healsElemental && !player.Immune && !LifeRecovery.NonLeechBlocked(RecoveryStat)
-                        ? burnWhole + elementalDegen * seconds * trapTakenFactor : 0;
+                        ? burnWhole + elementalGroundDamage * trapTakenFactor : 0;
                     elementalHealingCarry = elementalHealing > 0 ? elementalHealingCarry + elementalHealing : 0;
                     double wholeHealing = Math.Truncate(elementalHealingCarry);
                     elementalHealingCarry -= wholeHealing;
@@ -1671,22 +1686,42 @@ public static partial class Game
         Stat.CastOnDamageTakenDamagePlusPctFinal,
     ];
 
+    static readonly uint[] RighteousFireSpellSupportMore =
+    [
+        Stat.SupportControlledDestructionSpellDamagePlusPctFinal, Stat.SupportEfficacySpellDamagePlusPctFinal,
+        Stat.SupportCastOnCritSpellDamagePlusPctFinal, Stat.SupportCastOnMeleeKillSpellDamagePlusPctFinal,
+        Stat.DelveModSpellDamagePlusPctFinal, Stat.ActiveSkillSpellDamagePlusPctFinal,
+    ];
+
     static double RighteousFireBaseDps(Player player, RighteousFireState rf, bool self) =>
         (player.PlayerMaxLife * (double)(self ? rf.BurnPctPerMinute : rf.DamagePctPerMinute)
             + player.Pools.EnergyShield * (double)(self ? rf.EnergyShieldBurnPctPerMinute : rf.EnergyShieldDamagePctPerMinute)
             + player.Pools.Mana * (double)(self ? rf.ManaBurnPctPerMinute : rf.ManaDamagePctPerMinute)) / 6000d;
 
     static double RighteousFireEnemyDps(Player player, RighteousFireState rf,
+        IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int> own) =>
+        ScaleRighteousFireDps(RighteousFireBaseDps(player, rf, self: false), playerStats, own);
+
+    static double ScaleRighteousFireDps(double basis,
         IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int> own)
     {
         int Own(uint key) => own.GetValueOrDefault(key);
         double Combined(uint key) => (double)playerStats.GetValueOrDefault(key) + own.GetValueOrDefault(key);
         if (DamageStats.Prohibited(DamageType.Fire, Own)) return 0;
-        double basis = RighteousFireBaseDps(player, rf, self: false);
         double increased = Combined(Stat.DamagePlusPct) + Combined(Stat.FireDamagePlusPct) + Combined(Stat.ElementalDamagePlusPct)
             + Combined(Stat.DamageOverTimePlusPct) + Combined(Stat.FireDamageOverTimePlusPct) + Combined(Stat.BurnDamagePlusPct)
             + Combined(Stat.AreaDamagePlusPct) + Combined(Stat.RighteousFireDamagePlusPct);
-        double dps = basis * Math.Max(0, 100 + increased) / 100;
+        double spellMore = 1;
+        if (Own(Stat.SpellDamageModifiersApplyToSkillDot) != 0)
+        {
+            int Caster(uint key) => playerStats.GetValueOrDefault(key);
+            increased += Combined(Stat.SpellDamagePlusPct);
+            if (Combined(Stat.StrongCasting) != 0) increased += DamageStats.StrengthDamageBonus(Caster);
+            spellMore = PlayerHitDamage.SpellDamageMore(Caster, DamageTypeHistory.Fire);
+            foreach (uint stat in RighteousFireSpellSupportMore)
+                spellMore *= Math.Max(0, 1 + Own(stat) / 100d);
+        }
+        double dps = basis * Math.Max(0, 100 + increased) / 100 * spellMore;
         foreach (uint stat in RighteousFireSupportMore) dps *= Math.Max(0, 1 + Own(stat) / 100d);
         double dotMultiplier = Combined(Stat.DotMultiplierPlus) + Combined(Stat.FireDotMultiplierPlus);
         dps = dps * Math.Max(0, 100 + dotMultiplier) / 100;
@@ -1719,7 +1754,8 @@ public static partial class Game
             using var scope = new PlayerStatScope(player, fresh: true);
             var stats = new Dictionary<uint, int>(CharacterPlayerStats(player));
             double perSecond = CurrentRighteousFireSkillLocked(player, rf) is { } supported
-                ? RighteousFireEnemyDps(player, rf, stats, supported.Stats) * RighteousFireTimedSupportFactor(rf, AreaTime(player), seconds)
+                ? RighteousFireEnemyDps(player, rf, stats, supported.Stats)
+                    * RighteousFireTimedSupportFactor(rf, AreaTime(player), seconds)
                 : 0;
             return (new SkillDamageContext(SkillHitKind.Spell, stats).OverTime(new DamageOverTime(DamageType.Fire, perSecond, seconds)), stats);
         },

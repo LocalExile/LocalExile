@@ -241,7 +241,7 @@ public static partial class Game
             gone.AddRange(curses);
         }
         // The resistances the degeneration is less of can change with anything else the player has.
-        UpdateDebuffDegenLocked(player, set);
+        RefreshDebuffDegenerationLocked(player, set);
         if (gone.Count == 0 && !areaChanged) return;
         await EndPlayerDebuffs(player, set, gone);
     }
@@ -325,7 +325,7 @@ public static partial class Game
         double now = AreaTime(player);
         ReconcileActivePlayerCurses(player, set, now);
         player.Pools = PoolsFor(player, player.Pools.Level);
-        UpdateDebuffDegenLocked(player, set);
+        RefreshDebuffDegenerationLocked(player, set);
         if (!PublishByFrame(player, PlayerStatChange.Sources))
         {
             player.ApplyMovementSpeedAt(now);
@@ -386,9 +386,10 @@ public static partial class Game
 
     /// <summary>The debuffs' degeneration, points a second: each type's <c>base_{type}_damage_taken_per_minute</c> over
     /// a minute, less the player's resistance to it (none for physical; nothing of a type the player is immune to).</summary>
-    static void UpdateDebuffDegenLocked(Player player, PlayerDebuffSet set)
+    static void RefreshDebuffDegenerationLocked(Player player, PlayerDebuffSet set)
     {
-        double now = AreaTime(player), total = 0, elemental = 0;
+        if (!ReferenceEquals(set.Area, player.Layout)) { player.Degens[set] = 0; return; }
+        double now = AreaTime(player), physical = 0, elemental = 0, chaos = 0;
         var immune = PlayerImmunities(player);
         foreach (var type in new[] { DamageType.Physical, DamageType.Fire, DamageType.Cold, DamageType.Lightning, DamageType.Chaos })
         {
@@ -402,10 +403,11 @@ public static partial class Game
                 rate *= Math.Max(0, 1 + PlayerStat(player, Stat.ChaosDamageTakenOverTimePlusPctWhileInCausticCloud) / 100.0);
             else if (type == DamageType.Physical && player.Walk.Moving(now))
                 rate *= Math.Max(0, 1 + PlayerStat(player, Stat.PhysicalDamageOverTimeTakenPlusPctWhileMoving) / 100.0);
-            total += rate;
-            if (DamageTypes.IsElemental(type)) elemental += rate;
+            if (type == DamageType.Physical) physical += rate;
+            else if (type == DamageType.Chaos) chaos += rate;
+            else elemental += rate;
         }
-        player.Degens.Set(set, total, elemental);
+        player.Degens.Set(set, physical, elemental, chaos);
     }
 
     /// <summary>GameEvents.PlayerStatSources: the debuffs on the player add their stats.</summary>

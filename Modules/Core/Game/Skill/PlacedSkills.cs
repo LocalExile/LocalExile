@@ -573,6 +573,7 @@ public static partial class Game
                 }
                 if (!committed) return null;
                 player.RecentEvents.Record(StatConditions.PlacedTrapOrMine, now);
+                PhaseRunOnSkillUse(player, admission.Skill);
                 RecordAcceptedGemUse(player, gem.Effect, clamped);
                 player.Placed.Dirty = true;
                 player.Minions.StatRevision++;
@@ -876,7 +877,7 @@ public static partial class Game
         bool hydrosphere = HydrosphereEffect(effect);
         bool tornado = TornadoEffect(effect);
         bool staticOrb = effect == "BallLightningAltY";
-        bool bladefall = effect == "Bladefall";
+        bool bladefall = BladefallEffect(effect);
         bool purifyingFlame = IsPurifyingFlame(effect);
         bool conviction = IsWaveOfConviction(effect);
         bool bladeBlast = IsGroundBladeBlast(effect);
@@ -894,8 +895,8 @@ public static partial class Game
             aim = locusAim ? player.Walk.Position(now) : enemy.Value?.Walk.Position(now) ?? placed.At;
             if (cascade && aim == placed.At) aim = (placed.At.X + 1, placed.At.Y);
         }
-        bool detonateDead = effect == "DetonateDead";
-        bool volatileDead = effect == "VolatileDead";
+        bool detonateDead = DetonateDeadEffect(effect) && effect != "VaalDetonateDead";
+        bool volatileDead = VolatileDeadEffect(effect);
         if (!arc)
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
@@ -1128,8 +1129,8 @@ public static partial class Game
             });
             if (!pyroclast) return;
         }
-        if (effect == "Vortex")
-            ProjectilesFor(player).PlaceVortexGround(placed, CharacterPlayerStats(player), releaseMore);
+        if (IsVortexGround(effect))
+            ProjectilesFor(player).PlaceVortexGround(placed.At, placed.Effect, placed.Own, releaseMore, placed);
         PlacedAreaDamageLocked(player, placed, placed.At, radius, now, releaseMore, currentSkill, spellDamage,
             bear ? target.Key : null);
     }
@@ -1147,7 +1148,8 @@ public static partial class Game
         uint? bearTarget = null, KeyValuePair<uint, SpawnedMonster>? hexblastTarget = null, PlacedArcSplit? arcSplit = null,
         PlacedShockNova? shockNova = null, PlacedCascade? cascade = null, ProjectileSession? ruinSession = null,
         Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null, SkillCriticalRoll? sharedCritical = null,
-        bool spatialSpell = false, IReadOnlyList<KeyValuePair<uint, SpawnedMonster>>? selected = null, double? ailmentDamageMore = null)
+        bool spatialSpell = false, IReadOnlyList<KeyValuePair<uint, SpawnedMonster>>? selected = null, double? ailmentDamageMore = null,
+        int extraCriticalIncrease = 0, bool spellImpale = false)
     {
         using var statScope = new PlayerStatScope(player, fresh: selected is null);
         var owner = CharacterPlayerStats(player);
@@ -1174,9 +1176,15 @@ public static partial class Game
         int killingBlowImpale = placed.Own.GetValueOrDefault(Stat.ApplyEnemyImpaleDamageToNearbyEnemiesOnKillingBlowPctChance);
         var secondaryImpale = killingBlowImpale > 0
             ? WithRingImpaleDuration(ImpaleStats.FromSecondaryHit(playerStats, placed.Own), playerStats) : default;
-        int chance = currentSkill ? SupportedReleaseCriticalChance(player, placed.Skill) : 0;
-        int? vsBlinded = currentSkill ? SupportedCriticalChanceVsBlinded(player, placed.Skill, release: true) : null;
-        GroundCritical? vsGround = currentSkill ? SupportedCriticalChanceVsGround(player, placed.Skill, release: true) : null;
+        var spellImpaleNormal = spellImpale
+            ? WithRingImpaleDuration(ImpaleStats.From(playerStats, Stats, attack: false, placed.Own), playerStats) : default;
+        var spellImpaleCritical = spellImpale
+            ? WithRingImpaleDuration(ImpaleStats.From(playerStats, Stats, attack: false, placed.Own, critical: true), playerStats) : default;
+        int chance = currentSkill ? SupportedCriticalChanceFor(player, placed.Skill, release: true, extraCriticalIncrease) : 0;
+        int? vsBlinded = currentSkill ? SupportedCriticalChanceVsBlinded(player, placed.Skill, release: true,
+            weaponCritical: null, extraIncrease: extraCriticalIncrease, extraBaseCrit: 0) : null;
+        GroundCritical? vsGround = currentSkill ? SupportedCriticalChanceVsGround(player, placed.Skill, release: true,
+            weaponCritical: null, extraIncrease: extraCriticalIncrease, extraBaseCrit: 0) : null;
         int multiplier = currentSkill ? SupportedCriticalMultiplier(player, placed.Skill) : 100;
         var criticalRoll = currentSkill ? sharedCritical ?? new SkillCriticalRoll(CriticalExtraRollsFor(player, owner, placed.Own)) : null;
         bool Critical(uint id) => currentSkill && RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsGround),
@@ -1244,10 +1252,12 @@ public static partial class Game
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage, takenRules);
             if (placed.Mine && placed.Own.GetValueOrDefault(Stat.DamageCannotBeReflectedOrLeechIfUsedByOtherObject) == 0)
                 LeechPlacedMineHitLocked(player, m, mitigated, spell, damage, now, owner, rules: takenRules);
-            if (killingBlowImpale > 0)
+            if (spellImpale || killingBlowImpale > 0)
             {
-                double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, multiplier) / 100d : 1);
-                damage = ApplyPlayerImpaleContact(player, m, damage, physical, now, now, secondaryImpale, AreaRng(player)).Damage;
+                var impale = spellImpale ? (critical ? spellImpaleCritical : spellImpaleNormal) : secondaryImpale;
+                int physicalMultiplier = spellImpale ? hitMultiplier : critical ? multiplier : 100;
+                double physical = rolled[DamageType.Physical].Min * Math.Max(0, physicalMultiplier) / 100d;
+                damage = ApplyPlayerImpaleContact(player, m, damage, physical, now, now, impale, AreaRng(player)).Damage;
             }
             if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: centre, default, null, chaosDamage) is not { } hit) continue;
             onHit?.Invoke(id);

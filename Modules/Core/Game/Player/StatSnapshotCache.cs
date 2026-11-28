@@ -81,8 +81,8 @@ public static partial class Game
         double lifeRegenerationToEnergyShield, bool moving)
     {
         var items = ItemsOf(player);
-        var mainRow = items.Items(PlayerInventories.Weapon1);
-        var offRow = items.Items(PlayerInventories.Offhand1);
+        var mainRow = EnergyBladeRow(player, PlayerInventories.Weapon1, items.Items(PlayerInventories.Weapon1));
+        var offRow = EnergyBladeRow(player, PlayerInventories.Offhand1, items.Items(PlayerInventories.Offhand1));
         var (bloodHeld, bloodShown) = BloodChargePanelInputs(player);
         var recoveryGet = PanelStats.WhileMoving(name => name is var key ? stats.GetValueOrDefault(key) : 0, moving);
         var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(

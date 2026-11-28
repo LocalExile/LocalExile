@@ -122,6 +122,7 @@ public static partial class Game
         player.Links.Add(link);
         if (RandomRolls.Chance(Player(Stat.ChanceToStartEnergyShieldRechargePctOnLinkingTarget), 100, AreaRng(player)))
             player.EnergyShield.StartRecharge(now, Player);
+        PhaseRunOnSkillUse(player, skillId);
         if (effectId == "IntuitiveLink") CaptureIntuitiveLink(player, link, gem);
         uint? buffDuration = infinite ? null : Buff.Seconds(seconds);
         player.Area.Buffs.Set(player.Id, new(rows.Source, player.Id, skillId, U68: buffDuration, Tag: link.SourceBuff));

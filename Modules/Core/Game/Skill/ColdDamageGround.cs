@@ -5,7 +5,9 @@ using GameServer.Core.World;
 public static partial class Game
 {
     public static bool IsColdSnap(string? effect) =>
-        effect is "ColdSnap" or "ColdSnapAltX" or "ColdSnapAltY" or "VaalColdSnap";
+        effect is "ColdSnap" or "ColdSnapAltX" or "ColdSnapAltY" or "ColdSnapRoyale" or "VaalColdSnap";
+
+    static bool IsVortexGround(string? effect) => effect is "Vortex" or "VortexRoyale";
 
     public static bool IsCreepingFrost(string? effect) =>
         effect is "CreepingFrost" or "CreepingFrostAltX" or "CreepingFrostAltY" or "CreepingFrostRoyale";
@@ -102,15 +104,20 @@ public static partial class Game
             PlaceCreepingGround(value.Position, radius, duration, dps, stats, new(shot.Effect, pace, limit));
         }
 
-        internal void PlaceVortexGround(PlacedSkills.Placed placed, IReadOnlyDictionary<uint, int> caster, double damageMore)
+        internal void PlaceVortexGround((int X, int Y) at, int effect, IReadOnlyDictionary<uint, int> own,
+            double damageMore, PlacedSkills.Placed? placed = null)
         {
-            var area = SkillAreaStats(Player, placed.Own, placed.Effect, caster);
-            int Own(uint key) => placed.Own.GetValueOrDefault(key);
+            var caster = CharacterPlayerStats(Player);
+            var area = SkillAreaStats(Player, own, effect, caster);
+            int Own(uint key) => own.GetValueOrDefault(key);
             int Get(uint key) => area.GetValueOrDefault(key);
-            double dps = ColdGroundDps(Get, Own, spell: true, placed.Mine, trap: !placed.Mine) * damageMore;
+            double duration = placed?.EffectDurationSeconds
+                ?? SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), caster.GetValueOrDefault, Own);
+            double dps = ColdGroundDps(Get, Own, spell: true, mine: placed is { Mine: true }, trap: placed is { Mine: false });
+            if (placed is null)
+                dps = new SkillDamageContext(SkillHitKind.Spell, caster).OverTime(new(DamageType.Cold, dps, duration)).DamagePerSecond;
             int radius = SkillArea.Radius(Math.Max(1, Own(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius)), Get, spell: true);
-            double duration = placed.EffectDurationSeconds;
-            PlaceDamageGround(Vector(placed.At), radius, duration, DamageType.Cold, dps, Runtime.Now, chillStats: area);
+            PlaceDamageGround(Vector(at), radius, duration, DamageType.Cold, dps * damageMore, Runtime.Now, chillStats: area);
         }
 
         internal void ReleaseVortexProjection((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,

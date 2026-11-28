@@ -62,6 +62,9 @@ public static partial class Game
     internal static void EndTimedSkillBuffs(Player player)
     {
         EndVaalArcticArmour(player);
+        EndVaalRighteousFire(player);
+        ClearEnergyBlade(player);
+        ClearAmbush(player);
         ClearConvergence(player);
         ClearRetributionConflux(player);
         ClearSteelworm(player);
@@ -72,8 +75,11 @@ public static partial class Game
         public void Dispose()
         {
             foreach (var (player, _) in VaalArcticArmours) EndVaalArcticArmour(player);
+            foreach (var (player, state) in VaalRighteousFires) EndVaalRighteousFire(player, state);
+            foreach (var (player, _) in SelfBuffs) ClearEnergyBlade(player);
             foreach (var (player, _) in ConvergenceWindows) ClearConvergence(player);
             foreach (var (player, _) in RetributionConflux) ClearRetributionConflux(player);
+            foreach (var (player, _) in AmbushBuffs) ClearAmbush(player);
             ClearAllSteelworms();
         }
     }

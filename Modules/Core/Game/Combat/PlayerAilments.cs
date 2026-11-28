@@ -135,7 +135,7 @@ public static partial class Game
         if (player.ElementalAilments.HasEffects)
         {
             damage = player.ElementalAilments.Advance(from, until, Get, Resistance(player, DamageType.Fire),
-                MaxResistance(player, DamageType.Fire), immunities.Contains(DamageType.Fire),
+                MaxResistance(player, DamageType.Fire), immunities.Contains(DamageType.Fire), GuardDamageOverTime(player, DamageType.Fire),
                 source => DamageTakenFromBlindedPct(player, source, stats)
                     + DamageTakenFromMonster(player.Area.Monsters.GetValueOrDefault(source), stats), letheFactor,
                 PaidChannelSuppressesShock(player));
@@ -154,7 +154,7 @@ public static partial class Game
                 player.Pools, player.EnergyShield, Get, Resistance(player, physical), MaxResistance(player, physical),
                 chaosDotRes, MaxResistance(player, chaos), player.Immune || Get(Stat.BaseCannotBeDamaged) > 0,
                 immunities.Contains(physical), immunities.Contains(chaos), player.Walk.MovingSeconds,
-                ref player.NonChaosDotBypassCarry, ref player.ChaosDotBypassCarry, letheFactor,
+                ref player.NonChaosDotBypassCarry, ref player.ChaosDotBypassCarry, GuardDamageOverTime(player, physical), letheFactor,
                 (poisonDmg, poisonAt) => DamagePlayerChaosOverTime(player, poisonDmg, poisonAt, stats),
                 inCausticCloud: player.InCausticCloud));
         }

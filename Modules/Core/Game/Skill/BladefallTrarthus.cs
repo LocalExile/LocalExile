@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using GameServer.Core.Diagnostics;
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
@@ -8,9 +9,8 @@ public static partial class Game
     // Bladefall of Trarthus (BladefallVolleys): using it turns it on, as the original server does (2026-11-07). The use is
     // answered with 0x1ce, the skill_cost_over_time buff (its one-entry list 0) with the player's mana_spent_per_minute
     // (0x1b3), and the righteous_blades buff, whose BuffVisuals rain the blades around the player; both carry the skill
-    // bar's icon. Then every bladefall_volley_frequency_ms a volley hits each monster in the skill's area around the player
-    // once (AreaSkillHit) and leaves bladefall_create_X_lingering_blades_per_volley ground blades in it, which stand for the
-    // skill's duration, at most maximum_number_of_blades_left_in_ground of them. The mana runs down at the spent rate on top
+    // bar's icon. Each volley targets separate enemies when possible. Each enemy can take one hit as the blades land,
+    // and the blades linger for the skill's duration subject to the ground-blade cap. The mana runs down at the spent rate on top
     // of regeneration; when it is out (or the player dies) the buffs come off and the rate goes back to 0. Using it again
     // while it runs does nothing (no 0x1ce): the original server answered a second press with nothing.
     public static bool IsBladefallTrarthus(int effect) => Skills.EffectId(effect) == BladefallVolleys.EffectId;
@@ -141,31 +141,64 @@ public static partial class Game
         if (gem.Name is null) { await EndBladefallTrarthus(player, "the gem is gone"); return; }
         var supported = SupportedSkill(player, state.Skill);
         int Own(uint k) => supported.Stats.GetValueOrDefault(k);
-        (int X, int Y) at;
-        at = player.Walk.Position(now);
-        bool triggered = CooldownTriggerSupport(supported) is not null;
-        await AreaSkillHit(player, state.Skill, gem, at, at, immediate: true,
-            triggeredCurrent: triggered ? () => ReferenceEquals(player.BladefallTrarthus, state) && !state.Ended : null);
-        if (bladeRow is not uint row) return;
-        var playerStats = CharacterPlayerStats(player);
-        int Player(uint k) => playerStats.GetValueOrDefault(k);
-        double lasts = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
-        int radius = Math.Max(1, SkillRadius(player, supported.Stats, true, supported.Effect));
+        if (!ReferenceEquals(player.BladefallTrarthus, state)) return;
+        var at = player.Walk.Position(now);
         int count = Math.Max(0, Own(Stat.BladefallCreateXLingeringBladesPerVolley));
+        if (count == 0) return;
+        var sourceLifetime = CaptureGemSourceLifetimeLocked(player, state.Skill, gem.Effect);
+        if (sourceLifetime is null) return;
+        var stats = CharacterPlayerStats(player);
+        var area = SkillAreaStats(player, supported.Stats, gem.Effect, stats);
+        int Area(uint key) => area.GetValueOrDefault(key);
+        int volleyRadius = Math.Max(1, SkillArea.Radius(Own(Stat.ActiveSkillBaseAreaOfEffectRadius), Area, spell: true));
+        int bladeRadius = Math.Max(1, SkillArea.Radius(Own(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius), Area, spell: true));
+
+        bool CanLand((int X, int Y) cell) => player.Layout.WalkableFor(cell.X, cell.Y, 0) && !player.Barrier.Contains(cell);
+        var points = player.Area.MonstersNear(at, volleyRadius)
+            .Where(entry => ArcProxyTarget(player, entry.Key, entry.Value))
+            .Select(entry => (entry.Key, At: entry.Value.Walk.Position(now)))
+            .Select(entry => (entry.Key, entry.At, Distance: Dist(at, entry.At)))
+            .Where(entry => entry.Distance <= volleyRadius && CanLand(entry.At))
+            .OrderBy(entry => entry.Distance).ThenBy(entry => entry.Key)
+            .Take(count).Select(entry => entry.At).ToList();
+        while (points.Count < count)
+        {
+            var cell = at;
+            for (int tries = 0; tries < 8; tries++)
+            {
+                double angle = random.NextDouble() * Math.Tau, distance = Math.Sqrt(random.NextDouble()) * volleyRadius;
+                var candidate = (X: at.X + (int)Math.Round(Math.Cos(angle) * distance), Y: at.Y + (int)Math.Round(Math.Sin(angle) * distance));
+                if (Dist(at, candidate) <= volleyRadius && CanLand(candidate)) { cell = candidate; break; }
+            }
+            points.Add(cell);
+        }
+
+        var session = ProjectilesFor(player);
+        var epoch = player.ProjectileEpoch;
+        bool Current() => player.PlayerLife > 0 && !player.Closed && !player.LeavingArea && player.ProjectileEpoch == epoch
+            && GemSourceLifetimeCurrentLocked(player, state.Skill, gem.Effect, sourceLifetime);
+        session.ScheduleContact(ProjectileRuntime.Time(now + lands), Current, () =>
+        {
+            double impactAt = ProjectileWorldTime(player);
+            var targets = new HashSet<uint>();
+            foreach (var cell in points)
+                foreach (var (id, monster) in player.Area.MonstersNear(cell, bladeRadius))
+                    if (ArcProxyTarget(player, id, monster) && Dist(cell, monster.Walk.Position(impactAt)) <= bladeRadius)
+                        targets.Add(id);
+            if (targets.Count == 0) return;
+            var hit = AreaSkillHitForUse(null, player, state.Skill, gem, at, at, immediate: true,
+                contactTargets: [.. targets], radiusOverride: bladeRadius, triggeredCurrent: Current, scheduledSession: session);
+            if (!hit.IsCompleted) throw new InvalidOperationException("A Bladefall of Trarthus impact must not yield.");
+            hit.GetAwaiter().GetResult();
+        });
+
+        if (bladeRow is not uint row) return;
+        double lasts = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), stats.GetValueOrDefault, Own);
         int most = Own(Stat.MaximumNumberOfBladesLeftInGround) is int m and > 0 ? m : int.MaxValue;
         var created = new List<(uint Id, GroundBladeObject Blade)>();
         var removed = new List<uint>();
-        if (!ReferenceEquals(player.BladefallTrarthus, state)) return;
-        for (int i = 0; i < count; i++)
+        foreach (var cell in points)
         {
-            // A cell in the area that the layout says is walkable (a few tries), else the player's own.
-            (int X, int Y) cell = at;
-            for (int tries = 0; tries < 8; tries++)
-            {
-                double angle = random.NextDouble() * Math.Tau, distance = Math.Sqrt(random.NextDouble()) * radius;
-                var c = (X: at.X + (int)Math.Round(Math.Cos(angle) * distance), Y: at.Y + (int)Math.Round(Math.Sin(angle) * distance));
-                if (player.Layout.Walkable?.Invoke(c.X, c.Y) != false) { cell = c; break; }
-            }
             uint id = player.TakeObjectId();
             created.Add((id, new GroundBladeObject(cell.X, cell.Y, (float)(random.NextDouble() * Math.Tau), row)));
             state.Blades.Add((id, cell, now + lands, now + lasts));

@@ -1,3 +1,5 @@
+using GameServer.Core.World;
+
 /// <summary>
 /// The player's degeneration by source, points a second (Player.Degens). Each source sets its own share under its
 /// own key and sets 0 when it ends, so one source ending does not cancel another's (a trial's hot plate and a roomba, a
@@ -5,30 +7,46 @@
 /// </summary>
 public sealed class PlayerDegens
 {
-    readonly Dictionary<object, (double Total, double Elemental)> _shares = new(ReferenceEqualityComparer.Instance);
+    readonly record struct Share(double Physical, double Elemental, double Other)
+    {
+        public double Total => Physical + Elemental + Other;
+    }
+    readonly Dictionary<object, Share> shares = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>All the shares together.</summary>
-    public double Total { get; private set; }
-
-    /// <summary>The share belonging to elemental damage.</summary>
+    public double Total => Physical + Elemental + Other;
+    public double Physical { get; private set; }
     public double Elemental { get; private set; }
+    public double Other { get; private set; }
 
     /// <summary>One source's share; setting 0 (or less) removes it.</summary>
     public double this[object source]
     {
-        get => _shares.GetValueOrDefault(source).Total;
-        set => Set(source, value, 0);
+        get => shares.GetValueOrDefault(source).Total;
+        set => Set(source, 0, 0, value);
     }
 
-    public void Set(object source, double amount, double elemental)
+    public void Set(object source, DamageType type, double perSecond)
     {
-        if (amount > 0) _shares[source] = (amount, Math.Clamp(elemental, 0, amount));
-        else _shares.Remove(source);
-        Total = Elemental = 0;
-        foreach (var share in _shares.Values)
+        switch (type)
         {
-            Total += share.Total;
+            case DamageType.Physical: Set(source, perSecond, 0, 0); break;
+            case DamageType.Fire or DamageType.Cold or DamageType.Lightning: Set(source, 0, perSecond, 0); break;
+            case DamageType.Chaos: Set(source, 0, 0, perSecond); break;
+        }
+    }
+
+    public void Set(object source, double physical, double elemental, double other)
+    {
+        var next = new Share(Math.Max(0, physical), Math.Max(0, elemental), Math.Max(0, other));
+        if (next.Total > 0) shares[source] = next;
+        else shares.Remove(source);
+        Physical = Elemental = Other = 0;
+        foreach (var share in shares.Values)
+        {
+            Physical += share.Physical;
             Elemental += share.Elemental;
+            Other += share.Other;
         }
     }
 }

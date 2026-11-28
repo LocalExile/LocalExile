@@ -16,9 +16,12 @@ public static partial class Game
             var device = placement.Device;
             Runtime.Schedule(Runtime.Now, () =>
             {
-                if (Active && current())
-                    ReleaseBladefall(device.Skill, device.Effect, device.Own, device.At,
-                        aim, current, (at, radius, now, more, _) => placement.Apply(Player, at, radius, now, more));
+                if (!Active || !current()) return;
+                bool spellImpale = SkillsFor(Player).EffectId(device.Effect) == "BladefallAltY";
+                ReleaseBladefall(device.Skill, device.Effect, device.Own, device.At, aim, current,
+                    (at, radius, now, more, criticalIncrease) =>
+                        PlacedAreaDamageLocked(Player, device, at, radius, now, placement.DamageMore * more,
+                            currentSkill: true, spellDamage: true, extraCriticalIncrease: criticalIncrease, spellImpale: spellImpale));
             });
         }
 

@@ -23,6 +23,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Conditional critical policy (#242): signed clamp, luck, unarmed multiplier and one roll per gem use.
   Docs: [11](../docs/protocol/11-skills.md), conditional critical policy.
 - Generic Rage (#281), including effective-Rage scaling (`rage_effect_+%`) for per-Rage attack speed (Crave the Slaughter), armour, movement speed and stun threshold. Docs: [26](../docs/protocol/26-rage.md).
+- Berserk requires and drains Rage, scales its effects, and holds its cooldown until the buff ends.
+- Withering Step grants Elusive and Phasing, Withers each enemy once per use, and holds Blink recovery while active.
+- Plague Bearer stores damage from the caster's poisons and spends it on a moving chaos aura that returns to incubation when depleted.
+- Corrupting Fever applies stacking Corrupted Blood on the caster's hits and refreshes after enough Life is spent.
+- Energy Blade transforms active swords and preserves their sockets. Its lightning damage follows maximum Energy Shield, including fixed Life-based shield values.
+- Ambush teleports to a reachable enemy, inflicts Blind and exclusively exerts one one-handed melee attack.
 - Mana per final Strength (#287). Docs: [11](../docs/protocol/11-skills.md) Â§4.
 - Player Actor scale (#299). Docs: [04](../docs/protocol/04-player-entity.md#41a-player-actor-scale-299).
 - Armour against chaos hits (#288). Docs: [20](../docs/protocol/20-damage.md) Â§2e.
@@ -118,7 +124,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Summoned followers stop pathless walk orders and retry when a route becomes available.
 - Spell-totem summons keep their minion identity instead of inheriting their summoning skill's totem flags.
 - Held summon casts each raise their minion: the next cast or a walk does not cancel a cast whose mana was paid.
-- Righteous Fire's enemy burn with linked supports. Docs: [11](../docs/protocol/11-skills.md) Â§12.
+- Righteous Fire's enemy burn with linked supports, plus spell damage scaling for Arcane Devotion. Docs: [11](../docs/protocol/11-skills.md) Â§12.
+- Vaal Righteous Fire spends souls and sacrifices Energy Shield before Life, with an independent timed burn and spell buff.
 - Increased and reduced damage over time taken on enemies combine with other damage-taken modifiers for persistent
   damage.
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
@@ -231,9 +238,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Vaal souls (#308), Vaal Ground Slam's radial wave, Vaal Fireball, Vaal Spark and Vaal Discipline (allied recharge).
   Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
-- Cold Snap leaves chilled ground with cold damage over time and grants Frenzy Charges for kills in it.
+- Cold Snap and Royale Cold Snap leave chilled ground with cold damage over time and grant Frenzy Charges according to their gem stats.
   Vaal Cold Snap casts; its ground follows the caster and grants a Frenzy Charge each second an enemy is in it.
   Both land at the last visible cell when aimed past a wall, and the ground uses the worn skin's art.
+- Vortex and Royale Vortex leave a timed damage and chill area after the hit on direct or placed casts.
 - Tectonic Slam uses a forward fissure with seeded branches.
   Contacts advance along each branch and one use can contact each target once.
 - Sunder and its variants time their wave segments and victim shockwaves.
@@ -448,15 +456,23 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Steelskin, Immortal Call and Molten Shell cast by hand start the triggered guard buff; a running or recovering
   guard refuses the next before its cost. Immortal Call also sends its cast art, whose sound events are the
   activation sound an instant skill's own 0x1ce does not play. Docs: [11](../docs/protocol/11-skills.md) §12.
+  Immortal Call reduces physical and elemental damage over time for the portion of each tick within the buff's duration.
+  Steelskin clears existing bleeding and grants bleeding immunity for its duration. Molten Shell and its Vaal
+  variant centre reflected damage on the caster's position when the guard explodes or pulses.
 - Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use
   swaps it for its more melee physical damage (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
+  variant centre reflected damage on the caster's position when the guard explodes or pulses. Arcane Cloak spends
+  current Mana for hit absorption and added lightning damage until the guard ends.
+- Phase Run: movement speed and Phasing last longer per Frenzy Charge consumed. Dash, Link casts, instant
+  location skills and trap or mine placement switch to the melee damage buff after a successful use. See [skill protocol](../docs/protocol/11-skills.md).
 - Crushing Fist, Glacial Shield Swipe, Swordstorm, Eviscerate and Shield of Light open a use window on block.
   Swordstorm deals eight timed dual-weapon hits. Glacial Shield Swipe advances a forward cone.
   Eviscerate advances two waves that can each hit a target.
   Shield of Light sends a forward cone and waves from nearby allies in tile entry order on its first contact.
   Crushing Fist fixes its ground position on the first animation contact and hits on the following slam contact.
 - Bloodscent applies its Rage grant to the weapon that landed the hit (checked offline).
-- Blood Rage: attack speed, physical attack life leech, Frenzy Charge chance on kill and its physical degeneration;
+- Blood Rage: attack speed and Frenzy Charge chance include helmet enchantments during the buff, and its physical
+  degeneration follows maximum Life and Energy Shield. The buff also grants physical attack life leech;
   a kill refreshes it (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Auras, reservation, Pride, heralds (Herald of Thunder's bolts drawn in the worn skin; walls block them) and
   permanent spell buffs, including Mana-Infused Staff's fixed reservation and block wave and Spellslinger's linked
@@ -542,6 +558,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing. Eligible placements can summon
   two totems. Skill bars without a saved attack-in-place mask use each bound skill's default.
+- Devouring Totem gives the owner Life and Mana leech instances at its gem values for each corpse consumed.
+- Retained Royale Rejuvenation Totem gems grant the regeneration aura at their own per-level rate.
 - Retained Royale Artillery Ballista gems place a bow totem whose mortar volley uses the gem's own arrow count and
   range.
 - Siege Ballista of Trarthus places a formation within the active totem limit. Each totem fires once at the placement

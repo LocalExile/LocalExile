@@ -13,6 +13,7 @@ public static partial class Game
         public ushort[] PublishedGuardSkills = [];
         public int Percent, Remaining, Absorbed, AbsorbedSincePulse, Armour, Reflection, LightningDamage, LifeRegenPerMinute;
         public double Physical = 1, Elemental = 1;
+        public DamageTakenWindow PhysicalDamageWindow, ElementalDamageWindow;
         public ushort Buff, Skill;
         public string Effect = "";
         public SupportedGem? Gem;
@@ -39,7 +40,7 @@ public static partial class Game
             int absorbed = guard.AbsorbedSincePulse;
             guard.AbsorbedSincePulse = 0;
             guard.NextPulseAt += Math.Floor(now - guard.NextPulseAt) + 1;
-            ReflectMoltenShellDamage(player, guard, absorbed);
+            ReflectMoltenShellDamage(player, guard, absorbed, now);
         }
         if (guard.Until > 0 && now >= guard.Until) EndTriggeredGuard(player, guard, guard.Until);
         return guard;
@@ -69,6 +70,11 @@ public static partial class Game
 
     static void EndTriggeredGuard(Player player, TriggeredGuard guard, double now, bool triggerExplosion = true)
     {
+        if (guard.Effect == "ImmortalCall")
+        {
+            guard.PhysicalDamageWindow = guard.PhysicalDamageWindow with { End = now };
+            guard.ElementalDamageWindow = guard.ElementalDamageWindow with { End = now };
+        }
         guard.Until = guard.NextPulseAt = 0;
         guard.Armour = 0;
         guard.LightningDamage = 0;
@@ -81,7 +87,7 @@ public static partial class Game
         ushort buff = guard.Buff; guard.Buff = 0;
         if (buff != 0) player.Area.Buffs.Clear(player.Id, GuardRow(guard.Effect), player.Id);
         if (triggerExplosion && MoltenShellGuard(guard.Effect))
-            ReflectMoltenShellDamage(player, guard, guard.Absorbed);
+            ReflectMoltenShellDamage(player, guard, guard.Absorbed, now);
         player.Pools = PoolsFor(player, player.Pools.Level);
         // Built now and marked sent, so the stats send's own cooldown refresh does not publish the entry a second time:
         // every repeat restarts the bar's cooldown animation on this client (live 2026-11-18).
@@ -94,18 +100,19 @@ public static partial class Game
                 "0x02bc guard cooldown counts after its buff"));
     }
 
-    static void ReflectMoltenShellDamage(Player player, TriggeredGuard guard, int absorbed)
+    static void ReflectMoltenShellDamage(Player player, TriggeredGuard guard, int absorbed, double now)
     {
         if (absorbed == 0 || guard.Reflection <= 0 || guard.Session is not { } session || guard.Gem is not { } gem)
             return;
         double reflected = absorbed * (guard.Reflection / 100d);
         int radius = SkillRadius(player, gem.Stats, true, gem.Effect);
         string name = guard.Effect == VaalMoltenShellEffect ? "Vaal Molten Shell" : "Molten Shell";
+        // Movement can advance while earlier output is still queued. The burst starts where the guard triggered.
+        var centre = player.Walk.Position(now);
         session.Enqueue(async () =>
         {
             if (!session.Active || player.PlayerLife == 0 || player.LeavingArea) return;
             double at = AreaTime(player);
-            var centre = player.Walk.Position(at);
             var deaths = new List<(uint Id, SpawnedMonster M)>();
             foreach (var (id, monster) in player.Area.Monsters.ToArray())
             {
@@ -307,6 +314,14 @@ public static partial class Game
         }
         duration /= RecipientEffectTime.Rate(1, key => GolemStat(playerStats, key));
         guard.Until = now + duration;
+        if (guard.Effect == "QuickGuard")
+            player.IncomingAilments.RemoveOrProtectBleeding(now, 0);
+        if (guard.Effect == "ImmortalCall")
+        {
+            // Recovery can advance across the cast or expiry after the buff itself has changed.
+            guard.PhysicalDamageWindow = new(now, guard.Until, guard.Physical);
+            guard.ElementalDamageWindow = new(now, guard.Until, guard.Elemental);
+        }
         guard.NextPulseAt = vaal ? now + 1 : 0;
         // It ends at Until (Molten Shell reflects then), whoever reads it first.
         AfterSeconds(player, duration, () => { _ = CurrentTriggeredGuard(player, AreaTime(player)); });
@@ -401,7 +416,7 @@ public static partial class Game
         }
         Add(Stat.AffectedByGuardSkill, 1);
         Add(Stat.BasePhysicalDamageReductionRating, guard.Armour);
-        if (guard.Effect == "QuickGuard") Add(Stat.AvoidBleedPct, 100);
+        if (guard.Effect == "QuickGuard") Add(Stat.ImmuneToBleeding, 1);
         if (guard.LightningDamage > 0)
         {
             Add(Stat.GlobalMinimumAddedLightningDamage, guard.LightningDamage);
@@ -424,6 +439,11 @@ public static partial class Game
         CurrentTriggeredGuard(player, at) is { Until: > 0 } guard
             ? ((int)(physical * guard.Physical), (int)(other * guard.Elemental), chaos)
             : (physical, other, chaos);
+
+    internal static DamageTakenWindow GuardDamageOverTime(Player player, DamageType type) =>
+        type != DamageType.Chaos && TriggeredGuards.TryGetValue(player, out var guard) && TriggeredGuardCurrent(player, guard)
+            ? type == DamageType.Physical ? guard.PhysicalDamageWindow : guard.ElementalDamageWindow
+            : default;
 
     static (int Physical, int Other, int Chaos) AbsorbTriggeredGuardHit(Player player,
         int physical, int other, int chaos, double at)

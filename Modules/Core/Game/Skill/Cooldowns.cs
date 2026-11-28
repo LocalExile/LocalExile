@@ -258,6 +258,7 @@ public static partial class Game
             ticket = null;
             string? effectId = SkillsFor(player).EffectId(effect);
             if (effectId is TwisterEffect or CatStealthCryEffect) return false;
+            if (effectId == EnergyBladeEffect && (triggered || !CanUseEnergyBlade(player))) return false;
             SingleUseCooldownState? state = null;
             StanceAdmissionPlan? stancePlan = null;
             int key = skillId is ushort requestedKey ? CooldownKey(player, effect, requestedKey)
