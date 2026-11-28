@@ -782,6 +782,7 @@ public static partial class Game
         bool storm = IsStormCall(effect) || IsFirestorm(player, placed.Effect);
         bool brand = TriggerBrandSpell(player, placed.Effect);
         bool frostBomb = effect == "FrostBomb";
+        bool voidSphere = VoidSphereEffect(effect);
         bool staticOrb = effect == "BallLightningAltY";
         bool bladefall = effect == "Bladefall";
         bool purifyingFlame = IsPurifyingFlame(effect);
@@ -807,7 +808,7 @@ public static partial class Game
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
             && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm || brand
-                || frostBomb || staticOrb || bladefall || detonateDead || volatileDead || purifyingFlame || conviction || bladeBlast
+                || frostBomb || voidSphere || staticOrb || bladefall || detonateDead || volatileDead || purifyingFlame || conviction || bladeBlast
                 || unloading || lance || manabond || shockNova || cascade || ruin))
         {
             var session = ProjectilesFor(player);
@@ -824,6 +825,13 @@ public static partial class Game
                     useProxyOrigin: true));
             else if (frostBomb)
                 session.SchedulePlacedFrostBomb(new(placed, inventionMore), Current);
+            else if (voidSphere)
+            {
+                var placement = new PlacedAreaHit(placed, inventionMore);
+                session.ScheduleContact(ProjectileRuntime.Time(now), Current,
+                    () => session.ReleaseVoidSphere(player.Id, placed.Effect, placed.Own, placed.At, Current,
+                        (centre, radius, time) => placement.Apply(player, centre, radius, time)));
+            }
             else if (staticOrb)
                 session.SchedulePlacedStaticBall(new(placed, inventionMore), Current);
             else if (bladefall)
@@ -1106,7 +1114,7 @@ public static partial class Game
             int hitMultiplier = critical ? CriticalMultiplierOn(m, multiplier, now, owner, placed.Own) : 100;
             if (critical) damage = DamageModel.CriticalDamage(damage, hitMultiplier);
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage, takenRules);
-            if (placed.Mine)
+            if (placed.Mine && placed.Own.GetValueOrDefault(Stat.DamageCannotBeReflectedOrLeechIfUsedByOtherObject) == 0)
                 LeechPlacedMineHitLocked(player, m, mitigated, spell, damage, now, owner, rules: takenRules);
             if (killingBlowImpale > 0)
             {

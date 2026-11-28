@@ -5451,6 +5451,13 @@ public static partial class Game
         QueueInfernalBlowDeath(m, ProjectileWorldTime(player));
         QueueInfernalCryDeath(id, m, ProjectileWorldTime(player));
         SpreadPestilentStrike(player, id, m, ProjectileWorldTime(player));
+        if (!destroyCorpse && !m.DevourCorpse && VoidSpheres.TryGetValue(player.Area, out var spheres) && spheres.Count != 0)
+        {
+            bool consumed;
+            using (ProjectileMutation(player, advance: false))
+                consumed = ConsumeVoidSphereCorpseLocked(player, id, m, ProjectileWorldTime(player));
+            if (consumed) await SendWorldRemoval(player, id, $"0x02bd corpse 0x{id:x} consumed by Void Sphere");
+        }
         if (SpreadContagion(player, id, m) is { } contagion)
             await ShowContagionSpread(player, contagion.At, contagion.Radius, contagion.Ao);
         double now = AreaTime(player);

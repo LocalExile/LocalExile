@@ -120,7 +120,7 @@ public static partial class Game
         if (isIgnited) ailment += ignited;
         int hindered = Get(Stat.DamagePlusPctVsHinderedEnemies);
         if (hindered != 0 && (target.HinderedUntil > at || target.TotemHinderedUntil > at
-            || target.Effects[Stat.IsHindered] != 0 || SpiderHinder(target, at) > 0))
+            || target.Effects[Stat.IsHindered] != 0 || SpiderHinder(target, at) > 0 || VoidSphereHinder(player.Area, target, at) > 0))
             ailment += hindered;
         int bleeding = Get(Stat.HitAndAilmentDamagePlusPctVsBleedingEnemies);
         if (bleeding != 0 && AilmentOn(target, AilmentType.Bleed, at)) ailment += bleeding;

@@ -4,7 +4,8 @@ public static partial class Game
 {
     static bool TimedAreaSpellEffect(string? effect) =>
         CorpseDamageSpell(effect) || CremationEffect(effect) || BladefallEffect(effect)
-        || FrostBombEffect(effect) || IsBladeVortex(effect) || effect is "BallLightningAltY" or VaalBladeVortexEffect;
+        || FrostBombEffect(effect) || VoidSphereEffect(effect) || IsBladeVortex(effect)
+        || effect is "BallLightningAltY" or VaalBladeVortexEffect;
 
     public sealed partial class ProjectileSession
     {
@@ -65,6 +66,12 @@ public static partial class Game
                 if (FrostBombEffect(effect))
                 {
                     ReleaseFrostBomb(gem.Effect, source.Stats, aim, Current, (at, radius, time) => Hit(at, radius, time));
+                    return;
+                }
+                if (VoidSphereEffect(effect))
+                {
+                    ReleaseVoidSphere(Player.Id, gem.Effect, source.Stats, aim, Current,
+                        (at, radius, time) => Hit(at, radius, time));
                     return;
                 }
                 if (effect == "BallLightningAltY")

@@ -1002,7 +1002,8 @@ public static partial class Game
             if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: totem.At) is not { } accepted) return;
             onHit?.Invoke(id);
             if (!attack) ArcaneSurgeOnSpellHitLocked(player, ownerStats, m);
-            LeechFromTotemHitLocked(player, m, directDamage, now, ownerStats);
+            if (skill.Stats.GetValueOrDefault(Stat.DamageCannotBeReflectedOrLeechIfUsedByOtherObject) == 0)
+                LeechFromTotemHitLocked(player, m, directDamage, now, ownerStats);
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
             if (hitSummon)
                 HitSummonsOnHitLocked(player, m, skill.Stats, totem.SkillId, now, AreaRng(player), playerConsumesCorpse: false);
