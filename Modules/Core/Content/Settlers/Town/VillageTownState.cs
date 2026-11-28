@@ -484,7 +484,7 @@ public sealed class TownShip
     public uint[] CargoExports { get; set; } = new uint[VillageData.ExportCount];
     public long RansomGold { get; set; }
     public bool BossPending { get; set; }
-    public bool IsAtSea => State == 1 && TimerTotal > 0 && TimerElapsed < TimerTotal && !BossPending;
+    public bool IsAtSea => State == 1 && !BossPending;
 }
 
 /// <summary>One of the 3 Atlas Runner map devices (<c>device_index = 0..2</c>).</summary>
@@ -593,6 +593,8 @@ public sealed class VillageTownState
     public byte ShipKidnapFlag { get; set; }
     public byte MapKidnapSlot1Based { get; set; }
     public byte MapKidnapFlag { get; set; }
+    public bool Dirty { get; set; }
+    public long LastSavedUtc { get; set; }
 
     public VillageTownState(string account, string league)
     {
@@ -907,8 +909,8 @@ public sealed class VillageTownState
             if (s.ShipIndex is < 0 or >= VillageData.ShipCount) continue;
             var ship = state.Ships[s.ShipIndex];
             ship.State = s.State;
-            ship.PortRow = s.PortId is >= 0 and <= 6 ? (byte)s.PortId : InstanceVillage.NoneRow;
-            ship.FailureRow = s.EventId is >= 0 and <= 20 ? (byte)s.EventId : InstanceVillage.NoneRow;
+            ship.PortRow = s.PortId is >= 1 and <= 6 ? (byte)s.PortId : InstanceVillage.NoneRow;
+            ship.FailureRow = s.EventId is >= 1 and <= 20 ? (byte)s.EventId : InstanceVillage.NoneRow;
             ship.DepartedUtc = s.DepartedUtc;
             ship.ArrivalUtc = s.ArrivalUtc;
             ship.RiskPercent = s.RiskPercent;
@@ -1003,14 +1005,7 @@ public sealed class VillageTownState
         RecruitPoolFlag = parsed.RecruitPoolFlag;
 
         for (int i = 0; i < Ships.Length; i++)
-        {
             Ships[i] = parsed.Ships[i];
-            if (Ships[i].State == 1 && Ships[i].ArrivalUtc > Ships[i].DepartedUtc)
-            {
-                uint total = (uint)Math.Clamp(Ships[i].ArrivalUtc - Ships[i].DepartedUtc, 1, uint.MaxValue);
-                Ships[i].TimerTotal = total;
-            }
-        }
         for (int p = 0; p < PortQuotas.Length; p++)
             for (int q = 0; q < PortQuotas[p].Length; q++)
                 PortQuotas[p][q] = parsed.PortQuotas[p][q];

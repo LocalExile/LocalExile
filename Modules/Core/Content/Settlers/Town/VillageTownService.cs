@@ -131,6 +131,8 @@ public static class VillageTownService
         var snap = state.ToStoreSnapshot();
         if (db is null) VillageStore.Save(snap);
         else VillageStore.Save(db, snap);
+        state.Dirty = false;
+        state.LastSavedUtc = ClockUtcSeconds();
     }
 
     /// <summary>Acquires <see cref="VillageTownState.Gate"/> and persists to SQLite.</summary>
@@ -170,7 +172,7 @@ public static class VillageTownService
         // Event-stepped simulation (mirrors Game::Village::Simulate @ 0x1424c5250):
         // Step to whichever happens first: end of interval, treasury hits 0, or a Mining/Smelting input depletes,
         // so workers whose ore runs out stop burning treasury wages cleanly mid-offline-catchup.
-        const int MaxSteps = 16;
+        const int MaxSteps = 64;
         for (int step = 0; step < MaxSteps && remainingDt > 1e-6; step++)
         {
             long activeWageSum = ComputeActiveWageSumLocked(state);
@@ -313,6 +315,7 @@ public static class VillageTownService
 
     static bool IsWorkerActivelyConsumingWagesLocked(VillageTownState state, TownWorker worker)
     {
+        if (worker.Status != 0) return false;
         byte job = worker.AssignedJobRow;
         if (job == VillageData.JobIdling || job == InstanceVillage.NoneRow || job >= VillageData.Jobs.Count)
             return false;
@@ -422,7 +425,8 @@ public static class VillageTownService
         return true;
     }
 
-    /// <summary>Runs one simulation tick for <paramref name="player"/> and pushes updated state if anything changed.</summary>
+    /// <summary>Runs one simulation tick for <paramref name="player"/> and pushes updated state if anything changed.
+    /// Keeps tick progress in memory and avoids 1 Hz full-table SQLite rewrites; state flushes on mutations, area leave, or periodic 60s checkpoint.</summary>
     public static async Task TickPlayerAsync(Player player)
     {
         var state = GetState(player);
@@ -431,7 +435,12 @@ public static class VillageTownService
         lock (state.Gate)
         {
             changed = SimulateLocked(state, now);
-            if (changed) SaveLocked(state);
+            if (changed)
+            {
+                state.Dirty = true;
+                if (now - state.LastSavedUtc >= 60)
+                    SaveLocked(state);
+            }
         }
         if (changed) await SyncStateAsync(player, state);
     }
@@ -457,7 +466,8 @@ public static class VillageTownService
             for (int i = 0; i < VillageData.ShipCount; i++)
             {
                 var s = state.Ships[i];
-                shipPkts[i] = InstanceVillage.ShipUpdate((byte)i, s.PortRow, s.FailureRow, s.CargoExports);
+                byte portRow = s.State == 0 ? InstanceVillage.NoneRow : s.PortRow;
+                shipPkts[i] = InstanceVillage.ShipUpdate((byte)i, portRow, s.FailureRow, s.CargoExports);
             }
             for (int p = 0; p < VillageData.PortCount; p++)
             {

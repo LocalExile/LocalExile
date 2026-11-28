@@ -633,9 +633,8 @@ public static class OperationsSubsystem
     static async Task OnPlayerEnteredAsync(Player player)
     {
         // Only perform village wire syncs in areas where VillageRules (0x9b) is relevant (Kingsmarch, Karui Shores, Hideouts).
+        // VillageTownService.SyncFullAsync already sends ships, quotas, and active map names; only refresh reward notice visibility here.
         if (!IsVillageArea(player)) return;
-        await Shipping.SyncAllShipsAndQuotasAsync(player);
-        await Mapping.SyncCurrentMapNamesAsync(player);
         await Rewards.SyncRewardVisibilityAsync(player);
     }
 

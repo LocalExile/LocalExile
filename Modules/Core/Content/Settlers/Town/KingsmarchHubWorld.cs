@@ -99,6 +99,7 @@ public static class KingsmarchHubWorld
     {
         public readonly Lock Gate = new();
         public bool Built;
+        public TownScope? OwnerScope;
         public readonly HashSet<Player> PresentedPlayers = [];
         public readonly List<SpawnedRecord> AllObjects = [];
         public readonly Dictionary<uint, int> RecordIndexById = [];
@@ -181,8 +182,13 @@ public static class KingsmarchHubWorld
                             visuals.AllObjects.Add(rec);
                             TrackSpawnedLocked(visuals, id, obj, spec, sm);
                         }
+                        visuals.OwnerScope = townState.Scope;
                         visuals.Built = true;
                         builtNow = true;
+                    }
+                    else
+                    {
+                        visuals.OwnerScope ??= townState.Scope;
                     }
                 }
 
@@ -259,7 +265,12 @@ public static class KingsmarchHubWorld
         if (!IsKingsmarch(player) || !TryGetOrRebuildVisuals(player, out var visuals))
             return;
 
-        lock (visuals.Gate) visuals.PresentedPlayers.Add(player);
+        lock (visuals.Gate)
+        {
+            visuals.PresentedPlayers.Add(player);
+            if (visuals.OwnerScope is { } owner && owner != townState.Scope)
+                return;
+        }
 
         var updates = new List<(uint Id, byte SmIdx, StateMachineData Sm, string Log)>();
 
@@ -436,6 +447,16 @@ public static class KingsmarchHubWorld
         }
 
         if (updates.Count == 0 || recipients.Length == 0) return;
+        bool framed = player.Area.Owned && player.Connection.WorldOutput.Started;
+        if (framed)
+        {
+            foreach (var (id, smIdx, sm, log) in updates)
+            {
+                try { await G.SendWorldRecord(player, id, InstanceEntities.StateMachineUpdate(id, smIdx, sm), $"0x02bc {log}"); }
+                catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
+            }
+            return;
+        }
         foreach (var recipient in recipients)
         {
             foreach (var (id, smIdx, sm, log) in updates)

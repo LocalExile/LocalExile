@@ -151,7 +151,7 @@ public static class KaruiShoresIntro
                 unlocked = state.TutorialFlags.HasFlag(VillageTutorialFlags.JohanIntroDone)
                     || state.TutorialFlags.HasFlag(VillageTutorialFlags.KingsmarchVisited);
             }
-            if (unlocked || HideoutCatalog.ByArea(player.Layout.Hash) is not null)
+            if (unlocked)
                 await EnsureBaselineAccessFlagsAsync(player);
         }
 
@@ -180,8 +180,8 @@ public static class KaruiShoresIntro
 
         if (Npcs.Find(NpcJohanHideout) is not { Supported: true } johan) return;
 
-        // Place Johan cleanly beside Faustus (284, 323) -> (291, 316) on walkable floor.
-        var (x, y) = (291, 316);
+        // Place Johan cleanly beside Faustus (284, 323) and clear of Eagon (291, 316) on walkable floor.
+        var (x, y) = (298, 309);
         if (player.Layout.Walkable?.Invoke(x, y) == false)
             (x, y) = player.Layout.Near((x, y));
         await G.SpawnNpc(player, johan, x, y, 4.0f);
@@ -303,7 +303,7 @@ public static class KaruiShoresIntro
             var state = VillageTownService.GetState(player);
             lock (state.Gate)
             {
-                if (VillageTownService.SimulateLocked(state, VillageTownService.ClockUtcSeconds()))
+                if (VillageTownService.SimulateLocked(state, VillageTownService.ClockUtcSeconds()) || state.Dirty)
                     VillageTownService.SaveLocked(state);
             }
         }
@@ -316,7 +316,7 @@ public static class KaruiShoresIntro
         var state = VillageTownService.GetState(player);
         lock (state.Gate)
         {
-            if (VillageTownService.SimulateLocked(state, VillageTownService.ClockUtcSeconds()))
+            if (VillageTownService.SimulateLocked(state, VillageTownService.ClockUtcSeconds()) || state.Dirty)
                 VillageTownService.SaveLocked(state);
         }
         return Task.CompletedTask;
