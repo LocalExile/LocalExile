@@ -230,7 +230,9 @@ public static partial class Game
         IEnumerable<(uint Id, SpawnedMonster Monster, (int X, int Y) Origin)> AreaContacts()
         {
             var nearby = player.Area.MonstersNear(at, radius)
-                .Where(p => Available(p.Key, p.Value) && Dist(p.Value.Walk.Position(now), at) <= radius)
+                // Walls block the bolt and the explosions, as for other area hits (MeleeArcSight from the hit's centre).
+                .Where(p => Available(p.Key, p.Value) && Dist(p.Value.Walk.Position(now), at) <= radius
+                    && MeleeArcSight(player, at, p.Value.Walk.Position(now)))
                 .OrderBy(p => target != 0 && p.Key == target ? -1 : Dist(p.Value.Walk.Position(now), at));
             foreach (var (id, monster) in thunder ? nearby.Take(1) : nearby)
                 yield return (id, monster, at);
@@ -322,6 +324,7 @@ public static partial class Game
                         (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, now));
                 }
                 var to = m.Walk.Position(now);
+                if (thunder) ShowHeraldOfThunderStrikeLocked(player, aura, to, id);
                 // Immediate kind 3 before the life update reaches the client's result consumer; 0xffff has no consuming action.
                 player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(player.Id, 0xffff, id,
                     flags: MonsterHitFlags(blocked: false, critical), kind: 0x03, code: HitCode(mitigated),
@@ -489,14 +492,33 @@ public static partial class Game
                 + $"+{skill.Stats.GetValueOrDefault(Stat.ActiveSkillBaseRadiusPlus)}, area {skill.Stats.GetValueOrDefault(Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal)}% radius), "
                 + $"skin variation {variation}: art {art ?? "none"}");
         if (art is null) return;
+        ShowReservationArtLocked(player, at, art, AreaArtScale(radius, art), 2.0);
+    }
+
+    // Herald of Thunder's bolt (also the storms Storm Secret starts, which run the same storm): the worn skin's
+    // herald_of_thunder_strike (MiscAnimatedArtVariations by skill_art_variation) on the struck monster. The art has no
+    // art radius (MiscAnimated __col4 0): a single-target strike drawn at its own size.
+    static void ShowHeraldOfThunderStrikeLocked(Player player, AuraCatalog.Aura aura, (int X, int Y) at, uint target)
+    {
+        int variation = SkillArtVariation(player, GemSkillEffects(player).FirstOrDefault(g => g.Id == aura.SkillId).Gem);
+        string? art = Art.Animated("herald_of_thunder_strike", variation) ?? Art.Animated("herald_of_thunder_strike", 0);
+        if (ServerTrace.Skills)
+            Console.WriteLine($"[gateway] {player.Connection.Remote} herald of thunder bolt on 0x{target:x} at ({at.X}, {at.Y}), "
+                + $"skin variation {variation}: art {art ?? "none"}");
+        if (art is null) return;
+        ShowReservationArtLocked(player, at, art, 1f, 1.5);
+    }
+
+    // A short-lived server-drawn effect at a point, removed after its lifetime unless the area changed.
+    static void ShowReservationArtLocked(Player player, (int X, int Y) at, string art, float scale, double seconds)
+    {
         uint obj = player.TakeObjectId();
-        float scale = AreaArtScale(radius, art);
         player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             new EffectObject(at.X, at.Y, art) { Flags0 = EffectObject.FixedRotation, Scale = scale }.Blob()),
             $"0x02bb create effect 0x{obj:x} {art} at ({at.X}, {at.Y}), scale {scale:0.###}", WorldId: obj, CreatesObject: true));
         player.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(obj), null, WorldId: obj));
         int epoch = player.ProjectileEpoch;
-        SendAfter(player, 2.0, async () =>
+        SendAfter(player, seconds, async () =>
         {
             if (player.Closed || player.LeavingArea || player.ProjectileEpoch != epoch) return;
             await SendWorldRemoval(player, obj, null);

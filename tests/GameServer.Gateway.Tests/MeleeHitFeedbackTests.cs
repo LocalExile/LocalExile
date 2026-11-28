@@ -254,6 +254,66 @@ public sealed class MeleeHitFeedbackTests
         }
     }
 
+    [Fact]
+    public async Task Herald_of_thunder_bolts_strike_only_enemies_in_sight_and_draw_the_strike_art()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"localexile-thunder-{Guid.NewGuid():N}.db");
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        using var wire = new Wire();
+        Saves.Open(path);
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+        // A wall at x 104..106 between the player (100, 100) and the nearer monster (110, 100).
+        var layout = new AreaLayout(1, "thunder-sight", 1000, 1000, 100, 100, null, [])
+        { Sight = (x, _) => x is >= 104 and <= 106 ? 0 : 2 };
+        var conn = new Player(layout, 1, 1)
+        {
+            Character = { Name = "Thunder" + Guid.NewGuid().ToString("N"), Experience = CharacterStats.ExperienceFor(100) },
+            Connection = { PlayerSent = true, Session = new("test", wire.Stream, wire.Ciphers) },
+            Instance = new(),
+            PlayerLife = 10000,
+            PlayerMana = 10000,
+            Pools = new(100, 10000, 10000, 2, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
+            LeagueModule = new(new League("thunder-test", "Standard", false, false), new HashSet<string>(["Game"])),
+        };
+        conn.God = true;
+        using var requirements = TestRequirements.Waive(conn);
+        try
+        {
+            var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemHeraldOfThunder")!);
+            var weapon = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow1")!) with
+            { Sockets = [new(SocketColour.White, gem)] };
+            Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, weapon);
+            var skill = Game.GemSkillEffects(conn).Single(g => Program.Skills.EffectId(g.Effect) == "HeraldOfThunder");
+            var reservation = Game.SupportedReservationCost(conn, skill.Id);
+            Assert.NotNull(reservation);
+            Assert.True(await Game.ToggleAura(conn, skill.Id, skill.Effect, skill.Name, reservation!.Value, skill.Level, skill.Quality));
+            const uint blockedId = 0x08000040, seenId = 0x08000041;
+            conn.Area.Monsters[blockedId] = new("blocked", new(110, 100, 1), 100, 2, 10000);
+            conn.Area.Monsters[seenId] = new("seen", new(100, 85, 1), 100, 2, 10000);
+            conn.Minions.OutputQueue.Clear();
+
+            Game.ReservationDamageLocked(conn, conn.Auras[skill.Id], (100, 100), 4);
+
+            var hits = conn.Minions.OutputQueue.Where(o =>
+                o.Packet.Length >= 25 && BinaryPrimitives.ReadUInt16BigEndian(o.Packet) == InstanceProtocol.ActionHitId).ToList();
+            Assert.Equal(seenId, BinaryPrimitives.ReadUInt32BigEndian(Assert.Single(hits).Packet.AsSpan(16)));
+            Assert.Contains(conn.Minions.OutputQueue, o => o.Log is { } log
+                && log.Contains("lightning_strike_herald.ao") && log.Contains("at (100, 85)"));
+        }
+        finally
+        {
+            conn.Closed = true;
+            PlayerInventories.Forget(conn.Character.Name!);
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseSaves(path);
+        }
+    }
+
     sealed class Wire : IDisposable
     {
         readonly TcpListener listener = new(IPAddress.Loopback, 0);
