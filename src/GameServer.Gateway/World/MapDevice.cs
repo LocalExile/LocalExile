@@ -104,6 +104,9 @@ public sealed class MapDevice
         /// <summary>Whether a map device run for this area uses the owner's Atlas stats.</summary>
         public bool UsesAtlas { get; init; } = true;
         public string? DivinationCardArea { get; init; }
+
+        /// <summary>Whether the WorldAreas row has <c>IsMapArea</c> set.</summary>
+        public bool IsMapArea { get; init; }
     }
 
     private readonly Dictionary<uint, MapArea> _byItemType;
@@ -112,6 +115,7 @@ public sealed class MapDevice
     private readonly MapRunCatalog _runs;
     private readonly List<MapArea?> _worldAreas;
     private readonly HashSet<ushort> _recipeAreas;
+    private readonly HashSet<ushort> _recipeMapAreas;
 
     /// <param name="uniqueByWord">The legendary maps (UniqueMaps) by their name's Words HASH32: the area a unique map
     /// opens. 3.29 builds most of them on the generic tier-1 base, so the base alone names no area of its own.</param>
@@ -126,6 +130,16 @@ public sealed class MapDevice
         _worldAreas = worldAreas is null ? [] : [.. worldAreas];
         _recipeAreas = [.. _runs.Recipes
             .Where(r => r.WorldArea >= 0 && r.WorldArea < _worldAreas.Count && _worldAreas[r.WorldArea] is not null)
+            .Select(r => _worldAreas[r.WorldArea]!.Hash16)];
+        var nonRecipeMapAreas = new HashSet<ushort>(_byItemType.Values.Select(a => a.Hash16));
+        nonRecipeMapAreas.UnionWith(_uniqueByWord.Values.Select(a => a.Hash16));
+        if (_atlas is not null)
+            foreach (var layout in _atlas.Layouts)
+                nonRecipeMapAreas.Add(layout.Hash16);
+        _recipeMapAreas = [.. _runs.Recipes
+            .Where(r => r.WorldArea >= 0 && r.WorldArea < _worldAreas.Count
+                && _worldAreas[r.WorldArea] is { IsMapArea: true } area
+                && !nonRecipeMapAreas.Contains(area.Hash16))
             .Select(r => _worldAreas[r.WorldArea]!.Hash16)];
     }
 
@@ -215,6 +229,7 @@ public sealed class MapDevice
                 wa.Text("Name") ?? "", 0)
             {
                 Level = (wa.IntOrNull("AreaLevel") ?? 0),
+                IsMapArea = wa.BoolOrNull("IsMapArea") == true,
             });
         }
         return list;
@@ -230,6 +245,9 @@ public sealed class MapDevice
     public bool IsMapArea(ushort hash16) => _byItemType.Values.Any(a => a.Hash16 == hash16)
         || _uniqueByWord.Values.Any(a => a.Hash16 == hash16)
         || _atlas?.Layouts.Any(l => l.Hash16 == hash16) == true || _recipeAreas.Contains(hash16);
+
+    /// <summary>Whether this area (WorldAreas HASH16) is a map-area recipe destination rather than a regular, unique, or Atlas map.</summary>
+    public bool IsRecipeArea(ushort hash16) => _recipeMapAreas.Contains(hash16);
 
     /// <summary>One item in the slots: its type, class, BaseItemTypes row, rolled mods and quality.</summary>
     public readonly record struct Slot(uint TypeHash, string Class, string Name, int BaseRow, IReadOnlyList<ItemMod> Mods, byte Quality)

@@ -65,6 +65,7 @@ public static partial class Game
     public sealed class PlayerStepOutputs
     {
         public double BaselineLifePerSecond;
+        public double BaselineEnergyShieldFromLifePerSecond;
         /// <summary>The raw stats of the passives and items (CharacterStatSources) as the Sources step last summed them.</summary>
         public IReadOnlyDictionary<uint, int>? Sources;
     }
@@ -320,6 +321,9 @@ public static partial class Game
                 .Concat(player.FlaskGrounds.PlayerStats(FlaskGet(Stat.ConsecratedGroundEffectPlusPct))).ToList();
             AddItemUtilityFlaskRawStats(stats, running, Stats);
             ApplyWiseOak(stats, running);
+            if (player.FlaskGrounds.Consecrated
+                && GetIn(stats, Stat.ConsecratedGroundAlliesRecoverEsAsWellAsLifeFromLifeRegeneration) != 0)
+                stats[Stat.RecoverEsAsWellAsLifeFromLifeRegeneration] = 1;
         });
         Step(PlayerStatStep.SelfVulnerability, (player, stats, _) =>
         {
@@ -367,7 +371,10 @@ public static partial class Game
             if (Get(Stat.KeystoneCorruptedDefences) != 0) AddTo(stats, IncomingResourceDefences.BypassStat, 50);
             // The unmodified recovery baseline, before the temporary contribution. The resource writer integrates
             // Fortification separately across exact expiry boundaries.
-            outputs.BaselineLifePerSecond = PanelStats.LifePerMinute(recovery, player.Pools.Life) * LifeRegenerationKeystoneFactor(Get) / 60;
+            var (lifePerMinute, esFromLifePerMinute) = PanelStats.LifeRegeneration(
+                recovery, player.Pools.Life, player.Pools.EnergyShield, LifeRegenerationKeystoneFactor(Get));
+            outputs.BaselineLifePerSecond = (PanelStats.ZealotsOath(Get) ? esFromLifePerMinute : lifePerMinute) / 60;
+            outputs.BaselineEnergyShieldFromLifePerSecond = esFromLifePerMinute / 60;
         });
         Step(PlayerStatStep.TimedRecovery, (player, stats, _) =>
         {
@@ -440,11 +447,13 @@ public static partial class Game
     static StatSnapshotTailInputs PlayerTailInputs(Player player, StatMap stats)
     {
         var (mainLocal, offLocal) = HandLocalStats(player);
+        bool moving = player.Walk.Moving(AreaTime(player));
+        var recoveryGet = PanelStats.WhileMoving(name => name is var key ? stats.GetValueOrDefault(key) : 0, moving);
         var (_, lifeRegenerationToEnergyShield) = PanelStats.LifeRegeneration(
-            name => name is var key ? stats.GetValueOrDefault(key) : 0, player.Pools.Life);
+            recoveryGet, player.Pools.Life, player.Pools.EnergyShield,
+            LifeRegenerationKeystoneFactor(name => stats.GetValueOrDefault(name)));
         return ReadStatSnapshotTailInputs(player, stats, mainLocal, offLocal,
-            lifeRegenerationToEnergyShield,
-            player.Walk.Moving(AreaTime(player)));
+            lifeRegenerationToEnergyShield, moving);
     }
 
     /// <summary>Runs one step (a player stat graph rule).</summary>
@@ -457,10 +466,18 @@ public static partial class Game
     public static Dictionary<uint, int> CharacterPlayerStatsCore(Player player, out double baselineLifePerSecond) =>
         CachedPlayerStats(player, out baselineLifePerSecond);
 
+    public static Dictionary<uint, int> CharacterPlayerStatsCore(Player player, out double baselineLifePerSecond,
+        out double baselineEnergyShieldFromLifePerSecond) =>
+        CachedPlayerStats(player, out baselineLifePerSecond, out baselineEnergyShieldFromLifePerSecond);
+
     /// <summary>Every step in order on a plain map: a fresh build (outside an area's frames, or a scope that asks for one).
     /// With <paramref name="capturePanelSources"/>, the stats before the tail too, for the skill publication.</summary>
     public static Dictionary<uint, int> CharacterPlayerStatsSnapshot(Player player, out double baselineLifePerSecond,
-        out PanelSourceSnapshot? panelSources, bool capturePanelSources = false)
+        out PanelSourceSnapshot? panelSources, bool capturePanelSources = false) =>
+        CharacterPlayerStatsSnapshot(player, out baselineLifePerSecond, out _, out panelSources, capturePanelSources);
+
+    public static Dictionary<uint, int> CharacterPlayerStatsSnapshot(Player player, out double baselineLifePerSecond,
+        out double baselineEnergyShieldFromLifePerSecond, out PanelSourceSnapshot? panelSources, bool capturePanelSources = false)
     {
         // Snapshots made inside a graph step belong to the outer measurement.
         long statProbe = StatGraph.InRule ? 0 : ConnectionPerformance.ProbeStart();
@@ -474,6 +491,7 @@ public static partial class Game
             PlayerSteps[i](player, stats, outputs);
         }
         baselineLifePerSecond = outputs.BaselineLifePerSecond;
+        baselineEnergyShieldFromLifePerSecond = outputs.BaselineEnergyShieldFromLifePerSecond;
         if (statProbe != 0) player.Connection.Performance.StatBuild(statProbe);
         return stats.Stats;
     }

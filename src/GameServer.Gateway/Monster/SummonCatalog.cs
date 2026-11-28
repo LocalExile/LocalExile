@@ -60,6 +60,7 @@ public sealed class SummonCatalog
             new("VaalSummonSkeletons", "VaalSkeleton", "Metadata/Monsters/RaisedSkeletons/RaisedSkeletonMelee1Army", Stat.BaseNumberOfSkeletonsAllowed, 0, Follows: false),
             new("SummonSkeletons", "Skeleton", "Metadata/Monsters/RaisedSkeletons/RaisedSkeletonStandard", Stat.BaseNumberOfSkeletonsAllowed, Stat.Of("active_skeleton_count"), Follows: false),
             new("SummonRagingSpirit", "RagingSpirit", "Metadata/Monsters/SummonedSkull/SummonedSkull", Stat.BaseNumberOfRagingSpiritsAllowed, Stat.Of("active_raging_spirit_count"), Follows: false, Targetable: false),
+            new("TriggeredSupportHiveborn", "Hiveborn", "Metadata/Monsters/Breach/BreachFodderHandSpiderGraftSummoned", Stat.BaseGraftSkillTulSummonMaximumAllowedDemons, 0),
             new("SummonReaper", "Reaper", "Metadata/Monsters/SummonedReaper/SummonedReaper", Stat.BaseNumberOfReapersAllowed, Stat.Of("active_reaper_count"), true),
             new("SummonHolyRelic", "HolyRelic", "Metadata/Monsters/AnimatedItem/HolyLivingRelic", Stat.BaseNumberOfRelicsAllowed, Stat.NumberOfActiveRelics, true, Targetable: false),
             new("SummonDoedresEffigy", "DoedresEffigy", "Metadata/Monsters/Effigy/DoedresEffigySummoned", Stat.BaseNumberOfEffigiesAllowed, 0, Follows: false, Targetable: false),

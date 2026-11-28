@@ -89,12 +89,13 @@ public sealed partial class HeistModule : IModule
             HeistTables.IsMissionArea(start.Layout.Id, start.Layout.Hash) ? _missions.OnTick : null);
 
         GameEvents.InventoryRefusal.Add(id, HeistPlanning.Refusal);
+        GameEvents.InventoryPlace.Add(id, (player, place) => Task.FromResult(HeistLocker.RefusedPlace(module, player, place)));
 
         GameEvents.MessagesHandled.Add(id, async (player, ids) =>
         {
             if (!HeistTables.IsRogueHarbour(player.Layout.Id)) return;
             if (ids.Contains(InstanceItems.PlaceItemId) || ids.Contains(InstanceItems.PickUpItemId)
-                || ids.Contains(InstanceItems.MissionSlotMoveId) || ids.Contains(InstanceItems.LockerMoveId))
+                || ids.Contains(InstanceItems.MissionSlotMoveId) || ids.Contains(InstanceHeist.LockerMoveId))
                 await HeistProgress.SendState(player, reason: "inventory updated in Rogue Harbour");
         });
 
@@ -137,6 +138,8 @@ public sealed partial class HeistModule : IModule
             return true;
         });
 
+        GameEvents.Packet(InstanceHeist.LockerMoveId).Add(id, (player, bytes) =>
+            HeistLocker.HandleLockerMove(module, player, bytes));
         GameEvents.Packet(InstanceHeist.SignContractId).Add(id, (player, bytes) =>
             HeistPlanning.HandleSignContract(module, player, bytes));
         GameEvents.Packet(InstanceHeist.RevealBlueprintId).Add(id, (player, bytes) =>

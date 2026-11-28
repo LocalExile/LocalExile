@@ -21,7 +21,7 @@ public static class SkillArea
             : get(Stat.ActiveSkillBaseAreaOfEffectRadius) is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
 
     static int? KnownBaseRadius(string? effect) =>
-        Game.IsLightningWarpEffect(effect) ? 16
+        effect == Game.WitherEffect ? 18 : Game.IsLightningWarpEffect(effect) ? 16
             : effect == "VaalGroundSlam" ? GroundSlamWave.VaalBaseRadius : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
             : effect is "Earthquake" or "Earthshatter" or "EarthshatterAltX" or "EarthshatterAltY" ? 18
             : effect is "ConsecratedPath" or "ConsecratedPathAltX" ? 23
@@ -31,7 +31,7 @@ public static class SkillArea
             : effect is "TectonicSlam" or "VaalBladeVortex" or Game.SpectrumHitEffect ? 15
             : effect == "PrismaticBurst" ? 13
             : GatewayProjectileSkillProfiles.IsShatteringSteel(effect) ? 28
-            : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactAltX" or "DarkPactRoyale" ? 26
+            : effect is "FireTrap" or "FireTrapAltX" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactAltX" or "DarkPactRoyale" ? 26
             : effect is "StormCall" or "StormCallAltX" or "Frostblink" or "FrostblinkHardMode" or "FrostblinkAltX" || Game.IsPyroclastMine(effect) ? 20
             : effect is "GalvanicArrow" or "GalvanicArrowAltX" or "GalvanicArrowAltY" ? 28
             : effect is "StormBrand" or "StormBrandAltX" or "StormBrandAltY"

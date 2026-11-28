@@ -84,7 +84,7 @@ public static partial class Game
             session.Runtime.Schedule(landAt + step * spacing, () =>
             {
                 if (!session.Active || player.PlayerLife == 0) return;
-                session.Runtime.Impact(use, landing, new("Storm Rain landing", radius));
+                session.RainImpact(use, landing, new("Storm Rain landing", radius));
                 if (shot.Mirage || shot.FromTrapOrMine || shot.FromTotem)
                     session.RainArt(landing, Art.Animated("storm_rain_impact", 0), .75, radius);
                 session.PlantStormRain(landing, (float)facing, use, plan);

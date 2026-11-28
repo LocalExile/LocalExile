@@ -129,11 +129,11 @@ The following are explicit LocalExile policies:
 - Towns, dead/closed/leaving/retired/paused owners, friendly or stale monsters and replayed corpses cannot collect.
   The current actor's signed nonzero `has_soul_gain_prevention` (8855) also prevents gain.
   This uses the existing character stat seam; no countdown is inferred or started.
-- The positive-to-zero player Life transition clears souls inside `Monsters`; relog starts empty.
-  This covers monster swings and every developer damage route through the shared Life setter.
-  Delayed death notifications publish current soul state and cannot clear a later resurrection's earnings.
-  Successful area-ticket transfer moves the budget and round-robin position once to the same character.
-  The old connection retires; the ticket expires after five minutes, matching Rage's transfer policy.
+- Souls are kept on death (poewiki "Vaal skill"); the Life transition to zero ends only the use in flight and soul gain
+  prevention. Relog starts empty.
+- Souls belong to the instance they were gained in (poewiki "Vaal skill"). Leaving keeps the character's budget on the
+  instance it leaves; entering restores what it kept there, or starts empty (town, hideout, a new instance).
+  Prevention still crosses with the area ticket, which expires after five minutes, matching Rage's transfer policy.
   Area loading freezes this transient state; there is no decay and no persistent save schema.
 
 Creation publishes full 0x40 budgets alongside current skills.

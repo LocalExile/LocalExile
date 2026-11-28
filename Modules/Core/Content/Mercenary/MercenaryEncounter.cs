@@ -40,6 +40,16 @@ public sealed partial class MercenaryModule
         return Math.Max(0L, chance) * Math.Max(0L, 100L + S(Stat.MapMercenaryChancePlusPct)) / 100;
     }
 
+    /// <summary>The chance, in hundredths of a percent, that a Mercenary is Infamous. The wiki: "the base chance is
+    /// approximately 20%, though this chance varies with each class"; since 3.29.1 Infamous ones are "50% more common in tier
+    /// 1 Maps, scaling up to approximately twice as common in tier 16 Maps". map_mercenary_infamous_chance_+% raises it.
+    /// [ESTIMATE] 20% for every class (the per-class rates are not published) and a linear scale between tiers 1 and 16.</summary>
+    public static int InfamousChanceBasisPoints(int mapTier, int increasedPct)
+    {
+        double tierScale = mapTier <= 0 ? 1 : 1.5 + 0.5 * (Math.Clamp(mapTier, 1, 16) - 1) / 15.0;
+        return (int)Math.Round(2000 * tierScale * Math.Max(0, 100 + increasedPct) / 100.0);
+    }
+
     /// <summary>Evaluates whether a new combat instance (map or campaign) rolls a mercenary encounter, honoring retail 3.29
     /// Act 3+ campaign rules, Warrant calls, map chances, and <see cref="GameEvents.EncounterSpawn"/> overrides (for Phase 2 mods).</summary>
     async Task Place(AreaPopulated area)
@@ -117,7 +127,8 @@ public sealed partial class MercenaryModule
             else
             {
                 bool infamous = stats.GetValueOrDefault(Stat.MapMercenariesAreInfamous) > 0
-                    || (spawnLevel >= 68 && rng.Next(100) < 5 + stats.GetValueOrDefault(Stat.MapMercenaryInfamousChancePlusPct));
+                    || rng.Next(10000) < InfamousChanceBasisPoints(isMap ? MapRunOf(player)?.Area.Tier ?? 0 : 0,
+                        stats.GetValueOrDefault(Stat.MapMercenaryInfamousChancePlusPct));
                 pick = MercenaryTables.Pick(rng, infamous) ?? MercenaryTables.Pick(rng, false);
             }
 
@@ -179,8 +190,8 @@ public sealed partial class MercenaryModule
 
         if (run.Equipment.Count == 0)
         {
-            run.Equipment = MercenaryEquipment.Roll(kind, build, level, rng,
-                stats.GetValueOrDefault(Stat.MapMercenaryAllUniqueItems) > 0, UniquesFor(player));
+            run.Equipment = MercenaryEquipment.WithInfamousModifier(MercenaryEquipment.Roll(kind, build, level, rng,
+                stats.GetValueOrDefault(Stat.MapMercenaryAllUniqueItems) > 0, UniquesFor(player)), build, level, rng);
         }
 
         if (run.GearItems.Count == 0)
@@ -551,6 +562,11 @@ public sealed partial class MercenaryModule
             await Send(player, InstanceEntities.Gold(goldLeft),
                 $"0x026e gold {goldLeft} after mercenary duel wager ({wagerPaid})");
         await SetStates(player, run.Body, MercenaryWire.CountdownStates, "(7, 0, 1, 1): the duel was chosen");
+        // The "3, 2, 1, Fight!" banner: CountdownTimers row 0 (MercenaryCountdown) shown by S→C 0x162 from 3; the client
+        // steps it down itself (retail 3.29: 3 at the choice, Fight! about 1.6 s later, as the duel switch lands).
+        foreach (var member in Members(player))
+            await Send(member, InstanceTimers.CountdownTimer(3),
+                "0x0162 countdown timer: 3 (MercenaryCountdown)");
         Save(player, run);
         return true;
     }
@@ -631,9 +647,42 @@ public sealed partial class MercenaryModule
             run.Stage = Stage.Duel;
             run.Body = id;
         }
+        await JoinEscorts(player, run);
         Save(player, run);
         context.Log($"{player.Layout.Id}: mercenary 0x{old:x} duels as 0x{id:x} (offer={run.ChosenOffer})");
         return true;
+    }
+
+    /// <summary>The Trarthan Scarab of Infamy's two escorts join the duel as it starts: each idle body gives way to a hostile
+    /// one with its kit, where it stood (the wiki: they fight with the main Mercenary and go on if it is beaten).</summary>
+    async Task JoinEscorts(Player player, Run run)
+    {
+        Wild[] escorts;
+        lock (run) escorts = [.. run.Wilds.Where(w => w.Escort && !w.Paid)];
+        foreach (var wild in escorts)
+        {
+            if (MercenaryTables.ClassOf(wild.Class) is not { } kind || MercenaryTables.BuildOf(wild.Build) is not { } build
+                || Monsters.Find(kind.Path) is not { Supported: true } variety) continue;
+            var at = player.Area.Monsters.TryGetValue(wild.Body, out var idle) ? idle.Walk.Position(AreaTime(player)) : (wild.X, wild.Y);
+            var looks = MercenaryEquipment.Looks(wild.Equipment, MercenaryGear.Of(kind, build, run.Level,
+                new Random(unchecked(run.Seed * 397 ^ build.Row))));
+            uint id = await SpawnMonster(player, variety, run.Level, MonsterRarity.Unique, at.X, at.Y, instanceOwned: true,
+                ownedLooks: looks, extraMods: MercenaryEquipment.Effects(wild.Equipment, wild.Difficulty),
+                ownedKit: KitOf(player, variety, build, run.Level, run.Seed), shape: o => o with
+                {
+                    Name = wild.Name, MercenaryBuild = build.Hash16,
+                    StateMachine = States(variety, MercenaryWire.DuelStates), HasDialogue = false, NpcFlags = 0,
+                });
+            if (id == 0) continue;
+            await Remove(player, wild.Body);
+            lock (run)
+            {
+                wild.Body = id;
+                wild.X = at.X;
+                wild.Y = at.Y;
+                wild.Escort = false;
+            }
+        }
     }
 
     // ---- Duel Resolution (Win & Loss) -----------------------------------------------------------------------------------------
