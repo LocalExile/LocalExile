@@ -288,7 +288,7 @@ public sealed class ChargeWorldRuleTests
             edit("UPDATE fx_rules SET enabled = 0 WHERE id = 'frenzy_on_skill_hit';");
             Check(!ItemEffectRules.Enabled);
 
-            edit("UPDATE fx_rule_when SET roll_order = 40 WHERE rule = 'power_on_hit';");
+            edit("UPDATE fx_rules SET position = 40 WHERE id = 'power_on_hit';");
             var hit = new ChargeEvent.Hit(false, false, true, MonsterRarity.Normal);
             var power = ChargeGains.Roll(hit, stat => stat is Stat.AddPowerChargeOnHitPct
                 or Stat.AddPowerChargeOnSkillHitPct ? 100 : 0, default, new Random(2));
@@ -296,6 +296,81 @@ public sealed class ChargeWorldRuleTests
                 : ["add_power_charge_on_hit_%", "add_power_charge_on_skill_hit_%"];
             Assert.Equal(order, power.Select(g => g.Source));
         });
+    }
+
+    [Fact]
+    public void Every_charge_event_rolls_the_world_rules_as_the_original_rules_did()
+    {
+        // Random events, weapons and stats (negative, 0, partial, 100 and more, on the character and on the used skill):
+        // the world rows award the same charges as the C# lists and leave the random draws where those left them.
+        uint[] stats = [.. ChargeGains.Rules.Select(r => r.Stat).Distinct()];
+        int[] values = [-3, 0, 1, 37, 99, 100, 150];
+        WeaponProfile[] weapons = [default, new() { Shield = true }, new() { DualWield = true }, new() { Wand = true },
+            new() { Claw = true }, new() { Dagger = true }, new() { Bow = true }];
+        MonsterRarity[] rarities = [MonsterRarity.Normal, MonsterRarity.Magic, MonsterRarity.Rare, MonsterRarity.Unique];
+        var pick = new Random(1375);
+        T One<T>(T[] items) => items[pick.Next(items.Length)];
+        bool Coin() => pick.Next(2) == 0;
+        Dictionary<uint, int> Some() => stats.Where(_ => pick.Next(3) == 0).ToDictionary(s => s, _ => One(values));
+        Func<uint, int>? Skill()
+        {
+            if (Coin()) return null;
+            var own = Some();
+            return own.GetValueOrDefault;
+        }
+        ChargeEvent Event() => pick.Next(6) switch
+        {
+            0 => new ChargeEvent.Kill(One(rarities), Coin(), pick.Next(8), Skill()),
+            1 => new ChargeEvent.Hit(Coin(), Coin(), One<bool?>([null, true, false]), One(rarities),
+                One<string?>([null, "Sweep", "IceSpear", "PowerSiphon", "Frenzy", "Fireball"]), Skill(), Coin(), Coin(),
+                Coin(), Coin(), Coin(), Coin(), Coin()),
+            2 => new ChargeEvent.WhenHit(Coin()),
+            3 => new ChargeEvent.Block(Coin()),
+            4 => new ChargeEvent.Stun(Coin(), Skill()),
+            _ => new ChargeEvent.SkillUse(Coin(), Coin(), Coin()),
+        };
+        var rules = ItemEffectRules.Current;
+        for (int i = 0; i < 4000; i++)
+        {
+            var character = Some();
+            var e = Event();
+            var weapon = One(weapons);
+            var expected = new Random(i);
+            var actual = new Random(i);
+            Assert.Equal(ChargeGains.Roll(e, character.GetValueOrDefault, weapon, expected, ChargeGains.LegacyRules(e)),
+                ChargeGains.Roll(e, character.GetValueOrDefault, weapon, actual, rules.PlayerCharges(e)));
+            Assert.Equal(expected.Next(), actual.Next());
+        }
+        // The monster's and the minion's copies of two of those lines are the same rows.
+        Assert.Equal([(Stat.ChanceToGainEnduranceChargeWhenHitPct, ChargeType.Endurance)], rules.MonsterWhenHitCharges);
+        Assert.Equal([Stat.AddPowerChargeOnCriticalStrikePct], rules.MinionHitCharges.Select(r => r.Stat));
+    }
+
+    [Fact]
+    public void Charge_rows_that_break_the_order_or_ask_for_unknown_facts_fail_validation()
+    {
+        var world = GameData.Current;
+        GameDataStore.FxRuleRow Row(string id) => Assert.Single(world.FxRules, r => r.Id == id);
+        void Refused(string why, params GameDataStore.FxRuleRow[] changed)
+        {
+            var ids = changed.Select(r => r.Id).ToHashSet();
+            var error = Assert.Throws<InvalidDataException>(() => ItemEffectRules.Validate(
+                world with { FxRules = [.. world.FxRules.Where(r => !ids.Contains(r.Id)), .. changed] }));
+            Assert.Contains(why, error.Message);
+        }
+        const string rare = "chance_to_gain_power_charge_on_rare_or_unique_enemy_hit_%";
+        Refused("position 110 is already taken for hit", Row(rare) with { Position = 110 });
+        Refused("already has a hit charge rule", Row(rare) with { Id = "second_copy", Position = 999 });
+        Refused("unsupported critical condition for kill", Row("charge_on_kill_power") with
+            { If = [.. Row("charge_on_kill_power").If, (0, "critical", false, "{}")] });
+        Refused("unsupported enemy_frozen condition for when_hit", Row("add_frenzy_charge_when_hit_%") with
+            { If = [.. Row("add_frenzy_charge_when_hit_%").If, (0, "enemy_frozen", false, "{}")] });
+        Refused("minion or monster charge rule needs a chance", Row("chance_to_gain_endurance_charge_on_crit_%") with
+            { When = [("hit", "{}"), ("hit", """{"who":"monster"}""")] });
+        Refused("gains one named charge", Row("power_frenzy_or_endurance_charge_on_kill_%") with
+            { When = [("kill", "{}"), ("kill", """{"who":"minion"}""")] });
+        Refused("expected a position", Row(rare) with { Position = null });
+        ItemEffectRules.Validate(world);
     }
 
     static SpawnedMonster HitChargeMonster(int frenzy, int power)

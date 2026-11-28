@@ -52,7 +52,8 @@ static class PerfBenchMain
                 case "statflips": PerfBench.Statflips_stat_builds(); break;
                 case "pause": await PerfBench.Pause_and_resume(); break;
                 case "rf": await PerfBench.Righteous_fire_toggles(); break;
-                default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner|kits|single|idle|sweep|stats|statflips|pause|rf"); return 2;
+                case "charges": ChargeRollsBench.Run(PerfBench.Record); break;
+                default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner|kits|single|idle|sweep|stats|statflips|pause|rf|charges"); return 2;
             }
         }
         // The run's save database (EnsureSaves), deleted here: a ProcessExit handler ran too late to let go of it.
@@ -68,7 +69,7 @@ static class PerfBench
     // The results go to the real stdout: the scenarios' own logging goes to a file (ConsoleLog).
     static readonly TextWriter Out = Console.Out;
 
-    static void Record(string scenario, string metric, double value, string unit)
+    internal static void Record(string scenario, string metric, double value, string unit)
     {
         Out.WriteLine($"{scenario,-24} {metric,-48} {value,12:0.###} {unit}");
         Directory.CreateDirectory(Path.Combine("artifacts", "perf"));
