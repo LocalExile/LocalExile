@@ -2,7 +2,6 @@ using System.Buffers.Binary;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
-using System.Text.RegularExpressions;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -155,18 +154,6 @@ public static partial class BreachGenesisTree
     static Dictionary<ushort, HashSet<ushort>> Adjacency = [];
     static Dictionary<ushort, int> PassiveUnlockThresholds = [];
     static int[] SubTreeMaxPoints = [24, 16, 24, 12];
-
-    // Cached Foulborn unique mutation index (built lazily from ItemCatalog + UniqueCatalog).
-    static long _foulbornRevision = -1;
-    static Dictionary<string, List<ModCatalog.Mod>> _mutatedModsByUniqueName = new(StringComparer.OrdinalIgnoreCase);
-    static List<ModCatalog.Mod> _allMutatedMods = [];
-    static readonly Lock FoulbornLock = new();
-
-    [GeneratedRegex(@"^Mutated(Unique[A-Za-z]+\d+)", RegexOptions.CultureInvariant)]
-    private static partial Regex MutatedUniquePrefixRegex();
-
-    [GeneratedRegex(@"Unique[A-Za-z]+\d+", RegexOptions.CultureInvariant)]
-    private static partial Regex UniqueModPrefixRegex();
 
     /// <summary>Loads all Genesis Tree tables (<c>BrequelPassiveSubTrees</c>, <c>BrequelTreeSlots</c>,
     /// <c>BrequelFruitTypes</c>, <c>BrequelTreePassiveUnlocks</c>, <c>PassiveSkills</c>, and
@@ -1346,7 +1333,6 @@ public static partial class BreachGenesisTree
         var weightedPool = BuildWeightedUniquePool(catalog, uniques, drops, ilvl, stats, specialSet, specialPct);
         if (weightedPool.Count == 0) return [];
 
-        EnsureFoulbornModIndex(catalog, uniques);
         var results = new List<Item>(count);
 
         for (int i = 0; i < count; i++)
@@ -1489,131 +1475,13 @@ public static partial class BreachGenesisTree
         return pool[^1].Def;
     }
 
-    static void EnsureFoulbornModIndex(ItemCatalog catalog, UniqueCatalog uniques)
-    {
-        long rev = catalog.Mods.Revision + uniques.Revision;
-        if (Volatile.Read(ref _foulbornRevision) == rev) return;
-        lock (FoulbornLock)
-        {
-            if (_foulbornRevision == rev) return;
-            var allMutated = catalog.Mods.All
-                .Where(m => m.Id.StartsWith("MutatedUnique", StringComparison.Ordinal))
-                .ToList();
-
-            var byPrefix = new Dictionary<string, List<ModCatalog.Mod>>(StringComparer.OrdinalIgnoreCase);
-            foreach (var m in allMutated)
-            {
-                if (MutatedUniquePrefixRegex().Match(m.Id) is { Success: true } match)
-                {
-                    string prefix = match.Groups[1].Value;
-                    (byPrefix.TryGetValue(prefix, out var list) ? list : byPrefix[prefix] = []).Add(m);
-                }
-            }
-
-            var byUnique = new Dictionary<string, List<ModCatalog.Mod>>(StringComparer.OrdinalIgnoreCase);
-            foreach (var def in uniques.All)
-            {
-                var matched = new List<ModCatalog.Mod>();
-                var seen = new HashSet<ushort>();
-                foreach (string modId in def.Mods)
-                {
-                    foreach (Match m in UniqueModPrefixRegex().Matches(modId))
-                    {
-                        if (!byPrefix.TryGetValue(m.Value, out var muts)) continue;
-                        foreach (var mut in muts)
-                            if (seen.Add(mut.Hash)) matched.Add(mut);
-                    }
-                }
-                if (matched.Count > 0) byUnique[def.Name] = matched;
-            }
-
-            _allMutatedMods = allMutated;
-            _mutatedModsByUniqueName = byUnique;
-            Volatile.Write(ref _foulbornRevision, rev);
-        }
-    }
-
-    /// <summary>Mutates 1 or 2 explicit modifiers on <paramref name="item"/> into Foulborn unique modifiers drawn from
-    /// the 365 <c>MutatedUnique*</c> mods in <c>client.db</c>, preferring exact unique-specific mutated mods and falling
-    /// back to class-matched mutated mods when a unique has no dedicated prefix match.</summary>
-    static Item? TryMutateUniqueFoulborn(Item item, UniqueCatalog.Definition def, ItemCatalog catalog, int count, Random rng)
-    {
-        if (MutatedUniqueCatalog.Mutate(item, def.Name, count, catalog.Mods, rng) is { } exactMutated)
-            return MarkFoulbornItem is { } mark ? mark(exactMutated) : exactMutated;
-
-        List<ModCatalog.Mod>? pool = null;
-        if (_mutatedModsByUniqueName.TryGetValue(def.Name, out var exact) && exact.Count > 0)
-            pool = exact;
-        else if (catalog.ByHash(item.TypeHash) is { } bt && _allMutatedMods.Count > 0)
-        {
-            string? classToken = ClassTokenForMutatedMod(bt.Class);
-            if (classToken is not null)
-            {
-                var classMatched = _allMutatedMods.Where(m => m.Id.Contains(classToken, StringComparison.OrdinalIgnoreCase)).ToList();
-                if (classMatched.Count > 0) pool = classMatched;
-            }
-        }
-        if (pool is not { Count: > 0 }) return null;
-
-        var explicitIndices = item.Mods
-            .Select((m, idx) => (m, idx))
-            .Where(p => p.m.Section == ModSection.Explicit)
-            .Select(p => p.idx)
-            .ToList();
-        if (explicitIndices.Count == 0) return null;
-
-        var mods = item.Mods.ToList();
-        var usedMutHashes = new HashSet<ushort>();
-        int applied = 0;
-
-        int replacements = Math.Min(count, Math.Min(explicitIndices.Count, pool.Count));
-        for (int k = 0; k < replacements; k++)
-        {
-            var availableMuts = pool.Where(m => !usedMutHashes.Contains(m.Hash)).ToList();
-            if (availableMuts.Count == 0) break;
-            var mut = availableMuts[rng.Next(availableMuts.Count)];
-            usedMutHashes.Add(mut.Hash);
-
-            int slotPick = rng.Next(explicitIndices.Count);
-            int targetIndex = explicitIndices[slotPick];
-            explicitIndices.RemoveAt(slotPick);
-
-            var rolled = mut.Roll(ModSection.Explicit, rng);
-            mods[targetIndex] = rolled;
-            applied++;
-        }
-
-        if (applied == 0) return null;
-        var mutatedItem = item with { Mods = mods };
-        // Mark item-level Mods bit 9 (0x0200, Mods + 0x2e6) for Breach icon & "Foulborn {0}" prefix; per-mod
-        // DisplayKind 4 triggers automatically in the 3.29.3c client from Tags#1334 (mutatedunique) on MutatedUnique*.
-        if (MarkFoulbornItem is { } markItem) mutatedItem = markItem(mutatedItem);
-        return mutatedItem;
-    }
-
-    static string? ClassTokenForMutatedMod(string itemClass) => itemClass switch
-    {
-        "Bow" => "UniqueBow",
-        "Wand" => "UniqueWand",
-        "Claw" => "UniqueClaw",
-        "Dagger" or "Rune Dagger" => "UniqueDagger",
-        "One Hand Sword" or "Thrusting One Hand Sword" or "Two Hand Sword" => "UniqueSword",
-        "One Hand Axe" or "Two Hand Axe" => "UniqueAxe",
-        "One Hand Mace" or "Two Hand Mace" or "Sceptre" => "UniqueMace",
-        "Staff" or "Warstaff" => "UniqueStaff",
-        "Shield" => "UniqueShield",
-        "Quiver" => "UniqueQuiver",
-        "Helmet" => "UniqueHelmet",
-        "Body Armour" => "UniqueBody",
-        "Boots" => "UniqueBoots",
-        "Gloves" => "UniqueGloves",
-        "Belt" => "UniqueBelt",
-        "Ring" => "UniqueRing",
-        "Amulet" => "UniqueAmulet",
-        "Jewel" or "AbyssJewel" => "UniqueJewel",
-        "LifeFlask" or "ManaFlask" or "HybridFlask" or "UtilityFlask" or "UtilityFlaskCritical" => "UniqueFlask",
-        _ => null,
-    };
+    /// <summary>Mutates 1 or 2 explicit modifiers on <paramref name="item"/> into its own Foulborn modifiers
+    /// (<see cref="MutatedUniqueCatalog"/>). A unique with no <c>MutatedUnique*</c> mods of its own is not mutated:
+    /// retail has no Foulborn version of it.</summary>
+    static Item? TryMutateUniqueFoulborn(Item item, UniqueCatalog.Definition def, ItemCatalog catalog, int count, Random rng) =>
+        MutatedUniqueCatalog.Mutate(item, def.Name, count, catalog.Mods, rng) is { } mutated
+            ? MarkFoulbornItem is { } mark ? mark(mutated) : mutated
+            : null;
 
     // ---- 4. Misc Wombgift (Mysterious) ----
 
