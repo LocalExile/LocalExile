@@ -202,7 +202,8 @@ public static partial class Game
             }
             player.SingleUseCooldowns[key] = state;
         }
-        state.Refresh(now, key == GuardCooldownKey && !state.FullyRecovered ? state.Rate : plan.RecoveryRate);
+        if (key == GuardCooldownKey && !state.FullyRecovered) state.Refresh(now, state.Rate);
+        else state.RefreshForPlan(now, plan.RecoveryRate);
         state.Capacity(plan.Uses);
         return state;
     }
@@ -334,7 +335,7 @@ public static partial class Game
                 state = CooldownStateLocked(player, key, cooldown, now);
                 if (key == GuardCooldownKey && !state.Ready) return false;
                 var peers = SharedCooldownPeers(player, effect, key, cooldown, now);
-                state.Refresh(now, cooldown.RecoveryRate);
+                state.RefreshForPlan(now, cooldown.RecoveryRate);
                 state.Capacity(cooldown.Uses);
                 if (reserve && IsFrozenLegionEffect(effectId))
                     frozenLegionUses = Math.Max(0, state.Uses - state.SpentUses);
@@ -468,7 +469,8 @@ public static partial class Game
         foreach (var (key, state) in player.SingleUseCooldowns.ToArray())
         {
             if (!plans.TryGetValue(key, out var plan)) continue; // Removal does not reset a spent use.
-            state.Refresh(now, plan?.RecoveryRate ?? state.Rate);
+            if (plan is { } updated) state.RefreshForPlan(now, updated.RecoveryRate);
+            else state.Refresh(now, state.Rate);
             if (plan is { } current) state.Capacity(current.Uses);
             player.SkillReadyAt[key] = now + state.RemainingSeconds;
             if (plan is null && key != GuardCooldownKey) player.SingleUseCooldowns.Remove(key); // Unsupported mechanics retain the legacy path.

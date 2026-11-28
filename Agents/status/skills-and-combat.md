@@ -380,7 +380,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   solid walls and projectile-blocking doors with the 5-cell minimum displacement check, Flame Dash 25/60-cell sight-line
   and fallback clamping, pre-cooldown admission, and burning-ground segment DoT, sight-aware movement landing fallback,
   monster-blocker landing slide, and same-frame `0x02bc` cooldown refreshes queued behind `0x01ce` so predictive clients
-  execute the blink (verified live). `Frostblink of Wintry Blast` (`FrostblinkAltX`) teleports at cast contact with
+  execute the blink (verified live). Ordinary Frostblink keeps its rarity-based cooldown recovery bonus from enemies
+  at both ends of the teleport for the use. `Frostblink of Wintry Blast` (`FrostblinkAltX`) teleports at cast contact with
   32/42-cell IceDash clamping, hits both ends at 20 base radius without chilled ground, scales hit damage per 5% target
   chill and removes chill on hit (verified live). A guard's bar entry is held at the
   skill's own cooldown with a zero recovery rate while its buff runs and counts at the character's recovery after it, as

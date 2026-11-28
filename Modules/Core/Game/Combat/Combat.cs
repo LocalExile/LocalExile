@@ -2042,7 +2042,8 @@ public static partial class Game
                 using (ProjectileMutation(player))
                 {
                     var current = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
-                    if (current != gem || GemSkillInstanceDisabled(player, gem.Effect, skillId) is not null) return null;
+                    if (current != gem || cooldownUse?.Current(player) == false
+                        || GemSkillInstanceDisabled(player, gem.Effect, skillId) is not null) return null;
                     (int X, int Y) rawAim;
                     from = player.Walk.Position(ProjectileWorldTime(player));
                     if (targetObjectId is uint target)
@@ -2056,6 +2057,13 @@ public static partial class Game
                         rawAim = ((int)aim.X, (int)aim.Y);
                     }
                     if (cooldownUse?.CommitNativeUse(player, skillId) == false) return null;
+                    if (cooldownUse is { CooldownReset: false, State: { } cooldown })
+                    {
+                        double now = AreaTime(player);
+                        cooldown.ApplyUseRecoveryBonus(now, cooldownUse.UseVersion,
+                            FrostblinkRecoveryBonus(player, skillId, gem.Effect, from, to));
+                        player.SkillReadyAt[CooldownKey(player, gem.Effect, skillId)] = now + cooldown.RemainingSeconds;
+                    }
                     accepted = true;
                     return PlayerInstantAction(player, skillId, rawAim, targetObjectId);
                 }
@@ -2066,6 +2074,31 @@ public static partial class Game
             if (SkillsFor(player).IsTravel(gem.Effect)) { QueueFlaskTrigger(player, FlaskEnchantments.Trigger.Travel); LoyaltyTravelSkillTriggered(player); }
             await FrostblinkAreas(player, gem, from, to, cooldownUse);
             await SendNativeCooldownRefresh(player);
+        }
+    }
+
+    static int FrostblinkRecoveryBonus(Player player, ushort skillId, int effect, (int X, int Y) from, (int X, int Y) to)
+    {
+        var stats = SupportedSkill(player, skillId).Stats;
+        int common = stats.GetValueOrDefault(Stat.IceDashCooldownRecoveryPerNearbyNormalOrMagicEnemy);
+        int rare = stats.GetValueOrDefault(Stat.IceDashCooldownRecoveryPerNearbyRareOrUniqueEnemy);
+        if (common == 0 && rare == 0) return 0;
+        int radius = SkillRadius(player, stats, spell: true, effect);
+        double now = ProjectileWorldTime(player);
+        var counted = new HashSet<uint>();
+        long bonus = 0;
+        Count(from);
+        Count(to);
+        return ActorScale.Saturate(bonus);
+
+        void Count((int X, int Y) centre)
+        {
+            foreach (var (id, enemy) in player.Area.MonstersNear(centre, radius))
+            {
+                if (enemy is not { Hostile: true, Dead: false, Life: > 0, OwnerId: null, WorldHidden: false }
+                    || Dist(enemy.Walk.Position(now), centre) > radius || !counted.Add(id)) continue;
+                bonus += enemy.Rarity is MonsterRarity.Rare or MonsterRarity.Unique ? rare : common;
+            }
         }
     }
 
