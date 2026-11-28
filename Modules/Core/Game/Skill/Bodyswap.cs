@@ -99,8 +99,13 @@ public static partial class Game
         Hit(to);
         if (target.Corpse) session.ApplyCorpseExplosion(gem.Id, target.Monster.MaxLife, to, radius, now);
 
-        void Hit((int X, int Y) at) => _ = AreaSkillHit(player, gem.Id, gem, at, at, immediate: true, sequence: sequence,
-            criticalRoll: critical, radiusOverride: radius, sacrifice: sacrifice, scheduledSession: session);
+        void Hit((int X, int Y) at)
+        {
+            var task = AreaSkillHit(player, gem.Id, gem, at, at, immediate: true, sequence: sequence,
+                criticalRoll: critical, radiusOverride: radius, sacrifice: sacrifice, scheduledSession: session);
+            if (!task.IsCompleted) throw new InvalidOperationException("Scheduled Bodyswap hit must not yield.");
+            task.GetAwaiter().GetResult();
+        }
     }
 
     static Action? PrepareTriggeredCorpseBodyswap(Player player, ProjectileSession session,

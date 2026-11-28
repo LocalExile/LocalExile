@@ -1202,7 +1202,7 @@ public static partial class Game
                 continue;
             spread.SpreadSource = null;
             // Another brand may have built up energy on this target after the single spread stack.
-            SetPenanceEnergyLocked(player.Area, id, recipient, spread, spread.PenanceEnergy - 1);
+            SetPenanceEnergyLocked(player.Area, id, recipient, spread, Math.Max(0, spread.PenanceEnergy - 1));
         }
         brand.SpreadRecipients.Clear();
 
