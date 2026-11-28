@@ -1796,9 +1796,10 @@ public static partial class Game
             };
         }
         int shieldEqualsLife = EquipmentInput(Stat.MaximumEnergyShieldIsXPctOfMaximumLife);
+        // The native maximum-ES calculation (3.29.3c 0x142531880) returns the Life-based value from its own branch.
         if (!bonus.NoEnergyShield && shieldEqualsLife > 0)
             pools = pools with { EnergyShield = (uint)Math.Min(int.MaxValue, (long)pools.Life * shieldEqualsLife / 100) };
-        if (sources.GetValueOrDefault(Stat.StormBladeEnergyShieldPlusPctFinal) is int bladeShield and not 0)
+        else if (sources.GetValueOrDefault(Stat.StormBladeEnergyShieldPlusPctFinal) is int bladeShield and not 0)
             pools = pools with { EnergyShield = (uint)Math.Min(uint.MaxValue,
                 pools.EnergyShield * Math.Max(0, 100L + bladeShield) / 100) };
         if (EquipmentInput(Stat.KeystoneMedvedsExchange) != 0)
