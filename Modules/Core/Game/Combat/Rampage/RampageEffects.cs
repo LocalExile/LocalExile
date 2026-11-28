@@ -178,10 +178,18 @@ public static partial class Game
         {
             if (!RampageEffectCurrent(player, epoch) || player.Paused || target.Dead || !target.Hostile
                 || target.OwnerId is not null || !ReferenceEquals(player.Area.Monsters.GetValueOrDefault(id), target)) return false;
-            if (attack && !RampageAttackHits(player, id, target, accuracy, ProjectileWorldTime(player), AreaRng(player))) return false;
+            int hitChance = 100;
+            if (attack)
+            {
+                hitChance = RampageAttackHitChance(player, id, target, accuracy, ProjectileWorldTime(player));
+                if (!DamageModel.Hits(hitChance, AreaRng(player).Next(100))) return false;
+            }
             if (MonsterBlocks(target, AreaRng(player), !attack)) return false;
+            // An attack that rolled to hit takes the critical confirmation roll against the same chance, as the
+            // Rampage bow projectile and every other attack do; a spell always hits.
             bool critical = AreaRng(player).Next(10000) < (attack ? 500 : own?.SpellCriticalChance ?? 0)
-                + BrittleCriticalChance(target, ProjectileWorldTime(player));
+                + BrittleCriticalChance(target, ProjectileWorldTime(player))
+                && (!attack || EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
             var added = PoachersAddedPhysical(target, ProjectileWorldTime(player)).Scale(addedEffectiveness);
             (damage, _) = MonsterDamage(target, packet.Add(DamageType.Physical, added).Roll(AreaRng(player)), critical, attack, default);
             if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(target, 150, CharacterPlayerStats(player)));
@@ -204,13 +212,20 @@ public static partial class Game
         return hit.Value.Life == 0;
     }
 
-    public static bool RampageAttackHits(Player player, uint id, SpawnedMonster target, int accuracy, double now, Random random,
+    /// <summary>The chance a Rampage attack has to hit this target, the value its hit roll is taken against. The
+    /// critical strike's confirmation roll is taken against the same chance (Path of Building's
+    /// <c>Modules/CalcOffence.lua:3058</c>).</summary>
+    public static int RampageAttackHitChance(Player player, uint id, SpawnedMonster target, int accuracy, double now,
         IReadOnlyDictionary<uint, int>? playerStats = null)
     {
         int evasion = target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
         evasion = MonsterBlindRating(player, id, target, evasion, now, playerStats);
-        return DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), random.Next(100));
+        return DamageModel.AccuracyHitChance(evasion, accuracy);
     }
+
+    public static bool RampageAttackHits(Player player, uint id, SpawnedMonster target, int accuracy, double now, Random random,
+        IReadOnlyDictionary<uint, int>? playerStats = null) =>
+        DamageModel.Hits(RampageAttackHitChance(player, id, target, accuracy, now, playerStats), random.Next(100));
 
     static RampageStunToken? RampageStatusLocked(Player player, uint id, SpawnedMonster target,
         RampageCatalog.SkillLevel? own, double now)
