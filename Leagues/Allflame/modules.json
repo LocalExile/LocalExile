@@ -17,6 +17,7 @@
     "Core/Content/Incursion",
     "Core/Content/HeistCache",
     "Core/Content/Ritual",
+    "Core/Content/Settlers",
     "Core/Game",
     "Core/Item/Bench",
     "Core/Item/Cosmetics",

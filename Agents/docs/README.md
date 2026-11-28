@@ -29,6 +29,7 @@ message ids hold for every allowed client build (`ClientBuilds.cs`); their data 
 | [Vaal souls](protocol/27-vaal-souls.md) | Actor budgets, collection policy and pending native acceptance |
 | [protocol/28-player-trade.md](protocol/28-player-trade.md) | trade between players: requests (0xba, 0xb0), known players (0xa7), the window's 0xb8 flags and acceptance, party/friend requests read |
 | [protocol/29-currency-exchange.md](protocol/29-currency-exchange.md) | Faustus's Currency Exchange: the window (0x7b kind 0x5e), its orders and markets, the official rates |
+| [protocol/30-settlers-kingsmarch.md](protocol/30-settlers-kingsmarch.md) | Settlers / Kingsmarch: ruleset 0x9b (0x1f/0x1e/0x2c9/0x2ca), 0x7b screens, Recombinator (0x28f/0x291/0x293/0x10b), native hub and Waypoint settings |
 | [protocol/17-npcs.md](protocol/17-npcs.md) | NPCs: the object, town placements, talking (0x24 → 0x84), dialogue closed (0x85) |
 | [protocol/21-hideouts.md](protocol/21-hideouts.md) | hideouts: unlock flags and league quest flags, the Hideouts keys, `.hideout` decorations, /hideout (0x16 command 45) and the Hideout button (0x17a), HideoutDoodad data, the map device and its window (0x7b kind 5) |
 | [protocol/18-stash.md](protocol/18-stash.md) | the stash: the object, tab lists (0x21, 0x136), opening (0x7b kind 1), tab contents (0xc7 → 0xc0 + 0xc8), the account's stash |

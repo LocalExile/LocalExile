@@ -99,6 +99,9 @@ internal sealed class DeepwaterRun
     /// <summary>Called once when the run ends (DeepwaterExtraction.End or Fail) with the players it ended for and whether it
     /// succeeded.</summary>
     public Func<IReadOnlyList<Player>, bool, Task>? OnEnd { get; set; }
+    /// <summary>Called for each player arriving on the encounter's PseudoHub deck after extraction (after
+    /// <see cref="OnEnd"/> has updated quest/league flags).</summary>
+    public Func<Player, Task>? OnDeckArrival { get; set; }
 
     // The board's cell rectangles as x0, y0, x1, y1 per cell, for CellIndex (built with Board).
     readonly int[] _rects = [];

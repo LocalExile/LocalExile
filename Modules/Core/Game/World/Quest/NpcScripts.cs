@@ -20,6 +20,16 @@ public static partial class Game
         ["CharacterPassiveTreeScreen"] = InstanceNpcs.PassiveTreeUi,
         ["HideoutSelectionWindow"] = InstanceNpcs.HideoutSelectionUi,
         ["DelveMapScreen"] = 0x1c,
+        ["KalguurRecombinatorWindow"] = InstanceVillage.RecombinatorWindowUi,
+        ["KalguurRecruitmentWindow"] = InstanceVillage.RecruitmentWindowUi,
+        ["KalguurTownMapWindow"] = InstanceVillage.TownMapWindowUi,
+        ["KalguurMineWindow"] = InstanceVillage.MineWindowUi,
+        ["KalguurPortWindow"] = InstanceVillage.PortWindowUi,
+        ["KalguurFarmWindow"] = InstanceVillage.FarmWindowUi,
+        ["KalguurBlackSmithWindow"] = InstanceVillage.BlackSmithWindowUi,
+        ["KalguurDisenchantingWindow"] = InstanceVillage.DisenchantingWindowUi,
+        ["KalguurMapRunnersWindow"] = InstanceVillage.MapRunnersWindowUi,
+        ["KalguurFishingWindow"] = InstanceVillage.FishingWindowUi,
     };
 
     static Dictionary<string, int>? _npcTextAudioRows;
@@ -65,6 +75,7 @@ public static partial class Game
     /// <summary>Whether the row does something when its talk ends (or at once without a talk).</summary>
     public static bool EndsWithScript(NpcCatalog.Talk talk) =>
         talk.NextChat is not null || talk.FinishesChat || talk.AreaTransition is not null || talk.OpenScreenRequest is not null
+        || talk.GoToKingsmarch
         || talk.RulesetEvents.Count > 0 || talk.MavenDialogs.Count > 0 || talk.ScriptTextAudios.Count > 0 || talk.PlayAnimations.Count > 0;
 
     // The row's world changes, when it is chosen: the NPC's own Transitionable steps on (Dialla withers, NPCTalk 534),
@@ -167,7 +178,7 @@ public static partial class Game
                 $"0x0084 npc 0x{npcId:x} {npc.Npc.Name} talks on: NPCTalk row {page.Row} (index {page.Index}, DoNPCChat)");
             return true;
         }
-        bool closes = talk.FinishesChat || talk.AreaTransition is not null || talk.OpenScreenRequest is not null;
+        bool closes = talk.FinishesChat || talk.AreaTransition is not null || talk.OpenScreenRequest is not null || talk.GoToKingsmarch;
         bool hasPostActions = talk.RulesetEvents.Count > 0 || talk.MavenDialogs.Count > 0
             || talk.ScriptTextAudios.Count > 0 || talk.PlayAnimations.Count > 0;
         if (!closes && !hasPostActions) return false;
@@ -180,6 +191,7 @@ public static partial class Game
             player.NpcTalkScript = null;
             await Send(player, InstanceNpcs.Talk(0), $"0x0084 object 0: {npc.Npc.Name}'s dialogue ends (FinishNPCChat, NPCTalk {talk.Row})");
         }
+        if (await GameEvents.RunNpcTalkScript(player, npcId, npc, talk)) return true;
         foreach (string ev in talk.RulesetEvents)
             await GameEvents.DispatchRulesetEvent(player, npcId, npc, talk, ev);
         foreach (string dialogId in talk.MavenDialogs)
@@ -206,6 +218,14 @@ public static partial class Game
             if (!await GameEvents.DispatchRulesetEvent(player, npcId, npc, talk, "play_animation:" + clip)
                 && string.Equals(clip, "portal_out_01", StringComparison.OrdinalIgnoreCase))
                 await StepNpcTransition(player, npcId, npc, $"PlayAnimation({clip}) (NPCTalk {talk.Row})");
+        }
+        if (talk.GoToKingsmarch)
+        {
+            if (AreaTransitionCatalog.HashOf(WaypointCatalog.Kingsmarch) is { } kingsmarch)
+                await ChangeArea(player, new PendingTransfer(kingsmarch, 0, false, AtSpawn: true),
+                    $"{npc.Npc.Name}: {talk.Option} (GoToKingsmarch)");
+            else Console.WriteLine($"[gateway] {player.Connection.Remote} NPCTalk {talk.Row}: GoToKingsmarch() area {WaypointCatalog.Kingsmarch} is not in client.db's area_transitions");
+            return true;
         }
         if (talk.OpenScreenRequest is var (screen, screenArg))
         {
