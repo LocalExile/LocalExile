@@ -130,7 +130,7 @@ public sealed class ItemRolls
             for (int i = 0; i < domainMods.Length; i++)
             {
                 var m = domainMods[i];
-                if (m.Level > itemLevel) continue;
+                if (m.Level > itemLevel || itemLevel > m.MaxLevel) continue;
                 int weight = m.WeightFor(tags);
                 if (weight > 0) result.Add((m, weight));
             }
