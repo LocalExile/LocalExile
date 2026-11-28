@@ -141,8 +141,9 @@ public static partial class Game
 
         // Penance Brand energy stacks on this brand (Dissipation) or contributed to attached monster
         public int Energy;
-        // Enemies energized by Penance Brand of Conduction from this brand
-        public readonly HashSet<uint> EnergizedMonsters = [];
+        // Retain the exact recipients so teardown cannot clear energy on a replacement actor with the same id.
+        internal readonly Dictionary<SpawnedMonster, uint> SpreadRecipients = new(ReferenceEqualityComparer.Instance);
+        public IReadOnlyCollection<uint> EnergizedMonsters => SpreadRecipients.Values;
 
         // Wintertide Brand stage count (1..20)
         public int Stages;
@@ -216,8 +217,6 @@ public static partial class Game
     sealed class MonsterBrandVisuals
     {
         public readonly Dictionary<BrandFamily, (ushort Buff, int Stacks, double Until)> Attached = [];
-        public ushort PenanceBuff;
-        public int PenanceStacks;
         public ushort WintertidePrimaryBuff;
         public double WintertideCarry;
         public double WintertidePending;
@@ -229,6 +228,7 @@ public static partial class Game
         public int AttachedCount;
         public int TakenPct;
         public int PenanceEnergy;
+        public ActiveBrand? SpreadSource;
     }
 
     sealed class BrandState
@@ -468,7 +468,7 @@ public static partial class Game
     {
         if (!BrandStates.TryGetValue(player, out var state)) return;
         foreach (var brand in state.Brands)
-            ClearBrandMonsterMarkLocked(brand);
+            ClearBrandMonsterMarkLocked(player, brand);
         int removed = state.Brands.Count;
         if (removed > 0) Interlocked.Add(ref _globalActiveBrandCount, -removed);
         state.Brands.Clear();
@@ -748,7 +748,7 @@ public static partial class Game
             if (player.PlayerLife == 0 || state.Epoch != player.ProjectileEpoch)
             {
                 foreach (var b in state.Brands.ToArray())
-                    RemoveBrandCleanlyLocked(state, b, bytes);
+                    RemoveBrandCleanlyLocked(player, state, b, bytes);
                 foreach (var m in state.Meteors)
                     if (m.VisualId != 0) bytes.Remove(m.VisualId);
                 state.Meteors.Clear();
@@ -1075,7 +1075,7 @@ public static partial class Game
         else if (brand.Family == BrandFamily.Immolation)
             TriggerWintertideEndLocked(player, state, brand, at, playerStats, now, bytes);
 
-        ClearBrandMonsterMarkLocked(brand);
+        ClearBrandMonsterMarkLocked(player, brand);
         brand.AttachedMonsterId = 0;
         brand.AttachedMonster = null;
         brand.DetachedAt = now;
@@ -1120,32 +1120,57 @@ public static partial class Game
         if (brand.Overcharged && brand.OverchargeGem is not null)
             TriggerBrandsurgeExplosionLocked(player, state, brand, at, playerStats, now, bytes);
 
-        RemoveBrandCleanlyLocked(state, brand, bytes);
+        RemoveBrandCleanlyLocked(player, state, brand, bytes);
     }
 
-    static void RemoveBrandCleanlyLocked(BrandState state, ActiveBrand brand, WorldRecordBuilder bytes)
+    static void RemoveBrandCleanlyLocked(Player player, BrandState state, ActiveBrand brand, WorldRecordBuilder bytes)
     {
         RemoveDetachedVisualLocked(brand, bytes);
-        ClearBrandMonsterMarkLocked(brand);
+        ClearBrandMonsterMarkLocked(player, brand);
         brand.AttachedMonsterId = 0;
         brand.AttachedMonster = null;
         if (state.Brands.Remove(brand))
             Interlocked.Decrement(ref _globalActiveBrandCount);
     }
 
-    static void ClearBrandMonsterMarkLocked(ActiveBrand brand)
+    static void ClearBrandMonsterMarkLocked(Player player, ActiveBrand brand)
     {
-        if (brand.AttachedMonster is not { } m) return;
-        if (BrandMonsterMarks.TryGetValue(m, out var mark))
+        foreach (var (recipient, id) in brand.SpreadRecipients)
         {
-            if (brand.Family == BrandFamily.Magma) mark.PenanceEnergy = 0;
-            mark.TakenPct -= brand.AttachedTakenPct;
-            brand.AttachedTakenPct = 0;
-            brand.WintertidePrimaryDps = 0;
-            if (mark.AttachedCount > 0) mark.AttachedCount--;
-            if (mark.AttachedCount == 0 && mark.PenanceEnergy == 0)
-                BrandMonsterMarks.Remove(m);
+            if (!BrandMonsterMarks.TryGetValue(recipient, out var spread) || !ReferenceEquals(spread.SpreadSource, brand))
+                continue;
+            spread.SpreadSource = null;
+            // Another brand may have built up energy on this target after the single spread stack.
+            SetPenanceEnergyLocked(player.Area, id, recipient, spread, spread.PenanceEnergy - 1);
         }
+        brand.SpreadRecipients.Clear();
+
+        if (brand.AttachedMonster is not { } monster || !BrandMonsterMarks.TryGetValue(monster, out var mark)) return;
+        mark.TakenPct -= brand.AttachedTakenPct;
+        brand.AttachedTakenPct = 0;
+        brand.WintertidePrimaryDps = 0;
+        if (mark.AttachedCount > 0) mark.AttachedCount--;
+        if (brand.Family == BrandFamily.Magma) ClearPenanceEnergyLocked(player.Area, brand.AttachedMonsterId, monster, mark);
+        else if (mark.AttachedCount == 0 && mark.PenanceEnergy == 0) BrandMonsterMarks.Remove(monster);
+    }
+
+    static void SetPenanceEnergyLocked(GameArea area, uint id, SpawnedMonster monster, MonsterBrandMark mark, int energy)
+    {
+        bool changed = mark.PenanceEnergy != energy;
+        mark.PenanceEnergy = energy;
+        if (changed && ReferenceEquals(area.Monsters.GetValueOrDefault(id), monster))
+        {
+            if (energy == 0) area.Buffs.Clear(id, PenanceEnergyBuffRow);
+            else area.Buffs.Set(id, PenanceEnergyBuff((ushort)energy));
+        }
+        if (energy == 0 && mark.AttachedCount == 0) BrandMonsterMarks.Remove(monster);
+    }
+
+    static void ClearPenanceEnergyLocked(GameArea area, uint id, SpawnedMonster monster, MonsterBrandMark mark)
+    {
+        mark.SpreadSource?.SpreadRecipients.Remove(monster);
+        mark.SpreadSource = null;
+        SetPenanceEnergyLocked(area, id, monster, mark, 0);
     }
 
     // ---- Per-Brand Activation Dispatcher --------------------------------------------------------------------------------
@@ -1298,7 +1323,8 @@ public static partial class Game
         if (brand.PenancePulses)
         {
             var mark = BrandMonsterMarks.GetOrCreateValue(target);
-            brand.Energy = mark.PenanceEnergy = Math.Min(PenanceMaxEnergy, mark.PenanceEnergy + 1);
+            brand.Energy = Math.Min(PenanceMaxEnergy, mark.PenanceEnergy + 1);
+            SetPenanceEnergyLocked(player.Area, targetId, target, mark, brand.Energy);
 
             int perEnergyHit = BrandStat(brand.Gem.Stats, "magma_brand_hit_damage_+%_final_per_additional_pustule");
             int perEnergyAilment = BrandStat(brand.Gem.Stats, "magma_brand_ailment_damage_+%_final_per_additional_pustule");
@@ -1327,9 +1353,8 @@ public static partial class Game
 
         // Base Penance Brand & Penance Brand of Conduction: build energy stacks on the attached enemy
         var targetMark = BrandMonsterMarks.GetOrCreateValue(target);
-        if (targetMark.PenanceEnergy < PenanceMaxEnergy) targetMark.PenanceEnergy++;
-        brand.Energy = targetMark.PenanceEnergy;
-        if (brand.PenanceSpreads) brand.EnergizedMonsters.Add(targetId);
+        brand.Energy = Math.Min(PenanceMaxEnergy, targetMark.PenanceEnergy + 1);
+        SetPenanceEnergyLocked(player.Area, targetId, target, targetMark, brand.Energy);
 
         // Conduction (PenanceBrandAltY) spreads energy to nearby enemies on activation!
         if (brand.PenanceSpreads)
@@ -1346,8 +1371,9 @@ public static partial class Game
             foreach (var (otherId, other) in spreadTargets)
             {
                 var otherMark = BrandMonsterMarks.GetOrCreateValue(other);
-                if (otherMark.PenanceEnergy < PenanceMaxEnergy) otherMark.PenanceEnergy++;
-                brand.EnergizedMonsters.Add(otherId);
+                otherMark.SpreadSource = brand;
+                brand.SpreadRecipients[other] = otherId;
+                SetPenanceEnergyLocked(player.Area, otherId, other, otherMark, 1);
                 SpawnBeamLocked(player, state, at, targetId, other.Walk.Position(now), otherId,
                     PenanceBrandChargeBeamRow, now + 0.25, bytes);
             }
@@ -1357,7 +1383,7 @@ public static partial class Game
         if (!brand.PenanceExplodesOnDetach && targetMark.PenanceEnergy >= PenanceMaxEnergy)
         {
             TriggerPenanceExplosionLocked(player, state, brand, targetId, target, at, playerStats, now, bytes);
-            RemoveBrandCleanlyLocked(state, brand, bytes);
+            RemoveBrandCleanlyLocked(player, state, brand, bytes);
         }
     }
 
@@ -1368,7 +1394,7 @@ public static partial class Game
         int attachedMorePct = BrandStat(brand.Gem.Stats, "sigil_attached_target_hit_damage_+%_final");
         var multipliers = BrandHitMultipliers(playerStats, brand.Gem);
 
-        void ExplodeAt(uint centreId, SpawnedMonster? centreMonster, (int X, int Y) centreAt, int energy)
+        void ExplodeAt(uint centreId, SpawnedMonster centreMonster, (int X, int Y) centreAt, int energy)
         {
             if (energy <= 0) return;
             bool full = energy >= PenanceMaxEnergy;
@@ -1385,8 +1411,8 @@ public static partial class Game
                 DealBrandSpellHitLocked(player, brand.SkillId, brand.Gem, playerStats, multipliers, id, m,
                     now, brandedMore, 1.0, label: brand.EffectId, placement: brand.Placement);
             }
-            if (centreMonster is not null && BrandMonsterMarks.TryGetValue(centreMonster, out var cm))
-                cm.PenanceEnergy = 0;
+            if (BrandMonsterMarks.TryGetValue(centreMonster, out var mark))
+                ClearPenanceEnergyLocked(player.Area, centreId, centreMonster, mark);
         }
 
         // Explode attached target
@@ -1394,17 +1420,12 @@ public static partial class Game
         ExplodeAt(primaryId, primary, primaryAt, primaryEnergy);
 
         // Conduction: explode any nearby enemies that received spread energy from this brand
-        if (brand.PenanceSpreads && brand.EnergizedMonsters.Count > 0)
+        foreach (var (other, otherId) in brand.SpreadRecipients.ToArray())
         {
-            foreach (uint otherId in brand.EnergizedMonsters.ToArray())
-            {
-                if (otherId == primaryId) continue;
-                if (!player.Area.Monsters.TryGetValue(otherId, out var other)) continue;
-                if (!BrandMonsterMarks.TryGetValue(other, out var om) || om.PenanceEnergy <= 0) continue;
-                ExplodeAt(otherId, other, other.Walk.Position(now), om.PenanceEnergy);
-            }
+            if (!ReferenceEquals(player.Area.Monsters.GetValueOrDefault(otherId), other)) continue;
+            if (!BrandMonsterMarks.TryGetValue(other, out var mark) || !ReferenceEquals(mark.SpreadSource, brand)) continue;
+            ExplodeAt(otherId, other, other.Walk.Position(now), mark.PenanceEnergy);
         }
-        brand.EnergizedMonsters.Clear();
         brand.Energy = 0;
     }
 
@@ -1809,7 +1830,6 @@ public static partial class Game
         {
             foreach (var (_, entry) in vis.Attached)
                 if (entry.Buff != 0) bytes.World(monsterId, InstanceEntities.RemoveBuff(monsterId, entry.Buff));
-            if (vis.PenanceBuff != 0) bytes.World(monsterId, InstanceEntities.RemoveBuff(monsterId, vis.PenanceBuff));
             if (vis.WintertidePrimaryBuff != 0) bytes.World(monsterId, InstanceEntities.RemoveBuff(monsterId, vis.WintertidePrimaryBuff));
         }
         state.MonsterVisuals.Clear();
@@ -1818,9 +1838,10 @@ public static partial class Game
         state.WintertideEnds.Clear();
     }
 
-    internal static byte[] PenanceEnergyBuff(uint monsterId, ushort instance, ushort energy, uint sourceId = 0) =>
-        InstanceEntities.AddBuff(monsterId, instance, PenanceEnergyBuffRow, sourceId,
-            stacks: energy, list: [PenanceMaxEnergy]);
+    static readonly uint[] PenanceEnergyLimit = [PenanceMaxEnergy];
+
+    internal static Buff PenanceEnergyBuff(ushort energy) =>
+        new(PenanceEnergyBuffRow, Stacks: energy, List: PenanceEnergyLimit);
 
     static void ReconcileBrandPresentationLocked(Player player, BrandState state, double now, WorldRecordBuilder bytes)
     {
@@ -1851,11 +1872,9 @@ public static partial class Game
             }
         }
 
-        // 2. Reconcile monster buffs (ActiveSigil, magma_pustule, immolation_brand_burn)
+        // 2. Reconcile attachment and Wintertide visuals. Penance energy is shared as an area buff.
         var allMonsters = new HashSet<uint>(state.MonsterVisuals.Keys);
         foreach (uint mid in desiredAttached.Keys) allMonsters.Add(mid);
-        foreach (var brand in state.Brands)
-            if (brand.PenanceSpreads) allMonsters.UnionWith(brand.EnergizedMonsters);
 
         foreach (uint mid in allMonsters)
         {
@@ -1894,21 +1913,6 @@ public static partial class Game
                 }
             }
 
-            // Penance Brand energy stacks (BuffDefinitions 1551 magma_pustule)
-            int energy = exists && BrandMonsterMarks.TryGetValue(monster!, out var mark) ? mark.PenanceEnergy : 0;
-            if (energy <= 0 && vis.PenanceBuff != 0)
-            {
-                if (player.Area.Monsters.ContainsKey(mid)) bytes.World(mid, InstanceEntities.RemoveBuff(mid, vis.PenanceBuff));
-                vis.PenanceBuff = 0;
-                vis.PenanceStacks = 0;
-            }
-            else if (energy > 0 && energy != vis.PenanceStacks)
-            {
-                if (vis.PenanceBuff == 0) vis.PenanceBuff = player.NextBuff++;
-                bytes.World(mid, PenanceEnergyBuff(mid, vis.PenanceBuff, (ushort)energy, player.Id));
-                vis.PenanceStacks = energy;
-            }
-
             // Wintertide Brand primary DoT visual (BuffDefinitions 1550 immolation_brand_burn)
             bool hasWinterPrimary = exists && desiredAttached.TryGetValue(mid, out var winterFamilies) && winterFamilies.ContainsKey(BrandFamily.Immolation);
             if (!hasWinterPrimary && vis.WintertidePrimaryBuff != 0)
@@ -1924,7 +1928,7 @@ public static partial class Game
                 bytes.World(mid, InstanceEntities.AddBuff(mid, vis.WintertidePrimaryBuff, WintertidePrimaryBuffRow, player.Id));
             }
 
-            if (vis.Attached.Count == 0 && vis.PenanceBuff == 0 && vis.WintertidePrimaryBuff == 0)
+            if (vis.Attached.Count == 0 && vis.WintertidePrimaryBuff == 0)
                 state.MonsterVisuals.Remove(mid);
         }
 

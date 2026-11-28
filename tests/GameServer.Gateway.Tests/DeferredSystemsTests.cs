@@ -10,7 +10,7 @@ public sealed class DeferredSystemsTests
     [InlineData(20)]
     public void Penance_energy_visual_carries_its_maximum(ushort stacks)
     {
-        var packet = Game.PenanceEnergyBuff(701, 1, stacks);
+        var packet = Game.PenanceEnergyBuff(stacks).Add(701, 1);
         Assert.Equal(new byte[] { 4, 0, (byte)stacks, 0, 0, 0, 1, 0, 0, 0, 20 }, packet[22..]);
     }
 
