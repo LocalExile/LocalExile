@@ -75,6 +75,7 @@ Its citations of `Agents/docs/re/client-*.md` at fixed commits, and 11-skills' `
 | [dev/databases.md](dev/databases.md) | the SQLite databases (`auth`, `characters`, `client`, `world`) built from `sql/`: adding an update, the updater, `client-sql.ps1` and the generated files in `client.db`, the SQL checks and owners |
 | [dev/editable-game-data.md](dev/editable-game-data.md) | what game data can become editable in SQLite, the client-compatibility boundary, the snapshot/cache design and the phased plan |
 | [dev/combat-effect-rules.md](dev/combat-effect-rules.md) | supported combat rules in `world.db`, the shared Frenzy roll and how to verify a rule edit |
+| [dev/effect-rules-design.md](dev/effect-rules-design.md) | where the effect rules are going: what the client shows, sources, events, order, conditions, effects, triggers, the order of work |
 | [dev/drop-data-schema.md](dev/drop-data-schema.md) | the drop tables in SQLite: what seeds them (client tables, `sql/updates/world/`), load and edit rules |
 | [dev/modules.md](dev/modules.md) | the layers: leagues and their `league.json`, what stays in the Gateway, modules, what a module sees |
 | [dev/modding.md](dev/modding.md) | mods in `Mods/Binaries/<id>/`: `mod.json`, writing one (LocalExile-Mods), the hooks, reloading, limits |

@@ -1,8 +1,9 @@
-# Legion: the Timeless Monolith encounter
+# Legion: Timeless Monoliths, Scarabs, Atlas and the Domain
 
-Phases 1-2 of the Legion league mechanic: the monolith, the timer, two armies in stasis, break-out, release, war chests and rewards.
-Module `Modules/Core/Content/Legion` (`LegionMonolith`, `LegionArmy`, `LegionStasis`, `LegionRewards`, `LegionData`); the area roll that
-puts the monolith room in an area is in [league-encounters](league-encounters.md).
+Phases 1-4 of the Legion league mechanic: Timeless Monoliths, timer/alert stasis armies, break-out, release, war chests,
+rewards, Legion Scarabs, Atlas passives (including `Timeless Conflict`), and the Domain of Timeless Conflict.
+Module `Modules/Core/Content/Legion` (`LegionMonolith`, `LegionDomain`, `LegionArmy`, `LegionStasis`, `LegionRewards`,
+`LegionRules`, `LegionData`); the area roll that puts the monolith room in a map is in [league-encounters](league-encounters.md).
 The rules the code follows are the wiki's for 3.29; what the client data and code say is below, marked as a guess where it is one.
 
 ## Client objects and states
@@ -11,9 +12,9 @@ The rules the code follows are the wiki's for 3.29; what the client data and cod
   room `legion_monolith.arm`. The server creates a clickable `LegionInitiator` at every matching locator in the area (supporting
   multiple monoliths when scarabs or mods add extra rooms); no formation file exists in the client, so where each monster stands is the server's.
 - The campaign's monoliths are not the league-chance roll (`WorldAreaLeagueChances` gives Legion 0 there): fixed locators sit
-  in the areas' own rooms, `FirstTimeLegion_EncounterLocator` in The Climb (1_1_6, `flag_hill_1.arm`) and
-  `DriedLake_EncounterLocator` in The Dried Lake (1_4_2, `nightwane_boss.arm`). The module places monoliths at these and at
-  `Legion_EncounterLocator`; `LegionEndgame_EncounterLocator` is the endgame's and is not used.
+  in the areas' own rooms, `FirstTimeLegion_EncounterLocator` in The Climb (1_1_6, `flag_hill_1.arm`, sets `ClimbLegionActivated`)
+  and `DriedLake_EncounterLocator` in The Dried Lake (1_4_2, `nightwane_boss.arm`, sets `DriedLakeLegionActivated`).
+  `LegionEndgame_EncounterLocator` belongs to the Domain of Timeless Conflict (`LegionDomain.cs`).
 - `LegionInitiator` StateMachine drives all 7 shared states (`obelisk_state`, `charging`, `shattered`, `crystal`, `spawn_lightning`, `locked`, `active`) across `Idle -> Charging (0,1,0,0,*,1,1) -> Running (2,1,1,1..3,*,1,1) -> Frozen (3,1,2,0,0,1,1) -> Battle (4,1,2,0,0,1,0) -> Ending/Finished (5,1,2,0,0,1,0)` (official 3.29 captures). Clicking also sends `0x2bc` `InteractionAction` `[0]`. When a General spawns, base-data property `0xec72e38c` links its entity id onto the monolith (`0x2c1` live update + `0x2bb` for late joiners) so `spawn_lightning=1` aims bolts towards the General while frozen, and the formation axis aligns the General's army with the monolith's forward rotation.
 - `LegionFlashLight` (`Metadata/Terrain/Leagues/Legion/Objects/LegionFlashLight`) is created alongside each monolith with base-data properties `0x40f0fc9c` and `0x7700c879` = monolith id, `Positioned` `flags0 = 0x02` (parent lookup), and `StateMachine` (`foggy`); at the shatter, `0x2bc` `Animated` `[0]` triggers the flash.
 - Every Legion monster and war chest has the states `present`, `breakout`, `activated`, `owning_initiator` (generals also `general`, `fleeing`, `disappear`).
@@ -43,10 +44,10 @@ The rules the code follows are the wiki's for 3.29; what the client data and cod
 | Table, column | Meaning | Source |
 |---|---|---|
 | `LegionBalancePerLevel` col3 | the timer, in ms; the row is the one with the highest `MinLevel` <= area level | client code |
-| `LegionBalancePerLevel` col2, col4, col15 | pre-timer ms (0), fall-off ms (500), alert gauge maximum | client code, not used here |
+| `LegionBalancePerLevel` col2, col4, col15 | pre-timer ms (0), fall-off ms (500), `Timeless Conflict` alert gauge cap (1000) | client code |
 | `LegionBalancePerLevel` col1, col5 to col14 | unknown (col5 and col6 are copied by the client and never read) | not read |
 | `LegionFactions.SpawnWeight`, `LegionBalancePerLevelKey`, `StatsKey`, col3 | faction draw weight, minimum area level, `map_legion_monoliths_chance_for_*` stat, formation orderliness (`0.95` grid vs `0.65`/`0.50` loose) | table data, fits wiki |
-| `LegionRanks` col0, col1..col4, col7, col8 | tier (0..3), rarity weights, general/hoard chance, alert value (phase 4) | guess |
+| `LegionRanks` col0, col1..col4, col6, col7, col8 | tier (0..3), rarity weights, endless revival cooldown ms (`6000/6000/16000/24000`), general/hoard chance, alert value (`5/18/40/350`) | table data + guess |
 | `LegionMonsterCounts` col2 to col6 | min and max count, the depth band in percent, the number of varieties | guess, server-only table |
 | `LegionChestCounts` col2 to col5, col7 | min and max chests, the depth band (tier 0 `20..70%`, tier 1 War Hoard `35..100%`), War Hoard percent (tier 1 row) | guess, server-only table |
 | `LegionChestTypes` col0, `Chest`, `HardmodeChest` | frozen chest monster variety, release `Chests` row (standard and Ruthless) | table data |
@@ -111,3 +112,92 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
 - Every chance and count of the rewards (who carries one, how many, items per reward, splinters, the general's crystal, the pool weights) is a
   guess, a named constant in `LegionArmy.cs` and `LegionRewards.cs`. Splinters come only from sergeants, chests and the general, never normal soldiers. A map general drops no Timeless Jewel (`GeneralJewelPermille` is 0): they come from the Domain of Timeless Conflict.
 - 100 splinters become an emblem through the generic `FullStack` row of the item, with no Legion code.
+
+## Phase 4: Scarabs, Atlas passives and Timeless Conflict
+
+- The scarab's extra monolith comes from the level generator: `CoreLeagues` 15 `ForcedSpawnStat` is
+  `map_legion_league_extra_spawns`, which `ExtraTerrainFeatures.LeagueCount` adds to the base count, so no module code
+  places it.
+- Scarab, Atlas passive and Idol stats reach the encounter through `Instance.KeptAreaStats` (`LegionMonolith.AreaStats`).
+- `atlas_keystone_timeless_conflict` / `map_legion_uses_alert_instead_of_timer`: no countdown timer, `LegionRules` mode 0
+  with `alertMode = 1`, `LegionRanks.__col8` per breakout (5/18/40/350) toward `LegionBalancePerLevel.__col15` (1000).
+  GUESS: the chest alert values 40/80. Live check: the alert gauge (`0x2c9` alert opcodes are not disassembled).
+
+## Phase 3: Domain of Timeless Conflict
+
+- `MapDeviceRecipes` 30-33 (`AtlasNode` 143 `LegionDomain`, `HASH16 = 50774`) map 2-5 distinct Timeless
+  Emblems (`BaseItemTypes` 3055-3064, `MapFragmentFamilies` 15-19) to `WorldAreas` 1328-1331 (`LegionLeague`..`LegionLeague4`,
+  no `MonsterPacks`, `Environments` 1177). Timer `15 + 60 * emblemCount` s, from `map_legion_endless_mode_+_s`.
+  3.29.0 removed the Unrelenting Timeless Emblems ("existing items have been converted to regular Timeless Emblems"): the five
+  Unrelenting rows count as their faction's regular emblem (its family and mods), with no uber Domain, drop or reward scaling.
+  Area level (3.22.0): at least 80, +1 with 4 emblems, +2 with 5 (`WorldAreas` say 80; no level stat is in the emblem mods).
+- The arena has `LegionEndlessInitiator` (`obelisk_state`, `checking_control_zone`) at `LegionEndgame_EncounterLocator`; quest flag
+  `QuestFlags` 2770 `EnteredDomainOfTimelessConflict`. Reward tracker (3.29.0: 100 small crystals at the centre light up, one per 3
+  reward icons, past 100 still counts): the server creates 100 `LegionDomainRewardCrystal` (`active`, server_only) and sets `active` 1 on
+  one more per 3 reward units banked; a unit is one reward icon times (100 + the emblems' `map_legion_monster_reward_chance_+%`)/100,
+  fractions kept; only newly lit crystals are sent. GUESS: their positions, a ring of radius 18 cells, evenly spaced (100 distinct cells).
+  The client runs the control zone itself while `checking_control_zone` is 1 (`0x141629580`): a player within 60 cells
+  (grid distance squared below 3601) gets pack 0x1f `LegionEndlessControlZone` (`counter.epk`). Revival waves (3.29) need a player
+  there: all ready sergeants and generals and half the ready soldiers. GUESS: the start radius of 28 cells, the (333, 333)
+  fallback, and `map_legion_endless_monolith_pulse_time_ms` (20000) as the shortest time between two waves.
+- The Domain army fills the whole disc, not a near ring (R17/R18): only about 3 character lengths round the monolith stay clear.
+  Each faction keeps its sector; a squad's depth % maps onto [18, arena] by area (`sqrt(lerp(18^2, arena^2, frac))`), a spot off the
+  floor is drawn again up to 8 times before the nearest walkable cell. GUESS: the clear radius 18 cells, the arena radius as the one
+  holding 90 % of the walkable cells within 300 of the centre (200 without a walk map).
+- No client code creates `MiscAnimated` 3337 `LegionControlZone` (`endgame/control_zone.ao`) or 3338 `LegionControlZonePerimeter`
+  (`standhere.ao`): the server places both at the centre until 00:00. `control_zone/rig.amd` clips: 0 `idle` (loop), 1 `idle_off`,
+  2 `off`, 3 `player_in`, 4 `player_out`, 5 `revival_wave` (1333 ms, once), played with S->C 0x1b2 kind 0 (wave clip at the start
+  and each wave, then idle).
+- Monsters come from `LegionRanks` 56-59 (`MinLevel = 101`, `*Endless` Tier 1 varieties, revival cooldowns
+  `6 s / 6 s / 16 s / 24 s`); the end `MiscAnimated` 3357.
+- A soldier that does not fight is a ghost running the client's `LegionRevive` action (type 0xd59a, skill 0x159a; wire layout:
+  [protocol 07 section 4.1](../protocol/07-latency-visibility-movement.md)); the client runs its timers and looks (`MiscEffectPacks` id = row + 1):
+  state 4 ready (pack 0x1a `LegionEndlessActive`), 3 fallen (0x19 `LegionEndlessInactive`; plays the current clip from 0 slowing to a
+  stop over 3 s, and at its timer turns to 4 by itself), 5 vanish (0x1b, 0.8 s; with revive 1 the client then stands it up: its own
+  state 1, the death clip backwards for 1 s), 1 revived (by 0x2c8 or in a create; not by the client's own state 1: 0x1c `LegionEndlessRevived` and `MiscAnimated` 3377
+  `beam_down.ao` at the monster), then 2. In state 4 with revive 1 and its timer out, the client poses it with `Animation` 6 (Death)
+  at 0.95..1.0 of the clip (`0x141c4a8f0`): that is how a ghost created ready lies, since the server has no death clip index.
+  The 0x1b pack is removed only by 0x2c8 state 1.
+  GUESS: the fall's pose (0.7 of a 1.4 s death clip) and `virtual_is_hidden_monster` taking the hover off a hostile ghost.
+- Per-revival stats of the emblems (suffix `_per_revival`), summed over the emblems used and times the revival count. Timeless
+  (`Mods` 21228-21232), all with `uber_domain_monster_tankiness_+%` 10: Karui crit chance 50 and crit multiplier 5, Maraketh attack
+  and cast speed 5, Eternal accuracy 10 and area of effect 5, Templar penetrate all resistances 3, Vaal phys-as-chaos 5.
+  The Unrelenting rows' own mods (`Mods` 21238-21242, `maximum_life_+%` 10 and other stats) are not applied (3.29.0 removed them).
+  GUESS: the cap of 10 revival stacks.
+- The end at 00:00 (rewards on the ground around the centre) runs once, at the first tick of any player in the area after the timer, or
+  when a player enters an area whose timer ran out while it was empty (it has no frames then); a dead player's tick runs it too.
+  At the end the server sets the initiator's `obelisk_state` 5 (the `inactive` clip), lights what is owed and plays `explode` on all 100
+  reward crystals (S->C 0x1b2 kind 0), and drops the rewards; it prints no chat summary (the real game has none; the log has one). `Environments` 1177 is the
+  arena's own base environment, so the server sends no `0xdf` for it. GUESS: the `explode` clip index 2 (`SmallCentralCrystal01.ao` views
+  unlit, lit_up, explode). Live check: the crystal's explode, the 3357 effect we play at the end (the real beams, `LegionSoulercoaster1..6`,
+  are not known: not built), and the obelisk's `inactive` look.
+- Generals' lines: `NPCTextAudio` rows `Legion<General><Trigger>N` (their `NPCs` column is the speaker; an `NPCs` row's Id is the general's
+  `MonsterVarieties` Id, a variant such as `...GeneralFish` uses the longest prefix), sent as S->C 0x1c7 with object id 0 to the players in the
+  area. Normal encounters: MapIntro at the reveal, Fleeing when an unbroken general flees, Defeat on death. Domain: MapIntro once per
+  general, Defeat on death, BattleCry when a revived general spawns and Dismount when Aukuna's mount falls, one per Domain per 30 s. GUESS: the stem is the trigger,
+  the 8 s start delay plus 5 s per further general, several Defeat lines at once 2.5 s apart; AttackN, Taunt and Injured are not played
+  (no clean trigger); object id 0 (global) rather than the general's id.
+- Aukuna starts mounted: `LegionMonsterVarieties` 24 plans 7754 (on foot, `MonsterMapBoss`, the loot) and its `MonsterVarietiesKey2`
+  7753 is the mounted form (`MonsterNoDropsOrExperience`), spawned in stasis, woken and revived in the Domain (R18: she dismounts again
+  there, an inference). The mount's death clip is `dismount_01`; the server plays its events (`LegionGenerals.cs`, R17): at `spawnbird`
+  the bird 7756 (`Invisible`, NoAi; its .ot copies the mount's pose and pauses it) and `nobird` 1 on the mount (detaches its own bird),
+  at `birdepk` the bird's `explodeepk` 1 (`DinoExplode.epk`), at `phase` 7754 where the mount fell; the mount's corpse goes (its own
+  `disappear` event already made it invisible). The fighter entry (drops, Defeat line, reward symbols, Eternal Conflict's buff), the
+  mount's life scale (as `server_encounter_monster_life_+%_final`), the encounter's released id and the Domain slot pass to 7754, which
+  says a Dismount line (in the Domain through the 30 s chatter); without it the Domain slot falls and revives. The mount's own `use_arrow2` default is 1.
+  GUESS: the event times 1.73, 1.945 and 2.64 s (names only; the server has no clip clock), the bird going 2 s after the phase; the
+  bird's `DinosaurExplosion` / `LandingBurningGround` hits are not played. Live check: does the bird copy the pose without a
+  `reference` object, and does the client play `dismount_01` from the mount's ordinary death.
+- Hyrri is two objects (R17): the plan's 7704 `LegionKaruiGeneralFish` (targetable, the loot, the travel kit; `MovementSpeed` 0) and the
+  rider 7702 `LegionKaruiGeneral` (.ot: untargetable, `base_cannot_be_damaged`, no drops, non-blocking, immobile), spawned on the Fish
+  when it wakes or is revived; the server keeps hits, minions and rewards off the rider, removes it with the Fish, and filters the
+  rider's own teleports (10063/10064) and the Fish's rocket-jump parent (8048) via `MonsterKitHooks.AddEffectFilter` (`LegionSkillHooks.cs`)
+  so the Fish drives movement while the rider fires. The Domain slot, ghost and revival are the Fish's.
+  GUESS: no client link between the two (the server teleports the rider onto the Fish's cell, at most every 0.2 s); a water clone
+  7703 (NoAi, `dying` state) is queued when the rider restarts mortar 9988's cooldown (any swing path), placed near the rider's
+  target 1 s later (the server does not follow the mortar), lives 8 s, at most 3 per Hyrri. Live check: does the rider ride the Fish or
+  float beside it, and does the frozen Fish (no rider in stasis) look right.
+- Generals, Sergeants and soldiers (`LegionSkillHooks.cs`): the clip events of their `EmptyAction*` parents are bound to child effects by
+  name (the clips give the event names, the data the effects). GUESS: Viper's 10-hit sweep alternates physical and poison projectiles
+  (the order is not in the data); the Faridun Commander's fling binds only variety 10492 (the parent is shared with Ridan 10489 and 10490).
+- Not yet built: the `LegionCocoonCrystal` item-insertion UI window for Enshrouding Crystals (requires client protocol RE).

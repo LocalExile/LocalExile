@@ -86,6 +86,8 @@ public static partial class Game
         public PlayerInventories? Items;
         public long ItemChanges;
         public int WorldRevision;
+        public long StatsEventRevision = -1;
+        public long PlayerStatSourcesEventRevision = -1;
     }
 
     // The pools from what they are built of now (a new Pools marks the steps that read them). Smaller pools hold no more
@@ -303,6 +305,18 @@ public static partial class Game
         {
             if (frame.Items is not null) graph.MarkInput((int)StatInput.Items);
             (frame.Items, frame.ItemChanges, frame.WorldRevision) = (items, items.Changes, worldRevision);
+        }
+        long statsRev = GameEvents.Stats.Revision;
+        if (frame.StatsEventRevision != statsRev)
+        {
+            if (frame.StatsEventRevision >= 0) graph.MarkRule((int)PlayerStatStep.Subscribers);
+            frame.StatsEventRevision = statsRev;
+        }
+        long sourcesRev = GameEvents.PlayerStatSources.Revision;
+        if (frame.PlayerStatSourcesEventRevision != sourcesRev)
+        {
+            if (frame.PlayerStatSourcesEventRevision >= 0) graph.MarkRule((int)PlayerStatStep.Sources);
+            frame.PlayerStatSourcesEventRevision = sourcesRev;
         }
         runningFrame = frame;
         bool built;

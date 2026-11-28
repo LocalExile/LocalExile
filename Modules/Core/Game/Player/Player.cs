@@ -140,6 +140,7 @@ public static partial class Game
     public static async Task PlayerEnteredArea(Player player)
     {
         player.Connection.PlayerSent = true;
+        ReconcileDeathAura(player);
         if (player.Layout.Hash == StashCatalog.MenagerieHub && !player.Character.LeagueQuestFlags.Contains(Quests.League.VisitedMenagerie))
             await SetLeagueQuestFlags(player, [Quests.League.VisitedMenagerie]);
         await Send(player, [], "0x01c1 passive buffs (entering the area)", atGate: () => PassiveBuffAuras.Presentation(player));
@@ -204,16 +205,17 @@ public static partial class Game
         CharacterSaves.SetPetrifiedBlood(CharacterName(player), false);
         ended = [.. player.Auras.Values];
         petrifiedEnded = player.PetrifiedBlood.Active || player.Area.Buffs.Has(player.Id, PetrifiedBlood.BuffRow, player.Id);
+        bool triggersEnded = ClearCooldownTriggersLocked(player);
         player.Auras.Clear();
         ReconcileStanceSelectionLocked(player, persist: true);
         player.PetrifiedBlood.Clear();
         player.LeechDisplay.Clear();
         player.Lifetap.Clear();
-        player.AuraStatsDirty = ended.Count > 0 || petrifiedEnded || player.AuraStatsDirty;
+        player.AuraStatsDirty = ended.Count > 0 || petrifiedEnded || triggersEnded || player.AuraStatsDirty;
         player.Pools = PoolsFor(player, player.Pools.Level);
         player.ApplyMovementSpeed();
         await SendOwnAuraChanges(player);
-        if (ended.Count > 0 || petrifiedEnded)
+        if (ended.Count > 0 || petrifiedEnded || triggersEnded)
         {
             await SendCharacterStats(player, PlayerStatChange.Auras);
             await SendPlayerMana(player, "aura reservation cleared on death");
@@ -274,6 +276,7 @@ public static partial class Game
         player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
         ClearDoubleStrikeMomentum(player);
+        ClearTrauma(player);
         ClearWardBreakOnDeath(player);
         player.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
         player.SpiritChieftains.End(AreaTime(player));   // the chieftain minion dies with the player
@@ -1812,15 +1815,7 @@ public static partial class Game
                 await GameEvents.RunResurrected(player);
                 return;
             }
-            // The Oasis's local gates set a checkpoint at their arrival. Otherwise use the activated waypoint or the
-            // entry point. Both keep the same instance and its encounter progression.
-            bool activated;
-            lock (player.Character.Waypoints)
-                activated = WaypointCatalog.Areas.Find(player.Layout.Hash) is { } entry && player.Character.Waypoints.Contains(entry.Id);
-            var gateCheckpoint = !inTown ? ShakariEncounter.CheckpointOf(player) : null;
-            var (x, y) = gateCheckpoint ?? player.Layout.Checkpoint(activated);
-            string checkpointReason = gateCheckpoint is not null ? "the last Oasis gate"
-                : activated && player.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point";
+            var (x, y, checkpointReason) = ResolveCheckpoint(player, inTown);
             // Hide the death screen and start the continuous blackout in one write while still dead, then revive and
             // teleport behind black right before FadeFromBlack starts so FadeController+0x24 never hits 0 mid-fade.
             await SendResurrectFade(player, (x, y));
@@ -1882,6 +1877,7 @@ public static partial class Game
         RestoreResourceEffects(player);
         RestoreVaalSouls(player);
         RestoreWardBreak(player);
+        RestoreCooldownTriggers(player);
         player.Ward.SetMaximum(player.Pools.Ward);
         pools = player.Pools;
         var stats = CharacterPlayerStatsSnapshot(player, out _, out var panelSources, capturePanelSources: true);
@@ -2058,6 +2054,7 @@ public static partial class Game
                         // A new player object has no buffs: every system's are written again.
                         player.Area.Buffs.Removed(player.Id);
                         PresentCarriedEnduringCry(player);
+                        PresentCooldownTriggersLocked(player);
                         player.LeechDisplay.Clear();
                         player.PetrifiedBlood.PresentedLossBuff = 0;
                         player.PetrifiedBlood.SentLossPerMinute = 0;

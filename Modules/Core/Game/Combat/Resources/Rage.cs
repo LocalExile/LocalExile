@@ -22,14 +22,25 @@ public static partial class Game
         var value = player.Rage.Read(ProjectileWorldTime(player), inputs);
         if (player.Rage.NextChangeAt() is double next) StatsChangeAt(next, () => ProjectileWorldTime(player));
         RageStats.ExpandItems(stats, value.Effective);
-        if (value.Current > 0)
+        if (value.Effective > 0)
         {
             int stun = RageStat(stats, Stat.StunThresholdPlusPctPerRage);
             if (stun != 0)
                 stats[Stat.StunThresholdPlusPct] = ActorScale.Saturate(
-                    (long)RageStat(stats, Stat.StunThresholdPlusPct) + (long)stun * value.Current);
+                    (long)RageStat(stats, Stat.StunThresholdPlusPct) + (long)stun * value.Effective);
         }
-        long increased = (long)RageStat(stats, Stat.AttackSpeedPlusPctPerRage) * value.Current
+        int speedPerRage = RageStat(stats, Stat.AttackSpeedPlusPctPerRage);
+        long rageAttackSpeed = (long)speedPerRage * value.Effective;
+        if (speedPerRage != 0)
+            stats[Stat.AttackSpeedPlusPctFromRage] = ActorScale.Saturate(rageAttackSpeed);
+        int movePer5Rage = RageStat(stats, Stat.MovementSpeedPlusPctPer5Rage);
+        if (movePer5Rage != 0)
+            stats[Stat.MovementSpeedPlusPctFromRage] = ActorScale.Saturate((long)(value.Effective / 5) * movePer5Rage);
+        bool grantsCastSpeed = rageAttackSpeed != 0 && RageStat(stats, Stat.RageGrantsCastSpeedInstead) != 0;
+        if (grantsCastSpeed)
+            stats[Stat.CastSpeedPlusPct] = ActorScale.Saturate(
+                (long)RageStat(stats, Stat.CastSpeedPlusPct) + rageAttackSpeed);
+        long increased = (grantsCastSpeed ? 0L : rageAttackSpeed)
             + CorpsePactSpeed(player, stats, AreaTime(player));
         if (RageStat(stats, Stat.AttackSpeedPlusPctPerMinionUpTo80Pct) is int perMinion and > 0)
             increased += Math.Min(80L, (long)perMinion * stats.GetValueOrDefault(Stat.NumberOfActiveMinions));
@@ -105,8 +116,12 @@ public static partial class Game
         }
         if (player.Character.Name is null) return;
         var stats = CharacterPlayerStats(player);
-        player.Rage.EnemyHit(ProjectileWorldTime(player), RageStats.Inputs(player, name => RageStat(stats, name)),
-            AreaRng(player).Next(100), soulGainPrevention: RageStat(stats, Stat.HasSoulGainPrevention) != 0);
+        var inputs = RageStats.Inputs(player, name => RageStat(stats, name));
+        double now = ProjectileWorldTime(player);
+        int before = player.Rage.Read(now, inputs).Effective;
+        player.Rage.EnemyHit(now, inputs, AreaRng(player).Next(100), soulGainPrevention: RageStat(stats, Stat.HasSoulGainPrevention) != 0);
+        if (RageStat(stats, Stat.ArmourPlusPctPerRage) != 0 && player.Rage.Read(now, inputs).Effective != before)
+            player.Pools = PoolsFor(player, player.Pools.Level);
     }
 
     public static void ClearRageOnDeath(Player player)
@@ -160,12 +175,15 @@ public static partial class Game
             && (player.SentRage is not { } sent || sent.Maximum == 0 || sent.Current < sent.Maximum))
             LoyaltyMaxRageLocked(player, stats);
         if (player.SentRage == value && player.SentVaalPrevention == prevention) return [];
-        if (RageStat(stats, Stat.MovementSpeedPlusPctPer5Rage) != 0
-            && (player.SentRage?.Current ?? 0) / 5 != value.Current / 5)
+        bool speedChanged = RageStat(stats, Stat.MovementSpeedPlusPctPer5Rage) != 0
+            && (player.SentRage?.Effective ?? 0) / 5 != value.Effective / 5;
+        bool armourChanged = RageStat(stats, Stat.ArmourPlusPctPerRage) != 0
+            && (player.SentRage?.Effective ?? 0) != value.Effective;
+        if (speedChanged || armourChanged)
         {
-            // Update the predictive walk estimate now. Lockstep applies the same value with its stat frame.
+            // Update pools so both incoming-hit armour and panel stats follow the new Rage; update predictive walk speed too.
             player.Pools = PoolsFor(player, player.Pools.Level);
-            player.ApplyMovementSpeedAt(AreaTime(player));
+            if (speedChanged) player.ApplyMovementSpeedAt(AreaTime(player));
             stats = CharacterPlayerStats(player);
         }
         var bytes = new List<byte>();
@@ -194,13 +212,16 @@ public static partial class Game
         InventoryItem[] Equipment, Dictionary<string, CharacterSaves.SavedCosmetic> Cosmetics,
         CharacterStats.Pools Pools, uint Life, bool LockstepClient)
     {
+        public string Stance { get; init; } = StanceCatalog.BloodSelection;
+
         public static SkillSnapshotInputs Capture(Player player, IReadOnlyDictionary<uint, int> stats) =>
             new(new Dictionary<uint, int>(stats), [.. ItemsOf(player).EquipmentSnapshot().Select(e => e.Item)],
-                new(CharacterSaves.SkillCosmetics(CharacterName(player))), player.Pools, player.PlayerLife, player.Connection.LockstepClient);
+                new(CharacterSaves.SkillCosmetics(CharacterName(player))), player.Pools, player.PlayerLife, player.Connection.LockstepClient)
+            { Stance = player.Stance };
 
         public bool Matches(Player player, IReadOnlyDictionary<uint, int> stats)
         {
-            if (LockstepClient != player.Connection.LockstepClient || Pools != player.Pools || Life != player.PlayerLife || Stats.Count != stats.Count
+            if (LockstepClient != player.Connection.LockstepClient || Stance != player.Stance || Pools != player.Pools || Life != player.PlayerLife || Stats.Count != stats.Count
                 || Stats.Any(kv => !stats.TryGetValue(kv.Key, out int value) || value != kv.Value)) return false;
             var equipment = ItemsOf(player).EquipmentSnapshot().Select(e => e.Item).ToArray();
             if (equipment.Length != Equipment.Length) return false;

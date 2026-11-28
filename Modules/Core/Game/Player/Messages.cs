@@ -1089,6 +1089,7 @@ public static partial class Game
                     // Waypoint travel: next to the destination's waypoint instead of the area's spawn. A generated area's
                     // waypoint is only known from the walk-map recorder's capture for this seed (live.ps1 -Walkmaps).
                     // Back through a town portal: where the portal stands (OpenTownPortal).
+                    if (player.ArriveAt is null) ClearLocalGateCheckpoint(player);
                     var (arrivalLayout, arrivalNote) = ArrivalLayout(player);
                     if (!ReferenceEquals(arrivalLayout, player.Layout)) player.Use(arrivalLayout);
                     if (arrivalNote is not null) Console.WriteLine($"[gateway] {player.Connection.Remote} {arrivalNote}");

@@ -31,6 +31,66 @@ internal static class CampaignBossHelpers
         public bool Locked;
     }
 
+    public sealed record ArenaMarker(uint Id, string Key, string Type, int X, int Y, float Rotation, float? Z);
+
+    /// <summary>Registers serializable arena marker placements (e.g. <c>TeleportMarkerSerialized1..4</c>,
+    /// <c>AbberathJumpOut</c>) into <see cref="InstanceWorld.SceneObjects"/> under <paramref name="keyPrefix"/> so
+    /// native entity-targeted client actions (<c>ActionType 724 ArakaaliHide</c>, <c>ActionType 704 AbberathHide</c>)
+    /// receive real <c>Positioned</c> target entities. Idempotent across re-entry and hot-reload.</summary>
+    public static List<ArenaMarker> RegisterSceneMarkers(InstanceState instance, string keyPrefix,
+        IEnumerable<GlyphQuest.Placement> placements)
+    {
+        List<ArenaMarker> result = [];
+        HashSet<string> seen = new(StringComparer.Ordinal);
+        foreach (var p in placements)
+        {
+            string key = $"{keyPrefix}{p.Type}:{p.X},{p.Y}";
+            if (!seen.Add(key)) continue;
+            if (instance.World.SceneObjects.TryGetValue(key, out var existing))
+            {
+                result.Add(new(existing.Id, key, existing.Type, existing.Object.GridX, existing.Object.GridY,
+                    existing.Object.Rotation, existing.Object.Height));
+                continue;
+            }
+            if (QuestObjectTypes.Find(p.Type) is not { } info || !QuestObject.CanSerialize(info.Components))
+                continue;
+            string? model = info.OwnModel ? null : (string.IsNullOrEmpty(p.Model) ? info.Model : p.Model);
+            uint id = instance.World.TakeObjectId();
+            var obj = new QuestObject(p.X, p.Y, info.Components, p.Rotation, p.Z, model);
+            instance.World.SceneObjects[key] = (id, p.Type, obj);
+            result.Add(new(id, key, p.Type, p.X, p.Y, p.Rotation, p.Z));
+        }
+        return result;
+    }
+
+    /// <summary>Sends <c>CreateObject</c> (with wake + birth await) for any marker not yet present in the area's
+    /// <c>Scenes</c> set, ensuring every observer has the marker entity before an action targets its object id.</summary>
+    public static async Task<bool> BindSceneMarkers(Player player, IEnumerable<ArenaMarker> markers, string? log = null)
+    {
+        bool allBound = true;
+        foreach (var marker in markers)
+        {
+            // Area.Objects survives Game hot-reload while module-local Scenes does not; avoid re-sending CreateObject.
+            if (Scenes(player).Contains(marker.Id) || player.Area.Objects.Has(marker.Id))
+            {
+                Scenes(player).Add(marker.Id);
+                continue;
+            }
+            if (!player.Instance.World.SceneObjects.TryGetValue(marker.Key, out var entry))
+            {
+                allBound = false;
+                continue;
+            }
+            if (await SendWorldCreate(player, entry.Id,
+                () => InstanceEntities.CreateObject(entry.Id, InstanceEntities.ObjectTypeHash(entry.Type), entry.Object.Blob()),
+                log, wake: true))
+                Scenes(player).Add(entry.Id);
+            else
+                allBound = false;
+        }
+        return allBound;
+    }
+
     public static bool Alive(SpawnedMonster? m) => m is { Dead: false, Life: > 0 };
 
     public static double Distance((int X, int Y) a, (int X, int Y) b)
@@ -398,12 +458,18 @@ internal static class CampaignBossHelpers
             if (player.DoorBarriers.Remove(gate.Id)) player.UpdateBarrier();
             return;
         }
-        player.SetBlocker(gate.Id, gate.X, gate.Y, gate.Size);
         var barrier = GateBarrierCells(player, gate);
         if (barrier.Count > 0)
         {
+            // CreateGate marks gates with blocksNoWalker = true, so client collision uses the TriggerableBlockage hull
+            // cells alone rather than a Positioned square blocker.
+            player.RemoveBlocker(gate.Id);
             player.DoorBarriers[gate.Id] = barrier;
             player.UpdateBarrier();
+        }
+        else
+        {
+            player.SetBlocker(gate.Id, gate.X, gate.Y, gate.Size);
         }
     }
 }

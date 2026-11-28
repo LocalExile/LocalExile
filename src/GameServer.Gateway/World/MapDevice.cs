@@ -129,6 +129,9 @@ public sealed class MapDevice
             .Select(r => _worldAreas[r.WorldArea]!.Hash16)];
     }
 
+    /// <summary>The portal variation (0x8f Index) of the recipe that opens the WorldAreas row; 0 when it has none.</summary>
+    public ushort RecipePortalVariation(int worldArea) => _runs.PortalVariationOfArea(worldArea);
+
     /// <summary>Maps.dat: each map's BaseItemTypes row, by its HASH32 (<paramref name="hashOfRow"/>), to its regular area.
     /// Empty when the tables are missing.</summary>
     public static MapDevice Load(string folder, Func<int, uint?> hashOfRow, ItemCatalog? catalog = null)
@@ -261,6 +264,9 @@ public sealed class MapDevice
         /// <summary>AtlasPrimordialBossOptions selection from C→S 0xd8/0x297 (0 none, 1 Maven, 2 Eater, 3 Exarch).</summary>
         public byte BossOption { get; init; }
 
+        /// <summary>The recipe's MicrotransactionPortalVariations Index its portals are drawn with (0: the owner's cosmetic).</summary>
+        public ushort PortalVariation { get; init; }
+
         /// <summary>Pantheon soul to capture when a Divine Vessel was placed with a matching map.</summary>
         public PantheonCatalog.Soul? PantheonSoul { get; init; }
 
@@ -301,7 +307,7 @@ public sealed class MapDevice
             && !string.Equals(earlyRecipe.Id, "MaligaroMap", StringComparison.Ordinal)
             && AreaOfWorld(earlyRecipe) is { } earlyArea)
             return new Opening(earlyArea, mods is null ? MapMods.None : _runs.OfRecipe(earlyRecipe, mods),
-                slots.Count > 0 ? slots[0].BaseRow : 0);
+                slots.Count > 0 ? slots[0].BaseRow : 0) { PortalVariation = earlyRecipe.PortalVariation };
         if (slots.FirstOrDefault(s => !AcceptsClass(s.Class) && !s.IsMap && s.Class.Length > 0 && !AcceptsItem(s.TypeHash, s.Class, player)) is { Class: not null } wrong)
         {
             why = $"{wrong.Name} cannot be used in the Map Device: only maps and map fragments can.";
@@ -367,7 +373,7 @@ public sealed class MapDevice
         }
         if (_runs.Match([.. slots.Select(s => s.BaseRow)]) is { } recipe && AreaOfWorld(recipe) is { } recipeArea)
             return new Opening(recipeArea, mods is null ? MapMods.None : _runs.OfRecipe(recipe, mods),
-                slots.Count > 0 ? slots[0].BaseRow : 0);
+                slots.Count > 0 ? slots[0].BaseRow : 0) { PortalVariation = recipe.PortalVariation };
         why = maps.Count == 0 && slots.Count > 0
             ? "These items do not open an area."
             : "Put a map into the Map Device first.";
@@ -393,6 +399,8 @@ public sealed class MapDevice
         public bool EntryPending { get; init; }
         public int PortalsLeft => Left.Count;
         public Origin? ReturnTo { get; init; }
+        /// <summary>The recipe's portal variation (<see cref="Opening.PortalVariation"/>); 0 draws the owner's cosmetic.</summary>
+        public ushort PortalVariation { get; init; }
         /// <summary>The device's exact source instance and arrival cell, retained independently of return routing.</summary>
         public Origin? Entrance { get; init; }
         /// <summary>Selected AtlasPrimordialBossOptions value (0 none, 1 Maven, 2 Eater of Worlds, 3 Searing Exarch).</summary>
@@ -416,6 +424,7 @@ public sealed class MapDevice
         {
             Atlas = map.Area.UsesAtlas,
             BossOption = map.BossOption,
+            PortalVariation = map.PortalVariation,
             PantheonSoul = map.PantheonSoul,
             ContentData = map.ContentData,
         };
@@ -423,6 +432,9 @@ public sealed class MapDevice
         /// <summary>The run is an Atlas map: the atlas tree, the tier block and the device stats apply. False for a run a
         /// module starts with its own mods (only those mods' stats apply).</summary>
         public bool Atlas { get; init; } = true;
+
+        /// <summary>The recipe's portal variation (<see cref="Opening.PortalVariation"/>); 0 draws the owner's cosmetic.</summary>
+        public ushort PortalVariation { get; init; }
 
         /// <summary>Selected AtlasPrimordialBossOptions value (0 none, 1 Maven, 2 Eater of Worlds, 3 Searing Exarch).</summary>
         public byte BossOption { get; init; }
@@ -466,6 +478,12 @@ public sealed class MapDevice
     /// <summary>Opens a map with the requested number of portal places, up to the device's capacity.</summary>
     public static OpenMap Activate(string character, MapArea area, MapMods? mods, int itemRow, Origin? returnTo,
         Origin? entrance, byte bossOption, PantheonCatalog.Soul? pantheonSoul, int portalCount,
+        IReadOnlyDictionary<string, string>? contentData = null) =>
+        Activate(character, area, mods, itemRow, returnTo, entrance, bossOption, pantheonSoul, portalCount, 0, contentData);
+
+    /// <summary>As above, with the portal variation the run's portals are drawn with (0: the owner's cosmetic).</summary>
+    public static OpenMap Activate(string character, MapArea area, MapMods? mods, int itemRow, Origin? returnTo,
+        Origin? entrance, byte bossOption, PantheonCatalog.Soul? pantheonSoul, int portalCount, ushort portalVariation,
         IReadOnlyDictionary<string, string>? contentData = null)
     {
         lock (Open)
@@ -476,7 +494,8 @@ public sealed class MapDevice
                     Open.TryRemove(other);
             return Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, Math.Clamp(portalCount, 1, PortalCount))],
                 mods ?? MapMods.None, itemRow)
-                { Owner = character, ReturnTo = returnTo, Entrance = entrance, BossOption = bossOption, PantheonSoul = pantheonSoul, ContentData = contentData };
+                { Owner = character, ReturnTo = returnTo, Entrance = entrance, BossOption = bossOption, PantheonSoul = pantheonSoul,
+                    PortalVariation = portalVariation, ContentData = contentData };
         }
     }
 

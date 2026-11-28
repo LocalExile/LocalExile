@@ -28,6 +28,8 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     string? Model = null, byte TransitionState = 1, bool Opened = false, bool Blocked = false, ushort Team = 0)
 {
     public bool Awake { get; init; }
+    /// <summary>Uniform Positioned scale (default 1; e.g. 1.2 for Deepwater flame barriers from their room .arm lines).</summary>
+    public float Scale { get; init; } = 1;
     public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     /// <summary>The Chest component's other flag bits (bit 0 is <see cref="Opened"/>): bit 1 makes the client play the
     /// object's warning sound, its own stat checks deciding (a strongbox's <c>chest_play_warning_sound</c>).</summary>
@@ -95,13 +97,20 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
             w.U32(hash).U8(0).U8(1).U8((byte)EntityVariableType.Float).F32(value);
         foreach (var variable in Variables)
             variable.Write(w);
+        bool hasBlockage = Components.Contains("TriggerableBlockage");
         foreach (string c in Components)
         {
             switch (c)
             {
                 // A placement without a fixed height (AreaObjects' NaN) has none: a NaN height hides the object
                 // (live 2026-11-19: The Sovereign's ChartLocker was neither drawn nor targetable).
-                case "Positioned": w.Positioned(GridX, GridY, Rotation, Team, fixedHeight: Height is float z && !float.IsNaN(z) ? BlobWriter.FixedHeight(z) : null); break;
+                // Objects with TriggerableBlockage must use dynamic Positioned + blocksNoWalker so the client's
+                // static object pass (0x141d8bd20) never permanently stamps their Hull when opened or unblocked.
+                case "Positioned":
+                    w.Positioned(GridX, GridY, Rotation, Team, scale: Scale,
+                        fixedHeight: Height is float z && !float.IsNaN(z) ? BlobWriter.FixedHeight(z) : null,
+                        dynamic: hasBlockage, blocksNoWalker: hasBlockage);
+                    break;
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
                 case "Transitionable": w.U8((byte)(Math.Max((byte)1, TransitionState) & 0x7f)); break;
                 case "Chest": w.U8((byte)((Opened ? 1 : 0) | (ChestFlags & 0xfe))).U8(0).U8(0); break;

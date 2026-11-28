@@ -41,6 +41,9 @@ public sealed class PlayerMinions
         public bool SharesWithAllies { get; init; }
         public IReadOnlyList<uint>? BuffValues { get; init; }
         public bool AffectsSource { get; init; } = true;
+        /// <summary>The emitter's own increased aura effect % (e.g. Generosity + gear) kept separate from <see cref="Stats"/>
+        /// so owner-granted bonuses (such as Luminary's Bestowed Knighthood) add linearly before scaling.</summary>
+        public int OwnAuraEffectPct { get; init; }
     }
 
     /// <summary>A death explosion: this percent of the minion's maximum life as this type of damage to the hostile monsters

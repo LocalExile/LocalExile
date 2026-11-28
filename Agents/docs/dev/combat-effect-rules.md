@@ -85,7 +85,8 @@ blocked. A successful run reports zero failed tests. To compare the original C# 
 Marshmellion's [proposal #1375](https://github.com/LocalExile/LocalExile/pull/1375) supplied the composable rule format.
 [Pilot #1418](https://github.com/LocalExile/LocalExile/pull/1418) supplied the three initial behaviors and tests.
 The implementation on `main` adds supported combinations as mechanics need them and keeps effect execution in the
-existing combat handlers. The draft's wider stat catalog, always-on modifiers, and area effects remain separate work.
+existing combat handlers. The draft's wider stat catalog, always-on modifiers, and area effects remain separate work;
+[the design](effect-rules-design.md) says how they fit.
 
 | Merged work | Implementation commits |
 | --- | --- |

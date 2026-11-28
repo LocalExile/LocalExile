@@ -146,8 +146,14 @@ public static partial class Game
                 }
                 else if (ShockNovaEffect(effect))
                     ScheduleShockNova(gem.Effect, gem.Level, gem.Quality, SpellCentre(Player, gem.Effect, from, aim), aim, source.Stats, caster, CurrentSource,
-                        pulse => Hit(pulse.Centre, pulse.Radius, pulse.DamageMore,
-                            targetFilter: (_, at) => pulse.OutsideInnerRadius(at), centred: true, extraShockChance: pulse.ExtraShockChance));
+                        pulse =>
+                        {
+                            Hit(pulse.Centre, pulse.Radius, pulse.DamageMore,
+                                targetFilter: (_, at) => pulse.OutsideInnerRadius(at), centred: true, extraShockChance: pulse.ExtraShockChance);
+                            // Triggered Shock Nova has no cast clip; draw circle + donut once on the full nova pulse (not the ring contact or hand-casts).
+                            if (sacrifice.Triggered && pulse.InnerRadius == 0)
+                                Enqueue(() => CurrentSource() ? ShowTriggeredShockNova(Player, gem.Gem, pulse.Centre, pulse.Radius) : Task.CompletedTask);
+                        });
                 else if (effect == ArcSurgingEffect)
                 {
                     int distance = Own(Stat.ArcChainDistance);

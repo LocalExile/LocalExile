@@ -43,6 +43,17 @@ public sealed class VendorsModule : IModule
                 KiracProgress.Complete(PersonalStashOf(player),map.Area.Id,map.Area.Tier);
             return Task.CompletedTask;
         });
+        GameEvents.Kill.Add(module.Manifest.Id, kill =>
+        {
+            if (kill.PlayerKill || kill.Monster.Rarity != GameServer.Core.Protocol.Instance.MonsterRarity.Unique) return;
+            var player = kill.Player;
+            if (global::Game.MapRunOf(player) is { Atlas: true } map && map.Owner.Equals(CharacterName(player), StringComparison.OrdinalIgnoreCase))
+                kill.Later(() =>
+                {
+                    KiracProgress.Complete(PersonalStashOf(player), map.Area.Id, map.Area.Tier);
+                    return Task.CompletedTask;
+                });
+        });
         GameEvents.NpcOption.Add(module.Manifest.Id, async talk =>
         {
             var player = talk.Player;

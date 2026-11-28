@@ -3,6 +3,9 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
+    // Above any item, gem or jewel attribute requirement.
+    const int IgnoredAttributeRequirement = 10000;
+
     // The tail of the player's stats (PlayerStatSteps.cs: TailPanels, TailOffence, TailCritical): the character panel's
     // derived rows, the default attack's hit and ailment rows, accuracy, critical and off-hand rows. Each stage reads only
     // StatSnapshotTailInputs: the stats before it and the state read into the inputs.
@@ -161,6 +164,14 @@ public static partial class Game
                 stats[lifeRecovery] = 0;
             // Requirement checks read virtual_*_for_requirements (0x3d1b-0x3d1d, 0x1421f3a40); default them to the
             // resolved attributes without clobbering pre-existing overrides.
+            // Supreme Ostentation (keystone_supreme_prodigy) ignores attribute requirements: the client checks only these
+            // stats, so publish a value no requirement reaches (the server's own checks read the keystone directly).
+            if (Get(Stat.KeystoneSupremeProdigy) != 0)
+            {
+                stats[Stat.VirtualStrengthForRequirements] = IgnoredAttributeRequirement;
+                stats[Stat.VirtualDexterityForRequirements] = IgnoredAttributeRequirement;
+                stats[Stat.VirtualIntelligenceForRequirements] = IgnoredAttributeRequirement;
+            }
             stats.TryAdd(Stat.VirtualStrengthForRequirements, Get(Stat.Strength));
             stats.TryAdd(Stat.VirtualDexterityForRequirements, Get(Stat.Dexterity));
             stats.TryAdd(Stat.VirtualIntelligenceForRequirements, Get(Stat.Intelligence));

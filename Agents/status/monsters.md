@@ -203,8 +203,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [league encounters](../docs/game/league-encounters.md).
 - Bestiary: maps roll Einhar's mission from their master-mission stats; red and yellow beasts, captured at the kill.
 - Abyss: pit, crack arms, wave, reward chest per instance. [Docs](../docs/game/league-encounters.md)
-- Mercenaries: a map area may hold one to talk to, duel and hire.
-  The duel opponent fights with the skills its build lists (MercenaryBuilds, MercenarySkills), filtered by its level.
+- Mercenaries & Luminary: Act 3+ campaign and map encounters (`0xa1`/`0xa2`, `0x7b` `0x60`/`0x61`, `0x010c`), Take Item/Rucksack, Rematch Warrants, temporary recruits, persistent 3-slot permanent roster (`Mercenary1..3`), full `CanMercenaryEquipItem` validation, companion AI/auras/taunt/recoup/death/revive, and all Scion Luminary ascendancy passives (`Noble Blood`, `Oath of Fealty`, `Golden Glory`, `Loyal Bodyguard`, `Bestowed Knighthood`, `Legendary Arms` + unique-slot nodes). Verified live on 3.29.3d.
   Docs: [league encounters](../docs/game/league-encounters.md).
 - Ritual: maps and Act 2 campaign altars, waves, Tribute, Favour window, Vessels, Scarabs, Atlas, and Omens.
   Docs: [league encounters](../docs/game/league-encounters.md).
@@ -255,8 +254,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   A skill that declares a duration and a per-stack percentage but no stack count applies one stack: the blood-projectile
   and bonespire family (Greed's essence nova, Belly Totem, Breach, Pyramid, Vendigo) rows omit the count.
   Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
-  Arakaali's unsafe generic laser activators stay out; a dedicated controller supplies linked native turret rails.
-  Her Silk transition and stance-specific attacks run; corner travel, laser ordering and collision calibration remain.
+  Arakaali's unsafe generic laser activators and entity-targeted `ArakaaliHide` stay out of generic kits; her dedicated
+  controller supplies linked native turret rails, engagement-gated combat/relocation timers, and created
+  `TeleportMarkerSerialized1..4` scene objects for native `ArakaaliHide[6885]` corner travel (with server-hidden fallback).
   Campaign Yugul finishes his native entrance before generic AI, making him targetable on first entry as on reentry;
   his two mirror intervals hide the body until ten images die; pools chill, Fearful orbs chase and four native turrets
   fire piercing volleys with terminal bursts. Fearful magnitudes, orb escalation and aura radii remain calibrated.

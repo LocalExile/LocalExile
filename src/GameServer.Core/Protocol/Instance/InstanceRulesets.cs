@@ -28,6 +28,12 @@ public static class InstanceRulesets
     /// <c>atlas_primordial_influence_hud_display</c> (<c>0x140da2910</c>) via S→C 0x2c9 sub-id 0 (<c>0x141750170</c>).</summary>
     public const byte PrimordialInfluenceRulesetRow = 99;
 
+    /// <summary><c>Rulesets.dat</c> row 161 (<c>MercenaryEncounterRules</c>).</summary>
+    public const byte MercenaryEncounterRulesetRow = InstanceMercenaries.EncounterRulesetRow;
+
+    /// <summary><c>Rulesets.dat</c> row 162 (<c>MercenaryAreaRules</c>).</summary>
+    public const byte MercenaryAreaRulesetRow = InstanceMercenaries.AreaRulesetRow;
+
     /// <summary>One active Eldritch Altar mod in <see cref="PrimordialAltarHud"/>: its <c>Mods.dat</c> <c>HASH16</c>
     /// (u16 LE) followed by one signed <see cref="InstanceProtocol.CompactInt"/> per non-null stat on that row
     /// (read by <c>0x142436e50</c> + <c>0x141e4c7e0</c>).</summary>
