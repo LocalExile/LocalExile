@@ -137,6 +137,7 @@ public sealed class BreachHive
         var player = area.Player;
         if (player.Instance is not { } instance || Of(instance) is not null) return;
         var layout = player.Layout;
+        if (layout.Id is FortressAreaId or BossAreaId or MonasteryAreaId) return;
         if (!MapDevices.IsMapArea(layout.Hash) || layout.Walkable is null) return;
 
         var atlas = BreachAtlas.From(player);
@@ -145,8 +146,9 @@ public sealed class BreachHive
         bool skyHive = level?.Records.Any(r => r.FeatureRow == SkyHiveFeatureRow) == true;
         if (hiveRecord is null)
         {
-            // Only fall back to manual placement if map explicitly forced a ground Hive (not a Sky Fortress).
-            if (skyHive || atlas.HiveIsAlwaysSkyFortress || !(atlas.ContainsBreachHive || atlas.OnlyBreachHives))
+            // Only fall back to manual placement if map explicitly forced a ground Hive (not a Sky Fortress). Dimensional
+            // Foothold (OnlyBreachHives) only turns a Breach that rolled into a Hive (UnstableBreaches); it adds none.
+            if (skyHive || atlas.HiveIsAlwaysSkyFortress || !atlas.ContainsBreachHive)
                 return;
         }
 
