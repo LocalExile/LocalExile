@@ -904,13 +904,16 @@ public sealed partial class AbyssEncounter
         await CreateChest(player, state);
     }
 
-    /// <summary>The pit's minimap icon once the chest is there (AbyssChestActive).</summary>
+    /// <summary>The pit's minimap icon once the chest is there (AbyssChestActive, 1-based wire id).</summary>
     static async Task PitIcon(Player player, State state)
     {
         int icon = AbyssTables.ChestIconRow;
         if (icon >= 0)
+        {
+            int wire = icon + 1;
             await SendWorldRecord(player, state.Pit, InstanceEntities.ComponentUpdate(state.Pit,
-                Component(QuestObjectTypes.Find(AbyssTables.PitType), "MinimapIcon", 5), [0x01, (byte)icon, (byte)(icon >> 8)]), "0x02bc Abyss pit icon");
+                Component(QuestObjectTypes.Find(AbyssTables.PitType), "MinimapIcon", 5), [0x01, (byte)wire, (byte)(wire >> 8)]), "0x02bc Abyss pit icon");
+        }
     }
 
     static Task CreatePlinth(Player player, State state) =>
@@ -943,6 +946,9 @@ public sealed partial class AbyssEncounter
             "0x02bc Abyss chest magic properties");
         await SendWorldRecord(player, state.Chest, InstanceEntities.TransitionableUpdate(state.Chest, Component(info, "Transitionable", 8), AbyssTables.ChestOpenedState),
             "0x02bc Abyss chest opened");
+        if (state.Pit != 0)
+            await SendWorldRecord(player, state.Pit, InstanceEntities.HideMinimapIcon(state.Pit,
+                Component(QuestObjectTypes.Find(AbyssTables.PitType), "MinimapIcon", 5)), "0x02bc Abyss pit hide minimap icon");
     }
 
     static async Task Reward(Player player, State state)

@@ -161,7 +161,8 @@ public static class ExpeditionWire
     /// </summary>
     public static byte[]? Object(string type, (int X, int Y) cell, double rotation, byte level = 0,
         string? ao = null, byte animated = 0x00, byte interaction = 0x00, float scale = 0,
-        IReadOnlyList<ItemMod>? mods = null, IReadOnlyList<int>? stateValues = null, Beam? beam = null, byte[]? baseData = null)
+        IReadOnlyList<ItemMod>? mods = null, IReadOnlyList<int>? stateValues = null, Beam? beam = null, byte[]? baseData = null,
+        bool hideMinimapIcon = false)
     {
         var (components, states) = ExpeditionTables.ObjectType(type);
         if (components.Count == 0 || !components.All(Writable.Contains)) return null;
@@ -181,7 +182,7 @@ public static class ExpeditionWire
                     else w.U8(animated);
                     break;
                 case "InteractionAction": w.U8((byte)(interaction & ~0x04)); break; // u8 flags (bit 2 adds a u8 and a u16)
-                case "MinimapIcon": w.U8(0x00); break;
+                case "MinimapIcon": w.U8((byte)(hideMinimapIcon ? 0x06 : 0x00)); break;
                 // No stat pair, then the 9 bytes every Stats segment of an official create ends with: u32 0, f32 3.0, u8 1
                 // (all 13 remnant and 24 chest creates).
                 case "Stats": w.U8(0x00).U32(0).F32(3.0f).U8(0x01); break;

@@ -155,20 +155,8 @@ internal static class DeepwaterEncounters
     public static async Task Enter(IModuleContext module, Player player)
     {
         if (player.Instance is not { } instance || player.Layout.Level is null) return;
-        Area? area;
-        if (!Areas.TryGetValue(instance, out area))
-        {
-            var planned = Plan(module, player);
-            if (planned.Count == 0) return;
-            lock (Areas)
-            {
-                if (!Areas.TryGetValue(instance, out area))
-                {
-                    area = Areas.GetOrCreateValue(instance);
-                    lock (area.Encounters) area.Encounters.AddRange(planned);
-                }
-            }
-        }
+        Area? area = EnsureArea(module, player, planIfMissing: true);
+        if (area is null) return;
         await area.Gate.WaitAsync();
         try
         {
@@ -181,7 +169,30 @@ internal static class DeepwaterEncounters
         finally { area.Gate.Release(); }
     }
 
-    sealed record Saved(EncounterKind Kind, int Index, Phase Phase, string[] Granted);
+    /// <summary>Gets the instance's encounter state, rehydrating live object IDs from <see cref="InstanceState.ContentState"/>
+    /// after a module hot-reload so already-spawned encounters remain interactive and proximity-triggered.</summary>
+    static Area? EnsureArea(IModuleContext module, Player player, bool planIfMissing = false)
+    {
+        if (player.Instance is not { } instance || player.Layout.Level is null) return null;
+        if (Areas.TryGetValue(instance, out var existing)) return existing;
+        bool hasSaved = instance.ContentState.ContainsKey(SaveKey);
+        if (!planIfMissing && !hasSaved) return null;
+        var planned = Plan(module, player);
+        if (planned.Count == 0) return null;
+        Area area;
+        lock (Areas)
+        {
+            if (!Areas.TryGetValue(instance, out area!))
+            {
+                area = Areas.GetOrCreateValue(instance);
+                lock (area.Encounters) area.Encounters.AddRange(planned);
+                if (!hasSaved) Keep(player, area);
+            }
+        }
+        return area;
+    }
+
+    sealed record Saved(EncounterKind Kind, int Index, Phase Phase, string[] Granted, uint Id = 0, uint[]? PartIds = null);
 
     static List<Encounter> Plan(IModuleContext module, Player player)
     {
@@ -243,6 +254,10 @@ internal static class DeepwaterEncounters
                     {
                         e.Phase = s.Phase == Phase.Fighting ? Phase.Idle : s.Phase;
                         e.Granted.UnionWith(s.Granted);
+                        if (s.Id != 0) e.Id = s.Id;
+                        if (s.PartIds is { Length: > 0 } partIds)
+                            for (int pi = 0; pi < e.Parts.Count && pi < partIds.Length; pi++)
+                                if (partIds[pi] != 0) e.Parts[pi].Id = partIds[pi];
                     }
             }
             catch (JsonException ex) { module.Log($"Allflame encounters: the saved state is not read ({ex.Message})"); }
@@ -253,7 +268,8 @@ internal static class DeepwaterEncounters
     }
 
     static void Keep(Player player, Area area) =>
-        player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Encounters.Select(e => new Saved(e.Kind, e.Index, e.Phase, [.. e.Granted])).ToList());
+        player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Encounters.Select(e =>
+            new Saved(e.Kind, e.Index, e.Phase, [.. e.Granted], e.Id, [.. e.Parts.Select(p => p.Id)])).ToList());
 
     // ---- the objects ----
 
@@ -409,7 +425,7 @@ internal static class DeepwaterEncounters
     /// idle locked chest in reach) it costs a table lookup and a walk over the area's few encounters, with no allocation.</summary>
     public static async Task Tick(IModuleContext module, Player player)
     {
-        if (player.Instance is not { } instance || !Areas.TryGetValue(instance, out var area) || player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || EnsureArea(module, player) is not { } area) return;
         (int X, int Y)? at = null;
         int radius = 0;
         List<Encounter>? due = null;
@@ -453,11 +469,13 @@ internal static class DeepwaterEncounters
     /// cleared chest opens; anything else ends the action. False when the object is no encounter's chest.</summary>
     public static async Task<bool> Use(IModuleContext module, Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        if (player.Instance is not { } instance || !Areas.TryGetValue(instance, out var area)) return false;
+        if (EnsureArea(module, player) is not { } area) return false;
         Encounter? e;
         lock (area.Encounters) e = area.Encounters.FirstOrDefault(x => x.Id == use.TargetId);
         if (e is null) return false;
-        bool usable = e.Phase == Phase.Ready || e.Phase == Phase.Idle && e.Kind == EncounterKind.CoralNest;
+        // All three encounter chests are targetable when Idle (spawning=0); clicking an Idle Brinerot Plunder or
+        // Cursed Treasure starts the ambush just like proximity does, and clicking a Ready chest opens it.
+        bool usable = e.Phase is Phase.Ready or Phase.Idle;
         if (!usable || player.PlayerLife == 0 || player.Closed || player.LeavingArea || QuestObjectTypes.Find(e.Type) is not { } info)
         {
             await DeepwaterLoot.EndAction(player);
@@ -475,7 +493,7 @@ internal static class DeepwaterEncounters
         {
             if (!PlayerActionCurrent(player, action) || player.PlayerLife == 0
                 || !GameServer.Core.World.PlayerWalk.InWalkUpRange(player.Walk.Position(AreaTime(player)), (e.X, e.Y), reach)) return true;
-            if (e.Phase == Phase.Idle && e.Kind == EncounterKind.CoralNest) await Start(module, player, area, e);
+            if (e.Phase == Phase.Idle) await Start(module, player, area, e);
             else if (e.Phase == Phase.Ready) await Open(module, player, area, e);
         }
         finally
@@ -490,7 +508,7 @@ internal static class DeepwaterEncounters
     /// and an idle Coral Nest starts (G).</summary>
     public static async Task OpenNear(IModuleContext module, Player player, (int X, int Y) at, int radius)
     {
-        if (player.Instance is not { } instance || !Areas.TryGetValue(instance, out var area)) return;
+        if (EnsureArea(module, player) is not { } area) return;
         await area.Gate.WaitAsync();
         try
         {
@@ -514,9 +532,15 @@ internal static class DeepwaterEncounters
         e.Id = player.TakeObjectId();
         e.Granted.Add(CharacterName(player));
         Keep(player, area);
+        int miIdx = QuestObjectTypes.Find(e.Type)?.Components.ToList().IndexOf("MinimapIcon") ?? -1;
         foreach (var member in DeepwaterLoot.Members(player))
         {
             member.RemoveBlocker(was);
+            // Hide MinimapIcon before 0x02bd: DeepwaterCoral/CursedTreasure/BrinerotStores have MinimapIcons.__col3 == 0,
+            // so removing a still-visible entity detaches and permanently pins its icon on the minimap/tab map.
+            if (miIdx >= 0)
+                await global::Game.SendWorldRecord(PlayerOf(member), was, InstanceEntities.HideMinimapIcon(was, (byte)miIdx),
+                    $"0x02bc Allflame encounter 0x{was:x} hide minimap icon");
             await global::Game.SendWorldRemoval(PlayerOf(member), was);
             await Create(member, e.Type, e.Id, e.X, e.Y, e.Rotation, e.Model, ChestStates(e), true);
             foreach (var p in e.Parts) await SendStates(member, p.Type, p.Id, PartStates(e, p), "opened");

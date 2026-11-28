@@ -276,11 +276,19 @@ public sealed partial class MercenaryModule
         }
         if (found is uint entityId)
         {
+            int miIdx = -1;
+            if (player.Area.Monsters.TryGetValue(entityId, out var existing) && existing.Variety is { } ev)
+                miIdx = IndexOf(ev.ComponentsOrBase, "MinimapIcon");
+            else if (player.MinionOrigins.TryGetValue(entityId, out var origin))
+                miIdx = IndexOf(origin.Object.Components, "MinimapIcon");
             player.Area.Monsters.Remove(entityId);
             player.Instance?.World.Area.Monsters.Remove(entityId);
             player.MinionOrigins.TryRemove(entityId, out _);
             RemoveEntitySync(player, entityId);
             lock (player.Npcs) player.Npcs.Remove(entityId);
+            if (miIdx >= 0)
+                await SendWorldRecord(player, entityId, InstanceEntities.HideMinimapIcon(entityId, (byte)miIdx),
+                    $"0x02bc hide mercenary npc 0x{entityId:x} minimap icon (key {key})");
             await SendWorldRemoval(player, entityId, $"0x02bd remove mercenary npc 0x{entityId:x} (key {key})");
         }
     }

@@ -47,49 +47,53 @@ public static class CampaignChests
     static readonly RuleTable<InstanceState, Area> Areas = new();
     static readonly RuleTable<Player, HashSet<uint>> Presented = new();
 
+    // Ordinary campaign wooden/iron chests and biome containers. Never use CopperChest1/2/3, SilverChest1/2/3,
+    // GoldenChest1/2/3, CopperChestEpic3, or Chest23/24 as procedural standalones: those models are Labyrinth
+    // gauntlet/key troves and Delve/Betrayal reward chests (static room placements from .arm/.tmd still resolve
+    // through Catalog when authored by the map).
     static readonly Theme DefaultTheme = new(
         ["BarrelsCrates", "Baskets", "Pots", "BarrelsOld"],
-        ["Metadata/Chests/CopperChest1", "Metadata/Chests/CopperChest2", "Metadata/Chests/CopperChest3", "Metadata/Chests/Boulder1", "Metadata/Chests/Boulder2"]);
+        ["Metadata/Chests/Chest1v1", "Metadata/Chests/Chest1v2", "Metadata/Chests/Chest2v1", "Metadata/Chests/Chest3", "Metadata/Chests/Boulder1", "Metadata/Chests/Boulder2"]);
 
     static readonly Theme ShoreTheme = new(
         ["Baskets", "BasketsOld", "BarrelsOld", "CairnsSmall"],
-        ["Metadata/Chests/Boulder1", "Metadata/Chests/Boulder2", "Metadata/Chests/Boulder3", "Metadata/Chests/CopperChest1", "Metadata/Chests/CopperChest2", "Metadata/Chests/BonePile1"]);
+        ["Metadata/Chests/Boulder1", "Metadata/Chests/Boulder2", "Metadata/Chests/Boulder3", "Metadata/Chests/Chest1v1", "Metadata/Chests/Chest1v2", "Metadata/Chests/Chest2v1", "Metadata/Chests/BonePile1"]);
 
     static readonly Theme CavernTheme = new(
         ["BarrelsCratesOld", "CairnsSmall", "BarrelsSmallOld", "InfestationEggsGreenSmall"],
-        ["Metadata/Chests/Boulder1", "Metadata/Chests/Boulder2", "Metadata/Chests/CopperChest1", "Metadata/Chests/CopperChest2", "Metadata/Chests/CopperChest3", "Metadata/Chests/BonePile1"]);
+        ["Metadata/Chests/Boulder1", "Metadata/Chests/Boulder2", "Metadata/Chests/Chest2v1", "Metadata/Chests/Chest2v2", "Metadata/Chests/Chest5v1", "Metadata/Chests/BonePile1"]);
 
     static readonly Theme PrisonTheme = new(
         ["BarrelsCrates", "Barrels", "BarrelsSmall"],
-        ["Metadata/Chests/Crate1", "Metadata/Chests/Crate2", "Metadata/Chests/CopperChest1", "Metadata/Chests/CopperChest2", "Metadata/Chests/SilverChest1"]);
+        ["Metadata/Chests/Crate1", "Metadata/Chests/Crate2", "Metadata/Chests/Chest3", "Metadata/Chests/Chest4", "Metadata/Chests/Chest19"]);
 
     static readonly Theme ForestTheme = new(
         ["Baskets", "CairnsSmall", "BarrelsOld"],
-        ["Metadata/Chests/Boulder1", "Metadata/Chests/Boulder2", "Metadata/Chests/TribalChest1", "Metadata/Chests/TribalChest2", "Metadata/Chests/CopperChest1"]);
+        ["Metadata/Chests/Boulder1", "Metadata/Chests/Boulder2", "Metadata/Chests/TribalChest1", "Metadata/Chests/TribalChest2", "Metadata/Chests/Chest1v1", "Metadata/Chests/Chest5v1"]);
 
     static readonly Theme CryptTheme = new(
         ["Urns", "Pots", "VaseOldCluster"],
-        ["Metadata/Chests/ChurchSarcophagus1", "Metadata/Chests/ChurchSarcophagus2", "Metadata/Chests/Sarcophagus1", "Metadata/Chests/SilverChest1", "Metadata/Chests/SilverChest2", "Metadata/Chests/GoldenChest1"]);
+        ["Metadata/Chests/ChurchSarcophagus1", "Metadata/Chests/ChurchSarcophagus2", "Metadata/Chests/Sarcophagus1", "Metadata/Chests/Chest6", "Metadata/Chests/Chest7", "Metadata/Chests/Chest19", "Metadata/Chests/Chest20"]);
 
     static readonly Theme VaalTheme = new(
         ["GoldPots", "DarkPots", "Urns", "GoldPotsBroken"],
-        ["Metadata/Chests/VaalBoneChest1", "Metadata/Chests/Sarcophagus1", "Metadata/Chests/GoldenChest1", "Metadata/Chests/GoldenChest2", "Metadata/Chests/SilverChest1"]);
+        ["Metadata/Chests/VaalBoneChest1", "Metadata/Chests/Sarcophagus1", "Metadata/Chests/Chest9", "Metadata/Chests/Chest10", "Metadata/Chests/Chest12"]);
 
     static readonly Theme CityTheme = new(
         ["BarrelsCrates", "VaseCeramicCluster", "VaseNewCluster", "Pots", "VaseOrnateCluster"],
-        ["Metadata/Chests/CityBoulder1", "Metadata/Chests/CityBoulder2", "Metadata/Chests/CopperChest1", "Metadata/Chests/SilverChest1", "Metadata/Chests/SilverChest2", "Metadata/Chests/CopperChestEpic3"]);
+        ["Metadata/Chests/CityBoulder1", "Metadata/Chests/CityBoulder2", "Metadata/Chests/Chest19", "Metadata/Chests/Chest20", "Metadata/Chests/Chest21", "Metadata/Chests/Chest25"]);
 
     static readonly Theme SewerTheme = new(
         ["BarrelsOld", "InfestationEggsPurpleSmall", "FungalBloomCluster", "BarrelsSmallOld"],
-        ["Metadata/Chests/BonePile1", "Metadata/Chests/CopperChest1", "Metadata/Chests/CopperChest2", "Metadata/Chests/Boulder1"]);
+        ["Metadata/Chests/BonePile1", "Metadata/Chests/Crate1", "Metadata/Chests/Chest2v2", "Metadata/Chests/Chest4", "Metadata/Chests/Boulder1"]);
 
     static readonly Theme TempleOrnateTheme = new(
         ["GoldPots", "SilverPots", "VaseOrnateCluster", "VaseMetalCluster"],
-        ["Metadata/Chests/SilverChest1", "Metadata/Chests/SilverChest2", "Metadata/Chests/SilverChest3", "Metadata/Chests/GoldenChest1", "Metadata/Chests/GoldenChest2", "Metadata/Chests/GoldenChest3", "Metadata/Chests/TemplarChest01", "Metadata/Chests/TemplarChest02"]);
+        ["Metadata/Chests/Chest14", "Metadata/Chests/Chest15", "Metadata/Chests/Chest26", "Metadata/Chests/Chest27", "Metadata/Chests/TemplarChest01", "Metadata/Chests/TemplarChest02"]);
 
     static readonly Theme DesertTheme = new(
         ["MarakethUrns", "CairnsSmall", "Urns", "BasketsOld"],
-        ["Metadata/Chests/BonePile1", "Metadata/Chests/TribalChest1", "Metadata/Chests/TribalChest2", "Metadata/Chests/TribalChest3", "Metadata/Chests/CopperChest1", "Metadata/Chests/CopperChest2", "Metadata/Chests/AmphoraChest1", "Metadata/Chests/AmphoraChest2"]);
+        ["Metadata/Chests/BonePile1", "Metadata/Chests/TribalChest1", "Metadata/Chests/TribalChest2", "Metadata/Chests/TribalChest3", "Metadata/Chests/Chest5v2", "Metadata/Chests/AmphoraChest1", "Metadata/Chests/AmphoraChest2"]);
 
     /// <summary>True when <paramref name="areaId"/> resolved to an explicit biome theme rather than <see cref="DefaultTheme"/>.</summary>
     public static bool HasSpecificTheme(string areaId) =>
@@ -263,10 +267,9 @@ public static class CampaignChests
 
     static async Task EnsureAndPresent(Player player)
     {
-        if (player.Instance is null || InTown(player)
-            || HideoutCatalog.ByArea(player.Layout.Hash) is not null
+        if (player.Instance is null || IsNonCombatHub(player)
             || player.Layout.Walkable is null
-            || player.Layout.Id == TutorialObjects.Strand
+            || !IsCampaignCombatArea(player.Layout.Id)
             || MapDevices.IsMapArea(player.Layout.Hash)
             || LabyrinthTrials.InLabyrinth(player.Layout.Id))
             return;
@@ -326,6 +329,11 @@ public static class CampaignChests
         }
         var transitions = layout.AreaTransitions.Select(t => (X: t.Transition.GridX, Y: t.Transition.GridY)).ToList();
         if (layout.Waypoint is { } wp) transitions.Add((wp.GridX, wp.GridY));
+        lock (player.Npcs)
+            foreach (var npc in player.Npcs.Values)
+                transitions.Add((npc.X, npc.Y));
+        if (StashCatalog.In(layout.Hash) is { } stash)
+            transitions.Add((stash.X, stash.Y));
         var arrival = (X: layout.SpawnX, Y: layout.SpawnY);
         static bool Near((int X, int Y) a, (int X, int Y) b, int d) =>
             (long)(a.X - b.X) * (a.X - b.X) + (long)(a.Y - b.Y) * (a.Y - b.Y) < (long)d * d;

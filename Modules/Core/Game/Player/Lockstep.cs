@@ -189,6 +189,7 @@ public static partial class Game
     // reported cell whatever the distance (0x141e95080), which is what keeps the two copies together.
     public static async Task StartLockstepActions(Player player, double frameStart)
     {
+        using var frameStats = new PlayerStatScope(player);
         (int X, int Y) target = default, from = default;
         int action = 0;
         ushort sequence = 0, ended = 0;

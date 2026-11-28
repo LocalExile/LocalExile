@@ -193,9 +193,11 @@ each object once, where the client has it.
   The
   blob writes Positioned, Animated, Transitionable, Chest, Stats, ObjectMagicProperties, TriggerableBlockage, NPC,
   InteractionAction and MinimapIcon as the traced objects do; it reproduces the Rhoa Nest's and the Glyph Wall's bytes.
-  MinimapIcon flags `0x06` explicitly hide its marker (`0x02` override present, `0x04` hidden). Its component update
-  does not refresh the marker in the client: recreate the source object with those flags after its item is collected,
-  retaining its opened state. A marker is personal to the character, including on area re-entry and after hand-in.
+  MinimapIcon flags `0x06` explicitly hide its marker (`0x02` override present, `0x04` hidden). `MinimapIcon` vtable
+  slot 20 (`0x141e75c60`) handles live `S→C 0x02bc` updates (`InstanceEntities.HideMinimapIcon`); sending `0x06`
+  before `0x02bd` removal is required for sticky landmark icons (`MinimapIcons.__col3 == 0`) so
+  `Minimap::OnEntityRemoved` (`0x142193210`) erases the icon instead of detaching and pinning it permanently on the
+  minimap/tab map. A marker is personal to the character, including on area re-entry and after hand-in.
   Buffs writes `u16 0`; Functions and ControlZone have no data.
 - **Object tasks** (GameObjectTasks): the blob ends with the tasks (`0x141ee6950`): `u8 n`, per task the `u16` HASH16
   little-endian, then the task's own data, which its reader consumes. Later the world group (reader `0x141fe6e90`,

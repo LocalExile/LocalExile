@@ -181,5 +181,5 @@ public sealed partial class MercenaryModule : IModule
         return GameEvents.ResolveCompanionRules(player, native).CanHavePermanentFollower;
     }
 
-    static bool IsTownOrHideout(Player player) => InTown(player) || MercenaryTables.IsTownOrHideout(player.Layout.Id);
+    static bool IsTownOrHideout(Player player) => IsNonCombatHub(player) || MercenaryTables.IsTownOrHideout(player.Layout.Id);
 }

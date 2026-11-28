@@ -106,6 +106,7 @@ internal static class DeepwaterExtraction
             obj = obj with
             {
                 StateMachine = States.GetValueOrDefault(device.Type)?.Set("landed", device.Landed),
+                HideMinimapIcon = device.Retired,
                 // A re-entry during the descent picks it up at the current stage.
                 Tasks = device.Landed == 0 && !device.Retired && stage is { } s ? [(DeepwaterConstants.BathysphereDropTask, DropTask(DropStages, s))] : [],
             };
@@ -516,7 +517,14 @@ internal static class DeepwaterExtraction
             {
                 await Transition(member, capsule);
                 await Create(member, bathysphere, 0);
-                if (start is not null) await SendLanded(member, start);
+                if (start is not null)
+                {
+                    await SendLanded(member, start);
+                    int miIdx = Info(start.Type)?.Components.ToList().IndexOf("MinimapIcon") ?? -1;
+                    if (miIdx >= 0)
+                        await global::Game.SendWorldRecord(PlayerOf(member), start.Id, InstanceEntities.HideMinimapIcon(start.Id, (byte)miIdx),
+                            $"0x02bc Allflame retired Bathysphere 0x{start.Id:x} hide minimap icon");
+                }
                 await SetQuestFlags(member, [DeepwaterConstants.VoyageDefend]);
                 await PlayerOf(member).Send(InstanceTimers.CountdownTimer((uint)Math.Ceiling(Descent)),
                     $"0x0162 countdown timer: {Descent:0} s (Bathysphere descent)");

@@ -1035,9 +1035,9 @@ public static partial class Game
             if (!await CastGemSkill(player, use.SkillId, dashUse!.From, dashAim,
                     use.TargetId, use.Sequence, dashReceipt: dashUse)) return;
             bool dashAcknowledged = false;
-            await Send(player,
-                [.. InstanceProtocol.ActionStarted(player.Id, dashUse.From.X, dashUse.From.Y, dashAim.X, dashAim.Y,
-                    use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), .. InstanceProtocol.ActionEnded(player.Id)],
+            await SendWorldRecords(player, player.Id, () =>
+                [InstanceProtocol.ActionStarted(player.Id, dashUse.From.X, dashUse.From.Y, dashAim.X, dashAim.Y,
+                    use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(player.Id)],
                 $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: accepted Dash from " +
                 $"({dashUse.From.X}, {dashUse.From.Y}) to ({dashUse.To.X}, {dashUse.To.Y}) (t={dashUse.AcceptedAt:0.000})",
                 still: () => dashAcknowledged = dashUse.ConfirmNativeUse(player));
@@ -1386,6 +1386,7 @@ public static partial class Game
         SupportedGem? paidIntensity = null, paidMomentum = null;
         GhorrCast? pactSpell = null;
         BeidatCast? beidatSpell = null;
+        using var castScope = new PlayerStatScope(player);
         var momentumTravel = player.Walk.ObserveTravel(AreaTime(player));
         var baseSkill = BaseSupportedSkill(player, skillId);
         if (SkillsFor(player).EffectId(baseSkill.Effect) is TwisterEffect or CatStealthCryEffect or KineticAnomalyEffect
@@ -1670,6 +1671,9 @@ public static partial class Game
             if (!TryDashLanding(player, gem.Effect, to, out dashFrom, out dashTo)) return false;
         }
         SkillCriticalRoll? criticalRoll = vaalUse?.CriticalRoll;
+        PlayerStatScope? postPaymentScope = null;
+        try
+        {
         if (gem.Name is not null && !vaalCast)
         {
             uint cost, lifeCost;
@@ -1678,7 +1682,9 @@ public static partial class Game
             {
                 if (!Current()) return false;
                 if (dash && !TryDashLanding(player, gem.Effect, to, out dashFrom, out dashTo)) return false;
-                using var paymentScope = new PlayerStatScope(player, fresh: true);
+                // Reuse the freshly built payment snapshot through SendSkillCost and LaunchProjectileForUse when
+                // lifeCost == 0 (no Corrupting Fever / life-spent stat change), avoiding 2-3 redundant stat rebuilds.
+                postPaymentScope = new PlayerStatScope(player, fresh: true);
                 var paymentGem = SupportedSkill(player, skillId);
                 if (placedAdmission is { } admission)
                 {
@@ -1780,6 +1786,7 @@ public static partial class Game
             }
             if (cost > 0 || lifeCost > 0)
             {
+                if (lifeCost > 0) { postPaymentScope?.Dispose(); postPaymentScope = null; }
                 if (UsesProjectileRuntime(gem.Effect) || leap is not null || shieldCharge) ProjectilesFor(player)
                     .Enqueue(() => SendSkillCost(player, lifeCost, $"skill cost paid: {gem.Name}"));
                 else await SendSkillCost(player, lifeCost,
@@ -1990,6 +1997,8 @@ public static partial class Game
                 doubleStrikePairs: doubleStrikePairs, useDamageMore: vaalUse?.PactDamageMore
                     ?? LyciaDamageMore(player, skillId, channelGeneration), movedByCast: movedByCast);
         return CompleteSupportedUse(true);
+        }
+        finally { postPaymentScope?.Dispose(); }
     }
 
     // Record only after payment/cooldown/effect admission. The instant-location path calls this after its own
@@ -2113,7 +2122,7 @@ public static partial class Game
             // native use refresh then briefly restores the recovery rate, which StartTriggeredGuard's held entry behind
             // it freezes again; the remaining time stays full throughout, so neither flicker moves the ring.
             if (guard && GuardCooldownPreEntry(player, skillId, gem.Effect) is { Length: > 0 } preEntry)
-                await Send(player, preEntry, "0x02bc guard cooldown held before its instant action");
+                await SendOwnWorldRecord(player, preEntry, "0x02bc guard cooldown held before its instant action");
             bool committed = false;
             await SendWorldRecord(player, player.Id, [],
                 $"0x01ce player skill 0x{skillId:x4}: instant action (its use and cooldown)",
@@ -4310,13 +4319,25 @@ public static partial class Game
             if (reflected.Count > 0 && playerStats is not null)
                 using (ProjectileMutation(player, advance: scheduledSession is null))
                     ReflectPendingAilmentsLocked(player, reflected, ProjectileWorldTime(player), playerStats, AreaRng(player));
-            while (settledDeaths < deaths.Count)
+            if (settledDeaths < deaths.Count)
             {
-                var (deadId, dead) = deaths[settledDeaths++];
-                if (scheduledSession is { } scheduled)
-                    CommitProjectileKill(scheduled, deadId, dead, scheduled.Runtime.Now, AreaRng(player),
-                        playerKill: ownerContact, skillStats: skillStats);
-                else await MonsterKilled(player, deadId, dead, skillStats: skillStats);
+                bool sentRemaining = false;
+                using (HoldMonstersRemaining(player))
+                {
+                    while (settledDeaths < deaths.Count)
+                    {
+                        var (deadId, dead) = deaths[settledDeaths++];
+                        if (scheduledSession is { } scheduled)
+                            CommitProjectileKill(scheduled, deadId, dead, scheduled.Runtime.Now, AreaRng(player),
+                                playerKill: ownerContact, skillStats: skillStats);
+                        else
+                        {
+                            sentRemaining = true;
+                            await MonsterKilled(player, deadId, dead, skillStats: skillStats);
+                        }
+                    }
+                }
+                if (sentRemaining) await SendRemainingMonsters(player);
             }
         }
 
@@ -5878,6 +5899,7 @@ public static partial class Game
     static async Task MonsterKilledBy(Player player,
         uint id, SpawnedMonster m, bool playerKill, bool byHit = true, IReadOnlyDictionary<uint, int>? skillStats = null)
     {
+        if (player.Area.Owned) player.Area.Delta.DiscardActions(id);
         if (m.ShockedAtDeath is null) CaptureLootAilmentsAtDeath(m, ProjectileWorldTime(player));
         // Guarantee the mini life bar is hidden for every kill path (AreaStats deduplicates when already set at the hit/DoT site).
         SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);

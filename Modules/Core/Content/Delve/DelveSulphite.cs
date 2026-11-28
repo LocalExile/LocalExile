@@ -124,7 +124,7 @@ public sealed partial class DelveModule
             if (player.Closed || player.LeavingArea) return;
             if (!state.Checked)
             {
-                if (global::Game.InTown(player) || HideoutCatalog.ByArea(player.Layout.Hash) is not null || player.Layout.Walkable is null)
+                if (global::Game.IsNonCombatHub(player) || player.Layout.Walkable is null)
                 {
                     state.Checked = true;
                     return;

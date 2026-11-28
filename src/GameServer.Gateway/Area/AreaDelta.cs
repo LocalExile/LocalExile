@@ -162,6 +162,19 @@ public sealed class AreaDelta(GameArea area)
                 System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(10))), kind, except, only));
     }
 
+    /// <summary>Drops any queued <c>ActionStarted</c> (<c>0x01ab</c>) records for <paramref name="entity"/> that have not
+    /// been flushed yet in this frame (for example a monster that queued a charge earlier in the frame and died before
+    /// the frame ended).</summary>
+    public void DiscardActions(uint entity)
+    {
+        area.AssertOwner();
+        static bool IsActionFor(Record r, uint id) =>
+            r.Entity == id && r.Kind == Kind.World && r.Bytes.Length >= 2
+            && (r.Bytes[0] << 8 | r.Bytes[1]) == GameServer.Core.Protocol.Instance.InstanceProtocol.ActionStartedId;
+        records.RemoveAll(r => IsActionFor(r, entity));
+        held.RemoveAll(r => IsActionFor(r, entity));
+    }
+
     /// <summary>The frame's records, taken for its end; what waited for a create of this frame starts the next.</summary>
     public IReadOnlyList<Record> Take()
     {

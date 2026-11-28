@@ -299,9 +299,9 @@ public static partial class Game
                     if (!await CastGemSkill(player, use.SkillId, dashUse!.From, (use.X, use.Y),
                             sequence: use.Slot, dashReceipt: dashUse)) continue;
                     bool dashAcknowledged = false;
-                    await Send(player,
-                        [.. InstanceProtocol.ActionStarted(player.Id, dashUse.From.X, dashUse.From.Y, use.X, use.Y,
-                            use.SkillId, use.Slot, use.Flags), .. InstanceProtocol.ActionEnded(player.Id)],
+                    await SendWorldRecords(player, player.Id, () =>
+                        [InstanceProtocol.ActionStarted(player.Id, dashUse.From.X, dashUse.From.Y, use.X, use.Y,
+                            use.SkillId, use.Slot, use.Flags), InstanceProtocol.ActionEnded(player.Id)],
                         $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name}: accepted Dash from ({dashUse.From.X}, {dashUse.From.Y}) " +
                         $"to ({dashUse.To.X}, {dashUse.To.Y}) (t={dashUse.AcceptedAt:0.000})",
                         still: () => dashAcknowledged = dashUse.ConfirmNativeUse(player));
@@ -438,19 +438,26 @@ public static partial class Game
                 bool predictedLeap = cast && PredictsLeapSlam(player, SkillsFor(player).EffectId(gem.Effect), use.Slot);
                 Func<Task> echo = async () =>
                 {
-                    await Send(player, [],
-                    $"{(predictedLeap ? "0x01ac predicted Leap Slam acknowledged" : "0x01ab action started")} {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {player.Walk.Destination} in {player.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})",
-                    still: () => acknowledged = cast
+                    string echoLog = $"{(predictedLeap ? "0x01ac predicted Leap Slam acknowledged" : "0x01ab action started")} {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {player.Walk.Destination} in {player.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})";
+                    bool EchoStill() => acknowledged = cast
                         ? SkillAcknowledgementAllowed(player, gem.Effect, use.SkillId,
                             () => cooldownUse?.CommitNativeUse(player, use.SkillId) ?? PlayerActionCurrent(player, action))
-                        : (cooldownUse?.CommitNativeUse(player, use.SkillId) ?? PlayerActionCurrent(player, action)),
-                    atGate: () =>
-                    {
-                        Interlocked.Exchange(ref startCharge, null)?.Invoke();
-                        byte[] reply = [.. InstanceProtocol.ActionStarted(player.Id, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
-                            .. cast ? InstanceProtocol.ActionEnded(player.Id) : []];
-                        return predictedLeap ? LeapSlamAcknowledgement(player, reply) : reply;
-                    });
+                        : (cooldownUse?.CommitNativeUse(player, use.SkillId) ?? PlayerActionCurrent(player, action));
+                    if (predictedLeap)
+                        await Send(player, [], echoLog, still: EchoStill, atGate: () =>
+                        {
+                            Interlocked.Exchange(ref startCharge, null)?.Invoke();
+                            byte[] reply = [.. InstanceProtocol.ActionStarted(player.Id, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
+                                .. cast ? InstanceProtocol.ActionEnded(player.Id) : []];
+                            return LeapSlamAcknowledgement(player, reply);
+                        });
+                    else
+                        await SendWorldRecords(player, player.Id, () =>
+                        {
+                            Interlocked.Exchange(ref startCharge, null)?.Invoke();
+                            var started = InstanceProtocol.ActionStarted(player.Id, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags);
+                            return cast ? [started, InstanceProtocol.ActionEnded(player.Id)] : [started];
+                        }, echoLog, still: EchoStill);
                     if (acknowledged) await SendNativeCooldownRefresh(player);
                     else if (ServerTrace.Latency)
                         Console.WriteLine($"[gateway] {player.Connection.Remote} action echo refused 0x{use.SkillId:x4}:"

@@ -133,6 +133,7 @@ public static partial class Game
         bool playerKill = true, IReadOnlyDictionary<uint, int>? skillStats = null)
     {
         var player = session.Player;
+        if (player.Area.Owned) player.Area.Delta.DiscardActions(id);
         // The projectile's lethal hit froze this decision before the output queue can publish it.
         TinctureKillBonus? tinctureKill;
         bool destroyCorpse;
