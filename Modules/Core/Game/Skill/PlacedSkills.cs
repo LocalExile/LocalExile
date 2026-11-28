@@ -895,7 +895,7 @@ public static partial class Game
             aim = locusAim ? player.Walk.Position(now) : enemy.Value?.Walk.Position(now) ?? placed.At;
             if (cascade && aim == placed.At) aim = (placed.At.X + 1, placed.At.Y);
         }
-        bool detonateDead = effect == "DetonateDead";
+        bool detonateDead = DetonateDeadEffect(effect) && effect != "VaalDetonateDead";
         bool volatileDead = VolatileDeadEffect(effect);
         if (!arc)
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
