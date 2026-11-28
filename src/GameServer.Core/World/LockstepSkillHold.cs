@@ -20,6 +20,9 @@ public sealed class LockstepSkillHold
     /// <summary>The object it is aimed at, while there is one.</summary>
     public uint? Target { get; private set; }
 
+    /// <summary>Whether the skill requires its selected object instead of falling back to the ground.</summary>
+    public bool KeepObjectTarget { get; private set; }
+
     /// <summary>The cell it is aimed at.</summary>
     public (int X, int Y) Aim { get; private set; }
 
@@ -36,11 +39,15 @@ public sealed class LockstepSkillHold
     public bool Pending => _pending;
 
     /// <summary>C→S 0x18e or 0x18f.</summary>
-    public void Press((int X, int Y) aim, uint? target, ushort skill, ushort flags, bool repeats)
+    public void Press((int X, int Y) aim, uint? target, ushort skill, ushort flags, bool repeats) =>
+        Press(aim, target, skill, flags, repeats, keepObjectTarget: false);
+
+    public void Press((int X, int Y) aim, uint? target, ushort skill, ushort flags, bool repeats, bool keepObjectTarget)
     {
         if (Channel is { } channel) _finishedChannel = channel;
         Channel = null;
         (Aim, Target, Skill, Flags, _repeats) = (aim, target, skill, flags, repeats);
+        KeepObjectTarget = keepObjectTarget;
         _pending = _held = true;
     }
 
