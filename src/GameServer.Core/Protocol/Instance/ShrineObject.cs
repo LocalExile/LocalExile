@@ -73,7 +73,7 @@ public sealed record ShrineObject(int GridX, int GridY, float Rotation = 0, floa
                     w.U8(key).U8(0);
                     if (key != NoShrineRow) w.U8(0);
                     break;
-                case "MinimapIcon": w.U8(0); break;
+                case "MinimapIcon": w.U8((byte)(Row == NoShrineRow ? 0x06 : 0x00)); break;
                 case "InteractionAction": w.U8(0); break;
                 case "Transitionable": w.U8(1); break; // States are one-based; 0 crashes the native post-create event.
                 // BaseEvents: no data.

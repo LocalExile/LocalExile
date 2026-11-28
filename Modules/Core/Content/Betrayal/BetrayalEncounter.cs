@@ -261,7 +261,11 @@ public sealed class BetrayalEncounter
         var run = live.Run;
         var plan = run.Plan;
         var instance = player.Instance;
-        if (run.Jun != 0) await SendWorldRemoval(player, run.Jun, $"0x02bd Jun 0x{run.Jun:x} leaves");
+        if (run.Jun != 0)
+        {
+            await SendWorldRecord(player, run.Jun, InstanceEntities.HideMinimapIcon(run.Jun, 5), $"0x02bc hide Jun 0x{run.Jun:x} minimap icon");
+            await SendWorldRemoval(player, run.Jun, $"0x02bd Jun 0x{run.Jun:x} leaves");
+        }
         run.Jun = 0;
         // The carts were created asleep at Place; a character is within StartDistance now, inside the wake zone, so
         // wake them before anything updates them (Defeat's cart_finished 0x02bc would otherwise reach a client whose
@@ -536,6 +540,7 @@ public sealed class BetrayalEncounter
         }
         if (run.Jun != 0)
         {
+            await SendWorldRecord(player, run.Jun, InstanceEntities.HideMinimapIcon(run.Jun, 5), $"0x02bc hide Jun 0x{run.Jun:x} minimap icon");
             await SendWorldRemoval(player, run.Jun, $"0x02bd Jun 0x{run.Jun:x} leaves");
             // Reset at once: without this a second Leave (or a Start that already removed him) would issue a
             // duplicate SendWorldRemoval for the same id (review #1379 point 2).

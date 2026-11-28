@@ -563,8 +563,13 @@ public sealed partial class BestiaryEncounter
         if (id == 0) return;
         var at = player.Area.Monsters.TryGetValue(id, out var body) ? body.Walk.Position(AreaTime(player)) : player.Walk.Position(AreaTime(player));
         await SendEffect(player, live, BestiaryEffects.LeaveBody(at, id), BestiaryEffects.EffectLifeFrames, "einhar leaves");
+        int miIdx = -1;
+        if (player.Area.Monsters.TryGetValue(id, out var existing) && existing.Variety is { } ev)
+            miIdx = ev.ComponentsOrBase.ToList().IndexOf("MinimapIcon");
         if (player.Area.Monsters.Remove(id, out var einhar)) { einhar.Dead = true; einhar.Life = 0; einhar.ActionGeneration++; }
         player.Instance.World.MonsterOrigins.TryRemove(id, out _);
+        if (miIdx >= 0)
+            await SendWorldRecord(player, id, InstanceEntities.HideMinimapIcon(id, (byte)miIdx), $"0x02bc hide Einhar 0x{id:x} minimap icon");
         await SendWorldRemoval(player, id, $"Einhar 0x{id:x} removed");
     }
 }
