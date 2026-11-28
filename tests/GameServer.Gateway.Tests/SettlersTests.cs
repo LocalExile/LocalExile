@@ -309,7 +309,7 @@ public sealed class SettlersTests
             // 7. Regression: ApplyFromStoreSnapshot preserves sailing TimerTotal in progress units (never raw seconds)
             //    and keeps IsAtSea true, while idle PortId=0/EventId=0 normalize to NoneRow (0xFF).
             uint shipTarget = VillageShippingService.ComputeTravelTime(1, 0, 1.0).ProgressTarget;
-            bridge.MutateSnapshot(account, league, snap =>
+            bridge.MutateSnapshot("settler_bob", "Standard", snap =>
             {
                 var ships = snap.Ships.Where(s => s.ShipIndex != 0 && s.ShipIndex != 1).ToList();
                 ships.Add(new VillageStore.ShipRow(0, VillageShippingService.ShipStateSailing, 1,
@@ -332,17 +332,20 @@ public sealed class SettlersTests
             var astrolabe = new GameServer.Modules.Settlers.MapOres.ProspectingAstrolabe();
             var dummyArea = new MapDevice.MapArea(0xF4DD, "MapWorldsBeach", "Beach", 0) { Level = 83 };
             var dummyOpening = new MapDevice.Opening(dummyArea, MapMods.None);
-            var astrolabeSlot = new MapDeviceSlot(0, 0, 1, GameServer.Modules.Settlers.MapOres.MapOreTables.ProspectingAstrolabeId, "Currency", false);
-            var twoAstrolabes = new MapOpening(null!, [astrolabeSlot, astrolabeSlot], false, dummyOpening);
+            var astrolabeSlot = new MapDevice.Slot(0, "Currency", "Prospecting Astrolabe", 5392, [], 0)
+            {
+                BaseId = GameServer.Modules.Settlers.MapOres.MapOreTables.ProspectingAstrolabeId,
+            };
+            var twoAstrolabes = new MapOpening(null!, [astrolabeSlot, astrolabeSlot], false, dummyOpening, "");
             astrolabe.OnMapOpening(twoAstrolabes);
             Assert.Null(twoAstrolabes.Opening);
 
             var alreadyShaped = new MapOpening(null!, [astrolabeSlot], false,
-                dummyOpening with { Mods = MapMods.None.WithFragmentStat(Stat.ProspectingAstrolabeEnabledMap, 1) });
+                dummyOpening with { Mods = MapMods.None.WithFragmentStat(Stat.ProspectingAstrolabeEnabledMap, 1) }, "");
             astrolabe.OnMapOpening(alreadyShaped);
             Assert.Null(alreadyShaped.Opening);
 
-            var oneAstrolabe = new MapOpening(null!, [astrolabeSlot], false, dummyOpening);
+            var oneAstrolabe = new MapOpening(null!, [astrolabeSlot], false, dummyOpening, "");
             astrolabe.OnMapOpening(oneAstrolabe);
             Assert.NotNull(oneAstrolabe.Opening);
             Assert.Equal(1, oneAstrolabe.Opening!.Mods.Get(Stat.MonsterInAstrolabeMap));
