@@ -100,6 +100,7 @@ public sealed class BreachFortress
         [JsonIgnore] internal BreachAtlas? Atlas;
         [JsonIgnore] internal bool ObjectsCreated;
         [JsonIgnore] internal HashSet<uint> AllMonsterIds { get; } = [];
+        [JsonIgnore] internal List<(uint Id, SpawnedMonster Monster)> PendingKills { get; } = [];
     }
 
     readonly ConditionalWeakTable<InstanceState, FortressState> _fortresses = new();
@@ -395,6 +396,7 @@ public sealed class BreachFortress
             state.Gate.Release();
             await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null, still: () => PlayerActionCurrent(player, action));
         }
+        await BreachHive.FinishKills(player, state.PendingKills);
         return true;
     }
 
@@ -733,6 +735,8 @@ public sealed class BreachFortress
                     if (m.Life == 0)
                     {
                         m.Dead = true; m.Aggro = false; m.ActionGeneration++;
+                        CleanupDeadMonsterLocked(player.Area, id, m);
+                        state.PendingKills.Add((id, m));
                     }
                 }
                 break;
@@ -761,9 +765,10 @@ public sealed class BreachFortress
             if (pad is null) return false;
             await ActivateFortressSkill(player, state, pad);
             Save(instance, state);
-            return true;
         }
         finally { state.Gate.Release(); }
+        await BreachHive.FinishKills(player, state.PendingKills);
+        return true;
     }
 
     public async Task OnMonsterKilled(MonsterKill kill)

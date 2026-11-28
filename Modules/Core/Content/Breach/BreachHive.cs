@@ -101,6 +101,9 @@ public sealed class BreachHive
         public List<HiveChest> Chests { get; set; } = [];
         public List<uint> Monsters { get; set; } = [];
         public HashSet<uint> CreditedDeaths { get; set; } = [];
+        /// <summary>Monsters Ailith's skills killed under <see cref="Gate"/>, finished by <see cref="FinishKills"/> once it is
+        /// free (Game.MonsterKilled runs OnMonsterKilled, which takes the Gate).</summary>
+        [JsonIgnore] internal List<(uint Id, SpawnedMonster Monster)> PendingKills { get; } = [];
         [JsonIgnore] internal SemaphoreSlim Gate { get; } = new(1, 1);
         [JsonIgnore] internal BreachAtlas? Atlas;
         [JsonIgnore] internal bool ObjectsCreated;
@@ -367,6 +370,7 @@ public sealed class BreachHive
             hive.Gate.Release();
             await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null, still: () => PlayerActionCurrent(player, action));
         }
+        await FinishKills(player, hive.PendingKills);
         return true;
     }
 
@@ -382,9 +386,10 @@ public sealed class BreachHive
             if (pad is null) return false;
             await ExecuteAilithSkill(player, hive, pad);
             Save(instance, hive);
-            return true;
         }
         finally { hive.Gate.Release(); }
+        await FinishKills(player, hive.PendingKills);
+        return true;
     }
 
     async Task StartDefense(Player player, HiveState hive)
@@ -583,6 +588,7 @@ public sealed class BreachHive
             if (dirty) Save(instance, hive);
         }
         finally { hive.Gate.Release(); }
+        await FinishKills(runner, hive.PendingKills);
     }
 
     public async Task OnMonsterKilled(MonsterKill kill)
@@ -878,8 +884,20 @@ public sealed class BreachHive
                 m.Dead = true;
                 m.Aggro = false;
                 m.ActionGeneration++;
+                CleanupDeadMonsterLocked(runner.Area, id, m);
+                hive.PendingKills.Add((id, m));
             }
         }
+    }
+
+    /// <summary>The kills Ailith's skills made, through the normal kill path (rewards, experience, drops, the remaining
+    /// count), as DamageAuras finishes its own. Call it with the encounter's Gate free.</summary>
+    internal static async Task FinishKills(Player runner, List<(uint Id, SpawnedMonster Monster)> pending)
+    {
+        if (pending.Count == 0) return;
+        var kills = pending.ToArray();
+        pending.Clear();
+        foreach (var (id, m) in kills) await MonsterKilled(runner, id, m, byHit: false);
     }
 
     /// <summary>Removes the encounter's living monsters from the area (a failed defense) and forgets their ids.</summary>
