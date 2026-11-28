@@ -3929,8 +3929,13 @@ public static partial class Game
             }
             if (divineBlast && !immediate && strikeIndex == 0)
                 ProjectilesFor(player).PlaceDivineBlastOrb(gem, centre, admittedGem, criticalRoll);
-            if (strikeIndex == 0 && retainedAttack is null && IsColdSnap(effectId))
-                ProjectilesFor(player).PlaceColdSnapGround(gem, centre, admittedGem, damageMore);
+            if (strikeIndex == 0 && retainedAttack is null)
+            {
+                if (IsColdSnap(effectId))
+                    ProjectilesFor(player).PlaceColdSnapGround(gem, centre, admittedGem, damageMore);
+                else if (IsVortexGround(effectId))
+                    ProjectilesFor(player).PlaceVortexGround(centre, gem.Effect, admittedGem.Stats, damageMore * GhorrDotMore(player, skillId));
+            }
             // Queued mana output may outlast movement: resolve a channel at its current position.
             if (channelGeneration is not null)
             {

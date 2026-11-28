@@ -1129,8 +1129,8 @@ public static partial class Game
             });
             if (!pyroclast) return;
         }
-        if (effect == "Vortex")
-            ProjectilesFor(player).PlaceVortexGround(placed, CharacterPlayerStats(player), releaseMore);
+        if (IsVortexGround(effect))
+            ProjectilesFor(player).PlaceVortexGround(placed.At, placed.Effect, placed.Own, releaseMore, placed);
         PlacedAreaDamageLocked(player, placed, placed.At, radius, now, releaseMore, currentSkill, spellDamage,
             bear ? target.Key : null);
     }
