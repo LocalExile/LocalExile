@@ -323,6 +323,8 @@ public static partial class Game
                 bool flicker = cast && gem.Name is not null && SkillsFor(player).ActionHash(gem.Effect) == FlickerStrike.Action;
                 (uint Id, (int X, int Y) At, (int X, int Y) Landing)? flickerTo = null;
                 var moveEffect = cast && gem.Name is not null && chargeBonus == 0 ? SkillsFor(player).EffectId(gem.Effect) : null;
+                bool ambush = moveEffect == AmbushEffect;
+                AmbushTarget? ambushTarget = null;
                 bool flameDash = IsFlameDashEffect(moveEffect);
                 (int X, int Y)? flameDashTo = null;
                 LeapSlam.Use? leap = null;
@@ -374,6 +376,12 @@ public static partial class Game
                     noFlickerTarget = flickerTo is null;
                     return !noFlickerTarget;
                 }
+                bool AmbushAdmit()
+                {
+                    double now = ProjectileWorldTime(player);
+                    ambushTarget = FindAmbushTarget(player, gem.Effect, 0, (use.X, use.Y), now);
+                    return ambushTarget is not null && CanPaySkillCost(player, use.SkillId);
+                }
                 if (leapSkill)
                 {
                     if (!TryBeginAttackUse(player, use.SkillId, gem.Effect, at,
@@ -391,9 +399,11 @@ public static partial class Game
                 {
                     if (!TryBeginSkillCooldownUse(player, use.SkillId, gem.Effect,
                         CooldownForSkill(player, use.SkillId),
-                        false, StartAction, out cooldownUse, requestedAt: at, admit: flicker ? FlickerAdmit : null))
+                        false, StartAction, out cooldownUse, reserve: !ambush, requestedAt: at,
+                        admit: flicker ? FlickerAdmit : ambush ? AmbushAdmit : null))
                     {
                         if (noFlickerTarget) await FlickerRefused(player, gem.Name);
+                        else if (ambush) await SendPlayerMana(player, "Ambush: skill refused, cost back");
                         continue;
                     }
                 }
@@ -476,7 +486,7 @@ public static partial class Game
                 var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At)
                     : flameDash || IsWhirlingBlades(moveEffect) ? ((px, py), moveLanding)
                     : ((px, py), (use.X, use.Y));
-                if (cast && !projectileRuntime && (!flameDash || movedByCast)) _ = CastGemSkill(player, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
+                if (cast && !projectileRuntime && (!flameDash || movedByCast)) _ = CastGemSkill(player, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? ambushTarget?.Id ?? 0, sequence: use.Slot,
                     actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse, swingAt: swingAt, movedByCast: movedByCast);
                 // Reconcile the skills that use the immediate landing estimate once their action has finished.
                 if (leap is { } jump)

@@ -19,7 +19,7 @@ public static partial class Game
     {
         if (SkillsFor(player).IsRetaliation(gem.Effect)) return false;
         string? payload = SkillsFor(player).EffectId(gem.Effect);
-        if (payload is CorpseBodyswapEffect or BodyswapSacrificeEffect || TriggerChaosDebuff(payload)) return true;
+        if (payload is CorpseBodyswapEffect or BodyswapSacrificeEffect or AmbushEffect || TriggerChaosDebuff(payload)) return true;
         if (SpatialSpellEffect(payload)) return SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality).CanHit;
         if (TriggerGuardSpell(player, gem) || TriggerSummonSpell(player, gem)
             || TriggerBrandSpell(player, gem.Effect) || MinionUtility(SkillsFor(player).EffectId(gem.Effect))) return true;
@@ -41,6 +41,8 @@ public static partial class Game
         var skill = GemSkillEffects(player).FirstOrDefault(g => g.Id == id);
         if (skill.Name is null || !TriggerPayloadAvailable(player, gem)) return null;
         uint preferredTarget = triggerTarget != 0 ? triggerTarget : brandedTarget?.ObjectId ?? 0;
+        if (SkillsFor(player).EffectId(gem.Effect) == AmbushEffect)
+            return PrepareTriggeredAmbush(player, session, gem, id, preferredTarget, aim, current);
         if (SkillsFor(player).EffectId(gem.Effect) == CorpseBodyswapEffect)
         {
             var point = player.Area.Monsters.GetValueOrDefault(preferredTarget)?.Walk.Position(ProjectileWorldTime(player)) ?? aim;

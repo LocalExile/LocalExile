@@ -63,6 +63,7 @@ public static partial class Game
     {
         EndVaalArcticArmour(player);
         EndVaalRighteousFire(player);
+        ClearAmbush(player);
         ClearConvergence(player);
         ClearRetributionConflux(player);
         ClearSteelworm(player);
@@ -76,6 +77,7 @@ public static partial class Game
             foreach (var (player, state) in VaalRighteousFires) EndVaalRighteousFire(player, state);
             foreach (var (player, _) in ConvergenceWindows) ClearConvergence(player);
             foreach (var (player, _) in RetributionConflux) ClearRetributionConflux(player);
+            foreach (var (player, _) in AmbushBuffs) ClearAmbush(player);
             ClearAllSteelworms();
         }
     }

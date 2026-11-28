@@ -1034,7 +1034,8 @@ public static partial class Game
             double elementalMore = shot.DamageMorePerElementalAilment == 0 ? 1
                 : ElementalHitDamageMore(shot.DamageMorePerElementalAilment, ElementalHitAilmentsOn(target, at));
             double ailmentMore = chainsMore * returnMore * elementalMore * (!exertedAttack ? 1
-                : ExertedAttackMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage, player));
+                : ExertedAttackMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage,
+                    player, ambush: shot.CriticalRoll?.AmbushExerted == true));
             if (ailmentMore != 1)
                 shot = shot with
                 {
@@ -1065,7 +1066,8 @@ public static partial class Game
                 GameEvents.WithOutgoingDamage(Player, player, target,
                     damageRoll.RollBeforeCritical(packet, random, criticalDoubleDamage)), at);
             if (exertedAttack)
-                rolled = WithExertedAttackDamage(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage, player);
+                rolled = WithExertedAttackDamage(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions,
+                    shot.RallyingDamage, player, ambush: shot.CriticalRoll?.AmbushExerted == true);
             bool secondForm = contact.Projectile.Form > 0;
             var formCrit = secondForm ? shot.SecondFormOptions : null;
             int chance = secondForm && shot.SecondFormCriticalChance is int second

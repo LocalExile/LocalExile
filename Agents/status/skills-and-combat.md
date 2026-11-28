@@ -23,6 +23,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Conditional critical policy (#242): signed clamp, luck, unarmed multiplier and one roll per gem use.
   Docs: [11](../docs/protocol/11-skills.md), conditional critical policy.
 - Generic Rage (#281), including effective-Rage scaling (`rage_effect_+%`) for per-Rage attack speed (Crave the Slaughter), armour, movement speed and stun threshold. Docs: [26](../docs/protocol/26-rage.md).
+- Berserk requires and drains Rage, scales its effects, and holds its cooldown until the buff ends.
+- Withering Step grants Elusive and Phasing, Withers each enemy once per use, and holds Blink recovery while active.
+- Plague Bearer stores damage from the caster's poisons and spends it on a moving chaos aura that returns to incubation when depleted.
+- Corrupting Fever applies stacking Corrupted Blood on the caster's hits and refreshes after enough Life is spent.
+- Ambush teleports to a reachable enemy, inflicts Blind and exclusively exerts one one-handed melee attack.
 - Mana per final Strength (#287). Docs: [11](../docs/protocol/11-skills.md) Â§4.
 - Player Actor scale (#299). Docs: [04](../docs/protocol/04-player-entity.md#41a-player-actor-scale-299).
 - Armour against chaos hits (#288). Docs: [20](../docs/protocol/20-damage.md) Â§2e.

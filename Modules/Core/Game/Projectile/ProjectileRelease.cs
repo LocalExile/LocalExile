@@ -522,7 +522,8 @@ public static partial class Game
         if (!spell) otherWarcryExertions += MeleeWarcryTriggersFor(criticalRoll)?.Count ?? 0;
         int totalExertWarcries = spell ? 0 : (cryExerted ? 1 : 0) + otherWarcryExertions + (rallyingDamage.HasValue ? 1 : 0);
         long exertedIncreased = spell ? 0 : ExertedAttackIncreasedDamage(playerStats, own, totalExertWarcries, seismicExerted, ancestralExerted);
-        int exertedBaseCrit = spell ? 0 : ExertedAttackBonusCritPermyriad(totalExertWarcries, playerStats, own);
+        int exertedBaseCrit = spell ? 0 : ActorScale.Saturate((long)ExertedAttackBonusCritPermyriad(totalExertWarcries, playerStats, own)
+            + criticalRoll.AmbushBaseCrit);
         long exertedAccuracyIncrease = spell ? 0 : ExertedAttackAccuracyIncrease(totalExertWarcries, playerStats, own);
         var ailmentRows = hitInputs is null ? [] : SupportedAilmentRowsFrom(hitInputs, hand, exertedIncreased);
         long additionalBlindedIncreased = (long)Player(PlayerHitDamage.VsBlindedDamageStat)
@@ -542,6 +543,8 @@ public static partial class Game
         int damagePerPierce = Get(Stat.ProjectileDamagePlusPctPerPiercedEnemy);
         bool trackTrajectoryDamage = damagePerChain != 0 || damagePerPierce != 0;
         int criticalMultiplier = SupportedCriticalMultiplier(player, skillId, handWeapon);
+        if (!spell && criticalRoll.AmbushExerted)
+            criticalMultiplier = ActorScale.Add(Stat.BaseCriticalStrikeMultiplier, criticalMultiplier, criticalRoll.AmbushCritMultiplier);
         if (concoction.CriticalMultiplier != 0)
             criticalMultiplier = ActorScale.Add(Stat.BaseCriticalStrikeMultiplier, criticalMultiplier, concoction.CriticalMultiplier);
         var shot = new ProjectileOffense(

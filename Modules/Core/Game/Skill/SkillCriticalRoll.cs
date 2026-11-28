@@ -7,6 +7,16 @@
 public sealed class SkillCriticalRoll(int extraRolls)
 {
     int? value;
+    internal bool AmbushExerted { get; private set; }
+    internal int AmbushBaseCrit { get; private set; }
+    internal int AmbushCritMultiplier { get; private set; }
+
+    internal void SetAmbush(int baseCrit, int multiplier)
+    {
+        AmbushExerted = true;
+        AmbushBaseCrit = baseCrit;
+        AmbushCritMultiplier = multiplier;
+    }
 
     public bool Check(int chancePerMyriad, Random random)
     {

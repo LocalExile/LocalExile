@@ -9,6 +9,7 @@ public static partial class Game
         GroundCritical CriticalVsGround, double HitMore, double AilmentMore, string Phase)
     {
         internal (uint Id, (int X, int Y) At)? ProxyActor { get; init; }
+        internal bool AmbushExerted { get; init; }
     }
 
     static RetainedAreaAttack CaptureAreaAttack(Player player, ushort skillId, SupportedGem gem, AttackHand hand,
@@ -26,13 +27,17 @@ public static partial class Game
 
     static RetainedAreaAttack CaptureExertedAreaAttack(Player player, ushort skillId, SupportedGem gem, AttackHand hand,
         SkillCatalog.Unarmed weapon, int? offCritical, double hitMore, double ailmentMore, string phase,
-        bool cryExerted, int otherWarcries, int? rallyingDamage)
+        bool cryExerted, int otherWarcries, int? rallyingDamage, SkillCriticalRoll? critical = null)
     {
         int totalWarcries = (cryExerted ? 1 : 0) + otherWarcries + (rallyingDamage.HasValue ? 1 : 0);
         var playerStats = CharacterPlayerStats(player);
         long exertedAcc = ExertedAttackAccuracyIncrease(totalWarcries, playerStats, gem.Stats);
-        int exertedCrit = ExertedAttackBonusCritPermyriad(totalWarcries, playerStats, gem.Stats);
-        return CaptureAreaAttack(player, skillId, gem, hand, weapon, offCritical, hitMore, ailmentMore, phase, exertedAcc, exertedCrit);
+        int exertedCrit = ActorScale.Saturate((long)ExertedAttackBonusCritPermyriad(totalWarcries, playerStats, gem.Stats)
+            + (critical?.AmbushBaseCrit ?? 0));
+        var attack = CaptureAreaAttack(player, skillId, gem, hand, weapon, offCritical, hitMore, ailmentMore, phase, exertedAcc, exertedCrit);
+        return critical is { AmbushExerted: true }
+            ? attack with { AmbushExerted = true, CriticalMultiplier = ActorScale.Saturate((long)attack.CriticalMultiplier + critical.AmbushCritMultiplier) }
+            : attack;
     }
 
     public sealed partial class ProjectileSession
@@ -70,7 +75,7 @@ public static partial class Game
         var source = CaptureExertedAreaAttack(player, skillId, admitted, hand, weapon, offCritical,
             More(Stat.EarthquakeSkillAftershockHitDamagePlusPctFinalPer100msDuration) * damageMore,
             More(Stat.EarthquakeSkillAftershockAilmentDamagePlusPctFinalPer100msDuration) * damageMore, "aftershock",
-            cryExerted, (seismicExerted ? 1 : 0) + (MeleeWarcryTriggersFor(critical)?.Count ?? 0), rallyingDamage);
+            cryExerted, (seismicExerted ? 1 : 0) + (MeleeWarcryTriggersFor(critical)?.Count ?? 0), rallyingDamage, critical);
 
         long at = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(now + seconds));
         bool Current() => session.Active && player.PlayerLife != 0;
