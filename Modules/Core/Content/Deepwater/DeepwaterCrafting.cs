@@ -203,7 +203,7 @@ public static class DeepwaterCrafting
     public static async Task QuickMove(IModuleContext module, Player player, InstanceItems.LeagueWindowMove move)
     {
         var modPlayer = PlayerOf(player);
-        if (modPlayer.AreaId != DeepwaterModule.HubId)
+        if (!DeepwaterModule.IsOnDeck(player))
         {
             module.Log($"{modPlayer.Character} <= 0x010f Allflame Crafting quick-move: refused (not on The Sovereign)");
             return;
@@ -333,7 +333,7 @@ public static class DeepwaterCrafting
     {
         var modPlayer = PlayerOf(player);
         string who = modPlayer.Character;
-        if (modPlayer.AreaId != DeepwaterModule.HubId || !isHubOwner || args.Length < 8)
+        if (!DeepwaterModule.IsOnDeck(player) || !isHubOwner || args.Length < 8)
         {
             module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused (area={modPlayer.AreaId}, owner={isHubOwner}, len={args.Length})");
             return;
@@ -408,6 +408,8 @@ public static class DeepwaterCrafting
         if (held < cost)
         {
             module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused ({cost} Sulphur needed, {held} held)");
+            await modPlayer.Send(InstanceChat.ChatLine($"Not enough Dead Man's Sulphur ({cost} needed, {held} held)."),
+                "0x0017 chat line: insufficient Sulphur for Allflame crafting");
             return;
         }
 
@@ -424,6 +426,8 @@ public static class DeepwaterCrafting
             if (targetInvItem is null || targetInvItem.Item.Intangibility == 0)
             {
                 module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused (Tzamoto's Ducat requires Intangibility > 0)");
+                await modPlayer.Send(InstanceChat.ChatLine("Tzamoto's Ducat requires an item with Intangibility."),
+                    "0x0017 chat line: Tzamoto's Ducat refused");
                 return;
             }
             if (DeepwaterDucats.ApplyTzamoto(targetInvItem.Item, random, out destroyed) is { } survived)
@@ -444,6 +448,8 @@ public static class DeepwaterCrafting
                     if (i == 0)
                     {
                         module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused ({currencyType.Name} cannot apply to {targetType?.Name ?? "none"} or is not implemented)");
+                        await modPlayer.Send(InstanceChat.ChatLine($"{currencyType.Name} cannot be applied to {targetType?.Name ?? "this item"}."),
+                            "0x0017 chat line: Allflame craft currency refused");
                         return;
                     }
                     break;
@@ -737,7 +743,7 @@ public static class DeepwaterCrafting
     public static async Task SpawnVats(IModuleContext module, Player player, bool isHubOwner)
     {
         var modPlayer = PlayerOf(player);
-        if (modPlayer.AreaId != DeepwaterModule.HubId || player.Instance is not { } instance) return;
+        if (!DeepwaterModule.IsOnDeck(player) || player.Instance is not { } instance) return;
         if (VatInfo is not { } info || VatStates is null)
         {
             module.Log($"{modPlayer.Character}: {VatType} cannot be serialized ({string.Join(", ", QuestObjectTypes.Find(VatType)?.Components ?? [])})");
@@ -826,7 +832,7 @@ public static class DeepwaterCrafting
     public static async Task<bool> UseVat(IModuleContext module, Player player, InstanceTransfer.UseSkillOnObject use, double at, bool isHubOwner)
     {
         var modPlayer = PlayerOf(player);
-        if (modPlayer.AreaId != DeepwaterModule.HubId || player.Instance is not { } instance || !Vats.TryGetValue(instance, out var group))
+        if (!DeepwaterModule.IsOnDeck(player) || player.Instance is not { } instance || !Vats.TryGetValue(instance, out var group))
             return false;
 
         Vat? clicked;

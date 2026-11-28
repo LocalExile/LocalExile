@@ -429,13 +429,13 @@ public sealed class ItemRolls
         return item with { Mods = kept };
     }
 
-    /// <summary>Orb of Chance, the documented LocalExile rule: a modifiable normal weapon or armour piece becomes
-    /// rare (30%, 4-6 affixes and a rare name) or magic (2-4 affixes, at most two of each side). Refused targets
-    /// return null before rolling or spending, including missing/empty pools.</summary>
+    /// <summary>Orb of Chance, the documented LocalExile rule: a modifiable normal non-magic-only item (weapon, armour,
+    /// jewellery, jewel, map, etc. — excluding flasks and tinctures) becomes rare (30%, 4-6 affixes and a rare name) or
+    /// magic (2-4 affixes, at most two of each side). Refused targets return null before rolling or spending, including
+    /// missing/empty pools.</summary>
     public Item? Chance(Item item, Random random)
     {
-        if (item.Rarity != ItemRarity.Normal ||
-            !(item.Components.Contains("Weapon") || item.Components.Contains("Armour")) ||
+        if (item.Rarity != ItemRarity.Normal || IsMagicOnly(item) ||
             !TryModifiable(item, out var type) || Pool(type, item).Count == 0) return null;
         return (random.Next(100) < 30 ? Roll(item, ItemRarity.Rare, random)
             : Roll(item, ItemRarity.Magic, random, (random.Next(2, 5), 2))) with { Identified = true };
