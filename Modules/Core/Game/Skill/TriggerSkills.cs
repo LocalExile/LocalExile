@@ -217,7 +217,7 @@ public static partial class Game
     }
 
     static bool TryReleaseAutomaticPayload(Player player, ProjectileSession session, ushort skillId, SupportedGem gem,
-        GemSupports.Applied support, (int X, int Y) aim, Func<bool> current, double now, string label, out double readyAt,
+        GemSupports.Applied? support, (int X, int Y) aim, Func<bool> current, double now, string label, out double readyAt,
         uint triggerTarget = 0)
     {
         readyAt = 0;
@@ -226,7 +226,7 @@ public static partial class Game
         if (release is null || !PayMana(player, skillId, out uint mana, out uint life)) return false;
         var playerStats = CharacterPlayerStats(player);
         int milliseconds = Math.Max(SkillsFor(player).CooldownMs(gem.Effect, gem.Level),
-            SkillsFor(player).CooldownMs(support.Gem.Effect, support.Gem.Level));
+            support is { } trigger ? SkillsFor(player).CooldownMs(trigger.Gem.Effect, trigger.Gem.Level) : 0);
         if (gem.Stats.GetValueOrDefault(Stat.SpellCastTimeAddedToCooldownIfTriggered) != 0)
             milliseconds += SkillsFor(player).CastTimeMs(gem.Effect);
         double rate = Math.Max(0, 1 + ((long)playerStats.GetValueOrDefault(Stat.VirtualCooldownSpeedPlusPct)

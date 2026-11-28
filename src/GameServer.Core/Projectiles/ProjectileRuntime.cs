@@ -498,7 +498,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             // wall it meets with chains left may chain it again, and the client's terminal tries the Chain before a Bounce
             // (Agents/docs/re/projectiles/continuation-and-memory.md: eligibility 0x141bb0250, "Chain before Bounce").
             if (p.TerrainChainChance > 0 && !p.Profile.CannotChain && p.Chain > 0
-                && Nearby(p, actors).FirstOrDefault(a => world.TraceTerrain(p.Position + c.Normal * .001, a.Position(Now)) is null)
+                && Nearby(p, actors).FirstOrDefault(a => a.CanBeChainTarget
+                    && world.TraceTerrain(p.Position + c.Normal * .001, a.Position(Now)) is null)
                     is { } chainTarget
                 && p.Random.Next(100) < p.TerrainChainChance)
             {
@@ -567,7 +568,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             || p.Phase > 0 && p.Profile.PierceAllOnReturn && !p.Profile.CannotPierce
             || (!p.Profile.CannotSplit && p.Split > 0 && (p.Profile.SplitWithoutTargets || Nearby(p, actors, p.Profile.SplitRange).Any()))
             || (!p.Profile.CannotPierce && p.Pierce != 0) || (!p.Profile.CannotFork && p.Fork > 0)
-            || (!p.Profile.CannotChain && p.Chain > 0 && Nearby(p, actors).Any()));
+            || (!p.Profile.CannotChain && p.Chain > 0 && Nearby(p, actors).Any(a => a.CanBeChainTarget)));
 
     ProjectileHitResult Damage(ProjectileEntity p, ProjectileActor target, string stage,
         long? group = null, ProjectileHitRule? rule = null, double multiplier = 1, string? admissionStage = null,
@@ -628,7 +629,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             End(p, ProjectileEndReason.Fork, allowReturn: false);
             return true;
         }
-        if (!profile.CannotChain && p.Chain > 0 && Nearby(p, actors).FirstOrDefault() is { } next)
+        if (!profile.CannotChain && p.Chain > 0
+            && Nearby(p, actors).FirstOrDefault(a => a.CanBeChainTarget) is { } next)
         {
             p.Chain--;
             p.CompletedChains++;

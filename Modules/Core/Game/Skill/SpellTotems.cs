@@ -22,7 +22,7 @@ public static partial class Game
             || (ArcProxyEffect(SkillsFor(player).EffectId(effect)) || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
                 || ShockNovaEffect(SkillsFor(player).EffectId(effect)) || GlacialCascadeEffect(SkillsFor(player).EffectId(effect))
                 || BladefallEffect(SkillsFor(player).EffectId(effect)) || FrostBombEffect(SkillsFor(player).EffectId(effect))
-                || VoidSphereEffect(SkillsFor(player).EffectId(effect))
+                || VoidSphereEffect(SkillsFor(player).EffectId(effect)) || HydrosphereEffect(SkillsFor(player).EffectId(effect))
                 || IsPurifyingFlame(SkillsFor(player).EffectId(effect)) || IsWaveOfConviction(SkillsFor(player).EffectId(effect))
                 || IsGroundBladeBlast(SkillsFor(player).EffectId(effect)) || IsBladeBlastOfUnloading(SkillsFor(player).EffectId(effect))
                 || IsBladeVortex(SkillsFor(player).EffectId(effect)) || SkillsFor(player).EffectId(effect) == VaalBladeVortexEffect
@@ -468,7 +468,8 @@ public static partial class Game
                 });
                 continue;
             }
-            if (BladefallEffect(effect) || FrostBombEffect(effect) || VoidSphereEffect(effect) || IsPurifyingFlame(effect) || IsWaveOfConviction(effect)
+            if (BladefallEffect(effect) || FrostBombEffect(effect) || VoidSphereEffect(effect) || HydrosphereEffect(effect)
+                || IsPurifyingFlame(effect) || IsWaveOfConviction(effect)
                 || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect))
             {
                 bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
@@ -487,6 +488,14 @@ public static partial class Game
                         session.ReleaseVoidSphere(totem.Id, gem.Effect, own, at, Current,
                             (centre, radius, _) => TotemNovaLocked(player, session, totem, centre, radius, sequence,
                                 damageMore: more));
+                    }
+                    else if (HydrosphereEffect(effect))
+                    {
+                        var source = SupportedSkill(player, totem.SkillId);
+                        double more = Math.Max(0, 1 + source.Stats.GetValueOrDefault(Stat.SupportTotemDamagePlusPctFinal) / 100d);
+                        session.ReleaseHydrosphere(totem.Id, gem.Effect, source.Stats, at, Current,
+                            (centre, radius, drenched, cold, lightning) => TotemNovaLocked(player, session, totem, centre, radius,
+                                sequence, damageMore: more, targetFilter: drenched, capturedGem: HydroDamageSource(source, cold, lightning)));
                     }
                     else if (IsPurifyingFlame(effect))
                         SchedulePurifyingFlame(player, session, gem.Effect, SupportedSkill(player, totem.SkillId).Stats,

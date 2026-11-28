@@ -368,6 +368,7 @@ public static partial class Game
             RetireBannerLocked(Player);
             ClearDivineBlastOrbs();
             ClearVoidSpheres();
+            ClearHydrosphere();
             ClearConvictionWaves();
             ClearBladestorms();
             ClearTrarthus();
@@ -703,6 +704,8 @@ public static partial class Game
 
         public ProjectileActor? Actor(ProjectileActorKey key, long at)
         {
+            if (waterSphere is { } sphere && sphere.Actor!.Key == key && at < sphere.Until)
+                return sphere.Actor;
             if (key.Id == Player.Id && key.Generation == epoch)
                 return Player.PlayerLife > 0
                     ? playerActor ??= new(new(Player.Id, epoch), 1,
@@ -740,6 +743,7 @@ public static partial class Game
             // finds the list already in its contact order (id, then generation) and does not sort it again at every step.
             // A totem's id and place never change, so it keeps one record for as long as it is listed.
             AddTotemsAndPlayer(result);
+            AddHydrosphereActors(result, from);
             return result;
         }
 
@@ -760,6 +764,7 @@ public static partial class Game
                 result.Add(CachedMonsterActor(id, monster));
             }
             AddTotemsAndPlayer(result);
+            AddHydrosphereActors(result, at);
             return result;
         }
 
@@ -879,6 +884,8 @@ public static partial class Game
             if (contact.Projectile.Use.Payload is ObjectProjectileOffense thrown) return thrown.Hit(this, contact);
             if (contact.Projectile.Use.Payload is not ProjectileOffense shot || shot.Valid?.Invoke() == false)
                 return ProjectileHitResult.Miss;
+            if (waterSphere is { } sphere && sphere.Actor!.Key == contact.Target)
+                return ContactHydrosphere(sphere, contact, shot);
             if (!Player.Area.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0 || target.WorldHidden || ArenaHazards.Untargetable(Player, target)
                 || Key(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
             if (contact.Stage == SoulrendPulseStage && shot.Soulrend is { } soulrend)

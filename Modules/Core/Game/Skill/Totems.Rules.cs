@@ -949,10 +949,11 @@ public static partial class Game
         (int X, int Y) centre, double radius, ushort sequence, bool hitSummon = false, int? ringArt = null,
         Func<(int X, int Y), bool>? covers = null, double damageMore = 1, bool spellImpale = false, int extraCriticalIncrease = 0,
         int extraShockChance = 0, CascadePulse? cascade = null, long baseChaos = 0,
-        Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null, SkillCriticalRoll? sharedCritical = null)
+        Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null, SkillCriticalRoll? sharedCritical = null,
+        SupportedGem? capturedGem = null)
     {
-        var skill = SupportedSkill(player, totem.SkillId);
-        if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true) is not { } inputs) return;
+        var skill = capturedGem ?? SupportedSkill(player, totem.SkillId);
+        if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true, capturedGem: capturedGem) is not { } inputs) return;
         if (baseChaos > 0) inputs = inputs with { Raw = inputs.Raw.Add(GameServer.Core.World.DamageType.Chaos, new(baseChaos, baseChaos)) };
         var ownerStats = CharacterPlayerStats(player);
         var caster = TotemCasterStats(ownerStats);

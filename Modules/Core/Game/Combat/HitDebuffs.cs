@@ -292,12 +292,16 @@ public static partial class Game
         return index;
     }
 
-    static void Expose(SpawnedMonster m, int i, int magnitude, double now, double seconds = ExposureSeconds)
+    static void Expose(SpawnedMonster m, int i, int magnitude, double now, double seconds = ExposureSeconds,
+        double refreshWindow = 0)
     {
         var key = (ExposureTypes[i], magnitude);
         double until = now + seconds;
         m.Exposures[key] = Math.Max(m.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
-        { m.ExposureUntil[i] = Math.Max(m.ExposureUntil[i], until); m.PresentationChanged?.Invoke(); }
+        m.ExposureUntil[i] = Math.Max(m.ExposureUntil[i], until);
+        if (refreshWindow == 0 || m.ExposureBuff[i] == 0 || m.ExposureShownUntil[i] <= now
+            || m.ExposureUntil[i] - m.ExposureShownUntil[i] >= refreshWindow)
+            m.PresentationChanged?.Invoke();
     }
 
     /// <summary>The resistance its Exposure of this type applies at <paramref name="now"/>: the highest running one, 0

@@ -1346,7 +1346,8 @@ public static partial class Game
         BeidatCast? beidatSpell = null;
         var momentumTravel = player.Walk.ObserveTravel(AreaTime(player));
         var baseSkill = BaseSupportedSkill(player, skillId);
-        if (SkillsFor(player).EffectId(baseSkill.Effect) is TwisterEffect or CatStealthCryEffect or KineticAnomalyEffect or ThunderburstEffect or FleshrendEffect) return false;
+        if (SkillsFor(player).EffectId(baseSkill.Effect) is TwisterEffect or CatStealthCryEffect or KineticAnomalyEffect
+            or ThunderburstEffect or FleshrendEffect or HydrosphereTriggeredEffect) return false;
         if (actionToken is not null && (player.ActionCount != action || player.ElementalAilments.ActionFactor(AreaTime(player)) == 0 || player.HitRecovery.Active(AreaTime(player)))) return false;
         if (VaalArcticArmourActive(player, AreaTime(player)) && cooldownUse?.Instant != true && !locationInstant
             && !SkillsFor(player).IsInstant(baseSkill.Effect)) return false;
@@ -2640,11 +2641,16 @@ public static partial class Game
         bool divineIre = IsDivineIre(player, gem.Effect);
         int divineIreMaxStages = divineIre && SkillsFor(player).EffectId(gem.Effect) == "DivineIreRoyale" ? 20 : 10;
         int divineIreStages = 0;
+        ushort winterHydrosphere = IsWinterOrb(gem.Effect) ? WinterHydrosphereSkill(player) : (ushort)0;
         try
         {
             if (dash is not null) StartChargedDashWave(player, dash, channelStarted);
             if (IsWinterOrb(gem.Effect))
+            {
                 orbEffect = await WinterOrbStart(player, skillId, gem, action);
+                if (initialCostPaid && winterHydrosphere != 0)
+                    TriggerWinterHydrosphere(player, winterHydrosphere, initialAim, generation);
+            }
             else if (snipe)
                 await SnipeStart(player, skillId, gem, action, initialAim);
             else if (scourge)
@@ -2752,6 +2758,8 @@ public static partial class Game
                 if (IsWinterOrb(gem.Effect))
                 {
                     WinterOrbStageStep(player);
+                    if (winterHydrosphere != 0)
+                        TriggerWinterHydrosphere(player, winterHydrosphere, initialAim, generation);
                     await WinterOrbPresentStages(player);
                     continue;
                 }
@@ -3066,7 +3074,7 @@ public static partial class Game
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false, bool seismicExerted = false, int ancestralTargets = 0,
         int? rallyingDamage = null, RetainedAreaAttack? retainedAttack = null, IReadOnlyList<uint>? contactTargets = null,
-        TraumaUse? traumaUse = null) =>
+        TraumaUse? traumaUse = null, SupportedGem? triggeredSpellSource = null) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
@@ -3077,7 +3085,8 @@ public static partial class Game
             boneshatter: boneshatter, infernalBlast: infernalBlast, strikeSeconds: strikeSeconds,
             extraShockChance: extraShockChance, cascadeBurst: cascadeBurst,
             flurryRelease: flurryRelease, nearbyOnly: nearbyOnly, seismicExerted: seismicExerted, ancestralTargets: ancestralTargets,
-            rallyingDamage: rallyingDamage, contactTargets: contactTargets, traumaUse: traumaUse);
+            rallyingDamage: rallyingDamage, contactTargets: contactTargets, traumaUse: traumaUse,
+            triggeredSpellSource: triggeredSpellSource);
 
     private static async Task AreaSkillHitStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -3753,6 +3762,9 @@ public static partial class Game
                     now, epoch, criticalRoll, sequence, repeat, damageMore, cryExerted == true, seismicExerted, radiusMore, rallyingDamage);
             }
             targets = [.. found.Select(f => (f.Key, f.Value))];
+            if (!travellingSweep && targetId == 0 && contactTargets is null && targetFilter is null && ownerContact
+                && player.ProjectileRuntime is { Active: true } hydroRuntime)
+                hydroRuntime.HydrospheresInArea(skillId, gem.Effect, centre, radius, spell, criticalRoll);
             sweep = targets.Count;
             // shortcut: spirit and echo targets come after the ring's own and get no ring delay; time them by their
             // distance too once the client's rule for them is read.

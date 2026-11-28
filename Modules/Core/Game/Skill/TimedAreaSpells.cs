@@ -4,7 +4,7 @@ public static partial class Game
 {
     static bool TimedAreaSpellEffect(string? effect) =>
         CorpseDamageSpell(effect) || CremationEffect(effect) || BladefallEffect(effect)
-        || FrostBombEffect(effect) || VoidSphereEffect(effect) || IsBladeVortex(effect)
+        || FrostBombEffect(effect) || VoidSphereEffect(effect) || HydrosphereEffect(effect) || IsBladeVortex(effect)
         || effect is "BallLightningAltY" or VaalBladeVortexEffect;
 
     public sealed partial class ProjectileSession
@@ -74,6 +74,13 @@ public static partial class Game
                         (at, radius, time) => Hit(at, radius, time));
                     return;
                 }
+                if (HydrosphereEffect(effect))
+                {
+                    ReleaseHydrosphere(Player.Id, gem.Effect, source.Stats, aim, Current,
+                        (centre, radius, drenched, cold, lightning) => Hit(centre, radius, ProjectileWorldTime(Player),
+                            targetFilter: drenched, spellSource: HydroDamageSource(source, cold, lightning)));
+                    return;
+                }
                 if (effect == "BallLightningAltY")
                 {
                     ReleaseStaticBall(gem.Effect, source.Stats, aim, Current, (at, radius, time) => Hit(at, radius, time));
@@ -81,7 +88,8 @@ public static partial class Game
                 }
                 if (BladefallEffect(effect))
                 {
-                    ReleaseBladefall(gem.Id, gem.Effect, source.Stats, Player.Walk.Position(now), aim, Current, Hit);
+                    ReleaseBladefall(gem.Id, gem.Effect, source.Stats, Player.Walk.Position(now), aim, Current,
+                        (centre, radius, at, scale, extraCrit) => Hit(centre, radius, at, scale, extraCrit));
                     return;
                 }
 
@@ -123,13 +131,15 @@ public static partial class Game
                 }
             });
 
-            void Hit((int X, int Y) at, int radius, double atTime, double stageMore = 1, int extraCriticalIncrease = 0)
+            void Hit((int X, int Y) at, int radius, double atTime, double stageMore = 1, int extraCriticalIncrease = 0,
+                Func<uint, (int X, int Y), bool>? targetFilter = null, SupportedGem? spellSource = null)
             {
                 using var scope = intensity is null ? null : new IntensityScope(intensity);
                 var task = AreaSkillHitForUse(null, Player, gem.Id, gem, at, at, immediate: true, sequence: sequence,
                     radiusOverride: radius, criticalRoll: critical, sacrifice: sacrifice, triggeredCurrent: Current,
                     scheduledSession: this, repeat: repeat, damageMore: more * stageMore,
-                    extraCriticalIncrease: extraCriticalIncrease, hitAndAilmentMore: beidatMore);
+                    extraCriticalIncrease: extraCriticalIncrease, hitAndAilmentMore: beidatMore,
+                    targetFilter: targetFilter, triggeredSpellSource: spellSource);
                 if (!task.IsCompleted) throw new InvalidOperationException("Scheduled timed area spell hit must not yield.");
                 task.GetAwaiter().GetResult();
             }

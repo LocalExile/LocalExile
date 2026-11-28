@@ -1091,6 +1091,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
         ["Positioned", "Stats", "ObjectMagicProperties", "BaseEvents", "Pathfinding", "Buffs", "Life", "Animated",
          "Inventories", "Actor", "Monster"];
 
+    // Anomaly actors have an Actor and Life but no Monster variety or inventory component.
+    public static IReadOnlyList<string> AnomalyComponents { get; } = Array.AsReadOnly(
+        new[] { "Positioned", "Stats", "Buffs", "Life", "BaseEvents", "Animated", "Pathfinding", "StateMachine", "Actor" });
+
     /// <summary>Components a type may add after the base list that this blob can write. StateMachine (per-type state
     /// lists from the .ot) needs <see cref="StateMachineData"/>; DiesAfterTime's primary vtable 0x1435a7888 and Timer's
     /// only vtable 0x1435ab790 (Solaris and Lunaris, The Harbour Bridge) have a bare `ret` slot 17, so they read nothing;
@@ -1126,8 +1130,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <param name="chain">The type's .ot chain (object-types.json). A lineage-gated extra is allowed only when
     /// the chain includes its base type; null or empty allows none.</param>
     public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false, IReadOnlyList<string>? chain = null) =>
-        components.Count >= BaseComponents.Length && components.Take(BaseComponents.Length).SequenceEqual(BaseComponents) &&
-        components.Skip(BaseComponents.Length).All(c => (Extras.Contains(c) || c == "ControlZone" || IsLineageExtra(c, chain)) && (c != "StateMachine" || haveStateMachine));
+        haveStateMachine && components.SequenceEqual(AnomalyComponents)
+        || components.Count >= BaseComponents.Length && components.Take(BaseComponents.Length).SequenceEqual(BaseComponents)
+        && components.Skip(BaseComponents.Length).All(c => (Extras.Contains(c) || c == "ControlZone" || IsLineageExtra(c, chain))
+            && (c != "StateMachine" || haveStateMachine));
 
     public byte[] Blob()
     {

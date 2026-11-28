@@ -289,6 +289,8 @@ public static partial class Game
     }
 
     static readonly RuleTable<PlacedSkills.DamageSnapshot, PlacedSkills.DamageSnapshot> RecentMineAreaProfiles = new();
+    sealed record HydrospherePlacedProfiles(PlacedSkills.DamageSnapshot? Lightning, PlacedSkills.DamageSnapshot? Mixed);
+    static readonly RuleTable<PlacedSkills.DamageSnapshot, HydrospherePlacedProfiles> PlacedHydrosphereDamage = new();
 
     // Preserve the placement-time offensive inputs. A mine chooses the recent-detonation area profile at release.
     static PlacedSkills.DamageSnapshot? CapturePlacedDamage(Player player, ushort skill, SupportedGem gem,
@@ -420,6 +422,10 @@ public static partial class Game
                 var context = ReservationContext(player, admission.Skill);
                 var reserve = admission.Mine ? SupportedReservation(player, admission.Skill) : null;
                 var offense = CapturePlacedDamage(player, admission.Skill, gem);
+                if (offense is not null && HydrosphereEffect(SkillsFor(player).EffectId(gem.Effect)))
+                    PlacedHydrosphereDamage.Add(offense, new(
+                        CapturePlacedDamage(player, admission.Skill, HydroDamageSource(gem, 0, 100)),
+                        CapturePlacedDamage(player, admission.Skill, HydroDamageSource(gem, 50, 50))));
                 var damage = offense?.Normal.Hit ?? SupportedHitFor(player, admission.Skill, suppress: false);
                 var payload = new Dictionary<uint, int>(gem.Stats);
                 foreach (uint flag in new[] { Stat.IsTrap, Stat.IsRemoteMine, Stat.BaseSkillIsTrapped,
@@ -783,6 +789,7 @@ public static partial class Game
         bool brand = TriggerBrandSpell(player, placed.Effect);
         bool frostBomb = effect == "FrostBomb";
         bool voidSphere = VoidSphereEffect(effect);
+        bool hydrosphere = HydrosphereEffect(effect);
         bool staticOrb = effect == "BallLightningAltY";
         bool bladefall = effect == "Bladefall";
         bool purifyingFlame = IsPurifyingFlame(effect);
@@ -808,7 +815,8 @@ public static partial class Game
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
             && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm || brand
-                || frostBomb || voidSphere || staticOrb || bladefall || detonateDead || volatileDead || purifyingFlame || conviction || bladeBlast
+                || frostBomb || voidSphere || hydrosphere || staticOrb || bladefall || detonateDead || volatileDead
+                || purifyingFlame || conviction || bladeBlast
                 || unloading || lance || manabond || shockNova || cascade || ruin))
         {
             var session = ProjectilesFor(player);
@@ -831,6 +839,19 @@ public static partial class Game
                 session.ScheduleContact(ProjectileRuntime.Time(now), Current,
                     () => session.ReleaseVoidSphere(player.Id, placed.Effect, placed.Own, placed.At, Current,
                         (centre, radius, time) => placement.Apply(player, centre, radius, time)));
+            }
+            else if (hydrosphere)
+            {
+                session.ScheduleContact(ProjectileRuntime.Time(now), Current,
+                    () => session.ReleaseHydrosphere(player.Id, placed.Effect, placed.Own, placed.At, Current, Pulse));
+                void Pulse((int X, int Y) centre, int radius, Func<uint, (int X, int Y), bool> drenched, int cold, int lightning)
+                {
+                    var contact = placed;
+                    if (lightning > 0 && placed.Offense is { } saved && PlacedHydrosphereDamage.TryGetValue(saved, out var profiles))
+                        contact = placed with { Offense = cold == 0 ? profiles.Lightning : profiles.Mixed };
+                    PlacedAreaDamageLocked(player, contact, centre, radius, ProjectileWorldTime(player), inventionMore,
+                        currentSkill: true, spellDamage: true, targetFilter: drenched);
+                }
             }
             else if (staticOrb)
                 session.SchedulePlacedStaticBall(new(placed, inventionMore), Current);
