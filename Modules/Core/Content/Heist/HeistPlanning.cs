@@ -22,7 +22,7 @@ public static class HeistPlanning
 
     static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;
 
-    /// <summary>Inventory placement guards for rows 44 (Contract), 45..53 (Rogue Ally Equipment), and 55 (Blueprint).</summary>
+    /// <summary>Inventory placement guards for rows 44 (Contract), 45..53 (Rogue Ally Equipment), 55 (Blueprint), and 56 (Heist Locker).</summary>
     public static string? Refusal(Player player, byte row, Item item)
     {
         var baseType = ItemsFor(player).ByHash(item.TypeHash);
@@ -30,6 +30,10 @@ public static class HeistPlanning
             return baseType?.Class == "HeistContract" ? null : "Only a Heist Contract can be placed here.";
         if (row == HeistTables.BlueprintMissionRow)
             return baseType?.Class == "HeistBlueprint" ? null : "Only a Heist Blueprint can be placed here.";
+        if (row == HeistTables.HeistLockerRow)
+            return HeistLocker.RegionOf(item.TypeHash) is null
+                ? "Only Heist Contracts, Blueprints, and Rogue's Markers can be placed in the Heist Locker."
+                : null;
         if (row is >= HeistTables.FirstNpcEquipmentRow and <= HeistTables.LastNpcEquipmentRow)
         {
             if (baseType is null || !HeistEquipmentClasses.Contains(baseType.Class))

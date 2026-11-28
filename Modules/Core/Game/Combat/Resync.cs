@@ -38,7 +38,7 @@ public static partial class Game
     /// <summary>Whether a skill immediately puts the player where it was aimed. A channelled one (Cyclone) reports its own way.</summary>
     public static bool LandsAtAim(Player player, int effect) =>
         SkillsFor(player).IsMovement(effect) && !SkillsFor(player).IsChannelled(effect)
-        && !(SkillsFor(player).EffectId(effect) is { } id && (IsLightningWarpEffect(id) || id is "FrostblinkAltX" or CorpseBodyswapEffect
+        && !(SkillsFor(player).EffectId(effect) is { } id && (IsLightningWarpEffect(id) || id is "FrostblinkAltX" or CorpseBodyswapEffect or BodyswapSacrificeEffect
             || IsConsecratedPath(id) || id.StartsWith("BlinkArrow", StringComparison.Ordinal)
             || MovementInPlace.Any(name => id.StartsWith(name, StringComparison.Ordinal))));
 

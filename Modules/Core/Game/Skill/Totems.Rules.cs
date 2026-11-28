@@ -953,7 +953,7 @@ public static partial class Game
         SupportedGem? capturedGem = null)
     {
         var skill = capturedGem ?? SupportedSkill(player, totem.SkillId);
-        uint? sourceLife = SkillsFor(player).EffectId(skill.Effect) == CorpseBodyswapEffect ? totem.MaxLife : null;
+        uint? sourceLife = SkillsFor(player).EffectId(skill.Effect) is CorpseBodyswapEffect or BodyswapSacrificeEffect ? totem.MaxLife : null;
         if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true,
                 capturedGem: capturedGem, projectileTotemLife: sourceLife) is not { } inputs) return;
         if (baseChaos > 0) inputs = inputs with { Raw = inputs.Raw.Add(GameServer.Core.World.DamageType.Chaos, new(baseChaos, baseChaos)) };

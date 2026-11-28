@@ -77,8 +77,19 @@ internal static class DeepwaterConstants
     public const string VoyageDefend = "DeepwaterVoyageDefendUntilExtraction";
     /// <summary>QuestFlags 3578: Vesper has unclaimed Ghostly Copies in inventory 106 (disables targeting VesperCrafting).</summary>
     public const string CraftInProgress = "HasDeepwaterCraftInProgress";
-    /// <summary>QuestFlags 3579.</summary>
+    /// <summary>QuestFlags 3579, 3614–3618: lantern placement progression flags.</summary>
     public const string FirstLanternPlaced = "FirstLanternPlaced";
+    public static readonly string[] LanternPlacedFlags =
+    [
+        FirstLanternPlaced,
+        "SecondLanternPlaced",
+        "ThirdLanternPlaced",
+        "FourthLanternPlaced",
+        "FifthLanternPlaced",
+        "SixthLanternPlaced",
+    ];
+    /// <summary>QuestFlags 3582: Valerie's first out-of-light warning has played.</summary>
+    public const string FirstDrowningHeard = "DeepwaterFirstDrowningHeard";
     /// <summary>QuestFlags 3625: the player is on the encounter's own deck.</summary>
     public const string InPseudoHub = "InMyDeepwaterPseudoHub";
     // The Maiden Voyage's run steps (Quest 209's tracker, QuestStates 1975-1965; G: what sets each, R1 §6).

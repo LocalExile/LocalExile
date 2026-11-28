@@ -10,8 +10,12 @@ public static partial class Game
     static readonly RuleTable<GolemState.Golem, GolemWanderClock> GolemWander = new();
     sealed class GolemStuckState { public double StuckSince = double.NaN; public (int X, int Y) LastProgressPos; }
     static readonly RuleTable<GolemState.Golem, GolemStuckState> GolemStuck = new();
-    sealed record GolemActionClock(int Generation, ActionTimeClock Clock, double Duration);
+    sealed record GolemActionClock(int Generation, ActionTimeClock Clock, double Duration)
+    {
+        public (int X, int Y)? LastIcePatch;
+    }
     static readonly RuleTable<GolemState.Golem, GolemActionClock> GolemActionClocks = new();
+    const int CycloneIceRadius = 4;
 
     internal static bool GolemCurrent(Player player, GolemState.Golem g) => CurrentGameWork && !player.Closed && !player.LeavingArea
         && (player.Golems.All.GetValueOrDefault(g.Id) == g || player.Reservations.Fighters.GetValueOrDefault(g.Id) == g || player.Summons.Fighters.GetValueOrDefault(g.Id) == g)
@@ -110,7 +114,7 @@ public static partial class Game
             m.Walk.Order(m.Walk.Position(now).X, m.Walk.Position(now).Y, now);
             return;
         }
-        RetimeGolemAction(g, now, actionRate);
+        UpdateGolemActionLocked(player, g, now, actionRate);
         GolemPulsesLocked(player, g, now);
         if (g.Pending is { } pending)
         {
@@ -337,7 +341,8 @@ public static partial class Game
         var from = g.Monster.Walk.Position(now); var a = MinionSupportAction(player, g, pending);
         g.Pending = pending = pending with { Ability = a };
         var clock = new ActionTimeClock(now, rate);
-        GolemActionClocks.AddOrUpdate(g, new(pending.Generation, clock, a.Attack.Seconds));
+        var timing = new GolemActionClock(pending.Generation, clock, a.Attack.Seconds);
+        GolemActionClocks.AddOrUpdate(g, timing);
         pending.Started = true;
         pending.At = clock.Deadline(a.Attack.Seconds * a.Contact);
         g.Monster.BusyUntil = clock.Deadline(a.Attack.Seconds);
@@ -348,6 +353,8 @@ public static partial class Game
             if (a.Effect == 2563) speed *= 1 + GolemStat(a.Stats, Stat.CycloneMovementSpeedPlusPctFinal) / 100.0;
             g.Monster.Walk.SetSpeed(speed, now);
             g.Monster.Walk.Order(pending.Aim.X, pending.Aim.Y, now);
+            if (GolemStat(a.Stats, Stat.CyclonePlacesGroundIce) != 0)
+                PlaceCycloneIceLocked(player, timing, from, now);
         }
         if (pending.RepeatIndex == 0) GolemStartCooldown(g, a, now);
         // The skeleton dash needs movement presentation. A generic skill start can crash the 3.29.3d client.
@@ -362,7 +369,7 @@ public static partial class Game
         return [InstanceEntities.PlayerSkillsChange(id, GolemNativeSkills(player, g.Monster.Level, [a]), []), action];
     }
 
-    static void RetimeGolemAction(GolemState.Golem g, double now, double rate)
+    static void UpdateGolemActionLocked(Player player, GolemState.Golem g, double now, double rate)
     {
         if (!GolemActionClocks.TryGetValue(g, out var timing)) return;
         var m = g.Monster;
@@ -371,11 +378,24 @@ public static partial class Game
             GolemActionClocks.Remove(g);
             return;
         }
+        if (timing.LastIcePatch is { } last)
+        {
+            var at = m.Walk.Position(now);
+            if (Dist(last, at) >= CycloneIceRadius)
+                PlaceCycloneIceLocked(player, timing, at, now);
+        }
         if (rate == timing.Clock.Rate) return;
         timing.Clock.SetRate(now, rate);
         m.BusyUntil = timing.Clock.Deadline(timing.Duration);
         if (g.Pending is { Started: true } pending && now < pending.At)
             pending.At = timing.Clock.Deadline(timing.Duration * pending.Ability.Contact);
+    }
+
+    static void PlaceCycloneIceLocked(Player player, GolemActionClock timing, (int X, int Y) at, double now)
+    {
+        timing.LastIcePatch = at;
+        AddChilledGroundLocked(player, at, now + 2.5, CycloneIceRadius,
+            "Metadata/Effects/Spells/ground_effects_v3/chilled/chilled_grd.ao");
     }
 
     static double GolemWalkSpeed(SpawnedMonster m, double now, double rate)
@@ -1035,6 +1055,11 @@ public static partial class Game
             if (RandomRolls.Chance(Golem(Stat.CoverInAshOnHitPct), 100, random))
             {
                 target.CoveredInAshUntil = Math.Max(target.CoveredInAshUntil, now + HitDebuffSeconds);
+                target.PresentationChanged?.Invoke();
+            }
+            if (Golem(Stat.CoverInFrostOnHitPct) is > 0 and var frostChance && RandomRolls.Chance(frostChance, 100, random))
+            {
+                target.CoveredInFrostUntil = Math.Max(target.CoveredInFrostUntil, now + HitDebuffSeconds / target.RecipientDebuffRate);
                 target.PresentationChanged?.Invoke();
             }
             InflictMonsterBlind(player, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,

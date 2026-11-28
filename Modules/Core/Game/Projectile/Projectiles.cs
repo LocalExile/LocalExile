@@ -353,6 +353,8 @@ public static partial class Game
             ClearPods();
             ClearDamageGrounds();
             ClearEarthshatterSpikes();
+            ClearBonespires();
+            ClearVoidstorms();
             ClearProjectileBladeSources();
             ClearBladeVortices();
             ClearPlacedVolatileOrbs();
@@ -374,7 +376,7 @@ public static partial class Game
             ClearConvictionWaves();
             ClearBladestorms();
             ClearTrarthus();
-            kineticAnomalies?.Clear();
+            ClearKineticAnomalies();
             while (somaticShells is { Count: > 0 }) RemoveSomaticShell(somaticShells[^1]);
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
             EndSacredWisps(retire: true);
@@ -1102,6 +1104,10 @@ public static partial class Game
                 target.Walk.Position(at), at);
             else if (!shot.FromTrapOrMine)
                 ArcaneSurgeOnSpellHitLocked(Player, player, target);
+            if (shot.KineticFluxDriver is { } driver && ownHit && !immune && target.Hostile
+                && (critical || hit.Value.Life == 0))
+                TriggerKineticFluxLocked(Player, this, shot.SourceSkill, driver, critical, hit.Value.Life == 0,
+                    target.Walk.Position(at), at);
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stat.BaseKilledMonsterDroppedItemQuantityPlusPct is var quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
@@ -1218,6 +1224,9 @@ public static partial class Game
                     CatchVenomGyre(p.Use, caught);
                 if (value.Reason == ProjectileEndReason.Landing && p.Use.Payload is ProjectileOffense { Unearth: { } corpse })
                     LandUnearth(corpse, (x, y));
+                if (value.Reason == ProjectileEndReason.Landing && p.ParentId == 0
+                    && p.Use.Payload is ProjectileOffense { VoidstormDriver: { } driver } shot)
+                    TriggerVoidstorm(shot.SourceSkill, driver, value.Position);
             }
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile end use={p.UseId} entity={p.Id}"

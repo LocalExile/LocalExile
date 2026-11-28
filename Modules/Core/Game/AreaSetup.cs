@@ -25,6 +25,7 @@ public static class AreaSetup
         Running.AddOrUpdate(area, source);
         MonsterRegeneration.Start(area, player, source);
         Game.StartMonsterDamageOverTime(area, player, source);
+        area.Systems.Add("Scorching Ray beams", AreaPhase.Hits, Game.AdvanceScorchingRays, source: source);
         area.Systems.Add("projectile damage grounds", AreaPhase.Ailments, Game.ProjectileSession.AdvanceAreaDamageGrounds, source: source);
         Game.StartMonsterAilments(area, player, source);
         Game.StartMonsterAi(area, player, source);

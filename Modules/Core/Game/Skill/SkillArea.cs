@@ -21,7 +21,7 @@ public static class SkillArea
             : get(Stat.ActiveSkillBaseAreaOfEffectRadius) is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
 
     static int? KnownBaseRadius(string? effect) =>
-        Game.IsLightningWarpEffect(effect) ? 16
+        effect == Game.WitherEffect ? 18 : Game.IsLightningWarpEffect(effect) ? 16
             : effect == "VaalGroundSlam" ? GroundSlamWave.VaalBaseRadius : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
             : effect == Game.SmokeMineEffect ? Game.SmokeMineCloudRadius
             : effect is "Earthquake" or "Earthshatter" or "EarthshatterAltX" or "EarthshatterAltY" ? 18

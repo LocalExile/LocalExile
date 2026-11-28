@@ -560,6 +560,8 @@ public static partial class Game
             ActualCaster = totem is null ? null : TotemCasterStats(playerStats), FromTotem = totem is not null,
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId, Gem = gem.Gem,
             HitPacket = true, ActionSequence = sequence,
+            VoidstormDriver = Own(VoidstormTrigger) > 0 && !spell && totem is null && from is null && !fromMirage
+                && sacrifice?.Triggered != true && !SkillsFor(player).HasType(gem.Effect, "InbuiltTrigger") ? admittedGem : null,
             SkillStats = new Dictionary<uint, int>(own), FirstHit = new(),
             FreezingPulseFalloff = SkillsFor(player).EffectId(gem.Effect) is
                 "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale",
@@ -580,6 +582,9 @@ public static partial class Game
                 required: trackTrajectoryDamage, extraIncreased: exertedIncreased),
             MirageSource = totem is null && Own(Stat.SupportMirageArcherBaseDuration) > 0 ? SupportedSkill(player, skillId) : null,
             CriticalTrigger = spell ? null : CaptureCriticalTriggerSource(player, skillId),
+            KineticFluxDriver = !spell && totem is null && from is null && sacrifice?.Triggered != true
+                && (Own(Stat.SupportKineticInstabilityChanceToCreateInstabilityOnCriticalStrikePct) > 0
+                    || Own(Stat.SupportKineticInstabilityChanceToCreateInstabilityOnKillPct) > 0) ? admittedGem : null,
             Penetration = Penetration.Of(playerStats, Stats, !spell, own, local), ResistanceMods = HitResistMods(playerStats, own),
             ImpaleSettings = WeaponImpaleSettings(playerStats, Stats, !spell, own, attackSource),
             CriticalImpaleSettings = WeaponImpaleSettings(playerStats, Stats, !spell, own, attackSource, critical: true),

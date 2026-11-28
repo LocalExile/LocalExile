@@ -777,6 +777,13 @@ public static partial class Game
                     locusAim ? player.Walk.Position(now) : triggeringEnemy.Value?.Walk.Position(now) ?? placed.At, now, bytes);
             return;
         }
+        if (effect == BodyswapSacrificeEffect)
+        {
+            if (currentSkill && GemSourceLifetimeCurrentLocked(player, placed.Skill, placed.Effect, placed.Source))
+                ReleasePlacedBodyswap(player, new(placed, inventionMore),
+                    locusAim ? player.Walk.Position(now) : placed.At, now, bytes);
+            return;
+        }
         if (IsHexblastEffect(effect))
         {
             var origin = locusAim ? player.Walk.Position(now) : placed.At;

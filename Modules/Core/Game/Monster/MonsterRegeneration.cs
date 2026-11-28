@@ -8,6 +8,7 @@ using GameServer.Core.Protocol.Instance;
 public static class MonsterRegeneration
 {
     const int EveryFrames = 15;
+    internal static double IntervalSeconds => EveryFrames * Program.FrameMs / 1000d;
 
     public static void Start(GameArea area, Player player, object source)
     {

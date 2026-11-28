@@ -78,6 +78,16 @@ public static partial class Game
             return "this Shockwave triggers on supported melee hits";
         if (GolemStat(gem.Stats, Stat.TriggeredByPyreSupport) != 0)
             return "Call the Pyre triggers on supported melee hits against ignited enemies";
+        if (GolemStat(gem.Stats, Stat.TriggeredByBonespireSupport) != 0)
+            return "Seize the Flesh triggers on use of a supported warcry";
+        if (GolemStat(gem.Stats, Stat.TriggeredByKineticInstabilitySupport) != 0)
+            return "Kinetic Flux triggers from attacks supported by Kinetic Instability";
+        if (GolemStat(gem.Stats, Stat.TriggeredByVoidstormSupport) != 0)
+            return "Voidstorm triggers when a supported ranged attack lands";
+        if (GolemStat(gem.Stats, Stat.TriggeredBySupportMovement) != 0)
+            return "Windburst triggers on a supported attack hit after moving";
+        if (GolemStat(gem.Stats, Stat.TriggeredByHivebornSupport) != 0)
+            return "Summon Hiveborn triggers when you use a supported offering";
         if (gem.WornGrant is { EffectId: GoreShockwaveEffect })
             return "Gore Shockwave triggers on melee hits with at least 150 Strength";
         if (GolemStat(gem.Stats, Stat.TriggeredByDivineCry) != 0)
@@ -107,8 +117,8 @@ public static partial class Game
 
     // Every payload needs an independent executor; unsupported mechanics stay unavailable.
     static bool TriggeredSpellExecutable(Player player, ushort id, SupportedGem gem) => SkillsFor(player).IsSpell(gem.Effect)
-        && !SkillsFor(player).IsAttack(gem.Effect)
-        && (!SkillsFor(player).IsTravel(gem.Effect) || SkillsFor(player).EffectId(gem.Effect) == CorpseBodyswapEffect)
+        && !SkillsFor(player).IsAttack(gem.Effect) && (!SkillsFor(player).IsTravel(gem.Effect)
+            || SkillsFor(player).EffectId(gem.Effect) is CorpseBodyswapEffect or BodyswapSacrificeEffect)
         && !SkillsFor(player).IsRetaliation(gem.Effect)
         && Supports.Of(gem.Effect)?.Types.Contains(47) != true && PlacedKind(gem) is (false, false)
         && gem.Supports.Count(s => s.Effect.Added.Contains(36)) == 1

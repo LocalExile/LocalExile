@@ -405,6 +405,8 @@ public static partial class Game
                 Stat.NumberOfMageSkeletonsToSummon }.Sum(n => GolemStat(gem.Stats, n)));
         if (definition.Family == "RagingSpirit")
             return random.Next(100) < Math.Clamp(GolemStat(gem.Stats, Stat.SummonedRagingSpiritChanceToSpawnAdditionalMinionPct), 0, 100) ? 2 : 1;
+        if (definition.Family == "Hiveborn")
+            return Math.Max(1, GolemStat(gem.Stats, Stat.GraftSkillTulSummonNumberOfDemonsToSummon));
         return Math.Max(1, GolemStat(gem.Stats, Stat.NumberOfMonstersToSummon));
     }
 
