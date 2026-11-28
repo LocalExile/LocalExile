@@ -520,7 +520,7 @@ public sealed class RecombinatorService(IOperationsHost host)
         var prefixPool = new List<(ItemMod Mod, ModCatalog.Mod Def)>();
         var suffixPool = new List<(ItemMod Mod, ModCatalog.Mod Def)>();
 
-        HashSet<uint>? influenceLegalHashes = chosenBase.Influences != ItemInfluence.None
+        HashSet<ushort>? influenceLegalHashes = chosenBase.Influences != ItemInfluence.None
             ? rolls.Pool(baseType, outIlvl, chosenBase.Influences).Select(p => p.Mod.Hash).ToHashSet()
             : null;
         int maxAffixes = baseType.Class.Contains("Jewel", StringComparison.OrdinalIgnoreCase) ? 2 : 3;

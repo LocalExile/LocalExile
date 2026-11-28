@@ -56,7 +56,7 @@ public sealed partial class SettlersModule : IModule
         SettlersBossCallbacks.GetBossRewardMultiplier = () => Settings.ShippingRewardMultiplier;
         Func<BossVerisiumClaimedEvent, Task> onBossVerisium = evt =>
         {
-            _bridge.GrantResource(evt.Player, VillageResourceKind.PendingVerisium, evt.OreAmount, "boss:black-knight");
+            _bridge.GrantResource(evt.Player, VillageResourceKind.PendingVerisiumOre, evt.OreAmount, "boss:black-knight");
             return Task.CompletedTask;
         };
         Func<RescueShipmentEvent, Task> onRescueShipment = evt =>
