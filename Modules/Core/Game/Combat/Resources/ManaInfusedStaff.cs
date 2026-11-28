@@ -16,9 +16,14 @@ public static partial class Game
 
     static readonly Store<Player, ManaStaffBlockCooldown> ManaStaffBlockCooldowns = new();
 
-    static AuraCatalog.Aura? ManaStaffAura(Player player) =>
-        player.Auras.Count == 0 || player.PlayerLife == 0 ? null
-            : player.Auras.Values.FirstOrDefault(static aura => aura is { EffectId: ManaInfusedStaffEffect, AffectsSelf: true });
+    static AuraCatalog.Aura? ManaStaffAura(Player player)
+    {
+        if (player.Auras.Count == 0 || player.PlayerLife == 0) return null;
+        foreach (var aura in player.Auras.Values)
+            if (aura is { EffectId: ManaInfusedStaffEffect, AffectsSelf: true })
+                return aura;
+        return null;
+    }
 
     static (int ManaCost, int Block) ManaStaffGrants(AuraCatalog.Aura aura)
     {

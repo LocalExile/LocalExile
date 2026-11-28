@@ -138,17 +138,27 @@ public static partial class Game
         {
             if (cursedGround is not { } zone) return;
             cursedGround = null;
-            if (zone.Area.Driven && !zone.Area.Owned) zone.Area.Defer(Remove);
-            else Remove(zone.Area);
+            if (zone.ToadInterval > 0)
+            {
+                if (Active)
+                {
+                    WorldRecords(zone.Id, () =>
+                    {
+                        Player.UntrackProjectileObject(zone.Id);
+                        return [InstanceProtocol.RemoveObject(zone.Id)];
+                    }, remove: true);
+                }
+                else
+                {
+                    RetireSkillEffectObject(zone.Id);
+                }
+            }
+            if (zone.Area.Driven && !zone.Area.Owned) zone.Area.Defer(RemoveHexes);
+            else RemoveHexes(zone.Area);
 
-            void Remove(GameArea area)
+            void RemoveHexes(GameArea _)
             {
                 foreach (var monster in zone.Recipients) RemoveCursedGroundHex(zone, monster);
-                if (zone.ToadInterval <= 0) return;
-                Player.UntrackProjectileObject(zone.Id);
-                byte[] remove = InstanceProtocol.RemoveObject(zone.Id);
-                if (area.Driven) area.Delta.RemoveSharedObject(zone.Id, remove);
-                else WorldRecords(zone.Id, () => [remove], remove: true);
             }
         }
     }

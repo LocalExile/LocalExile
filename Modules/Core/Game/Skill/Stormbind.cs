@@ -10,7 +10,7 @@ public static partial class Game
     // At +90% area, 27 base cells give the fully improved rune's 36-cell radius.
     const int StormbindExplosionRadius = 27;
     const double StormbindChainStep = .06;
-    const double StormbindTeleportDelay = .5;
+    const double StormbindTeleportDelay = .1;
     const string StormbindArt = "Metadata/Effects/Spells/channelled_run_explosion/";
     static readonly (int X, int Y)[] StormbindNeighbours =
         [(0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1)];
@@ -49,6 +49,7 @@ public static partial class Game
         public readonly int UpgradeCost = source.Gem.Stats.GetValueOrDefault(Stat.RunePaintManaSpendPerRuneUpgrade);
         public readonly int MaxLevel = source.Gem.Stats.GetValueOrDefault(Stat.RunePaintMaxRuneLevel);
         public int Level;
+        public uint SpentMana;
     }
 
     static bool IsStormbind(Player player, int effect) =>
@@ -224,12 +225,22 @@ public static partial class Game
 
             void Improve(StormbindRune rune)
             {
-                if (rune.UpgradeCost <= 0 || mana < rune.UpgradeCost || rune.Level >= rune.MaxLevel
+                if (mana == 0 || rune.UpgradeCost <= 0 || rune.Level >= rune.MaxLevel
                     || !rune.Source.Current(Player)) return;
-                mana -= (uint)rune.UpgradeCost;
-                rune.Level++;
-                rune.Animate((uint)Math.Min(4, rune.Level + 1));
-                TraceStormbind($"improved at={StormbindPoint(rune.Cell)} level={rune.Level} spent={rune.UpgradeCost}");
+                uint cost = (uint)rune.UpgradeCost;
+                ulong totalNeeded = (ulong)(rune.MaxLevel - rune.Level) * cost;
+                ulong remaining = totalNeeded > rune.SpentMana ? totalNeeded - rune.SpentMana : 0;
+                uint add = (uint)Math.Min(mana, remaining);
+                if (add == 0) return;
+                mana -= add;
+                rune.SpentMana += add;
+                while (rune.SpentMana >= cost && rune.Level < rune.MaxLevel)
+                {
+                    rune.SpentMana -= cost;
+                    rune.Level++;
+                    rune.Animate((uint)Math.Min(4, rune.Level + 1));
+                    TraceStormbind($"improved at={StormbindPoint(rune.Cell)} level={rune.Level} spent={cost}");
+                }
             }
         }
 

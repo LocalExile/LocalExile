@@ -699,6 +699,9 @@ public sealed class SkillCatalog
 
     private readonly Dictionary<int, IReadOnlySet<int>> _weaponRestrictions;
 
+    // ItemClasses rows for Staff (14) and Warstaff (57), enforced by ActiveSkillType RequiresStaff (e.g. Mana-Infused Staff).
+    static readonly FrozenSet<int> StaffItemClasses = [14, 57];
+
     Dictionary<int, IReadOnlySet<int>> LoadWeaponRestrictions()
     {
         if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("ActiveSkills")) return [];
@@ -708,8 +711,14 @@ public sealed class SkillCatalog
         var effects = ClientTables.Table("GrantedEffects");
         var result = new Dictionary<int, IReadOnlySet<int>>();
         foreach (var (r, i) in effects.Select((r, i) => (r, i)))
-            if (r.IntOrNull("ActiveSkill") is int row && row >= 0 && row < restricted.Count && restricted[row].Count > 0)
-                result[i] = restricted[row];
+        {
+            var rows = r.IntOrNull("ActiveSkill") is int row && row >= 0 && row < restricted.Count
+                ? restricted[row]
+                : FrozenSet<int>.Empty;
+            if (_skillTypes.HasType(i, "RequiresStaff"))
+                rows = rows.Count == 0 ? StaffItemClasses : rows.Union(StaffItemClasses).ToFrozenSet();
+            if (rows.Count > 0) result[i] = rows;
+        }
         return result;
     }
 
