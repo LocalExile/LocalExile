@@ -220,6 +220,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Vaal souls (#308), Vaal Ground Slam's radial wave, Vaal Fireball, Vaal Spark and Vaal Discipline (allied recharge).
   Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
+- Cold Snap leaves chilled ground with cold damage over time and grants Frenzy Charges for kills in it.
+  Vaal Cold Snap casts; its ground follows the caster and grants a Frenzy Charge each second an enemy is in it.
+  Both land at the last visible cell when aimed past a wall, and the ground uses the worn skin's art.
 - Tectonic Slam uses a forward fissure with seeded branches.
   Contacts advance along each branch and one use can contact each target once.
 - Sunder and its variants time their wave segments and victim shockwaves.

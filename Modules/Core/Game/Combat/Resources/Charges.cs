@@ -138,6 +138,8 @@ public static partial class Game
         TryGainElusiveLocked(player, critical: false, kill: true, now);
         Func<uint, int>? skill = skillStats is { Count: > 0 } own ? key => own.GetValueOrDefault(key) : null;
         ChargesOf(player).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons, skill));
+        // Only an existing projectile session can hold Cold Snap grounds; a kill never starts one.
+        if (player.ProjectileRuntime is { Active: true } projectiles) projectiles.ColdSnapFrenzyOnKill(m, now);
         SpiritChargeOnKill(player, AreaTime(player));
         SelfBuffsOnKill(player);
         CurseCharges(player, m, death: true, now);
