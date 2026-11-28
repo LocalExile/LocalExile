@@ -186,7 +186,8 @@ public sealed partial class MercenaryModule
         if (run.GearItems.Count == 0)
             run.GearItems = MercenaryEquipment.ToInventoryItems(run.Equipment, startingId: 1);
 
-        if (run.RucksackItems.Count == 0 && stats.GetValueOrDefault(Stat.MapMercenaryRucksackIsEmpty) <= 0)
+        // As in 3.29, every Mercenary carries a Rucksack except the guaranteed campaign ones, which carry none.
+        if (run.RucksackItems.Count == 0 && !run.Guaranteed && stats.GetValueOrDefault(Stat.MapMercenaryRucksackIsEmpty) <= 0)
             run.RucksackItems = RollRucksack(level, rng, build.Infamous, MapDevices.IsMapArea(player.Layout.Hash), run.Skills,
                 full: stats.GetValueOrDefault(Stat.MapMercenaryRucksackIsFull) > 0);
 
