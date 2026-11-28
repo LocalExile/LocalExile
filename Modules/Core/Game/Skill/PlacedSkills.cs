@@ -896,7 +896,7 @@ public static partial class Game
             if (cascade && aim == placed.At) aim = (placed.At.X + 1, placed.At.Y);
         }
         bool detonateDead = effect == "DetonateDead";
-        bool volatileDead = effect == "VolatileDead";
+        bool volatileDead = VolatileDeadEffect(effect);
         if (!arc)
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
