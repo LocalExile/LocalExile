@@ -612,9 +612,10 @@ public sealed class BreachEncounter
                     if (Enrage && (stabilisedByKills || rampFinished))
                     {
                         await SetState(runner, breach, Enraged, now);
-                        await SendLine(members, row, breach, Enraged, atlas, "enraged (stabilised)");
+                        await SendLine(members, row, breach, Enraged, atlas, stabilisedByKills ? "enraged (stabilised)" : "enraged (ramp end)");
                         await SpawnEnrageReinforcements(runner, encounter, breach, atlas);
-                        await AwardCompletion(runner, members, breach, atlas, stabilised: true);
+                        // The ramp always ends before the collapse timer, so only the kill score earns the stabilised rewards.
+                        await AwardCompletion(runner, members, breach, atlas, stabilised: stabilisedByKills);
                         changed = true;
                     }
                     else if (age >= effectiveCollapse)
