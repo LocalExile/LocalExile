@@ -567,6 +567,7 @@ public static partial class Game
         void Next(double until) { if (until > now && until < wake) wake = until; }
         Next(m.TauntedUntil); Next(m.IntimidatedUntil); Next(m.UnnervedUntil); Next(m.CrushedUntil);
         Next(m.MaimedUntil); Next(m.HinderedUntil); Next(m.TotemHinderedUntil);
+        Next(BlightHinder(m, now).Until);
         if (m.WitherHinders is { } hinders)
             foreach (var hinder in hinders) Next(hinder.Until);
         Next(m.CoveredInAshUntil); Next(m.DebilitatedUntil);

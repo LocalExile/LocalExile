@@ -13,7 +13,8 @@ public static partial class Game
 
     static bool CanBodyswapTo(Player player, SpawnedMonster target, (int X, int Y) from, double now, int bodySize)
     {
-        if (target is not { Dead: false, Life: > 0, WorldHidden: false, Invulnerable: false })
+        if (target is not { Dead: false, Life: > 0, WorldHidden: false, Invulnerable: false }
+            || ArenaHazards.Untargetable(player, target))
             return false;
         if (!(target.Hostile && target.OwnerId is null && !target.Asleep)
             && BodyswapSacrificeMinion(player, target) is null) return false;

@@ -180,7 +180,7 @@ public static partial class Game
 
     internal static bool TimedWalkDebuff(double now, SpawnedMonster m) => m.MaimedUntil > now || m.HinderedUntil > now
         || m.TotemHinderedUntil > now || m.CoveredInAshUntil > now || m.DebilitatedUntil > now
-        || WitherHinder(m, now) > 0;
+        || WitherHinder(m, now) > 0 || BlightHinder(m, now).Slow > 0;
 
     /// <summary>The increased fire damage Covered in Ash applies at <paramref name="now"/> (20% while active, 0 otherwise).</summary>
     public static int CoveredInAshFireTaken(SpawnedMonster m, double now) => m.CoveredInAshUntil > now ? CoveredInAshFireTakenPct : 0;

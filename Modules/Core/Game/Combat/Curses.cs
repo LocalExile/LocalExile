@@ -465,7 +465,9 @@ public static partial class Game
                 m.Decay.SetExpiryRate(now, rate);
                 m.RuleAilments.SetExpiryRate(now, rate);
                 m.SpiderWebs.SetExpiryRate(now, rate);
-                m.TauntedUntil = RecipientEffectTime.RetimedDeadline(m.TauntedUntil, now, oldRate, rate); m.RecipientDebuffRate = rate;
+                m.TauntedUntil = RecipientEffectTime.RetimedDeadline(m.TauntedUntil, now, oldRate, rate);
+                m.CoveredInFrostUntil = RecipientEffectTime.RetimedDeadline(m.CoveredInFrostUntil, now, oldRate, rate);
+                m.RecipientDebuffRate = rate;
                 RetimePestilentStrike(player, id, m, now, oldRate, rate);
                 RetimeSoulrendDamage(player.Area, id, m, now, oldRate, rate);
                 RetimeBlight(m, now, oldRate, rate);

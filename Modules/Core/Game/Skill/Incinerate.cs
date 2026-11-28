@@ -7,7 +7,6 @@ public static partial class Game
     const int IncinerateBaseLength = 25;
     const double IncinerateBaseHalfAngle = 15;
     const double IncinerateFirstStageFraction = .5825;
-    static readonly uint GrantedIncinerateReleaseHit = Stat.Of("grant_expanding_fire_cone_release_hit_damage_+%_final");
 
     internal sealed class IncinerateChannel(SupportedGem source, int action, int epoch, int interruption, int maximum,
         int initialStages, double started)
@@ -121,8 +120,7 @@ public static partial class Game
         if (cast.Epoch != player.ProjectileEpoch) return;
         var stats = cast.Source.Stats;
         bool ignites = stats.GetValueOrDefault(Stat.ExpandingFireConeFinalWaveAlwaysIgnite) != 0;
-        int hitMore = stats.GetValueOrDefault(Stat.ExpandingFireConeReleaseHitDamagePlusPctFinal,
-            stats.GetValueOrDefault(GrantedIncinerateReleaseHit));
+        int hitMore = stats.GetValueOrDefault(Stat.ExpandingFireConeReleaseHitDamagePlusPctFinal);
         int igniteMore = stats.GetValueOrDefault(Stat.ExpandingFireConeReleaseIgniteDamagePlusPctFinal,
             stats.GetValueOrDefault(Stat.GrantExpandingFireConeReleaseIgniteDamagePlusPctFinal));
         if (!ignites && hitMore == 0 && igniteMore == 0) return;

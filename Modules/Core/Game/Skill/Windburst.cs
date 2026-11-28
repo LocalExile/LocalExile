@@ -42,7 +42,7 @@ public static partial class Game
             || PlacedKind(parent) is not (false, false) || parent.Stats.GetValueOrDefault(Stat.IsTotem) != 0
             || TriggerOnlyReason(parent) is not null
             || parent.Supports.FirstOrDefault(s => SupportHas(s, WindburstDistanceStat)) is not { } support
-            || SupportCompanionSourceLocked(player, parent, support, WindburstEffect, "HungryLoopSupportedByWindburst") is not { } source
+            || SupportCompanionSourceLocked(player, parent, support, WindburstEffect, "HungryLoopSupportedByTornados") is not { } source
             || GemSkillInstanceDisabled(player, source.Effect, source.Id, triggered: true) is not null) return;
 
         var session = ProjectilesFor(player);
