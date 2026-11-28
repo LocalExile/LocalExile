@@ -14,6 +14,7 @@ public static partial class Game
     public static void LoadPlacedSkillsData()
     {
         TrapVisuals = LoadTrapVisuals();
+        LoadSmokeMineData();
     }
 
     static IReadOnlyDictionary<int, string> TrapVisuals = default!;
@@ -611,17 +612,33 @@ public static partial class Game
     // A mine that is not armed yet goes off once it is. A use during a running sequence adds the new mines to its end
     // and keeps its speed; a use after the last queued mine has gone off starts a new sequence.
     public static void DetonateMinesLocked(Player player, double now)
+        => DetonateMinesLocked(player, now, player.Walk.Position(now));
+
+    static void DetonateMinesLocked(Player player, double now, (int X, int Y) aim)
     {
         bool running = player.Placed.All.Values.Any(p => p.Mine && !double.IsPositiveInfinity(p.DetonateAt));
         double next = running ? player.Placed.NextChain : now;
         int prior = running ? player.Placed.Chain : 0;
+        var limited = MineSequenceLimits.GetValue(player.Placed, _ => new());
+        if (!running) limited.Clear();
         if (!running) player.Placed.TriggeredInChain = 0;
         var playerAt = player.Walk.Position(now);
         IReadOnlyDictionary<uint, int>? stats = null;
-        foreach (var mine in player.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt)
-            && MineCanDetonateFrom(p, playerAt))
-            .OrderBy(p => p.Armed).ThenBy(p => p.Id))
+        var eligible = player.Placed.All.Values.Where(p => p.Mine && now < p.Until
+            && double.IsPositiveInfinity(p.DetonateAt) && MineCanDetonateFrom(p, playerAt))
+            .OrderBy(p => p.Armed).ThenBy(p => p.Id).ToArray();
+        var chosen = eligible.Where(p => GolemStat(p.Own, Stat.DisableMineDetonationCascade) != 0)
+            .GroupBy(p => p.Effect).ToDictionary(g => g.Key, g => g.MinBy(p => Dist(p.At, aim))!.Id);
+        foreach (var mine in eligible)
         {
+            if (chosen.TryGetValue(mine.Effect, out uint selected) && (mine.Id != selected || !limited.Add(mine.Effect)))
+                continue;
+            if (GolemStat(mine.Own, Stat.MineDetonatesInstantly) != 0)
+            {
+                mine.DetonateAt = Math.Max(now, mine.Armed);
+                prior++;
+                continue;
+            }
             int time = GolemStat(mine.Own, Stat.BaseMineDetonationTimeMs);
             if (time <= 0) time = GolemStat(mine.Own, Stat.SupportRemoteMine2BaseMineDetonationTimeMs);
             if (prior > 0)
@@ -638,6 +655,8 @@ public static partial class Game
         player.Placed.NextChain = next;
         player.Placed.Chain = prior;
     }
+
+    static readonly RuleTable<PlacedSkills, HashSet<int>> MineSequenceLimits = new();
 
     static bool MineCanDetonateFrom(PlacedSkills.Placed mine, (int X, int Y) playerAt)
     {
@@ -1364,7 +1383,8 @@ public static partial class Game
                         player.RecentEvents.RecordAmount(StatConditions.DetonatedMine, now);
                     }
                     else if (placed.Mine) placed.Chain = 0;
-                    if (conversion) TriggerConversionTrap(player, placed, trigger, now, bytes);
+                    if (placed.Mine && effect == SmokeMineEffect) TriggerSmokeMine(player, placed, now, bytes);
+                    else if (conversion) TriggerConversionTrap(player, placed, trigger, now, bytes);
                     else PlacedDamageLocked(player, placed, now, trigger, bytes);
                     PlacedChargesLocked(player, placed, nearby, now);
                     if (!placed.Mine && (nearby || skitter || expired))
@@ -1380,7 +1400,7 @@ public static partial class Game
                         TrapFogOfWarLocked(player, placed.At,
                             ownerStats.GetValueOrDefault(Stat.LocalDisplayTriggerLevelXSmokeCloudOnTrapTriggered), now, ownerStats);
                     }
-                    bool rearm = skitter && placed.Mine && effect != "SmokeMine";
+                    bool rearm = skitter && placed.Mine && GolemStat(placed.Own, Stat.MineCannotRearm) == 0;
                     Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : expired ? "duration" : "chain")} trigger; rearm={rearm}");
                     if (rearm)
                     {

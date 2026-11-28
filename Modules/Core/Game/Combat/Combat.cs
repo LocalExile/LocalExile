@@ -1781,7 +1781,7 @@ public static partial class Game
         // The instant's two areas are resolved at the endpoints accepted by the outgoing movement record.
         if (locationInstant) return true;
         if (gem.Name is not null && IsMineDetonation(SkillsFor(player).EffectId(gem.Effect)))
-        { DetonateMinesLocked(player, AreaTime(player)); return true; }
+        { DetonateMinesLocked(player, AreaTime(player), to); return true; }
         if (placedAdmission is { } placed)
             return await PlaceSkill(player, from, to, placed, recoveryGeneration, Current);
         if (gem.Name is not null)
@@ -1934,15 +1934,19 @@ public static partial class Game
 
     // An instant skill (C→S 0x191): its effect, then S→C 0x1ce, which has the client run the skill's action without animation
     // and consume a use of it: the skill bar's cooldown starts (the tooltip showed the cooldown, the bar did not run it).
-    public static async Task UseInstantSkill(Player player,
+    public static Task UseInstantSkill(Player player,
         ushort skillId, uint targetId, (int X, int Y) at)
+        => UseInstantSkill(player, skillId, targetId, at, null);
+
+    static async Task UseInstantSkill(Player player,
+        ushort skillId, uint? targetId, (int X, int Y) at, (int X, int Y)? aim)
     {
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
         bool guard = gem.Name is not null && GuardSpellEffect(SkillsFor(player).EffectId(gem.Effect));
         if (gem.Name is not null && GemSkillInstanceDisabled(player, gem.Effect, skillId) is not null) return;
-        if (gem.Name is not null && InstantLocationSkill.Supported(SkillsFor(player), gem.Effect))
+        if (gem.Name is not null && targetId is uint target && InstantLocationSkill.Supported(SkillsFor(player), gem.Effect))
         {
-            await UseInstantSkillAtLocation(player, skillId, default, targetId);
+            await UseInstantSkillAtLocation(player, skillId, default, target);
             return;
         }
         if (gem.Name is null || !ObjectInstantSupported(player, gem.Effect, skillId)) return;
@@ -1971,7 +1975,7 @@ public static partial class Game
                 StartTriggeredGuard(player, session, skillId, AreaTime(player));
             }
             : null;
-        if (await CastGemSkill(player, skillId, at, at, targetId, cooldownUse: cooldownUse,
+        if (await CastGemSkill(player, skillId, at, aim ?? at, targetId ?? 0, cooldownUse: cooldownUse,
                 guardStart: guardStart))
         {
             // A guard's cooldown is server-owned and held at full while its buff runs. Publish that held rate-0 entry
@@ -1990,7 +1994,7 @@ public static partial class Game
                         || ActorSkillInstanceDisabled(player, gem.Effect, skillId) is not null
                         || cooldownUse?.CommitNativeUse(player, skillId) == false) return null;
                     committed = true;
-                    return PlayerInstantAction(player, skillId, at, targetId);
+                    return PlayerInstantAction(player, skillId, aim ?? at, targetId);
                 });
             if (committed) guardStart?.Invoke();
             await SendNativeCooldownRefresh(player);
@@ -2029,7 +2033,12 @@ public static partial class Game
         if (!InstantLocationSkill.Supported(SkillsFor(player), gem.Effect))
         {
             // A self buff aimed at empty ground uses 0x190 too; it still applies at its caster.
-            if (ObjectInstantSupported(player, gem.Effect, skillId))
+            if (IsMineDetonation(SkillsFor(player).EffectId(gem.Effect)))
+            {
+                if (aim.X < player.Layout.GridW && aim.Y < player.Layout.GridH)
+                    await UseInstantSkill(player, skillId, null, player.Walk.Position(AreaTime(player)), ((int)aim.X, (int)aim.Y));
+            }
+            else if (ObjectInstantSupported(player, gem.Effect, skillId))
                 await UseInstantSkill(player, skillId, player.Id, player.Walk.Position(AreaTime(player)));
             return;
         }

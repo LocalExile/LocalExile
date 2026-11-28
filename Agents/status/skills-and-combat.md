@@ -424,6 +424,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Revenants consume nearby allies, Smiting Guardians use Smite, and Slamming Zombies attack between slams.
   (including Fire Trap proxy stats, detonation aim, burning-enemy bonus, throw clamping, and lockstep timing).
   Locus Mine keeps close mines armed and aims detonated volleys at the player.
+  Smoke Mine detonates once per sequence, teleports to the selected mine on a clear sight line, and releases two
+  blinding clouds and a timed movement-speed buff. A blocked sight line still allows the clouds and buff.
   Invention scales trap and mine damage by their age at the trigger.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Bladefall places timed volleys and eligible lingering blades for supported mine, totem and triggered casts.

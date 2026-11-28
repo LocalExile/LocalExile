@@ -84,7 +84,11 @@ public static partial class Game
 
     static uint? QueueGroundArtLocked(Player player, FlaskGrounds.Kind kind, (int X, int Y) at, int radius)
     {
-        if (!FlaskGroundArt.TryGetValue(kind, out var art)) return null;
+        return FlaskGroundArt.TryGetValue(kind, out var art) ? QueueGroundArtLocked(player, art, at, radius) : null;
+    }
+
+    static uint QueueGroundArtLocked(Player player, (string Ao, int ArtRadius) art, (int X, int Y) at, int radius)
+    {
         uint obj = player.TakeObjectId();
         float scale = (float)(radius * (250.0 / 23) / Math.Max(1, art.ArtRadius));
         var effect = new EffectObject(at.X, at.Y, art.Ao) { Flags0 = EffectObject.FixedRotation, Scale = scale };

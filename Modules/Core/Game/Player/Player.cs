@@ -271,6 +271,7 @@ public static partial class Game
         ClearOwnerAttacks(player);
         ClearBloodChargesOnDeath(player);
         ClearSteelBuffsOnDeath(player);
+        ClearSmokeMineSpeed(player);
         ClearResonance(player);
         EndTimedSkillBuffs(player);
         player.WitchbaneImmunityUntil = 0;
