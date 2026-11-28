@@ -281,10 +281,15 @@ public sealed class PlayerElementalAilments
     // takenFrom: the increased damage taken from the strongest ignite's source monster (a Blinded one), with the shock's.
     public int Advance(double from, double until, Func<uint, int> get, int fireResistance, int maxFireResistance,
         bool fireImmune, Func<uint, int>? takenFrom = null, double dotTakenFactor = 1) =>
-        Advance(from, until, get, fireResistance, maxFireResistance, fireImmune, takenFrom, dotTakenFactor, false);
+        Advance(from, until, get, fireResistance, maxFireResistance, fireImmune, default, takenFrom, dotTakenFactor);
 
     public int Advance(double from, double until, Func<uint, int> get, int fireResistance, int maxFireResistance,
-        bool fireImmune, Func<uint, int>? takenFrom, double dotTakenFactor, bool suppressShock)
+        bool fireImmune, Func<uint, int>? takenFrom, double dotTakenFactor, bool suppressShock) =>
+        Advance(from, until, get, fireResistance, maxFireResistance, fireImmune, default, takenFrom, dotTakenFactor, suppressShock);
+
+    public int Advance(double from, double until, Func<uint, int> get, int fireResistance, int maxFireResistance,
+        bool fireImmune, DamageTakenWindow fireDamageTime, Func<uint, int>? takenFrom = null, double dotTakenFactor = 1,
+        bool suppressShock = false)
     {
         lock (effects)
         {
@@ -300,7 +305,7 @@ public sealed class PlayerElementalAilments
                         .MaxBy(e => e.Magnitude) is not { } ignite) continue;
                 int fromSource = ignite.Source is uint source && takenFrom is not null ? takenFrom(source) : 0;
                 damage += DamageModel.Mitigate(ignite.Magnitude, fireResistance, maxFireResistance)
-                    * DamageTakenFactor(at, fromSource, suppressShock) * (boundaries[i] - boundaries[i - 1]);
+                    * DamageTakenFactor(at, fromSource, suppressShock) * fireDamageTime.Seconds(boundaries[i - 1], boundaries[i]);
             }
             effects.RemoveAll(e => e.Until <= until);
             damage *= dotTakenFactor;

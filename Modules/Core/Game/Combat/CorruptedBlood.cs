@@ -10,10 +10,10 @@ public static partial class Game
         public double Started, Until, Settled, Accrued, Carry, ProtectedUntil, ExpiryRate = 1;
         public ushort? Buff;
 
-        public void Settle(double now)
+        public void Settle(double now, DamageTakenWindow damageTime)
         {
             if (now <= Settled) return;
-            Accrued += Math.Max(0, Math.Min(now, Until) - Settled) * Stacks.Sum();
+            Accrued += damageTime.Seconds(Settled, Math.Min(now, Until)) * Stacks.Sum();
             Settled = now;
             if (now >= Until) Stacks.Clear();
         }
@@ -45,7 +45,7 @@ public static partial class Game
             + (hit.MinTotal + hit.MaxTotal) * .5 * skill.AverageHitPercentPerMinute / 6000d;
         if (dps <= 0 || RandomRolls.Chance(Get(Stat.AvoidCorruptedBloodPctChance), 100, player.IncomingHitRandom)) return;
         var state = Blood.GetValue(player, _ => new());
-        state.Settle(now);
+        state.Settle(now, GuardDamageOverTime(player, DamageType.Physical));
         if (now < state.ProtectedUntil || state.Stacks.Count >= 5 && Get(Stat.CannotGainCorruptedBloodWhileYouHaveAtLeast5Stacks) != 0) return;
         if (state.Stacks.Count == 0) state.Started = now;
         for (int i = 0; i < Math.Min(10, skill.Stacks); i++)
@@ -82,7 +82,7 @@ public static partial class Game
     internal static void RemoveCorruptedBlood(Player player, double now, double protection)
     {
         if (CorruptedBloodStacks(player, now) == 0 || !Blood.TryGetValue(player, out var state)) return;
-        state.Settle(now);
+        state.Settle(now, GuardDamageOverTime(player, DamageType.Physical));
         state.Stacks.Clear();
         state.Until = now;
         state.ProtectedUntil = now + protection;
@@ -101,7 +101,7 @@ public static partial class Game
         bool physicalImmune, double letheFactor)
     {
         int Get(uint key) => stats.GetValueOrDefault(key);
-        state.Settle(now);
+        state.Settle(now, GuardDamageOverTime(player, DamageType.Physical));
         bool immune = Get(Stat.ImmuneToCorruptedBlood) != 0;
         if (immune) state.Stacks.Clear();
         if (state.Stacks.Count == 0)

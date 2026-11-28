@@ -3,6 +3,7 @@ using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Diagnostics;
+using GameServer.Core.World;
 using GameServer.Data.Terrain.Generation;
 
 static partial class QuestobjectsRules
@@ -470,7 +471,7 @@ static partial class QuestobjectsRules
                     perSecond = GameServer.Core.World.DamageModel.Mitigate(player.PlayerMaxLife * lifeShare + player.EnergyShield.Maximum * shieldShare,
                         Resistance(player, fire), MaxResistance(player, fire));
                 }
-                await degen.Set(player, perSecond, burns ? LabyrinthTrials.LavaBuffRow : null, "on a trial hot plate");
+                await degen.Set(player, perSecond, burns ? LabyrinthTrials.LavaBuffRow : null, "on a trial hot plate", DamageType.Fire);
                 await AreaDelay(player, SpikeTickMilliseconds / 1000.0);
             }
         }
@@ -1817,13 +1818,13 @@ static partial class QuestobjectsRules
         // This tick's degeneration (0 out of the trap) and buff row: the buff swapped as the row changes, and the client's
         // recovery rates sent again on entering and leaving (PlayerStatsUpdateAtGate).
         public async Task Set(Player player, double perSecond, ushort? row,
-            string where)
+            string where, DamageType type = DamageType.Physical)
         {
             bool was, degen;
             ushort instance = 0;
             was = mine > 0;
             if (player.PlayerLife == 0) perSecond = 0;
-            player.Degens[this] = perSecond;
+            player.Degens.Set(this, type, perSecond);
             mine = perSecond;
             degen = mine > 0;
             if (!degen) row = null;

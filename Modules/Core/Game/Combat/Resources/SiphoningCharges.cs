@@ -32,7 +32,8 @@ public static partial class Game
     static void SettleSiphoning(Player player, SiphoningState state, double now)
     {
         double end = Math.Min(now, Math.Min(state.Until, state.UsedUntil));
-        if (end > state.At) state.Pending += (end - state.At) * state.Held * state.PerMinute / 60d;
+        if (end > state.At) state.Pending += GuardDamageOverTime(player, DamageType.Physical).Seconds(state.At, end)
+            * state.Held * state.PerMinute / 60d;
         state.At = Math.Max(state.At, now);
         if (now >= state.Until && state.Held != 0) { state.Held = 0; state.Revision++; MarkPlayerStats(player, PlayerStatStep.Siphoning); }
         bool active = state.Held > 0 && now < state.Until && now < state.UsedUntil && state.PerMinute > 0;

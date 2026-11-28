@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 public static partial class Game
 {
@@ -281,7 +282,7 @@ public static partial class Game
         buff.Stats[Stat.AddFrenzyChargeOnKillPctChance] = Own(Stat.AddFrenzyChargeOnKillPctChance);
         double degen = (player.PlayerMaxLife * (double)Own(Stat.BasePhysicalDamagePctOfMaximumLifeToDealPerMinute)
             + player.Pools.EnergyShield * (double)Own(Stat.BasePhysicalDamagePctOfMaximumEnergyShieldToDealPerMinute)) / 6000;
-        player.Degens[buff] = degen;
+        player.Degens.Set(buff, DamageType.Physical, degen);
         buff.Degen = degen;
         Console.WriteLine($"[gateway] {player.Connection.Remote} Blood Rage: {seconds:0.###} s, +{buff.Stats[Stat.AttackSpeedPlusPct]}% attack speed, "
             + $"{buff.Degen:0.#} physical damage per second");

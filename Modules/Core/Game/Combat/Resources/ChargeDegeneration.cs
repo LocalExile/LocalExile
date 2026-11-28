@@ -25,7 +25,10 @@ public sealed class ChargeDegeneration
         Array.Clear(PerMinute); Hosts = []; Items = [];
     }
 
-    public void Advance(double now, ChargeSession session, Func<double, double, double> moving)
+    public void Advance(double now, ChargeSession session, Func<double, double, double> moving) =>
+        Advance(now, session, moving, default);
+
+    internal void Advance(double now, ChargeSession session, Func<double, double, double> moving, DamageTakenWindow damageTime)
     {
         if (double.IsNaN(At)) { At = now; return; }
         if (now <= At) return;
@@ -36,7 +39,7 @@ public sealed class ChargeDegeneration
             var limits = session.Limits(type);
             int minimum = limits.Minimum, count = session.Effective(type);
             double end = Math.Min(now, i == 0 ? HitUntil : i == 2 ? CritUntil : double.PositiveInfinity);
-            double Seconds(double until) => i == 1 ? moving(At, until) : Math.Max(0, until - At);
+            double Seconds(double until) => i == 1 ? damageTime.MovingSeconds(At, until, moving) : damageTime.Seconds(At, until);
             double seconds = minimum * Seconds(end)
                 + Math.Max(0, count - minimum) * Seconds(Math.Min(end, session.State.ExpiresAt(type)));
             Pending[i] += seconds * PerMinute[i] / 60d;

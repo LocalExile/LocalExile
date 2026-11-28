@@ -1393,14 +1393,20 @@ public static partial class Game
                     player.TakingDotLastTick = takingDotNow;
                     double trapTakenFactor = takenFactor
                         * Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.UnhingedSaneDamageFinal) / 100.0);
+                    var elementalWindow = burnPerSecond > 0 || player.Degens.Elemental > 0
+                        ? GuardDamageOverTime(player, DamageType.Fire) : default;
                     burnCarry += (InGracePeriod(player) ? 0 : burnPerSecond * PlayerAilmentDamageTakenFactor(player, now))
-                        * seconds * takenFactor;
+                        * elementalWindow.Seconds(recoveryFrom, now) * takenFactor;
                     int burnWhole = (int)Math.Truncate(burnCarry); burnCarry -= burnWhole;
                     bool healsElemental = ConvertsElementalDamageToHealing(DamageType.Fire, IncomingStat);
                     int lifeBurn = healsElemental ? 0 : IncomingResourceDefences.DamageOverTime(player.EnergyShield, burnWhole,
                         IncomingStat(IncomingResourceDefences.BypassStat), now, ref player.NonChaosDotBypassCarry);
-                    double elementalDegen = healsElemental ? player.Degens.Elemental : 0;
-                    trapCarry += Math.Max(0, player.TrapDegenPerSecond - elementalDegen) * seconds * trapTakenFactor;
+                    double groundDamage = player.Degens.Other * seconds;
+                    if (player.Degens.Physical > 0)
+                        groundDamage += player.Degens.Physical * GuardDamageOverTime(player, DamageType.Physical).Seconds(recoveryFrom, now);
+                    double elementalGroundDamage = player.Degens.Elemental * elementalWindow.Seconds(recoveryFrom, now);
+                    if (!healsElemental) groundDamage += elementalGroundDamage;
+                    trapCarry += groundDamage * trapTakenFactor;
                     int trapWhole = (int)Math.Truncate(trapCarry); trapCarry -= trapWhole;
                     int lifeTrap = IncomingResourceDefences.DamageOverTime(player.EnergyShield, trapWhole,
                         IncomingStat(IncomingResourceDefences.BypassStat), now, ref player.NonChaosDotBypassCarry);
@@ -1443,7 +1449,7 @@ public static partial class Game
                     if (life > 0 && RecoveryFlasksRestoreEnergyShield(RecoveryStat)) player.EnergyShield.Gain(life, esCeiling);
                     if (vaalPact) { nonFlaskLife = leeched.Life; life = 0; }
                     double elementalHealing = healsElemental && !player.Immune && !LifeRecovery.NonLeechBlocked(RecoveryStat)
-                        ? burnWhole + elementalDegen * seconds * trapTakenFactor : 0;
+                        ? burnWhole + elementalGroundDamage * trapTakenFactor : 0;
                     elementalHealingCarry = elementalHealing > 0 ? elementalHealingCarry + elementalHealing : 0;
                     double wholeHealing = Math.Truncate(elementalHealingCarry);
                     elementalHealingCarry -= wholeHealing;

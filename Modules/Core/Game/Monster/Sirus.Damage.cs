@@ -57,7 +57,10 @@ static partial class Sirus
                     double factor = PlayerAilmentDamageTakenFactor(p, now, Get(global::Stat.BaseDamageTakenPlusPct)
                         + Get(global::Stat.Of(type.ToString().ToLowerInvariant() + "_damage_taken_+%")))
                         * IncomingResourceDefences.FinalOverTimeTakenFactor(p.Pools, Get);
-                    double earned = (immune.Contains(type) ? 0 : raw[type].Min * Math.Max(0, 1 - resistance / 100d) * seconds * factor) + e.DotCarry[slot];
+                    double earned = e.DotCarry[slot];
+                    if (raw[type].Min > 0 && !immune.Contains(type))
+                        earned += raw[type].Min * Math.Max(0, 1 - resistance / 100d)
+                            * GuardDamageOverTime(p, type).Seconds(now - seconds, now) * factor;
                     int damage = (int)Math.Min(int.MaxValue, Math.Floor(earned)); e.DotCarry[slot] = earned - damage;
                     lifeDamage += type == DamageType.Chaos
                         ? DamagePlayerChaosOverTime(p, damage, now, stats)

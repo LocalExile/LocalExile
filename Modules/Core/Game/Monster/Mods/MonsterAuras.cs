@@ -373,7 +373,7 @@ public static partial class Game
         if (mitigated != exp.SiphonDps)
         {
             exp.SiphonDps = mitigated;
-            player.Degens.Set(exp, mitigated, mitigated);
+            player.Degens.Set(exp, DamageType.Lightning, mitigated);
         }
     }
 

@@ -217,19 +217,19 @@ static partial class KitavaActTen
                     double Dps(Patch g) => g.Type == DamageType.Physical ? Stat(c, g.Effect, body.Level, global::Stat.BasePhysicalDamageToDealPerMinute) / 60d
                         : Math.Max(0, Stat(c, g.Effect, body.Level, global::Stat.BaseFireDamageToDealPerMinute) / 60d);
                     var e = Exposures.GetValue(p, _ => new());
-                    double dps = 0, elemental = 0;
+                    double physical = 0, fire = 0;
                     if (p.PlayerLife > 0 && !p.Paused && !p.Immune && !InGracePeriod(p))
                     {
-                        foreach (var group in patches.Where(g => Active(p.Walk.Position(now), g) && !PlayerImmunities(p).Contains(g.Type))
-                            .GroupBy(g => g.Type))
+                        var at = p.Walk.Position(now);
+                        var immunities = PlayerImmunities(p);
+                        foreach (var patch in patches.Where(g => Active(at, g) && !immunities.Contains(g.Type)))
                         {
-                            double rate = group.Max(h => Dps(h) * (h.Type == DamageType.Fire
-                                ? Math.Max(0, 1 - Math.Min(Resistance(p, h.Type), MaxResistance(p, h.Type)) / 100d) : 1));
-                            dps += rate;
-                            if (DamageTypes.IsElemental(group.Key)) elemental += rate;
+                            if (patch.Type == DamageType.Physical) physical = Math.Max(physical, Dps(patch));
+                            else fire = Math.Max(fire, Dps(patch));
                         }
+                        if (fire > 0) fire *= Math.Max(0, 1 - Math.Min(Resistance(p, DamageType.Fire), MaxResistance(p, DamageType.Fire)) / 100d);
                     }
-                    p.Degens.Set(e, dps, elemental); e.Dps = dps;
+                    p.Degens.Set(e, physical, fire, 0); e.Dps = physical + fire;
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                     {
                         if (!GolemCurrent(p, g) || g.Monster.Dead || g.Monster.Invulnerable || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;

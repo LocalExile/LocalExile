@@ -13,6 +13,7 @@ public static partial class Game
         public ushort[] PublishedGuardSkills = [];
         public int Percent, Remaining, Absorbed, AbsorbedSincePulse, Armour, Reflection, LightningDamage, LifeRegenPerMinute;
         public double Physical = 1, Elemental = 1;
+        public DamageTakenWindow PhysicalDamageWindow, ElementalDamageWindow;
         public ushort Buff, Skill;
         public string Effect = "";
         public SupportedGem? Gem;
@@ -69,6 +70,11 @@ public static partial class Game
 
     static void EndTriggeredGuard(Player player, TriggeredGuard guard, double now, bool triggerExplosion = true)
     {
+        if (guard.Effect == "ImmortalCall")
+        {
+            guard.PhysicalDamageWindow = guard.PhysicalDamageWindow with { End = now };
+            guard.ElementalDamageWindow = guard.ElementalDamageWindow with { End = now };
+        }
         guard.Until = guard.NextPulseAt = 0;
         guard.Armour = 0;
         guard.LightningDamage = 0;
@@ -307,6 +313,12 @@ public static partial class Game
         }
         duration /= RecipientEffectTime.Rate(1, key => GolemStat(playerStats, key));
         guard.Until = now + duration;
+        if (guard.Effect == "ImmortalCall")
+        {
+            // Recovery can advance across the cast or expiry after the buff itself has changed.
+            guard.PhysicalDamageWindow = new(now, guard.Until, guard.Physical);
+            guard.ElementalDamageWindow = new(now, guard.Until, guard.Elemental);
+        }
         guard.NextPulseAt = vaal ? now + 1 : 0;
         // It ends at Until (Molten Shell reflects then), whoever reads it first.
         AfterSeconds(player, duration, () => { _ = CurrentTriggeredGuard(player, AreaTime(player)); });
@@ -424,6 +436,11 @@ public static partial class Game
         CurrentTriggeredGuard(player, at) is { Until: > 0 } guard
             ? ((int)(physical * guard.Physical), (int)(other * guard.Elemental), chaos)
             : (physical, other, chaos);
+
+    internal static DamageTakenWindow GuardDamageOverTime(Player player, DamageType type) =>
+        type != DamageType.Chaos && TriggeredGuards.TryGetValue(player, out var guard) && TriggeredGuardCurrent(player, guard)
+            ? type == DamageType.Physical ? guard.PhysicalDamageWindow : guard.ElementalDamageWindow
+            : default;
 
     static (int Physical, int Other, int Chaos) AbsorbTriggeredGuardHit(Player player,
         int physical, int other, int chaos, double at)

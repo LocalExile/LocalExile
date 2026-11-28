@@ -173,6 +173,16 @@ public sealed class IncomingDamagingAilments
         int poisonMaxResistance, bool immune, bool physicalImmune, bool chaosImmune,
         Func<double, double, double> movingSeconds,
         ref double nonChaosBypassCarry, ref double chaosBypassCarry, double dotTakenFactor = 1,
+        Func<int, double, int>? damageChaos = null, bool inCausticCloud = false) =>
+        Advance(from, until, pools, shield, get, bleedResistance, bleedMaxResistance, poisonResistance, poisonMaxResistance,
+            immune, physicalImmune, chaosImmune, movingSeconds, ref nonChaosBypassCarry, ref chaosBypassCarry,
+            default, dotTakenFactor, damageChaos, inCausticCloud);
+
+    public int Advance(double from, double until, CharacterStats.Pools pools, EnergyShield shield,
+        Func<uint, int> get, int bleedResistance, int bleedMaxResistance, int poisonResistance,
+        int poisonMaxResistance, bool immune, bool physicalImmune, bool chaosImmune,
+        Func<double, double, double> movingSeconds, ref double nonChaosBypassCarry, ref double chaosBypassCarry,
+        DamageTakenWindow physicalDamageTime, double dotTakenFactor = 1,
         Func<int, double, int>? damageChaos = null, bool inCausticCloud = false)
     {
         Reconcile(get);
@@ -209,8 +219,8 @@ public sealed class IncomingDamagingAilments
                     .Select(x => x.DamagePerSecond).DefaultIfEmpty(0).Max();
                 if (strongest > 0)
                 {
-                    double moved = Math.Clamp(movingSeconds(start, end), 0, seconds);
-                    bleedFraction += strongest * (seconds - moved);
+                    double moved = physicalDamageTime.MovingSeconds(start, end, movingSeconds);
+                    bleedFraction += strongest * Math.Max(0, physicalDamageTime.Seconds(start, end) - moved);
                     movingBleed += strongest * moved * (get(Stat.NoExtraBleedDamageWhileMoving) == 0 ? 3 : 1);
                 }
                 foreach (var p in poisons)

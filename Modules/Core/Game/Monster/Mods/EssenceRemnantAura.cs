@@ -139,7 +139,7 @@ public static partial class Game
         double raw = conn.PlayerMaxLife * source.Aura.PhysLifePerMinute / 6000d
             + conn.EnergyShield.Maximum * source.Aura.PhysEsPerMinute / 6000d;
         double physReduction = PlayerDamageReduction(conn, player).Physical;
-        double amount = raw * Math.Max(0, until - from)
+        double amount = raw * GuardDamageOverTime(conn, DamageType.Physical).Seconds(from, until)
             * Math.Max(0, 1 - physReduction / 100d)
             * PlayerAilmentDamageTakenFactor(conn, until, 0) * lethe + state.Carry;
         int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount));

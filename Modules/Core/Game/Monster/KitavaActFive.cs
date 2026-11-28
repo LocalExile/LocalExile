@@ -495,7 +495,7 @@ static class KitavaActFive
                     ? patches.FirstOrDefault(g => now >= g.From && Distance(g.At, p.Walk.Position(now)) <= g.Radius) : null;
                 double dps = patch is null || p.Immune || PlayerImmunities(p).Contains(DamageType.Physical) ? 0
                     : Stat(c, patch.Effect, body.Level, global::Stat.BasePhysicalDamageToDealPerMinute) / 60d;
-                p.Degens[e] = dps; e.Dps = dps;
+                p.Degens.Set(e, DamageType.Physical, dps); e.Dps = dps;
                 foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                 {
                     var m = g.Monster;

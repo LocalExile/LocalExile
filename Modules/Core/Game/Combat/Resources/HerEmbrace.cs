@@ -13,10 +13,12 @@ public sealed class HerEmbraceState
     public double Until, At, PerSecond, Pending, TakenCarry, BypassCarry, ShownUntil;
     public ushort Buff;
     public readonly HashSet<ushort> Retired = [];
-    public void Settle(double now)
+    public void Settle(double now) => Settle(now, default);
+
+    internal void Settle(double now, DamageTakenWindow damageTime)
     {
         double end = Math.Min(now, Until);
-        if (end > At) Pending += (end - At) * PerSecond;
+        if (end > At) Pending += damageTime.Seconds(At, end) * PerSecond;
         At = Math.Max(At, now);
     }
     public void Clear()
@@ -34,6 +36,10 @@ public static partial class Game
     static readonly Store<Player, HerEmbraceState> HerEmbraces = new();
     public static HerEmbraceState HerEmbraceOf(Player player) => HerEmbraces.GetOrCreateValue(player);
     public sealed record CarriedHerEmbrace(uint[] Hosts, double Seconds, double Pending, double TakenCarry, double BypassCarry);
+
+    static void SettleHerEmbrace(Player player, HerEmbraceState state, double now) =>
+        state.Settle(now, state.PerSecond > 0 && Math.Min(now, state.Until) > state.At
+            ? GuardDamageOverTime(player, DamageType.Fire) : default);
 
     static IReadOnlyDictionary<string, bool> RequalifyHerEmbrace(Player player, IReadOnlyDictionary<string, bool> flags,
         IEnumerable<Item>? activeItems = null, IReadOnlyDictionary<uint, int>? raw = null)
@@ -55,7 +61,7 @@ public static partial class Game
         raw ??= player.StatSourcesCache?.Sources;
         state.GainMilliseconds = raw is null ? 0 : GolemStat(raw, HerEmbraceGain);
         state.Degeneration = raw is null ? 0 : GolemStat(raw, HerEmbraceDegen);
-        state.Settle(now);
+        SettleHerEmbrace(player, state, now);
         bool embraced = alive && state.Hosts.Length > 0 && now < state.Until;
         if (embraced) StatsChangeAt(state.Until, () => ResourceEffectsTime(player));
         return WithFlags(flags, ("_while_in_her_embrace", embraced));
@@ -67,7 +73,7 @@ public static partial class Game
         var state = HerEmbraceOf(player);
         int duration = state.GainMilliseconds;
         if (duration <= 0 || state.Hosts.Length == 0) return;
-        state.Settle(now);
+        SettleHerEmbrace(player, state, now);
         state.Until = Math.Max(state.Until, now + duration / 1000d);
         player.Area.Buffs.Set(player.Id, HerEmbraceBuff(player, state, now));
         state.PerSecond = Math.Max(0, state.Degeneration) * (double)player.Pools.Level
@@ -116,7 +122,7 @@ public static partial class Game
 
     public static CarriedHerEmbrace? CaptureHerEmbrace(Player player, double at)
     {
-        var state = HerEmbraceOf(player); state.Settle(at);
+        var state = HerEmbraceOf(player); SettleHerEmbrace(player, state, at);
         return state.Hosts.Length > 0 && (state.Until > at || state.Pending > 0)
             ? new([.. state.Hosts], Math.Max(0, state.Until - at), state.Pending, state.TakenCarry, state.BypassCarry) : null;
     }
