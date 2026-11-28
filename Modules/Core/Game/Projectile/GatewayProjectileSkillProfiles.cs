@@ -255,6 +255,8 @@ public static class GatewayProjectileSkillProfiles
             // Split Arrow of Splitting converts the same count into split targets through the pass below.
             "SplitArrow" or "SplitArrowAltX" or "SplitArrowAltY" or "VaalSplitArrow"
                 => get(Stat.SplitArrowNumOfAdditionalProjectiles),
+            "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark"
+                => get(Stat.SparkNumOfAdditionalProjectiles),
             _ => 0
         };
         int pierce = IsIceShot(effect) ? get(Stat.IceShotPiercePlus) : 0;

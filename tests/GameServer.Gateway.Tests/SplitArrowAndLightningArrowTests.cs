@@ -31,20 +31,25 @@ public sealed class SplitArrowAndLightningArrowTests
     }
 
     [Fact]
-    public void Split_arrow_helmet_adds_arrows_and_splitting_targets()
+    public void Skill_specific_helmet_enchant_adds_projectiles()
     {
         static GameServer.Core.Projectiles.ProjectileProfile Resolve(string effect, int helmet)
         {
+            bool split = effect is "SplitArrow" or "SplitArrowAltX" or "SplitArrowAltY" or "VaalSplitArrow";
             bool splitting = effect == "SplitArrowAltX";
+            bool spark = effect is "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark";
             var stats = new Dictionary<uint, int>
             {
-                [Stat.BaseNumberOfArrows] = splitting ? 1 : 5,
+                [Stat.BaseNumberOfArrows] = split ? splitting ? 1 : 5 : 0,
+                [Stat.BaseNumberOfProjectiles] = spark ? 4 : 0,
                 [Stat.ProjectileNumberToSplit] = splitting ? 3 : 0,
                 [Stat.ModifiersToNumberOfProjectilesInsteadApplyToSplitting] = splitting ? 1 : 0,
-                [Stat.SplitArrowNumOfAdditionalProjectiles] = helmet,
+                [Stat.SplitArrowNumOfAdditionalProjectiles] = split ? helmet : 0,
+                [Stat.SparkNumOfAdditionalProjectiles] = spark ? helmet : 0,
             };
-            return GatewayProjectileSkillProfiles.Resolve(effect, "Metadata/Projectiles/SplitArrowDefault",
-                name => stats.GetValueOrDefault(name), 3260, attack: true, arrows: true);
+            return GatewayProjectileSkillProfiles.Resolve(effect,
+                spark ? "Metadata/Projectiles/Spark" : "Metadata/Projectiles/SplitArrowDefault",
+                name => stats.GetValueOrDefault(name), 3260, attack: split, arrows: split);
         }
 
         foreach (string effect in new[] { "SplitArrow", "SplitArrowAltY", "VaalSplitArrow" })
@@ -58,5 +63,10 @@ public sealed class SplitArrowAndLightningArrowTests
         var splittingHelmet = Resolve("SplitArrowAltX", 3);
         Assert.Equal(1, splittingHelmet.Count);
         Assert.Equal(6, splittingHelmet.Split);
+
+        Assert.Equal(4, Resolve("Spark", 0).Count);
+        Assert.Equal(6, Resolve("Spark", 2).Count);
+        Assert.Equal(7, Resolve("SparkAltX", 3).Count);
+        Assert.Equal(6, Resolve("VaalSpark", 2).Count);
     }
 }
