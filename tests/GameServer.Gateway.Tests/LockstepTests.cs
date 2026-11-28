@@ -844,6 +844,24 @@ public class LockstepTests : IDisposable
         Assert.True(Game.TryBeginObjectWalk(player, 3.5, 130, 100, 20, out var objWalk, centreRange: true, tolerance: 1));
         Assert.Equal(3.5, objWalk.Now, 6);
 
+        // Regression: LockstepTrail resets across Walk.Teleport so LockstepClientCell never returns a pre-teleport cell,
+        // and HoldLockstepSkill for an attack holds directly to cut-in without extra +frameLen padding.
+        player.Connection.LockstepTrail.Clear();
+        player.Connection.LockstepTrail.Enqueue((3.4, (100, 100)));
+        player.Connection.LockstepTrailTeleportCount = player.Walk.TeleportCount;
+        player.Walk.Teleport(500, 500, 3.5);
+        Assert.Equal((500, 500), Game.LockstepClientCell(player, 3.5));
+
+        player.LockstepBusyUntil = 4.0;
+        player.NextAttackAt = 4.0;
+        player.LockstepActionBackswingUntil = 0;
+        player.Connection.LockstepFrame = (4.0, 4.033);
+        player.LockstepSkill.Press((520, 500), null, doubleStrikeId, 0x0409, repeats: true);
+        double expectedAttackCutIn = Game.LockstepActionHold(player, doubleStrikeId, 0x8020);
+        Game.HoldLockstepSkill(player, 0x8020, 4.0, 4.0);
+        Assert.Equal(4.0 + expectedAttackCutIn, player.LockstepBusyUntil, 6);
+        player.LockstepSkill.Clear();
+
         // Stale/taken ground item LockstepUse does not allocate a sequence or send a bogus Interaction.
         var goldItem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/GoldCoin")!) with { StackSize = 15 };
         var goldGround = new WorldItemObject(105, 100, goldItem);
