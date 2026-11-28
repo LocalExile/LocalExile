@@ -7,7 +7,7 @@ public static partial class Game
     {
         string? effect = SkillsFor(player).EffectId(gem.Effect);
         return effect is "IceNova" or "IceNovaAltY" or "BladeBlastAltY"
-            || IsHexblastEffect(effect) || IsAbsolutionHitSpell(player, gem.Effect);
+            || IsHexblastEffect(effect) || IsDischarge(effect) || IsAbsolutionHitSpell(player, gem.Effect);
     }
 
     static bool TriggerChaosDebuff(string? effect) => IsBaneEffect(effect) || IsContagionEffect(effect);

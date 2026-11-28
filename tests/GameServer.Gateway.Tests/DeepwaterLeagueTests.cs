@@ -222,6 +222,27 @@ public sealed class DeepwaterLeagueTests
         Assert.NotNull(bindingRow);
         Assert.True(bindingRow.DisabledInRuthless);
 
+        // Regression: Orb of Chance applies to Normal jewellery (Iron Ring) and still refuses magic-only Flasks.
+        var ironRingType = catalog.Find("Metadata/Items/Rings/Ring1")!;
+        var ironRing = ItemCatalog.Create(ironRingType) with { ItemLevel = 3 };
+        var chanceType = catalog.Find(CurrencyEffects.OrbOfChance)!;
+        var chancedRing = DeepwaterCrafting.ApplyCraftCurrency(catalog, rolls, new EssenceCrafting(catalog, rolls),
+            new UniqueCatalog(catalog), new ItemDrops(catalog, rolls, "data"), chanceType, ironRing, ironRingType, rng);
+        Assert.NotNull(chancedRing);
+        Assert.True(chancedRing.Rarity is ItemRarity.Magic or ItemRarity.Rare);
+        Assert.Contains(chancedRing.Mods, m => m.Section == ModSection.Explicit);
+        var lifeFlaskType = catalog.Find("Metadata/Items/Flasks/FlaskLife1")!;
+        Assert.Null(rolls.Chance(ItemCatalog.Create(lifeFlaskType) with { ItemLevel = 3 }, rng));
+
+        // Regression: every Valerie variant resolves an explicit looping idle clip (Coast vs Hub/PseudoHub).
+        Assert.Equal(2u, DeepwaterProgression.ValerieIdleClip(DeepwaterProgression.ValerieTutorial, "1_1_2"));
+        Assert.Equal(5u, DeepwaterProgression.ValerieIdleClip(DeepwaterProgression.ValerieTutorial, DeepwaterModule.HubId));
+        Assert.Equal(1u, DeepwaterProgression.ValerieIdleClip(DeepwaterProgression.Valerie, DeepwaterModule.HubId));
+        Assert.Equal(3u, DeepwaterProgression.ValerieIdleClip(DeepwaterProgression.ValeriePostStory, DeepwaterModule.HubId));
+        Assert.Equal(0u, DeepwaterProgression.ValerieIdleClip(DeepwaterProgression.ValerieCraftingTutorial, DeepwaterModule.HubId));
+        Assert.Equal(0u, DeepwaterProgression.ValerieIdleClip(DeepwaterProgression.ValerieAfterFairgraves, DeepwaterModule.HubId));
+        Assert.Equal(0u, DeepwaterProgression.ValerieIdleClip(DeepwaterProgression.ValerieVesperRevive, DeepwaterModule.HubId));
+
         // Phase 6: All 11 Ducats smoke check.
         var changelingOut = DeepwaterDucats.Apply(catalog, rolls, DeepwaterDucats.ChangelingHash, null, null, rng);
         Assert.NotNull(changelingOut);
