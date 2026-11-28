@@ -123,7 +123,9 @@ public static partial class Game
 
                 bool scavenging = effect == "DetonateDeadAltX";
                 bool vaal = effect == "VaalDetonateDead";
-                int limit = vaal ? 22 : effect == "DetonateDeadAltY" ? 8 : 1;
+                bool chaining = effect == "DetonateDeadAltY";
+                int limit = vaal ? 22 : chaining ? 8 : effect == "DetonateDead"
+                    ? DetonateDeadCorpseCount(source.Stats, CharacterPlayerStats(Player)) : 1;
                 int radius = SkillRadius(Player, source.Stats, spell: true, gem.Effect);
                 bool Usable(SpawnedMonster m) => IsCorpse(m) && m.Hostile && !m.Ailments.Shattered
                     && (!scavenging || !m.CreatedAsCorpse);
@@ -151,6 +153,11 @@ public static partial class Game
                     if (!scavenging) Hit(pos, radius, at);
                     ApplyCorpseExplosion(gem.Id, corpse.Value.MaxLife, pos, radius, at, more: more * beidatMore);
                     if (index + 1 >= limit || !Current()) return;
+                    if (!vaal && !chaining)
+                    {
+                        DetonateNearest(at, index + 1);
+                        return;
+                    }
                     double gap = vaal ? .16 + .055 * index : Math.Max(.04, .22 - .023 * index);
                     Runtime.Schedule(Runtime.Now + ProjectileRuntime.Time(gap), () =>
                     {

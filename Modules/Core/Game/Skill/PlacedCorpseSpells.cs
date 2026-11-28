@@ -20,16 +20,28 @@ public static partial class Game
                 if (!Active || !current()) return;
                 var device = placement.Device;
                 double now = ProjectileWorldTime(Player);
-                var corpse = PlacedSpellCorpses(device.At, PlacedCorpseSearchRadius, now).FirstOrDefault();
-                if (corpse.Value is null) return;
-                var at = corpse.Value.Walk.Position(now);
+                var caster = device.Offense?.Caster ?? CharacterPlayerStats(Player);
+                int count = DetonateDeadCorpseCount(device.Own, caster);
                 int radius = SkillRadius(Player, device.Own, spell: true, device.Effect);
-
-                ConsumeSpellCorpse(corpse.Key, corpse.Value, now, playerConsumes: false);
-                Effect(at.X, at.Y, DetonateDeadArt, ProjectileRuntime.Time(1), radius);
-                placement.Apply(Player, at, radius, now);
-                ApplyCorpseExplosion(device.Skill, corpse.Value.MaxLife, at, radius, now, placement);
+                for (int index = 0; index < count; index++)
+                {
+                    if (index > 0 && !current()) break;
+                    var (id, corpse) = PlacedSpellCorpses(device.At, PlacedCorpseSearchRadius, now).FirstOrDefault();
+                    if (corpse is null) break;
+                    var at = corpse.Walk.Position(now);
+                    ConsumeSpellCorpse(id, corpse, now, playerConsumes: false);
+                    Effect(at.X, at.Y, DetonateDeadArt, ProjectileRuntime.Time(1), radius);
+                    placement.Apply(Player, at, radius, now);
+                    ApplyCorpseExplosion(device.Skill, corpse.MaxLife, at, radius, now, placement);
+                }
             });
+        }
+
+        int DetonateDeadCorpseCount(IReadOnlyDictionary<uint, int> skill, IReadOnlyDictionary<uint, int> caster)
+        {
+            const uint key = Stat.DetonateDeadPctChanceToDetonateAdditionalCorpse;
+            int chance = (int)Math.Clamp((long)skill.GetValueOrDefault(key) + caster.GetValueOrDefault(key), 0, 100);
+            return chance > 0 && RandomRolls.Chance(chance, 100, AreaRng(Player)) ? 2 : 1;
         }
 
         IEnumerable<KeyValuePair<uint, SpawnedMonster>> PlacedSpellCorpses((int X, int Y) at, int radius, double now) =>
