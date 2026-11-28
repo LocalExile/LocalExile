@@ -114,7 +114,7 @@ public static partial class Game
                     type => MonsterHitResistance(monster, type, default, at));
                 int damage = (int)Math.Round(resisted.MinTotal * MonsterDamageTaken(monster, spell: false,
                     at, elemental: true, hit: false));
-                if (ApplyMonsterHitLocked(player, monster, damage) is { } applied)
+                if (ApplyMonsterIndirectDamageLocked(player, monster, damage) is { } applied)
                     await NotifyMonsterHit(player, id, monster, applied, damage, $"{name} reflected damage", deaths: deaths);
             }
             foreach (var (id, monster) in deaths)

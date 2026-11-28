@@ -123,7 +123,7 @@ public static partial class Game
         // its duration (the buff's cannot_gain_souls); its state is a cheap table read, not a stat build.
         bool held = VaalImmortalCallActive(player, now);
         var stats = held || player.VaalPreventionUntil > VaalResourceTime(player) ? null : CharacterPlayerStats(player);
-        if (stats is null || stats.GetValueOrDefault(Stat.HasSoulGainPrevention) != 0)
+        if (stats is null || SoulGainPreventedByStats(stats))
         {
             Console.WriteLine($"[gateway] Vaal soul not gained from monster 0x{id:x}: " +
                 $"{(held ? "Vaal Immortal Call" : "soul gain prevention")} (t={VaalResourceTime(player):0.000})");
@@ -140,6 +140,10 @@ public static partial class Game
         return true;
     }
 
+    static bool SoulGainPreventedByStats(IReadOnlyDictionary<uint, int> stats) =>
+        stats.GetValueOrDefault(Stat.HasSoulGainPrevention) != 0
+        || stats.GetValueOrDefault(Stat.CannotGainSouls) != 0 || stats.GetValueOrDefault(Stat.VirtualCannotGainSouls) != 0;
+
     sealed class HitSoulCooldown { public double NextAt = double.NegativeInfinity; }
     static readonly RuleTable<Player, HitSoulCooldown> HitSoulCooldowns = new();
 
@@ -148,7 +152,7 @@ public static partial class Game
     {
         if (player.Closed || player.LeavingArea || player.VaalSoulsRetired || player.Paused || player.PlayerLife == 0
             || InTown(player) || player.VaalPreventionUntil > VaalResourceTime(player)
-            || VaalImmortalCallActive(player, now) || playerStats.GetValueOrDefault(Stat.HasSoulGainPrevention) != 0
+            || VaalImmortalCallActive(player, now) || SoulGainPreventedByStats(playerStats)
             || playerStats.GetValueOrDefault(Stat.PreventVaalSoulsOnHit) != 0) return;
 
         var cooldown = HitSoulCooldowns.GetOrCreateValue(player);

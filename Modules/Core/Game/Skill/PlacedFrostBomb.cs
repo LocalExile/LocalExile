@@ -3,10 +3,12 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static bool FrostBombEffect(string? effect) => effect is "FrostBomb" or "FrostBombAltX" or "FrostBombAltY" or "FrostBombRoyale";
+    const string ForthcomingFrostBomb = "FrostBombAltY";
+    static bool FrostBombEffect(string? effect) => effect is "FrostBomb" or "FrostBombAltX" or ForthcomingFrostBomb or "FrostBombRoyale";
     const ushort FrostBombDebuffRow = 473;
     sealed record FrostBombDebuff(double Started, double Until, int Regeneration);
     static readonly RuleTable<SpawnedMonster, FrostBombDebuff> FrostBombDebuffs = new();
+    internal readonly record struct FrostBombImpact((int X, int Y) Centre, int Radius, double At, double HitMore, double AilmentMore);
 
     static double FrostBombRegenerationFactor(SpawnedMonster monster, double from, double to)
     {
@@ -30,12 +32,12 @@ public static partial class Game
             {
                 if (Active && current())
                     ReleaseFrostBomb(mine.Effect, mine.Own, mine.At, current,
-                        (at, radius, now) => placement.Apply(Player, at, radius, now));
+                        impact => placement.Apply(Player, impact.Centre, impact.Radius, impact.At, impact.HitMore, impact.AilmentMore));
             });
         }
 
         internal void ReleaseFrostBomb(int effect, IReadOnlyDictionary<uint, int> own, (int X, int Y) centre,
-            Func<bool> current, Action<(int X, int Y), int, double> hit)
+            Func<bool> current, Action<FrostBombImpact> hit)
         {
             var caster = CharacterPlayerStats(Player);
             int Own(uint key) => own.GetValueOrDefault(key);
@@ -44,20 +46,24 @@ public static partial class Game
             double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Source, Own);
             double debuff = SkillDurationModifiers.Seconds(Own(Stat.BaseSecondarySkillEffectDuration), Source, Own);
             if (duration <= 0) return;
+            double steps = Math.Floor(duration * 10 + 1e-9);
+            double More(uint key) => Math.Max(0, 1 + Own(key) * steps / 100);
+            double hitMore = More(Stat.ActiveSkillHitDamagePlusPctFinalPer100msDuration);
+            double ailmentMore = More(Stat.ActiveSkillAilmentDamagePlusPctFinalPer100msDuration);
             int radius = SkillRadius(Player, own, spell: true, effect);
             int exposure = InflictedExposure(Get, DamageType.Cold, Own(Stat.BaseColdDamageResistancePct));
             int recovery = Own(Stat.LifeRegenerationRatePlusPct);
             long end = Runtime.Now + ProjectileRuntime.Time(duration);
             Effect(centre.X, centre.Y, "Metadata/Effects/Spells/frost_bomb/ice_crystal_loop.ao",
                 ProjectileRuntime.Time(duration));
-            // The original crystal pulses, while Instability only detonates.
+            // Only crystals with a secondary debuff pulse before their explosion.
             if (debuff > 0) Pulse();
             Runtime.Schedule(end, () =>
             {
                 if (!Active || !current()) return;
                 Effect(centre.X, centre.Y, "Metadata/Effects/Spells/frost_bomb/ice_discharge.ao",
                     ProjectileRuntime.Time(1.5), radius);
-                hit(centre, radius, ProjectileWorldTime(Player));
+                hit(new(centre, radius, ProjectileWorldTime(Player), hitMore, ailmentMore));
             });
 
             void Pulse()

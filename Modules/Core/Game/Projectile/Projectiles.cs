@@ -89,6 +89,7 @@ public static partial class Game
         readonly Dictionary<long, Visual> visuals = [];
         readonly Dictionary<long, ProjectileAimHeight.Ray> flightRays = [];
         readonly Dictionary<SpawnedMonster, int> generations = new(ReferenceEqualityComparer.Instance);
+        Func<ProjectileActorKey, long, int>? curseTargetSplit;
         int generation, seed;
         bool invalid;
         readonly IDisposable? lifetime;
@@ -328,17 +329,30 @@ public static partial class Game
 
         long ReleaseFlight(ProjectileUse use, bool notifyWisps)
         {
-            var seeded = use with { Seed = ++seed };
+            var targetSplit = use.TargetSplit;
+            if (targetSplit is null && use.Payload is ProjectileOffense)
+                targetSplit = curseTargetSplit ??= SplitFromCurse;
+            var seeded = use with { Seed = ++seed, TargetSplit = targetSplit };
             long useId = Runtime.Release(seeded);
             if (seeded.Payload is ProjectileOffense { ForbiddenRite: { } rite } shot)
                 ReleaseForbiddenRite(seeded, shot, rite);
             if (notifyWisps) SacredWispsOnRelease(seeded);
+            if (seeded.Emitter.Id == Player.Id && seeded.Payload is ProjectileOffense { FiresWandProjectiles: true })
+                SpellslingerOnWandRelease(Player, this, ((int)Math.Round(seeded.Aim.X), (int)Math.Round(seeded.Aim.Y)),
+                    Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
             if (ServerTrace.Projectiles && !Quiet(seeded.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
                     + $"skill={PayloadLabel(seeded.Payload)} metadata={seeded.Profile.Id} count={seeded.Profile.Count} "
                     + $"origin={seeded.Origin} aim={seeded.Aim} speed={seeded.Profile.Speed:0.###}");
             return useId;
         }
+
+        int SplitFromCurse(ProjectileActorKey key, long at)
+            => Player.Area.Monsters.GetValueOrDefault(key.Id) is { Hostile: true, HasCurses: true } target
+                && Key(key.Id, target) == key
+                ? ProjectileCurseStat(target, Stat.ProjectilesHittingSelfSplitIntoX,
+                    at / (double)ProjectileRuntime.QuantaPerSecond)
+                : 0;
 
         public double NowTicks => Runtime.Now;
         public long Release(ProjectileUse use) => ReleaseNow(use);
@@ -352,6 +366,7 @@ public static partial class Game
             lifetime?.Dispose();
             ClearPods();
             ClearDamageGrounds();
+            ClearCursedGround();
             ClearEarthshatterSpikes();
             ClearBonespires();
             ClearVoidstorms();
@@ -363,7 +378,9 @@ public static partial class Game
             ClearElectrocutionArrows();
             ClearVenomGyre();
             ClearStormRain();
+            ClearStormOrbs();
             ClearThunderstorms();
+            ClearStormbindRunes();
             ClearFusillades();
             ClearConflagration();
             ClearExplosiveFuses();
@@ -924,10 +941,12 @@ public static partial class Game
                     if (!DamageModel.Hits(ownedHitChance, random.Next(100))) return ProjectileHitResult.Miss;
                 }
                 if (MonsterBlocks(target, random, shot.Spell)) return ProjectileHitResult.Blocked;
-                var raw = shot.Hit.Scale(contact.Multiplier).Roll(random);
+                double hitAt = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
+                var added = PoachersAddedPhysical(target, hitAt).Scale(shot.RampageAddedEffectiveness);
+                var raw = shot.Hit.Add(DamageType.Physical, added).Scale(contact.Multiplier).Roll(random);
                 // A Rampage attack that rolls to hit takes the same critical confirmation roll as every other attack
-                // (the ordinary path below confirms with EvasionEntropy.ConfirmsCritical after RollCriticalStrike):
-                // a spell always hits, so only an attack needs it.
+                // (the ordinary path below confirms with EvasionEntropy.ConfirmsCritical after RollCriticalStrike).
+                // Only an attack needs that confirmation.
                 bool crit = random.Next(10000) < shot.CriticalChance
                     + BrittleCriticalChance(target, contact.At / (double)ProjectileRuntime.QuantaPerSecond)
                     && (shot.Spell || EvasionEntropy.ConfirmsCritical(ownedHitChance, Player.AttackAccuracyRandom));
@@ -966,19 +985,24 @@ public static partial class Game
             if (MonsterBlocks(target, random, shot.Spell, at, shot.SkillStats)) return ProjectileHitResult.Blocked;
             // Select the profile only for an accepted contact, before this hit can apply Blind or other ailments.
             TargetContact conditional = default;
+            var addedPhysical = shot.Spider is not null || shot.ExplosiveBlast is not null
+                ? PoachersAddedPhysical(target, at) : default;
             if (shot.Spider is { } spider)
             {
-                conditional = ContactDamage(Player, target, at, spider.Stats, spider.Local);
-                long trajectoryIncrease = (long)shot.DamageIncreasePerChain * contact.Projectile.CompletedChains
-                    + (long)shot.DamageIncreasePerPierce * contact.Projectile.EnemiesPierced;
-                conditional = conditional with
+                if (spider.HasTargetConditions)
                 {
-                    HitIncrease = conditional.HitIncrease + trajectoryIncrease,
-                };
+                    conditional = ContactDamage(Player, target, at, spider.Stats, spider.Local);
+                    long trajectoryIncrease = (long)shot.DamageIncreasePerChain * contact.Projectile.CompletedChains
+                        + (long)shot.DamageIncreasePerPierce * contact.Projectile.EnemiesPierced;
+                    conditional = conditional with { HitIncrease = conditional.HitIncrease + trajectoryIncrease };
+                }
+                conditional = conditional with { AddedPhysical = addedPhysical };
             }
             shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),
                 target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
                 conditional, areaContact: contact.IsArea);
+            if (contact.IsArea && !addedPhysical.IsZero && shot.ExplosiveBlast is { } blast)
+                shot = shot with { AreaHit = blast.ExplosionHit(addedPhysical) };
             var steel = shot.LancingSteelHits;
             if (steel?.Targets.Contains(contact.Target) == true)
                 shot = shot.ScaleDamage(steel.RepeatMultiplier);
@@ -1062,6 +1086,9 @@ public static partial class Game
             bool projectileAttack = !shot.Spell
                 && (shot.ProjectileAttack ?? (shot.Effect < 0 || SkillsFor(Player).IsProjectile(shot.Effect)));
             int additionalTaken = projectileAttack ? EnsnaredProjectileAttackTaken(target, at) : 0;
+            if (shot.Spell || projectileAttack)
+                additionalTaken = ActorScale.Saturate((long)additionalTaken
+                    + ProjectileCurseStat(target, Stat.ProjectileDamageTakenPlusPct, at));
             bool ownHit = shot is { ActualCaster: null, FromTrapOrMine: false, FromTotem: false, Mirage: false }
                 && contact.Projectile.Use.Emitter.Id == Player.Id;
             int witheredElemental = ownHit ? WitheredElementalHitTaken(target, Player.Id, at, player) : 0;
@@ -1412,7 +1439,7 @@ public static partial class Game
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
             float animationValue = 0, uint animatedId = 0, int? artRadius = null, (uint Clip, long Length)? endClip = null,
             float rotation = 0, uint? startClip = null, (uint Clip, long After)? thenClip = null, Action<Action>? captureRemoval = null,
-            Action<Action<int, int, float>>? captureMovement = null)
+            Action<Action<int, int, float>>? captureMovement = null, Action<Action<uint>>? captureAnimation = null)
         {
             // startClip: the clip the art is created playing (Animated bit 3), for art without a default animation or
             // with several; thenClip: the clip that follows it (a ground's loop after its fade-in).
@@ -1450,6 +1477,8 @@ public static partial class Game
                 Runtime.Schedule(Runtime.Now + duration + (endClip?.Length ?? 0), Remove);
             }
             captureRemoval?.Invoke(Remove);
+            captureAnimation?.Invoke(clip => World(id, () => visual.Created && !visual.Ended
+                ? InstanceProtocol.AnimationUpdate(id, 0, clip, 1) : null));
             captureMovement?.Invoke((toX, toY, seconds) => World(id, () => visual.Created && !visual.Ended
                 ? InstanceProtocol.MoveTo(id, toX, toY, seconds, InstanceProtocol.FollowTerrain) : null));
             void Remove()

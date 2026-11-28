@@ -118,10 +118,10 @@ public static partial class Game
         var stats = MergeSkillStats(playerStats, skill.Stats);
         int Get(uint n) => GolemStat(stats, n);
         var raw = SkillsFor(player).SecondaryHitDamage(aura.Effect, aura.Level, aura.Quality);
+        double effectiveness = AddedEffectiveness(player, aura.Effect, aura.Level);
         foreach (var type in DamageTypes.ConversionOrder)
         {
             string slug = type.ToString().ToLowerInvariant();
-            double effectiveness = AddedEffectiveness(player, aura.Effect, aura.Level);
             raw = raw.Add(type, new(Get(Stat.Of($"global_minimum_added_{slug}_damage")) * effectiveness,
                 Get(Stat.Of($"global_maximum_added_{slug}_damage")) * effectiveness));
         }
@@ -136,8 +136,10 @@ public static partial class Game
             int HitStat(uint name) => TargetHitStat(name, TargetStat(name), contact);
             var target = TargetModifiers(Get, lowLife, contact: contact);
             increased += herald + SpiderDamageIncrease(Get, webs);
-            var woven = SpiderRawDamage(raw, Get, webs, AddedEffectiveness(player, aura.Effect, aura.Level));
-            var hit = PlayerHitDamage.Resolve(woven, HitStat, conversion,
+            var woven = SpiderRawDamage(raw, Get, webs, effectiveness);
+            var hitRaw = contact.AddedPhysical.IsZero ? woven
+                : woven.Add(DamageType.Physical, contact.AddedPhysical.Scale(effectiveness));
+            var hit = PlayerHitDamage.Resolve(hitRaw, HitStat, conversion,
                 spell: false, area: aura.EffectId != "HeraldOfThunder", secondary: true,
                 supportModifiers: modifiers, skillTypes: types, additionalIncreased: increased + target.HitIncrease);
             var rows = AilmentPanelStats.Compute(new("secondary", Spell: false), woven, conversion, TargetStat,
@@ -205,10 +207,12 @@ public static partial class Game
                     capturedInputs: inputs));
             normalProfile = Profile(0);
             blindedProfile = additionalIncreased == 0 ? normalProfile : Profile(additionalIncreased);
-            var spider = CaptureSpiderDamage(player, inputs, AddedEffectiveness(player, aura.Effect, aura.Level), context: true);
+            var spider = CaptureSpiderDamage(player, inputs, AddedEffectiveness(player, aura.Effect, aura.Level),
+                context: true, local: null, bow: false, offHand: false, forMarkedTarget: true);
             targetProfile = (increase, webs, ignited, bleeding, lowLife, contact) =>
             {
-                if (spider is null) return increase == 0 ? normalProfile : blindedProfile;
+                if (spider is null || !spider.HasTargetConditions && contact.AddedPhysical.IsZero)
+                    return increase == 0 ? normalProfile : blindedProfile;
                 var woven = SpiderDamageProfile(spider, webs, increase != 0, ignited, bleeding, lowLife,
                     maimed: false, contact: contact);
                 return new(woven.Hit, woven.Ignite, woven.Bleed, woven.Poison);
@@ -283,8 +287,10 @@ public static partial class Game
                     || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
                 // Select the target profile before any RNG, outgoing effects, or this contact's own Blind.
                 bool targetWasBlinded = Blinded(player, id, now);
+                var contact = contactDamage ? ContactDamage(player, m, now, playerStats) : default;
+                contact = contact with { AddedPhysical = PoachersAddedPhysical(m, now) };
                 var profile = targetProfile(targetWasBlinded ? additionalIncreased : 0, m.SpiderWebs.Count(now),
-                    m.Ignites.IgnitedAt(now), m.Bleeds.IgnitedAt(now), EnemyOnLowLife(m), contactDamage ? ContactDamage(player, m, now, playerStats) : default);
+                    m.Ignites.IgnitedAt(now), m.Bleeds.IgnitedAt(now), EnemyOnLowLife(m), contact);
                 var targetPacket = profile.Hit;
                 List<byte[]>? ignited = null;
                 string? igniteLog = null;

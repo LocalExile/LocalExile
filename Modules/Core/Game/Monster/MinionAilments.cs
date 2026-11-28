@@ -6,8 +6,22 @@ public static partial class Game
 {
     sealed record MinionHitProfile(MonsterIgnites.Settings Ignite, MonsterIgnites.Settings Bleed,
         MonsterPoisons.Settings Poison, int PoisonChance, int AdditionalPoisons, Penetration.PerType Penetration,
-        DamagePacket LifeLeech, DamagePacket ShieldLeech, GolemState.Ability? AgainstIgnited = null);
+        DamagePacket LifeLeech, DamagePacket ShieldLeech, GolemState.Ability? AgainstIgnited = null)
+    {
+        public Func<DamageRange, DamagePacket>? HitWithAddedPhysical { get; init; }
+    }
     static readonly RuleTable<GolemState.Ability, MinionHitProfile> MinionHitProfiles = new();
+
+    static DamagePacket MinionHitAgainst(GolemState.Ability ability, MinionHitProfile? profile,
+        SpawnedMonster target, double now)
+    {
+        if (profile?.HitWithAddedPhysical is not { } resolve) return ability.Attack.Damage;
+        var added = PoachersAddedPhysical(target, now);
+        if (added.IsZero) return ability.Attack.Damage;
+        var hit = resolve(added);
+        return MinionDamageScalings.TryGetValue(ability, out var scaling) && scaling.HitMore != 1
+            ? hit.Scale(scaling.HitMore) : hit;
+    }
 
     static void MinionExposureOnHitLocked(IReadOnlyDictionary<uint, int> skillStats, SpawnedMonster target,
         DamagePacket mitigated, double now, Random random)

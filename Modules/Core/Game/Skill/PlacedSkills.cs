@@ -338,7 +338,8 @@ public static partial class Game
         return new(normal, additionalIncreased == 0 ? normal : Profile(additionalIncreased), inputs.Caster, spell)
         {
             Spider = CaptureSpiderDamage(player, inputs, AddedEffectiveness(player, gem.Effect, gem.Level), context: true,
-                local: inputs.Attack ? MainHandLocalSources(player) : null),
+                local: inputs.Attack ? MainHandLocalSources(player) : null, bow: false, offHand: false,
+                forMarkedTarget: true),
             WeaponLocal = inputs.Attack ? inputs.WeaponStats : null,
         };
     }
@@ -826,7 +827,8 @@ public static partial class Game
         bool arc = ArcProxyEffect(effect);
         bool storm = IsStormCall(effect) || IsFirestorm(player, placed.Effect);
         bool brand = TriggerBrandSpell(player, placed.Effect);
-        bool frostBomb = effect == "FrostBomb";
+        bool frostBomb = FrostBombEffect(effect);
+        bool stormOrb = OrbOfStormsEffect(effect);
         bool voidSphere = VoidSphereEffect(effect);
         bool hydrosphere = HydrosphereEffect(effect);
         bool tornado = TornadoEffect(effect);
@@ -855,7 +857,7 @@ public static partial class Game
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
             && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm || brand
-                || frostBomb || voidSphere || hydrosphere || tornado || staticOrb || bladefall || detonateDead || volatileDead
+                || frostBomb || stormOrb || voidSphere || hydrosphere || tornado || staticOrb || bladefall || detonateDead || volatileDead
                 || purifyingFlame || conviction || bladeBlast
                 || unloading || lance || manabond || shockNova || cascade || ruin))
         {
@@ -902,6 +904,12 @@ public static partial class Game
                     () => session.ReleaseTornado(placed.Effect, gem.Level, gem with { Stats = placed.Own }, element, placed.At,
                         aim, Current, (centre, radius) => placement.Apply(player, centre, radius, ProjectileWorldTime(player))));
             }
+            else if (stormOrb)
+                session.ScheduleContact(ProjectileRuntime.Time(now), Current,
+                    () => session.ReleaseStormOrb(player.Id, placed.Effect, placed.Skill, placed.Own, placed.At, Current,
+                        (centre, reach, ids, struck) => PlacedAreaDamageLocked(player, placed, centre, reach,
+                            ProjectileWorldTime(player), inventionMore, currentSkill: true, spellDamage: true, onHit: struck,
+                            selected: ids.Select(id => KeyValuePair.Create(id, player.Area.Monsters[id])).ToArray())));
             else if (staticOrb)
                 session.SchedulePlacedStaticBall(new(placed, inventionMore), Current);
             else if (bladefall)
@@ -1083,8 +1091,10 @@ public static partial class Game
 
     internal sealed record PlacedAreaHit(PlacedSkills.Placed Device, double DamageMore)
     {
-        public void Apply(Player player, (int X, int Y) centre, double radius, double now, double more = 1) =>
-            PlacedAreaDamageLocked(player, Device, centre, radius, now, DamageMore * more, currentSkill: true, spellDamage: true);
+        public void Apply(Player player, (int X, int Y) centre, double radius, double now, double more = 1,
+            double? ailmentMore = null) =>
+            PlacedAreaDamageLocked(player, Device, centre, radius, now, DamageMore * more, currentSkill: true, spellDamage: true,
+                ailmentDamageMore: DamageMore * (ailmentMore ?? more));
     }
 
     static void PlacedAreaDamageLocked(Player player, PlacedSkills.Placed placed,
@@ -1092,7 +1102,7 @@ public static partial class Game
         uint? bearTarget = null, KeyValuePair<uint, SpawnedMonster>? hexblastTarget = null, PlacedArcSplit? arcSplit = null,
         PlacedShockNova? shockNova = null, PlacedCascade? cascade = null, ProjectileSession? ruinSession = null,
         Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null, SkillCriticalRoll? sharedCritical = null,
-        bool spatialSpell = false, IReadOnlyList<KeyValuePair<uint, SpawnedMonster>>? selected = null)
+        bool spatialSpell = false, IReadOnlyList<KeyValuePair<uint, SpawnedMonster>>? selected = null, double? ailmentDamageMore = null)
     {
         using var statScope = new PlayerStatScope(player, fresh: selected is null);
         var owner = CharacterPlayerStats(player);
@@ -1111,7 +1121,7 @@ public static partial class Game
         // apply it here only for synthetic Offense-less placements, for ailments (AilmentPanelStats omits it),
         // and for Fire Trap's burning ground DoT below.
         double hitMore = (placed.Offense is null ? skitterMore : 1) * damageMore;
-        double ailmentMore = skitterMore * damageMore;
+        double ailmentMore = skitterMore * (ailmentDamageMore ?? damageMore);
         bool spell = offenseSnapshot?.Spell ?? spellDamage;
         var hitRolls = HitRollsFor(owner).ForSkill(placed.Own.GetValueOrDefault, spell);
         bool attack = SkillsFor(player).IsAttack(placed.Effect);
@@ -1149,11 +1159,12 @@ public static partial class Game
                 ? Blinded(player, id, now) ? captured.Blinded : captured.Normal
                 : new PlacedSkills.DamageProfile(placed.Damage, MonsterIgnites.Settings.None,
                     MonsterIgnites.Settings.None, MonsterPoisons.Settings.None);
-            if (offenseSnapshot?.Spider is { } spider)
+            var addedPhysical = PoachersAddedPhysical(m, now);
+            if (offenseSnapshot?.Spider is { } spider && (spider.HasTargetConditions || !addedPhysical.IsZero))
                 profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(player, id, now),
                     m.Ignites.IgnitedAt(now), m.Bleeds.IgnitedAt(now), EnemyOnLowLife(m), m.MaimedUntil > now,
                     spider.Melee && TargetAccuracy.InCloseRange(Dist(centre, m.Walk.Position(now))),
-                    ContactDamage(player, m, now, spider.Stats));
+                    ContactDamage(player, m, now, spider.Stats) with { AddedPhysical = addedPhysical });
             double targetMore = burningMorePct != 0 && BurningTarget(player, m, now)
                 ? Math.Max(0, 1 + burningMorePct / 100d) : 1;
             var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,
@@ -1224,9 +1235,7 @@ public static partial class Game
             if (hex is not null)
             {
                 if (id == hexblastTarget!.Value.Key) hexblastSplash = true;
-                int keep = GolemStat(placed.Own, Stat.HexblastPctChanceToNotConsumeHex);
-                if (keep < 100 && (keep <= 0 || !RandomRolls.Chance(keep, 100, AreaRng(player))))
-                    ConsumeHexblastHex(player, id, m, hex);
+                TryConsumeHexblastHex(player, id, m, hex, GolemStat(placed.Own, Stat.HexblastPctChanceToNotConsumeHex));
             }
             if (arcSplit is not null)
                 WriteSpellProxyHit(arcSplit.Session, placed.Id, 0xffff, id, m,
@@ -1288,7 +1297,7 @@ public static partial class Game
             double total = ground.DamagePerSecond * (Math.Min(now, ground.Until) - ground.LastAt)
                 * MonsterDotTaken(monster, DamageType.Fire, now) + ground.Carry.GetValueOrDefault(id);
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(total)); ground.Carry[id] = total - damage;
-            if (damage <= 0 || ApplyMonsterHitLocked(player, monster, damage, allyAt: monster.Walk.Position(now)) is not { } hit) continue;
+            if (damage <= 0 || ApplyMonsterIndirectDamageLocked(player, monster, damage, allyAt: monster.Walk.Position(now)) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, monster, now); hit = hit with { StageStarts = false }; }
             OwnedKillLocked(monster, hit.Life);
             CommitAcceptedHitLocked(player, id, monster, hit, damage, now, "Fire Trap burning ground", playerKill: false);

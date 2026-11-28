@@ -1046,6 +1046,9 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>The Mercenary component, which every Mercenaries variety reads: one u16, the HASH16 of the MercenaryBuilds row the
     /// client shows the mercenary as.</summary>
     public ushort MercenaryBuild { get; init; }
+    /// <summary>Optional <c>MinimapIcons.dat</c> 1-based override (<c>MinimapIcon</c> flags bit 0 + u16 LE); 0 leaves the
+    /// type's default icon unset.</summary>
+    public ushort MinimapIcon { get; init; }
     /// <summary>The Actor's native stance byte, retained in an instance's creation snapshot.</summary>
     public byte ActorStance { get; init; }
     /// <summary>Clip index within <see cref="PlayerObject.DeadPoseAnimation"/> when created dead (<c>Life == 0</c>).</summary>
@@ -1189,7 +1192,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // State 0 is invalid: the post-create slot 0x1421c9060 runs event [(state − 1) × 0x18] and crashed in the
                 // event interpreter (0x141df0e19).
                 case "Transitionable": w.U8((byte)(TransitionState & 0x7f)); break;
-                case "MinimapIcon": w.U8(0); break;      // slot 20 0x141e75c60: u8 flags
+                case "MinimapIcon":
+                    if (MinimapIcon > 0) w.U8(1).U16(MinimapIcon);
+                    else w.U8(0);
+                    break;      // slot 20 0x141e75c60: u8 flags (bit 0 -> u16 icon override)
                 // A boss that speaks (Fairgraves, Merveil, the Siren: their .ot chain reads NPC after Transitionable): the NPC
                 // component's two bytes as NpcObject writes them, without dialogue (+0x20 0: no NPCTalk rows offered) and
                 // no component that must be alive (+0x21 0xff), 17-npcs.md.

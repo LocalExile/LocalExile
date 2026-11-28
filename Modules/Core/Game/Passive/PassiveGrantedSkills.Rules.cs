@@ -331,19 +331,20 @@ public static partial class Game
             var plan = SkillHitPlan.ForSkill(SkillsFor(player), skill.Effect, skill.Level);
             if (!plan.CanHit) return;
             var context = new SkillDamageContext(plan.Kind, playerStats);
-            var raw = DamageStats.RawAdded(plan.SpellBase, Merged, spell: true,
-                effectiveness: AddedEffectiveness(player, skill.Effect, skill.Level));
+            double effectiveness = AddedEffectiveness(player, skill.Effect, skill.Level);
+            var raw = DamageStats.RawAdded(plan.SpellBase, Merged, spell: true, effectiveness);
             var conversion = DamageStats.Conversion(merged, Stats, attack: false);
             var types = Supports.Of(skill.Effect)?.Types.ToHashSet();
             long additionalIncreased = PlayerHitDamage.VsBlindedDamageStat is var damageKey
                 ? (long)playerStats.GetValueOrDefault(damageKey) + own.GetValueOrDefault(damageKey) : 0;
             int staffSpell = Merged(Stat.SpellStaffDamagePlusPct) is int staff and not 0
                 && WeaponTypeDamage.FamilyOf(WeaponFor(player).ItemClass) == "staff" ? staff : 0;
-            AreaSkillDamageProfile Profile(long increased, int webs = 0)
+            AreaSkillDamageProfile Profile(long increased, int webs = 0, DamageRange addedPhysical = default)
             {
                 increased += SpiderDamageIncrease(Merged, webs);
-                var woven = SpiderRawDamage(raw, Merged, webs, AddedEffectiveness(player, skill.Effect, skill.Level));
-                var hit = context.Hit(PlayerHitDamage.Resolve(woven, Merged, conversion, spell: true,
+                var woven = SpiderRawDamage(raw, Merged, webs, effectiveness);
+                var hit = context.Hit(PlayerHitDamage.Resolve(woven.Add(DamageType.Physical, addedPhysical.Scale(effectiveness)),
+                    Merged, conversion, spell: true,
                     area: Merged(Stat.IsAreaDamage) != 0, skillTypes: types, additionalIncreased: increased + staffSpell));
                 var rows = AilmentPanelStats.Compute(new("spell", Spell: true), woven, conversion, Merged, increased);
                 var ignite = IgniteSettingsFrom(rows, "spell", Merged);
@@ -384,14 +385,17 @@ public static partial class Game
                 if (!player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)
                     || !m.Hostile || m.Dead || m.Life == 0 || m.Invulnerable || m.Asleep
                     || MonsterAsleep(player, id)) continue;
-                var profile = m.SpiderWebs.Count(ProjectileWorldTime(player)) is > 0 and var webs
-                    ? Profile(Blinded(player, id) ? additionalIncreased : 0, webs)
-                    : Blinded(player, id) ? blindedProfile : normalProfile;
+                double hitAt = ProjectileWorldTime(player);
+                int webs = m.SpiderWebs.Count(hitAt);
+                var added = PoachersAddedPhysical(m, hitAt);
+                bool blinded = Blinded(player, id);
+                var profile = webs > 0 || !added.IsZero
+                    ? Profile(blinded ? additionalIncreased : 0, webs, added)
+                    : blinded ? blindedProfile : normalProfile;
                 if (MonsterBlocks(m, AreaRng(player), spell: true)) continue;
                 var rolled = damageRoll.RollBeforeCritical(profile.Hit, AreaRng(player), criticalDoubleDamage);
                 bool critical = RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsProfane), own, attack: false);
                 rolled = damageRoll.CompleteCriticalMultiplier(rolled, AreaRng(player), critical, criticalDoubleDamage);
-                double hitAt = ProjectileWorldTime(player);
                 int witheredElemental = WitheredElementalHitTaken(m, player.Id, hitAt, playerStats);
                 var (damage, _, mitigated, takenRules) = ResolveMonsterHit(m, rolled, critical, attack: false, hitAt, mods, pen,
                     hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), additionalElementalTakenPct: witheredElemental);

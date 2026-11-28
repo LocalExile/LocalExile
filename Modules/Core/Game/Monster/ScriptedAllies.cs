@@ -18,7 +18,7 @@ public static partial class Game
         if (MonsterBlocks(target, random, attack.Spell)) return false;
         int crit = attack.Effect is int effect && attack.Spell ? SkillsFor(player).SpellCritChance(effect, source.Level) ?? 0
             : MonsterBaseCritChancePermyriad;
-        var rolled = MonsterModHit(source, attack.Damage.Roll(random), target.Life, target.MaxLife, random, out bool critical,
+        var rolled = MonsterModHit(source, FriendlyHitAgainst(attack, target, now).Roll(random), target.Life, target.MaxLife, random, out bool critical,
             () => target.Effects.NoExtraCriticalDamage ? 100 : target.Effects[Stat.BaseSelfCriticalStrikeMultiplierMinusPct],
             now: now, baseCritPermyriad: crit);
         var mitigated = MitigateMonsterHit(target, rolled, now);

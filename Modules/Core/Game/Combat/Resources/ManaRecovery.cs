@@ -9,8 +9,12 @@ public static class ManaRecoveryRules
     {
         decimal scaled = ScaledCost(supportedBase, player, more);
         // Resource conversion precedes resource-specific efficiency. Mana efficiency cannot reduce a Life cost.
-        if (applyManaEfficiency && !ConvertsManaToLife(player) && player(ItemChargeCosts.ManaEfficiency) is int efficiency and not 0)
-            scaled = ApplyManaEfficiency(scaled, efficiency);
+        if (!ConvertsManaToLife(player))
+        {
+            scaled = ApplyManaStaffReduction(scaled, player);
+            if (applyManaEfficiency && player(ItemChargeCosts.ManaEfficiency) is int efficiency and not 0)
+                scaled = ApplyManaEfficiency(scaled, efficiency);
+        }
         // Flat total-cost modifiers apply after support multipliers and percentage modifiers. The skill's type,
         // rather than whether the actor is presently channelling, selects the channel-specific term.
         return (int)Math.Clamp(scaled + FlatManaCost(player, channelled), 0m, int.MaxValue);
@@ -37,6 +41,13 @@ public static class ManaRecoveryRules
         return scaled;
     }
 
+    static decimal ApplyManaStaffReduction(decimal scaled, Func<uint, int> player)
+    {
+        int reduction = player(Stat.SkillManaCostPlusPctFinalFromManaInfusedStaff);
+        return reduction == 0 ? scaled
+            : decimal.Round(scaled * Math.Max(0m, 100m + reduction) / 100m, 0, MidpointRounding.AwayFromZero);
+    }
+
     static decimal ApplyManaEfficiency(decimal scaled, int efficiency)
     {
         decimal denominator = 100m + efficiency;
@@ -59,7 +70,11 @@ public static class ManaRecoveryRules
         if (preEfficiencyTotal <= 0) return (0, 0, 0);
 
         int rawLife = (int)decimal.Round(preEfficiencyTotal * (decimal)split / 100m, 0, MidpointRounding.AwayFromZero);
-        int preEfficiencyMana = preEfficiencyTotal - rawLife;
+        int rawMana = preEfficiencyTotal - rawLife;
+        decimal scaledMana = scaled - decimal.Round(scaled * split / 100m, 0, MidpointRounding.AwayFromZero);
+        long flatMana = flat - (long)decimal.Round(flat * (decimal)split / 100m, 0, MidpointRounding.AwayFromZero);
+        decimal reducedMana = ApplyManaStaffReduction(scaledMana, player);
+        int preEfficiencyMana = rawMana == 0 ? 0 : (int)Math.Clamp(rawMana - (scaledMana - reducedMana), 0m, int.MaxValue);
 
         // BaseCostPlusPct was already applied in ScaledCost; only Life-specific percentage modifiers rescale rawLife.
         int lifeSpecificPct = player(Stat.BaseLifeCostPlusPct) + player(Stat.LifeCostPlusPct);
@@ -70,16 +85,9 @@ public static class ManaRecoveryRules
         int manaCost = preEfficiencyMana;
         if (preEfficiencyMana > 0 && player(ItemChargeCosts.ManaEfficiency) is int efficiency and not 0)
         {
-            if (flat == 0)
-                manaCost = (int)Math.Clamp(ApplyManaEfficiency(preEfficiencyMana, efficiency), 0m, int.MaxValue);
-            else
-            {
-                decimal scaledLife = decimal.Round(scaled * split / 100m, 0, MidpointRounding.AwayFromZero);
-                decimal scaledMana = scaled - scaledLife;
-                long flatLife = (long)decimal.Round(flat * (decimal)split / 100m, 0, MidpointRounding.AwayFromZero);
-                long flatMana = flat - flatLife;
-                manaCost = (int)Math.Clamp(ApplyManaEfficiency(scaledMana, efficiency) + flatMana, 0m, int.MaxValue);
-            }
+            manaCost = flat == 0
+                ? (int)Math.Clamp(ApplyManaEfficiency(preEfficiencyMana, efficiency), 0m, int.MaxValue)
+                : (int)Math.Clamp(ApplyManaEfficiency(reducedMana, efficiency) + flatMana, 0m, int.MaxValue);
         }
         return (manaCost, preEfficiencyMana, lifeCost);
     }

@@ -17,13 +17,9 @@ public static partial class Game
         && ReferenceEquals(world.SourceOwner, AscendancyPolicies.SourceOwner(player))
         && !player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0 && RampageSource(player);
 
-    static DamagePacket RampageSpellPacket(Player player, int effect, int level)
-    {
-        var owner = StatSourceValues(player);
-        int increased = Stat.MinionDamagePlusPct is var key ? owner.GetValueOrDefault(key) : 0;
-        // The daemon is a separate caster. Rampager's spell-skills-deal-no-damage and owner Rage do not apply.
-        return SkillsFor(player).HitDamage(effect, level).Scale(Math.Max(0, 100L + increased) / 100.0);
-    }
+    // The daemon is a separate caster. Rampager's spell-skills-deal-no-damage and owner Rage do not apply.
+    static double RampageMinionDamageFactor(IReadOnlyDictionary<uint, int> stats) =>
+        Math.Max(0, 100L + stats.GetValueOrDefault(Stat.MinionDamagePlusPct)) / 100d;
 
     static async Task<uint?> CreateRampageActor(Player player, RampageCatalog.VarietyPlan plan, int level, double lifetime,
         RampageCatalog.WeaponKind? weapon, (int X, int Y) at, long epoch)
@@ -129,6 +125,7 @@ public static partial class Game
         var origins = new List<((int X, int Y) Position, DamagePacket Damage)>();
         var corpses = new List<uint>();
         if (!RampageEffectCurrent(player, job.Epoch)) return;
+        double addedEffectiveness = 1;
         if (job.Step.Kind == RampageExecution.StepKind.Corpses)
         {
             foreach (var (corpseId, target) in player.Area.Monsters.Where(p => p.Value.Dead && p.Value.Hostile && p.Value.OwnerId is null)
@@ -141,7 +138,13 @@ public static partial class Game
                     corpses.Add(corpseId);
                 }
         }
-        else origins.Add((job.Origin, RampageSpellPacket(player, job.Tier.Skill.Row, job.Level)));
+        else
+        {
+            double multiplier = RampageMinionDamageFactor(StatSourceValues(player));
+            int effect = job.Tier.Skill.Row;
+            origins.Add((job.Origin, SkillsFor(player).HitDamage(effect, job.Level).Scale(multiplier)));
+            addedEffectiveness = AddedEffectiveness(player, effect, job.Level) * multiplier;
+        }
         foreach (uint id in corpses)
         {
             if (!RampageEffectCurrent(player, job.Epoch)) return;
@@ -161,13 +164,14 @@ public static partial class Game
                 .Select(p => (p.Key, p.Value)).ToArray();
             foreach (var (id, target) in targets)
                 await RampageOwnedHit(player, job.Epoch, id, target, packet, own,
-                    job.Step.Kind == RampageExecution.StepKind.Corpses ? "Rampage corpse explosion" : "Rampage nova");
+                    job.Step.Kind == RampageExecution.StepKind.Corpses ? "Rampage corpse explosion" : "Rampage nova",
+                    addedEffectiveness: addedEffectiveness);
         }
     }
 
     static async Task<bool> RampageOwnedHit(Player player,
         long epoch, uint id, SpawnedMonster target, DamagePacket packet, RampageCatalog.SkillLevel? own, string label,
-        bool attack = false, int accuracy = 0)
+        bool attack = false, int accuracy = 0, double addedEffectiveness = 1)
     {
         MonsterHit? hit; int damage; RampageStunToken? stun;
         using (ProjectileMutation(player))
@@ -186,7 +190,8 @@ public static partial class Game
             bool critical = AreaRng(player).Next(10000) < (attack ? 500 : own?.SpellCriticalChance ?? 0)
                 + BrittleCriticalChance(target, ProjectileWorldTime(player))
                 && (!attack || EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
-            (damage, _) = MonsterDamage(target, packet.Roll(AreaRng(player)), critical, attack, default);
+            var added = PoachersAddedPhysical(target, ProjectileWorldTime(player)).Scale(addedEffectiveness);
+            (damage, _) = MonsterDamage(target, packet.Add(DamageType.Physical, added).Roll(AreaRng(player)), critical, attack, default);
             if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(target, 150, CharacterPlayerStats(player)));
             hit = ApplyMonsterHitLocked(player, target, damage, rampageSource: true); // Proven by this contact's effect guard.
             if (hit is null) return false;

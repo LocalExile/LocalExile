@@ -584,36 +584,41 @@ public static partial class Game
             if (projectileSkill) types.Add(2);
             var supportStats = golem.Own.Select(p => (Id: p.Key, p.Value))
                 .Where(p => multistrike || p.Id != Stat.SupportMultipleAttackDamagePlusPctFinal).ToArray();
-            var modified = DamagePacket.Empty;
-            var versusIgnited = DamagePacket.Empty;
-            foreach (var path in conversion.Trace(damage))
+            (DamagePacket Hit, DamagePacket Ignited) ResolveDamage(DamagePacket source, int againstIgnited)
             {
-                if (effect == ElementalHitCloneShot && path.Type != prismatic) continue;
-                if (DamageStats.Prohibited(path.Type, DamageStat, attack: !spell)
-                    || GemSupportDamage.Prohibited(path.Type, supportStats)) continue;
-                double increase = mods[Stat.DamagePlusPct] + (spell ? mods[Stat.SpellDamagePlusPct] : mods[Stat.AttackDamagePlusPct])
-                    + (Raw(Stat.IsAreaDamage) != 0 ? mods[Stat.AreaDamagePlusPct] : 0);
-                foreach (var type in DamageTypes.ConversionOrder)
-                    if ((path.History & DamageTypes.HistoryOf(type)) != 0) increase += mods[Stat.Of(type.ToString().ToLowerInvariant() + "_damage_+%")];
-                if ((path.History & DamageTypeHistory.Elemental) != 0) increase += mods[Stat.ElementalDamagePlusPct];
-                if (types.Contains(19) && (path.History & DamageTypeHistory.Physical) != 0)
-                    increase += mods[Stat.MeleePhysicalDamagePlusPct];
-                var (general, typed) = GemSupportDamage.Multipliers(path.History, supportStats, types);
-                double physicalMore = (path.History & DamageTypeHistory.Physical) != 0
-                    ? Math.Max(0, 1 + Own(Stat.ActiveSkillMinionPhysicalDamagePlusPctFinal) / 100.0) * zombiePhysicalMore : 1;
-                double auraMore = spell ? Math.Max(0, 1 + mods[Stat.SpellDamageAuraSpellDamagePlusPctFinal] / 100.0) : 1;
-                if ((path.History & DamageTypeHistory.Cold) != 0)
-                    auraMore *= Math.Max(0, 1 + mods[Stat.HatredAuraColdDamagePlusPctFinal] / 100.0);
-                if (spell && (path.History & DamageTypeHistory.Lightning) != 0)
-                    auraMore *= Math.Max(0, 1 + mods[Stat.WrathAuraSpellLightningDamagePlusPctFinal] / 100.0);
-                // Elemental Army: "Minions deal 10% more Elemental Damage" (the support's other half is the exposure).
-                double elementalMore = (path.History & DamageTypeHistory.Elemental) != 0
-                    ? Math.Max(0, 1 + Own(Stat.SupportMinionTotemResistanceElementalDamagePlusPctFinal) / 100.0) : 1;
-                var baseRange = path.Range.Scale(more * physicalMore * auraMore * general * typed * elementalMore);
-                modified = modified.Add(path.Type, baseRange.Scale(Math.Max(0, 1 + increase / 100)));
-                if (ignitedIncrease != 0)
-                    versusIgnited = versusIgnited.Add(path.Type, baseRange.Scale(Math.Max(0, 1 + (increase + ignitedIncrease) / 100)));
+                var modified = DamagePacket.Empty;
+                var versusIgnited = DamagePacket.Empty;
+                foreach (var path in conversion.Trace(source))
+                {
+                    if (effect == ElementalHitCloneShot && path.Type != prismatic) continue;
+                    if (DamageStats.Prohibited(path.Type, DamageStat, attack: !spell)
+                        || GemSupportDamage.Prohibited(path.Type, supportStats)) continue;
+                    double increase = mods[Stat.DamagePlusPct] + (spell ? mods[Stat.SpellDamagePlusPct] : mods[Stat.AttackDamagePlusPct])
+                        + (Raw(Stat.IsAreaDamage) != 0 ? mods[Stat.AreaDamagePlusPct] : 0);
+                    foreach (var type in DamageTypes.ConversionOrder)
+                        if ((path.History & DamageTypes.HistoryOf(type)) != 0) increase += mods[Stat.Of(type.ToString().ToLowerInvariant() + "_damage_+%")];
+                    if ((path.History & DamageTypeHistory.Elemental) != 0) increase += mods[Stat.ElementalDamagePlusPct];
+                    if (types.Contains(19) && (path.History & DamageTypeHistory.Physical) != 0)
+                        increase += mods[Stat.MeleePhysicalDamagePlusPct];
+                    var (general, typed) = GemSupportDamage.Multipliers(path.History, supportStats, types);
+                    double physicalMore = (path.History & DamageTypeHistory.Physical) != 0
+                        ? Math.Max(0, 1 + Own(Stat.ActiveSkillMinionPhysicalDamagePlusPctFinal) / 100.0) * zombiePhysicalMore : 1;
+                    double auraMore = spell ? Math.Max(0, 1 + mods[Stat.SpellDamageAuraSpellDamagePlusPctFinal] / 100.0) : 1;
+                    if ((path.History & DamageTypeHistory.Cold) != 0)
+                        auraMore *= Math.Max(0, 1 + mods[Stat.HatredAuraColdDamagePlusPctFinal] / 100.0);
+                    if (spell && (path.History & DamageTypeHistory.Lightning) != 0)
+                        auraMore *= Math.Max(0, 1 + mods[Stat.WrathAuraSpellLightningDamagePlusPctFinal] / 100.0);
+                    // Elemental Army: "Minions deal 10% more Elemental Damage" (the support's other half is the exposure).
+                    double elementalMore = (path.History & DamageTypeHistory.Elemental) != 0
+                        ? Math.Max(0, 1 + Own(Stat.SupportMinionTotemResistanceElementalDamagePlusPctFinal) / 100.0) : 1;
+                    var baseRange = path.Range.Scale(more * physicalMore * auraMore * general * typed * elementalMore);
+                    modified = modified.Add(path.Type, baseRange.Scale(Math.Max(0, 1 + increase / 100)));
+                    if (againstIgnited != 0)
+                        versusIgnited = versusIgnited.Add(path.Type, baseRange.Scale(Math.Max(0, 1 + (increase + againstIgnited) / 100)));
+                }
+                return (modified, versusIgnited);
             }
+            var (modified, versusIgnited) = ResolveDamage(rawDamage, ignitedIncrease);
             damage = spell ? modified : Volatility.Apply(modified, name => mods[name] + Raw(name));
             string id = catalog.EffectId(effect) ?? "";
             double range = spell ? Math.Max(20, 70 * (1 + Raw(Stat.SpellMaximumActionDistancePlusPct) / 100.0)) : variety.AttackRange;
@@ -661,6 +666,8 @@ public static partial class Game
                 && mods[Stat.CannotLeechEnergyShield] == 0 && mods[Stat.BaseCannotLeechEnergyShield] == 0
                 ? LeechSources.Coefficients("energy_shield", LeechStat, !spell, weaponLocal is null ? null : weaponLocal.GetValueOrDefault)
                 : DamagePacket.Empty;
+            double addedDamageEffectiveness = catalog.DamageCoefficients(effect, skillLevel).Added / 10000d;
+            bool canAddPhysical = !rawDamage.IsZero && Raw(Stat.BaseDealNoDamage) == 0 && addedDamageEffectiveness > 0;
             var profile = BuildHitProfile(0);
             if (ignitedIncrease != 0 && (modified.MaxTotal > 0 || versusIgnited.MaxTotal > 0))
             {
@@ -691,7 +698,18 @@ public static partial class Game
                 int chance = AilmentStat(Stat.BaseChanceToPoisonOnHitPct) + poison.WeaponChance
                     + AilmentStat(spell ? Stat.SpellsChanceToPoisonOnHitPct : Stat.ChanceToPoisonOnHitWithAttacksPct);
                 return new(ignite, bleed, poison, chance, AilmentStat(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies),
-                    penetration, lifeLeech, shieldLeech);
+                    penetration, lifeLeech, shieldLeech)
+                {
+                    HitWithAddedPhysical = canAddPhysical ? WithAddedPhysical : null,
+                };
+
+                DamagePacket WithAddedPhysical(DamageRange added)
+                {
+                    var (hit, ignitedHit) = ResolveDamage(rawDamage.Add(DamageType.Physical,
+                        added.Scale(addedDamageEffectiveness)), extraDamage);
+                    if (extraDamage != 0) hit = ignitedHit;
+                    return spell ? hit : Volatility.Apply(hit, name => mods[name] + Raw(name));
+                }
             }
         }
         return result;

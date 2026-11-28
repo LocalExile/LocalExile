@@ -819,7 +819,7 @@ public static partial class Game
             {
                 // A channelled skill (Cyclone, Winter Orb) goes on, aimed at this cell: Cyclone walks toward it
                 // (ChannelAimedAt). Its hits run on their own timer (RunChannel), at the skill's attack rate, wherever the
-                // player is. Without this update the channel counts as silent and ends (ChannelSilenceSeconds).
+                // player is. Only moving channels rely on regular aim updates (ChannelSilenceSeconds).
                 var (cx, cy) = InstanceProtocol.ReadChannelUpdate(bytes);
                 double t = player.ClockAt(readAt);
                 ushort? changedAim = null;
