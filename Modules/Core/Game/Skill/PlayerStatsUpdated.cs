@@ -21,6 +21,7 @@ public static partial class Game
         EnsureConditionalItemPools(player);
         EnsureWardBreakPools(player);
         EnsureOwnAuraPools(player);
+        ReconcileDeathAura(player);
         EnsureFortificationPools(player);
         ConfigureFortificationRecovery(player, player.Pools.Life, Get);
         ConfigureLeech(player, Get, CriticalOnLowLife(player, stats));
