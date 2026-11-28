@@ -73,7 +73,13 @@ public sealed class AttackAddedInputTests : IDisposable
     };
 
     [Fact]
-    public void Righteous_Providence_increases_attack_and_spell_critical_chance_from_the_lower_attribute()
+    public void Unarmed_default_attack_speed_and_Righteous_Providence_critical_chance_follow_equipment()
+    {
+        Unarmed_default_attacks_use_the_same_equipment_speed_on_the_server_and_in_the_skill_record();
+        Righteous_Providence_increases_attack_and_spell_critical_chance_from_the_lower_attribute();
+    }
+
+    void Righteous_Providence_increases_attack_and_spell_critical_chance_from_the_lower_attribute()
     {
         player.Character.ClassRow = Program.Skills.RowOfClass(1); // Marauder starts with more Strength than Intelligence.
         var items = Game.ItemsOf(player);
@@ -131,8 +137,7 @@ public sealed class AttackAddedInputTests : IDisposable
         return item with { Mods = [.. item.Mods.Where(m => m.Section != ModSection.Implicit)] };
     }
 
-    [Fact]
-    public void Unarmed_default_attacks_use_the_same_equipment_speed_on_the_server_and_in_the_skill_record()
+    void Unarmed_default_attacks_use_the_same_equipment_speed_on_the_server_and_in_the_skill_record()
     {
         Set(Stat.ClawAttackSpeedPlusPct, 20);
         var items = Game.ItemsOf(player);
@@ -141,13 +146,13 @@ public sealed class AttackAddedInputTests : IDisposable
         var chest = Assert.IsType<UniqueCatalog.Definition>(catalogue.Find("Seven Teachings"));
         var teachings = Assert.IsType<Item>(catalogue.Create(chest with
         { Ranges = [new("UnarmedMoreMeleeAttackSpeedUnique__1", 0, 7, 7)] }, new Random(7)));
-        items.Add(PlayerInventories.Helmet, 0, 0, Make("Iron Hat") with
+        var helmet = items.Add(PlayerInventories.Helmet, 0, 0, Make("Iron Hat") with
         {
             Sockets = [new(SocketColour.White, Make("Infernal Blow")), new(SocketColour.White, Make("Shield Charge")),
                 new(SocketColour.White, Make("Explosive Concoction"))],
             Links = [1, 1, 1],
-        });
-        items.Add(PlayerInventories.Offhand1, 0, 0, Make("Splintered Tower Shield"));
+        })!;
+        var shield = items.Add(PlayerInventories.Offhand1, 0, 0, Make("Splintered Tower Shield"))!;
 
         int DefaultAttackSpeed()
         {
@@ -187,6 +192,9 @@ public sealed class AttackAddedInputTests : IDisposable
         Assert.Equal(18, DefaultAttackSpeed());
         items.Remove(PlayerInventories.BodyArmour, body.Id);
         Assert.Equal(10, DefaultAttackSpeed());
+        items.Remove(PlayerInventories.Helmet, helmet.Id);
+        items.Remove(PlayerInventories.Offhand1, shield.Id);
+        overrides.Remove(Stat.ClawAttackSpeedPlusPct);
     }
 
     [Fact]

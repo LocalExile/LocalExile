@@ -257,8 +257,11 @@ public static partial class Game
     {
         var stats = PlayerStatValues(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
+        bool frozen = monster is not null
+            && (monster.Ailments.Shattered || (monster.FrozenAtDeath ?? monster.Ailments.FrozenAtDeath(ProjectileWorldTime(player))));
         int rawPlayerIiq = ActorScale.Saturate((long)Get(Stat.BaseItemFoundQuantityPlusPct) + Get(Stat.ItemFoundQuantityPlusPct)
-            + (monster?.Rarity == MonsterRarity.Normal ? Get(Stat.NormalMonsterDroppedItemQuantityPlusPct) : 0));
+            + (monster?.Rarity == MonsterRarity.Normal ? Get(Stat.NormalMonsterDroppedItemQuantityPlusPct) : 0)
+            + (frozen ? Get(Stat.KilledMonsterDroppedItemQuantityPlusPctWhenFrozen) : 0));
         double playerValue = Math.Max(0, 1.0 + ItemDrops.EffectivePlayerIiq(rawPlayerIiq));
         double monsterIiqFactor = 1.0;
         if (monster is not null)
