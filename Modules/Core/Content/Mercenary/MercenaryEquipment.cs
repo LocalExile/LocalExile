@@ -32,7 +32,8 @@ public static class MercenaryEquipment
         foreach (var look in looks)
         {
             if (look.Slot == MercenaryGear.MainHand && look.VisualIdentity == arrow) continue;
-            int row = look.Type is > 0 and < 255 ? look.Type - 1
+            // A bow and its quiver carry BowSetup.NoWeaponType, not a class row + 1: their class comes from the art.
+            int row = look.Type is > 0 and < 255 and not BowSetup.NoWeaponType ? look.Type - 1
                 : Program.Items.All.FirstOrDefault(t => t.VisualIdentity == look.VisualIdentity)?.ClassRow ?? -1;
             var pool = Program.Items.All.Where(t => t.Supported && t.CanBeMirrored && t.ClassRow == row && t.DropLevel <= level
                 && !t.Id.Contains("Royale", StringComparison.Ordinal) && !t.Id.Contains("Demigod", StringComparison.Ordinal)
