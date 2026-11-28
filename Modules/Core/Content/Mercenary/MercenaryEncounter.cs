@@ -523,8 +523,9 @@ public sealed partial class MercenaryModule
         await SetStates(player, run.Body, MercenaryWire.CountdownStates, "(7, 0, 1, 1): the duel was chosen");
         // The "3, 2, 1, Fight!" banner: CountdownTimers row 0 (MercenaryCountdown) shown by S→C 0x162 from 3; the client
         // steps it down itself (retail 3.29: 3 at the choice, Fight! about 1.6 s later, as the duel switch lands).
-        await Everyone(player, member => Send(member, InstanceTimers.CountdownTimer(3),
-            "0x0162 countdown timer: 3 (MercenaryCountdown)"));
+        foreach (var member in Members(player))
+            await Send(member, InstanceTimers.CountdownTimer(3),
+                "0x0162 countdown timer: 3 (MercenaryCountdown)");
         Save(player, run);
         return true;
     }

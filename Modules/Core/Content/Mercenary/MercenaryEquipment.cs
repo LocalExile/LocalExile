@@ -107,7 +107,24 @@ public static class MercenaryEquipment
         if (at < 0) return equipment;
         var values = mod.Stats.Select((_, i) => mod.RangeAt(i)).Select(r => rng.Next(r.Min, r.Max + 1)).ToArray();
         var worn = equipment[at];
-        equipment[at] = worn with { Item = worn.Item with { Mods = [.. worn.Item.Mods, new ItemMod(ModSection.Explicit, mod.Hash, values)] } };
+        int cap = worn.Item.Rarity switch { ItemRarity.Rare => 3, ItemRarity.Magic => 1, _ => int.MaxValue };
+        var added = new ItemMod(ModSection.Explicit, mod.Hash, values);
+        var mods = new List<ItemMod>(worn.Item.Mods);
+        if (mod.GenerationType is 1 or 2)
+        {
+            List<int> sameGen = [];
+            for (int i = 0; i < mods.Count; i++)
+            {
+                if (mods[i].Section == ModSection.Explicit
+                    && Program.Items.Mods.ByHash(mods[i].Hash) is { } existing
+                    && existing.GenerationType == mod.GenerationType)
+                    sameGen.Add(i);
+            }
+            if (sameGen.Count >= cap) mods[sameGen[rng.Next(sameGen.Count)]] = added;
+            else mods.Add(added);
+        }
+        else mods.Add(added);
+        equipment[at] = worn with { Item = worn.Item with { Mods = mods } };
         return equipment;
     }
 

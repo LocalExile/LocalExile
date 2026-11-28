@@ -76,6 +76,8 @@ public static class MercenaryTables
     static Dictionary<uint, string> WordsByHashData = [];
     static HashSet<string> DisabledUniquesData = new(StringComparer.OrdinalIgnoreCase);
     static Dictionary<string, AreaMeta> AreasById = new(StringComparer.OrdinalIgnoreCase);
+    static IReadOnlyDictionary<int, IReadOnlyList<(int Dx, int Dy)>> PartyOffsetsData =
+        new Dictionary<int, IReadOnlyList<(int Dx, int Dy)>>();
 
     public static AreaMeta? AreaOf(string areaId) => AreasById.TryGetValue(areaId, out var meta) ? meta : null;
     public static bool IsTownOrHideout(string areaId) => AreaOf(areaId) is { } m && (m.IsTown || m.IsHideout);
@@ -117,6 +119,7 @@ public static class MercenaryTables
             .Where(r => r.TextOrNull("Id") == "MeleeAtAnimationSpeed").Select(r => r.Index).DefaultIfEmpty(-1).First();
         WarrantTypeHash = Program.Items.Find("Metadata/Items/MapFragments/MercenaryWarrant")?.Hash ?? 0;
         AreasById = LoadAreas();
+        PartyOffsetsData = LoadPartyOffsets();
         var itemClasses = ClientTables.TableOrEmpty("ItemClasses");
         foreach (var r in itemClasses)
         {
@@ -374,24 +377,43 @@ public static class MercenaryTables
     public static Build? BuildByHash(ushort hash16) => Builds.FirstOrDefault(b => b.Hash16 == hash16);
     public static SkillRow? SkillOf(int row) => SkillRowsData.GetValueOrDefault(row);
 
-    static readonly System.Collections.Concurrent.ConcurrentDictionary<int, IReadOnlyList<(int Dx, int Dy)>> PartyOffsetsByClass = new();
-
     /// <summary>Where a class's party members stand, in cells from the Mercenary: its camp room (<c>MercenaryClasses.TerrainFeature</c>
     /// → <c>ExtraTerrainFeatures.ArmFiles</c>, Witch1.arm …) puts a MercenarySpawnMarkerPartyMember on each side of its
     /// MercenarySpawnMarker, 15 to 26 cells away. Empty without the room.</summary>
-    public static IReadOnlyList<(int Dx, int Dy)> PartyOffsets(int classRow) => PartyOffsetsByClass.GetOrAdd(classRow, row =>
+    public static IReadOnlyList<(int Dx, int Dy)> PartyOffsets(int classRow) =>
+        PartyOffsetsData.TryGetValue(classRow, out var offsets) ? offsets : [];
+
+    static IReadOnlyDictionary<int, IReadOnlyList<(int Dx, int Dy)>> LoadPartyOffsets()
     {
+        if (!File.Exists(GameServer.Data.Ggpk.GamePack.DefaultFile))
+            return new Dictionary<int, IReadOnlyList<(int Dx, int Dy)>>();
         const string Marker = "Metadata/Terrain/Leagues/Mercenaries/Objects/MercenarySpawnMarker";
-        int feature = ClientTables.TableOrEmpty("MercenaryClasses").FirstOrDefault(r => r.Index == row) is { Table: not null } kind
-            ? kind.IntOrNull("TerrainFeature") ?? -1 : -1;
-        string? arm = ClientTables.TableOrEmpty("ExtraTerrainFeatures").FirstOrDefault(r => r.Index == feature) is { Table: not null } room
-            ? room.Texts("ArmFiles").FirstOrDefault() : null;
-        if (arm is null || GameServer.Data.Ggpk.GamePack.Default.TryRead(arm) is not { } bytes) return [];
-        var doodads = GameServer.Data.Terrain.RoomFile.Parse(GameServer.Data.Terrain.TerrainText.Decode(bytes)).Doodads;
-        if (doodads.FirstOrDefault(d => d.Type == Marker) is not { } main) return [];
-        return [.. doodads.Where(d => d.Type == Marker + "PartyMember")
-            .Select(d => ((int)MathF.Round(d.X - main.X), (int)MathF.Round(d.Y - main.Y)))];
-    });
+        var armByFeature = new Dictionary<int, string>();
+        foreach (var room in ClientTables.TableOrEmpty("ExtraTerrainFeatures"))
+            if (room.Texts("ArmFiles").FirstOrDefault() is { } arm)
+                armByFeature[room.Index] = arm;
+        var offsets = new Dictionary<int, IReadOnlyList<(int Dx, int Dy)>>();
+        try
+        {
+            var pack = GameServer.Data.Ggpk.GamePack.Default;
+            foreach (var kind in ClientTables.TableOrEmpty("MercenaryClasses"))
+            {
+                if (kind.IntOrNull("TerrainFeature") is not int feature
+                    || !armByFeature.TryGetValue(feature, out var arm)
+                    || pack.TryRead(arm) is not { } bytes) continue;
+                var doodads = GameServer.Data.Terrain.RoomFile.Parse(GameServer.Data.Terrain.TerrainText.Decode(bytes)).Doodads;
+                if (doodads.FirstOrDefault(d => d.Type == Marker) is not { } main) continue;
+                var members = doodads.Where(d => d.Type == Marker + "PartyMember")
+                    .Select(d => ((int)MathF.Round(d.X - main.X), (int)MathF.Round(d.Y - main.Y))).ToArray();
+                if (members.Length > 0) offsets[kind.Index] = members;
+            }
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException)
+        {
+            return new Dictionary<int, IReadOnlyList<(int Dx, int Dy)>>();
+        }
+        return offsets;
+    }
     public static SkillRow? SkillByHash(ushort hash16) => hash16 == 0 ? null : SkillRowsData.Values.FirstOrDefault(s => s.Hash16 == hash16);
     public static SupportRow? SupportOf(int row) => SupportRowsData.GetValueOrDefault(row);
     public static SupportRow? SupportByHash(ushort hash16) => hash16 == 0 ? null : SupportRowsData.Values.FirstOrDefault(s => s.Hash16 == hash16);
