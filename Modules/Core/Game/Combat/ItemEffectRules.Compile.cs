@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Storage;
 
 sealed partial class ItemEffectRules
@@ -9,30 +10,29 @@ sealed partial class ItemEffectRules
     {
         try
         {
-            if (row.Status != "built" || row.Sources.Count == 0 || row.When.Count == 0 || row.Do.Count != 1)
-                throw new FormatException("expected a built rule with a source, a trigger and one action");
+            if (row.Status != "built" || row.Sources.Count == 0 || row.When.Count == 0 || row.Do.Count == 0)
+                throw new FormatException("expected a built rule with a source, a trigger and an action");
             string trigger = row.When[0].Trigger;
-            var (action, args, target, targetArgs, value, timers) = row.Do[0];
-            if (!Matches(targetArgs, "{}") || !Matches(value, "{}"))
-                throw new FormatException("unsupported target or value arguments");
-            bool player = false, minion = false;
-            long? playerHitOrder = null, monsterHitOrder = null;
-            foreach (var (eventName, eventArgs, order) in row.When)
+            var (action, args, target, _, _, timers) = row.Do[0];
+            bool chargeRule = (action, target) == ("charge", "self");
+            if (row.Do.Count > 1 && !row.Do.All(d => (d.Action, d.Target) == ("charge", "self")))
+                throw new FormatException("only charge rules may have several actions");
+            foreach (var d in row.Do)
+                if (!Matches(d.TargetArgs, "{}") || !Matches(d.Value, "{}"))
+                    throw new FormatException("unsupported target or value arguments");
+            var actors = new List<Actor>();
+            foreach (var (eventName, eventArgs) in row.When)
             {
                 if (eventName != trigger) throw new FormatException("expected one event kind per rule");
-                if ((trigger, action, target) == ("hit", "charge", "self"))
-                {
-                    if (order is null or <= 0) throw new FormatException("expected a positive hit charge roll_order");
-                    if (playerHitOrder is null && Matches(eventArgs, "{}")) playerHitOrder = order;
-                    else if (monsterHitOrder is null && Matches(eventArgs, """{"who":"monster"}""")) monsterHitOrder = order;
-                    else throw new FormatException($"unsupported or duplicate hit charge trigger with args {eventArgs}");
-                }
-                else if (order is not null) throw new FormatException($"unsupported roll_order for {trigger} with {action}");
-                else if (!player && Matches(eventArgs, "{}")) player = true;
-                else if (!minion && (trigger, action, target) == ("kill", "charge", "self")
-                    && Matches(eventArgs, """{"who":"minion"}""")) minion = true;
-                else throw new FormatException($"unsupported or duplicate {trigger} trigger with args {eventArgs}");
+                Actor? actor = Matches(eventArgs, "{}") ? Actor.Player
+                    : chargeRule && Matches(eventArgs, """{"who":"minion"}""") && trigger is "kill" or "hit" ? Actor.Minion
+                    : chargeRule && Matches(eventArgs, """{"who":"monster"}""") && trigger is "hit" or "when_hit" ? Actor.Monster
+                    : null;
+                if (actor is not { } who || actors.Contains(who))
+                    throw new FormatException($"unsupported or duplicate {trigger} trigger with args {eventArgs}");
+                actors.Add(who);
             }
+            if (row.Position is not null && !chargeRule) throw new FormatException($"unsupported position for {trigger} with {action}");
             var conditions = row.If.ToDictionary(c => c.Condition, StringComparer.Ordinal);
             bool Take(string name, string expected, bool negate = false)
             {
@@ -54,48 +54,9 @@ sealed partial class ItemEffectRules
                         throw new FormatException("multiple duration sources require a guaranteed gain from their strongest roll");
                     onKill.Add(new(stats, roll, seconds, durationStat, fromRoll));
                     break;
-                case ("hit" or "kill", "charge", "self") when Matches(timers, "[]"):
-                    if (JsonNode.Parse(args) is not JsonObject { Count: 1 } charge ||
-                        charge["charge"]?.GetValue<string>() is not string name || Charges.Parse(name) is not { } type ||
-                        !Take("chance", """{"percent":{"from":"roll"}}"""))
-                        throw new FormatException("expected a named charge and chance from its source stat");
-                    if (trigger == "hit")
-                    {
-                        var hitRules = Sources("stat").Select(stat => (stat, type)).ToArray();
-                        if (playerHitOrder is long playerOrder) charges.PlayerHits.Add(playerOrder, hitRules);
-                        if (monsterHitOrder is long monsterOrder) charges.MonsterHits.Add(monsterOrder, hitRules);
-                        break;
-                    }
-                    if (row.KillChargeOrder is null or 0)
-                        throw new FormatException("expected a nonzero kill_charge_order");
-                    bool frozen = Take("enemy_frozen_at_death", "{}");
-                    bool shield = false, dualWield = false;
-                    if (conditions.Remove("equipment", out var equipment))
-                    {
-                        if (minion || equipment.Group != 0 || equipment.Negate) throw new FormatException("unsupported equipment condition");
-                        shield = Matches(equipment.Args, """{"is":"holding_shield"}""");
-                        dualWield = Matches(equipment.Args, """{"is":"dual_wielding"}""");
-                        if (!shield && !dualWield) throw new FormatException("expected holding_shield or dual_wielding");
-                    }
-                    int minPoisons = 0, maxPoisons = int.MaxValue;
-                    if (conditions.Remove("enemy_poison_count_at_death", out var poison))
-                    {
-                        if (poison.Group != 0 || JsonNode.Parse(poison.Args) is not JsonObject { Count: 1 } bounds ||
-                            bounds["at_least"] is not JsonValue bound || !bound.TryGetValue<int>(out int threshold) || threshold < 0)
-                            throw new FormatException("enemy_poison_count_at_death requires a nonnegative integer at_least");
-                        if (poison.Negate) maxPoisons = threshold - 1;
-                        else minPoisons = threshold;
-                    }
-                    bool Applies(ChargeEvent e, WeaponProfile w) => e is ChargeEvent.Kill kill
-                        && kill.Poisons >= minPoisons && kill.Poisons <= maxPoisons
-                        && (!frozen || kill.Frozen) && (!shield || w.Shield) && (!dualWield || w.DualWield);
-                    var destination = row.KillChargeOrder < 0 ? charges.BeforeAdditional : charges.AfterAdditional;
-                    foreach (uint stat in Sources("stat"))
-                    {
-                        var rule = new ChargeGains.Rule(stat, type, Applies);
-                        if (player) destination.Add(rule);
-                        if (minion) charges.MinionKills.Add(rule);
-                    }
+                case (_, "charge", "self") when ChargeEvents.Contains(trigger):
+                    CompileCharges(row, trigger, actors, conditions, Take("chance", """{"percent":{"from":"roll"}}"""),
+                        Sources("stat"), charges);
                     break;
                 case ("hit", "skill", "enemy") when Matches(args, """{"skill":"granted"}""") && Matches(timers, "[]"):
                     bool rare = Take("enemy_rarity", """{"is":"rare_or_unique"}""");
@@ -117,6 +78,141 @@ sealed partial class ItemEffectRules
         {
             throw new InvalidDataException($"Invalid fx rule '{row.Id}': {ex.Message}", ex);
         }
+    }
+
+    static readonly HashSet<string> ChargeEvents = ["kill", "hit", "when_hit", "block", "stun", "skill_use"];
+
+    // A charge rule: one rule per source stat and action, at the rule's position in its event for each actor. Without a
+    // chance the stat is a flag: any value but 0 gains. The conditions are ANDed after the event's own type test.
+    static void CompileCharges(GameDataStore.FxRuleRow row, string trigger, List<Actor> actors,
+        Dictionary<string, (int Group, string Condition, bool Negate, string Args)> conditions, bool chance, uint[] sources,
+        ChargeRuleLists charges)
+    {
+        if (row.Position is not long position) throw new FormatException("expected a position");
+        bool player = actors.Contains(Actor.Player);
+        static bool ActorKnows(string condition, string trigger) => (condition, trigger) is
+            ("critical", "hit") or ("enemy_frozen_at_death", "kill") or ("enemy_poison_count_at_death", "kill");
+        if (actors.Any(a => a != Actor.Player) && (!chance || conditions.Keys.Any(c => !ActorKnows(c, trigger))
+                || actors.Contains(Actor.Monster) && conditions.Count != 0))
+            throw new FormatException("a minion or monster charge rule needs a chance and supports only the conditions its actor knows");
+        var checks = new List<Func<ChargeEvent, WeaponProfile, bool>>();
+        foreach (var (name, (group, _, negate, args)) in conditions.ToArray())
+        {
+            if (group != 0) throw new FormatException($"unsupported {name} condition group");
+            var check = ChargeCondition(trigger, name, JsonNode.Parse(args) as JsonObject ?? [], negate, player);
+            checks.Add(negate ? (e, w) => !check(e, w) : check);
+            conditions.Remove(name);
+        }
+        Func<ChargeEvent, bool> isEvent = trigger switch
+        {
+            "kill" => static e => e is ChargeEvent.Kill,
+            "hit" => static e => e is ChargeEvent.Hit,
+            "when_hit" => static e => e is ChargeEvent.WhenHit,
+            "block" => static e => e is ChargeEvent.Block,
+            "stun" => static e => e is ChargeEvent.Stun,
+            _ => static e => e is ChargeEvent.SkillUse,
+        };
+        Func<ChargeEvent, WeaponProfile, bool>[] all = [.. checks];
+        bool When(ChargeEvent e, WeaponProfile w)
+        {
+            if (!isEvent(e)) return false;
+            foreach (var check in all)
+                if (!check(e, w)) return false;
+            return true;
+        }
+        var outcomes = row.Do.Select(d => ChargeOutcome(d.Args, d.Timers)).ToArray();
+        if (actors.Any(a => a != Actor.Player) && outcomes.Any(o => o.Type is null || o.Does != ChargeGains.Outcome.Gain))
+            throw new FormatException("a minion or monster charge rule gains one named charge");
+        ChargeGains.Rule[] rules = [.. sources.SelectMany(stat => outcomes.Select(o => new ChargeGains.Rule(stat, o.Type, When, !chance, o.Does)))];
+        foreach (var actor in actors)
+        {
+            foreach (uint stat in sources)
+                if (!charges.Stats.Add((trigger, actor, stat)))
+                    throw new FormatException($"{Stats.Name(stat)} already has a {trigger} charge rule");
+            var byPosition = charges.ByEvent.TryGetValue((trigger, actor), out var known) ? known : charges.ByEvent[(trigger, actor)] = [];
+            if (!byPosition.TryAdd(position, rules)) throw new FormatException($"position {position} is already taken for {trigger}");
+        }
+    }
+
+    static (ChargeType? Type, ChargeGains.Outcome Does) ChargeOutcome(string args, string timers)
+    {
+        if (!Matches(timers, "[]") || JsonNode.Parse(args) is not JsonObject charge || charge.Count is < 1 or > 2
+            || charge["charge"]?.GetValue<string>() is not string name)
+            throw new FormatException("expected a named charge");
+        ChargeType? type = name == "random" ? null : Charges.Parse(name) ?? throw new FormatException($"unknown charge '{name}'");
+        var does = (charge.Count == 2 ? (string?)charge["does"] : "gain") switch
+        {
+            "gain" => ChargeGains.Outcome.Gain,
+            "to_maximum" => ChargeGains.Outcome.ToMaximum,
+            "lose_all" => ChargeGains.Outcome.LoseAll,
+            "lose_one" => ChargeGains.Outcome.LoseOne,
+            var other => throw new FormatException($"unknown charge outcome '{other}'"),
+        };
+        if (type is null && does != ChargeGains.Outcome.Gain) throw new FormatException("a random charge can only be gained");
+        return (type, does);
+    }
+
+    // One condition of a charge rule, for the events whose facts can answer it.
+    static Func<ChargeEvent, WeaponProfile, bool> ChargeCondition(string trigger, string name, JsonObject args, bool negate,
+        bool player)
+    {
+        string? Is() => args.Count == 1 ? (string?)args["is"] : null;
+        bool NoArgs() => args.Count == 0;
+        Func<ChargeEvent, WeaponProfile, bool>? check = (trigger, name) switch
+        {
+            ("hit", "critical") when NoArgs() => static (e, _) => e is ChargeEvent.Hit { Critical: true },
+            ("when_hit", "critical") when NoArgs() => static (e, _) => e is ChargeEvent.WhenHit { Critical: true },
+            ("hit", "skill_type") when !negate => Is() switch
+            {
+                "melee" => static (e, w) => e is ChargeEvent.Hit h && ChargeGains.Melee(h, w),
+                "attack" => static (e, _) => e is ChargeEvent.Hit { Spell: false },
+                _ => null,
+            },
+            ("stun", "skill_type") when !negate && Is() == "melee" => static (e, _) => e is ChargeEvent.Stun { Melee: true },
+            ("block", "skill_type") when !negate => Is() switch
+            {
+                "attack" => static (e, _) => e is ChargeEvent.Block { Spell: false },
+                "spell" => static (e, _) => e is ChargeEvent.Block { Spell: true },
+                _ => null,
+            },
+            ("skill_use", "skill_type") when !negate => Is() switch
+            {
+                "vaal" => static (e, _) => e is ChargeEvent.SkillUse { Vaal: true },
+                "curse" => static (e, _) => e is ChargeEvent.SkillUse { Curse: true },
+                "trap" => static (e, _) => e is ChargeEvent.SkillUse { Trap: true },
+                _ => null,
+            },
+            ("hit" or "kill", "equipment") when !negate && player => Is() switch
+            {
+                "holding_shield" => static (_, w) => w.Shield,
+                "dual_wielding" => static (_, w) => w.DualWield,
+                "wand" => static (_, w) => w.Wand,
+                "claw_or_dagger" => static (_, w) => w.Claw || w.Dagger,
+                _ => null,
+            },
+            ("hit", "enemy_rarity") when !negate => Is() switch
+            {
+                "rare_or_unique" => static (e, _) => e is ChargeEvent.Hit { Rarity: MonsterRarity.Rare or MonsterRarity.Unique },
+                "unique" => static (e, _) => e is ChargeEvent.Hit { Rarity: MonsterRarity.Unique },
+                _ => null,
+            },
+            ("hit", "enemy_frozen") when !negate && NoArgs() => static (e, _) => e is ChargeEvent.Hit { Frozen: true },
+            ("hit", "enemy_bleeding") when !negate && NoArgs() => static (e, _) => e is ChargeEvent.Hit { Bleeding: true },
+            ("hit", "enemy_no_armour") when !negate && NoArgs() => static (e, _) => e is ChargeEvent.Hit { NoArmour: true },
+            ("hit", "enemy_marked") when !negate && NoArgs() => static (e, _) => e is ChargeEvent.Hit { Marked: true },
+            ("hit", "enemy_killed") when !negate && NoArgs() => static (e, _) => e is ChargeEvent.Hit { Killed: true },
+            ("hit", "self_bleeding") when !negate && NoArgs() => static (e, _) => e is ChargeEvent.Hit { SelfBleeding: true },
+            ("hit", "self_poisoned") when !negate && NoArgs() => static (e, _) => e is ChargeEvent.Hit { SelfPoisoned: true },
+            ("hit", "primary_target") when !negate && NoArgs() => static (e, _) => e is ChargeEvent.Hit { Primary: true },
+            ("hit", "used_skill") when !negate && args.Count == 1 && (string?)args["id"] is { Length: > 0 } id =>
+                (e, _) => e is ChargeEvent.Hit h && h.SkillEffect == id,
+            ("kill", "enemy_frozen_at_death") when !negate && NoArgs() => static (e, _) => e is ChargeEvent.Kill { Frozen: true },
+            ("kill", "enemy_poison_count_at_death") when args.Count == 1 && args["at_least"] is JsonValue bound
+                && bound.TryGetValue<int>(out int threshold) && threshold >= 0 =>
+                (e, _) => e is ChargeEvent.Kill kill && kill.Poisons >= threshold,
+            _ => null,
+        };
+        return check ?? throw new FormatException($"unsupported {name} condition for {trigger}");
     }
 
     static bool Matches(string json, string expected) => JsonNode.DeepEquals(JsonNode.Parse(json), JsonNode.Parse(expected));

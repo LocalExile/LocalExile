@@ -64,18 +64,10 @@ public static partial class Game
             });
         }
         double now = ProjectileWorldTime(player);
-        bool frozen = m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0;
-        bool bleeding = m.Bleeds.Burning;
-        // "your Marked Enemy": a Mark this player cast, not another player's on the same monster.
-        bool marked = false;
-        foreach (var curse in m.Curses.All.Values)
-            if (curse.Mark && curse.Caster == player.Id) { marked = true; break; }
-        bool selfBleeding = player.IncomingAilments.Bleeding(now);
-        bool selfPoisoned = player.IncomingAilments.PoisonStacks(now) > 0;
-        bool noArmour = m.Effects.Armour(Monsters.BaseArmour(m.Variety, m.Level) ?? 0) == 0;
+        var facts = ChargeHitFacts(player, m, now);
         ChargesOf(player).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(player).EffectId(effect) : null,
-            skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: frozen, Bleeding: bleeding, Marked: marked,
-            SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned) { NoArmour = noArmour });
+            skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: facts.Frozen, Bleeding: facts.Bleeding, Marked: facts.Marked,
+            SelfBleeding: facts.SelfBleeding, SelfPoisoned: facts.SelfPoisoned) { NoArmour = facts.NoArmour });
         CurseCharges(player, m, death: false, now);
         PlayerGrantsNearbyChargesLocked(player, kill: false, now);
     }
@@ -118,6 +110,19 @@ public static partial class Game
         }
         return ChargeEffects.Expand(key => skillStats.GetValueOrDefault(key), Counted,
             type => Charges.Converted(type, PlayerStat), ChargeScaling.Rules, MaxOf, includePhysicalReduction: false);
+    }
+
+    // The target's and the player's state at a hit, as the "on hit" charge rules read it.
+    internal static (bool Frozen, bool Bleeding, bool Marked, bool SelfBleeding, bool SelfPoisoned, bool NoArmour) ChargeHitFacts(
+        Player player, SpawnedMonster m, double now)
+    {
+        bool marked = false;
+        // "your Marked Enemy": a Mark this player cast, not another player's on the same monster.
+        foreach (var curse in m.Curses.All.Values)
+            if (curse.Mark && curse.Caster == player.Id) { marked = true; break; }
+        return (m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0, m.Bleeds.Burning, marked,
+            player.IncomingAilments.Bleeding(now), player.IncomingAilments.PoisonStacks(now) > 0,
+            m.Effects.Armour(Monsters.BaseArmour(m.Variety, m.Level) ?? 0) == 0);
     }
 
     // A hostile monster the player killed (MonsterKilled): its "on kill" gains, "on Killing a Frozen Enemy" too when the

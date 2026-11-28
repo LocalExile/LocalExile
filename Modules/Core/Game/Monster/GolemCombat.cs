@@ -1097,8 +1097,23 @@ public static partial class Game
     internal static void MinionHitChargesLocked(Player owner, GolemState.Golem fighter, SpawnedMonster target,
         IReadOnlyDictionary<uint, int> skillStats, bool critical, bool killed, double now, Random random)
     {
-        if (critical && RandomRolls.Chance(GolemStat(skillStats, Stat.AddPowerChargeOnCriticalStrikePct), 100, random))
-            GrantMinionChargeLocked(owner, fighter, ChargeType.Power, 1, now);
+        if (!ItemEffectRules.Enabled)
+        {
+            if (critical && RandomRolls.Chance(GolemStat(skillStats, Stat.AddPowerChargeOnCriticalStrikePct), 100, random))
+                GrantMinionChargeLocked(owner, fighter, ChargeType.Power, 1, now);
+        }
+        else
+        {
+            ChargeEvent.Hit? hit = null;
+            foreach (var rule in ItemEffectRules.Current.MinionHitCharges)
+            {
+                int chance = GolemStat(skillStats, rule.Stat);
+                if (chance <= 0) continue;
+                hit ??= new(critical, false, null, target.Rarity);
+                if (rule.When(hit, default) && RandomRolls.Chance(chance, 100, random))
+                    GrantMinionChargeLocked(owner, fighter, rule.Type!.Value, 1, now);
+            }
+        }
         if (!killed) return;
         if (!ItemEffectRules.Enabled)
         {

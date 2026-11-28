@@ -116,7 +116,7 @@ public static partial class Game
             SpiritChargeOnKill(player, now);
             state.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.PlayerKill, Kill: modMonster));
             var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now,
-                Frozen: monster.Ailments.FrozenAtDeath(now));
+                Frozen: monster.Ailments.FrozenAtDeath(now), Poisons: monster.Poisons.StacksAtDeath(now));
             if (chargeBatch is not null) chargeBatch.Add(charge);
             else CommitAcceptedChargeBatchLocked(player, [charge], CharacterPlayerStats(player));
             if (OnslaughtOnKill(player, now, monster.TauntedAtDeath))
