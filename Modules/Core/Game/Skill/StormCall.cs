@@ -14,7 +14,7 @@ using GameServer.Core.World;
 /// </summary>
 public static partial class Game
 {
-    public static bool IsStormCall(string? effectId) => effectId is "StormCall" or "StormCallAltX";
+    public static bool IsStormCall(string? effectId) => effectId is "StormCall" or "StormCallAltX" or "StormCallRoyale";
 
     const double StormCallImpactArtSeconds = 1.5;
     const int TrarthusBloodArt = 10; // GroundEffects row 136: Blood / stormcall_blood_ground.
