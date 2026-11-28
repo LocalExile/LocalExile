@@ -11,7 +11,7 @@ public static partial class Game
         int count;
         count = player.Links.Count;
         if (count > 0 && Stat.NumberOfActiveLinks is var key) sources[key] = sources.GetValueOrDefault(key) + count;
-        return sources;
+        return WithPlayerLinkSources(player, sources);
     }
 
     // A link gem's cast (CastGemSkill): the link starts at the end of its cast time, as a spell's effect lands, unless the
@@ -31,8 +31,7 @@ public static partial class Game
         public readonly SpawnedMonster? Monster = monster;
     }
 
-    // Tracks whether a link's target was the player's companion (and whether it was permanent) at cast time, so
-    // LinkSkillsTick and Oath of Fealty know even after Player.Companion is cleared or marked dead.
+    // Keeps the original recipient across death, despawn, and area exit, including Oath of Fealty's permanent mercenary.
     static readonly RuleTable<LinkSkills.Link, LinkTargetTag> LinkTargetTags = new();
 
     /// <summary>Effective per-minute cost of a Link skill after <c>link_skill_mana_cost_+%</c> and
@@ -47,8 +46,8 @@ public static partial class Game
 
     /// <summary>
     /// Links the skill to its target: the aimed object when it qualifies, else the nearest that does, one not linked yet
-    /// first (the client's candidate order, 0x141bfab10). A link skill has one target and a target one link of the
-    /// player's, so the new link replaces both. It lasts <c>base_skill_effect_duration</c> at the effective gem level
+    /// first (the client's candidate order, 0x141bfab10). A link replaces the caster's previous use of that skill and
+    /// the recipient's previous link. It lasts <c>base_skill_effect_duration</c> at the effective gem level
     /// (Deep Connections' +5 included) with the skill duration modifiers and <c>link_skill_duration_+%</c> (or infinitely
     /// with <c>link_skill_have_infinite_attachment_duration</c>), and costs the skill's <c>mana_cost_per_minute</c>
     /// (scaled by <c>link_skill_cost_+%_final</c>) while it lasts. False when nothing qualifies.
@@ -71,25 +70,41 @@ public static partial class Game
         LinkSkills.Link link;
         double now = AreaTime(player);
         if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0) return false;
-        if (LinkTargetLocked(player, targetId, Player, now) is not uint target)
+        if (LinkTargetLocked(player, targetId, Player, now) is not { } recipient)
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {effectId}: no link target (an allied companion, or a damageable minion with link_skills_can_target_minions, within {LinkSkills.Range(Player(Stat.LinkSkillRangePlusPct))} cells)");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {effectId}: no link target (an allied player or companion, or a damageable minion with link_skills_can_target_minions, within {LinkSkills.Range(Player(Stat.LinkSkillRangePlusPct))} cells)");
             return false;
         }
+        uint target = recipient.Id;
         if (player.Links.Count == 0) player.Links.PaidAt = now; // the cost runs from the first link
         foreach (var old in player.Links.All.Where(l => l.SkillId == skillId || l.Target == target).ToArray())
             EndLinkLocked(player, old, bytes);
+        if (recipient.Peer?.Links.Incoming is { } oldIncoming)
+        {
+            EndLinkLocked(oldIncoming.Source, oldIncoming.Link, bytes);
+            if (!oldIncoming.Source.Closed && !oldIncoming.Source.LeavingArea)
+            {
+                LinksChangedLocked(oldIncoming.Source);
+                PublishByFrame(oldIncoming.Source, PlayerStatChange.Sources);
+            }
+        }
         bool paysLife = Lifetap.ConvertsCostToLife(gem.Stats, playerStats);
         int costPerMinute = EffectiveLinkCostPerMinute(Own(Stat.ManaCostPerMinute), Player, Own);
         link = new(target, skillId, effectId)
         {
             SkillStats = gem.Stats,
+            PlayerTarget = recipient.Peer,
             Until = infinite ? double.PositiveInfinity : now + seconds,
             ManaPerMinute = paysLife ? 0 : costPerMinute,
             LifePerMinute = paysLife ? costPerMinute : 0, LifePaidAt = now,
             SourceBuff = player.NextBuff++, TargetBuff = player.NextBuff++, SourceRow = rows.Source, TargetRow = rows.Target,
         };
-        if (player.Companion is { } comp && comp.EntityId == target)
+        if (recipient.Peer is { } peer)
+        {
+            peer.Links.Incoming = (player, link);
+            RefreshPlayerLinkStats(player, peer, link, playerStats);
+        }
+        else if (player.Companion is { } comp && comp.EntityId == target)
             LinkTargetTags.Add(link, new(isCompanion: true, isPermanent: comp.IsPermanent, comp.Monster));
         player.Links.Add(link);
         if (effectId == "IntuitiveLink") CaptureIntuitiveLink(player, link, gem);
@@ -105,19 +120,38 @@ public static partial class Game
         return true;
     }
 
-    // The target a link cast takes. It qualifies as in the client's filter (0x141bfaf20): not the player, within the link
-    // range, and either the player's living allied companion (permanent or temporary mercenary) or, while he has
-    // link_skills_can_target_minions, one of his living damageable minions.
-    static uint? LinkTargetLocked(Player player, uint aimed, Func<uint, int> playerStats, double now)
+    readonly record struct LinkCandidate(uint Id, (int X, int Y) Position, Player? Peer = null);
+
+    static bool LinkPeerPresent(Player caster, Player peer) =>
+        ReferenceEquals(caster.Frames, peer.Frames) && !peer.Closed && !peer.LeavingArea
+        && peer.PendingTransfer is null && peer.Connection.PlayerSent;
+
+    static Player? LivePlayerLinkTarget(Player caster, uint id, ushort skillId)
+    {
+        var skill = GemSkillEffects(caster).FirstOrDefault(gem => gem.Id == skillId);
+        return skill.Name is not null && IsLinkSkill(caster, skill.Effect)
+            && AreaPlayer(caster, id) is { } peer && peer.PlayerLife > 0 && LinkPeerPresent(caster, peer) ? peer : null;
+    }
+
+    // The client's filter (0x141bfaf20) recognizes other players, companions, and talent-enabled damageable minions.
+    static LinkCandidate? LinkTargetLocked(Player player, uint aimed, Func<uint, int> playerStats, double now)
     {
         var here = player.Walk.Position(now);
         int range = LinkSkills.Range(playerStats(Stat.LinkSkillRangePlusPct));
-        var valid = new List<(uint Id, (int X, int Y) Pos)>();
+        var valid = new List<LinkCandidate>();
+        bool Reachable((int X, int Y) position) => Dist(position, here) <= range
+            && MinionHasClearShot(player, here, position, targetRadius: 0);
+        foreach (var peer in player.Frames.Players())
+        {
+            if (peer.Id == player.Id || peer.PlayerLife == 0 || !LinkPeerPresent(player, peer)) continue;
+            var pos = peer.Walk.Position(now);
+            if (Reachable(pos)) valid.Add(new(peer.Id, pos, peer));
+        }
         if (player.Companion is { } comp && CompanionAliveInArea(player, comp)
             && !comp.Monster.Invulnerable && comp.Monster.Effects[Stat.BaseCannotBeDamaged] == 0)
         {
             var pos = comp.Monster.Walk.Position(now);
-            if (Dist(pos, here) <= range) valid.Add((comp.EntityId, pos));
+            if (Reachable(pos)) valid.Add(new(comp.EntityId, pos));
         }
         if (playerStats(Stat.LinkSkillsCanTargetMinions) != 0)
         {
@@ -128,13 +162,13 @@ public static partial class Game
                     || m.Monster.Invulnerable || m.Monster.Effects[Stat.BaseCannotBeDamaged] != 0
                     || (OwnedFighter(player, m.Id) is { } fighter && GolemIgnoresDots(fighter))) continue;
                 var pos = m.Monster.Walk.Position(now);
-                if (Dist(pos, here) <= range) valid.Add((m.Id, pos));
+                if (Reachable(pos)) valid.Add(new(m.Id, pos));
             }
         }
         if (valid.Count == 0) return null;
-        if (valid.FirstOrDefault(m => m.Id == aimed) is { Id: not 0 } chosen) return chosen.Id;
-        return valid.OrderBy(m => player.Links.On(m.Id) is null ? 0 : 1).ThenBy(m => Dist(m.Pos, here))
-            .Select(m => (uint?)m.Id).FirstOrDefault();
+        if (valid.FirstOrDefault(m => m.Id == aimed) is { Id: not 0 } chosen) return chosen;
+        return valid.OrderBy(m => m.Peer?.Links.Incoming is null && player.Links.On(m.Id) is null ? 0 : 1)
+            .ThenBy(m => Dist(m.Position, here)).First();
     }
 
     static bool LinkTargetAliveLocked(Player player, uint id)
@@ -144,8 +178,15 @@ public static partial class Game
         return player.Minions.All.FirstOrDefault(m => m.Id == id) is { } minion && LinkTargetAliveLocked(player, minion);
     }
 
-    static bool IsCompanionLinkTarget(LinkSkills.Link link) =>
-        LinkTargetTags.TryGetValue(link, out var tag) && tag.IsCompanion;
+    static bool RequiresMinionLinkPermission(LinkSkills.Link link) =>
+        link.PlayerTarget is null && (!LinkTargetTags.TryGetValue(link, out var tag) || !tag.IsCompanion);
+
+    static bool LinkTargetAliveLocked(Player player, LinkSkills.Link link) =>
+        link.PlayerTarget is { } peer ? LinkPeerPresent(player, peer) && peer.PlayerLife > 0 : LinkTargetAliveLocked(player, link.Target);
+
+    static (int X, int Y)? LinkTargetPosition(Player player, LinkSkills.Link link, double now) =>
+        link.PlayerTarget is { } peer ? peer.Walk.Position(now)
+            : player.Area.Monsters.GetValueOrDefault(link.Target)?.Walk.Position(now);
 
     static bool IsPermanentMercenaryLink(LinkSkills.Link link) =>
         LinkTargetTags.TryGetValue(link, out var tag) && tag.IsPermanent;
@@ -219,14 +260,18 @@ public static partial class Game
         return link.EffectId == "SoulLink" ? damageTaken * SoulLinkDamageTaken(link, LinkBuffPercent(fighter, stats)) : damageTaken;
     }
 
-    readonly record struct MinionLinkOffence(int FireMin = 0, int FireMax = 0, int Ignite = 0,
+    readonly record struct LinkOffence(int FireMin = 0, int FireMax = 0, int Ignite = 0,
         int? MainHandCrit = null, int CritMultiplier = 0, int Accuracy = 0);
 
-    static MinionLinkOffence MinionLinkOffenceAt(Player player, GolemState.Golem fighter,
+    static LinkOffence MinionLinkOffenceAt(Player player, GolemState.Golem fighter,
         IReadOnlyDictionary<uint, int> casterStats, double now)
     {
         if (ActiveMinionLink(player, fighter, now) is not { } link) return default;
-        long effect = LinkBuffPercent(fighter, casterStats);
+        return LinkOffenceAt(player, link, LinkBuffPercent(fighter, casterStats));
+    }
+
+    static LinkOffence LinkOffenceAt(Player player, LinkSkills.Link link, long effect)
+    {
         if (link.EffectId == "DestructiveLink")
             return new(MainHandCrit: player.Pools.AttackCriticalStrikeChance,
                 CritMultiplier: ScaledLinkStat(link, Stat.CriticalLinkGrantsBaseCriticalStrikeMultiplierPlus, effect),
@@ -242,8 +287,24 @@ public static partial class Game
     static void EndLinkLocked(Player player, LinkSkills.Link link, List<byte> bytes)
     {
         player.Links.Remove(link.Target);
+        if (link.PlayerTarget is { } peer && ReferenceEquals(peer.Links.Incoming?.Link, link))
+        {
+            peer.Links.Incoming = null;
+            PlayerStatBuffsChanged(peer);
+        }
         player.Area.Buffs.Clear(player.Id, link.SourceRow, player.Id, tag: link.SourceBuff);
         player.Area.Buffs.Clear(link.Target, link.TargetRow, player.Id, tag: link.TargetBuff);
+    }
+
+    internal static Task EndOutgoingPlayerLinksOnLeave(Player player, string reason)
+    {
+        if (player.Links.Count == 0) return Task.CompletedTask;
+        var departing = player.Links.All.Where(link => link.PlayerTarget is not null).ToArray();
+        if (departing.Length == 0) return Task.CompletedTask;
+        var bytes = new List<byte>();
+        foreach (var link in departing) EndLinkLocked(player, link, bytes);
+        if (!player.Closed) LinksChangedLocked(player);
+        return Task.CompletedTask;
     }
 
     // The link count changed: Absolution's aura effect follows it, so the pools and the auras' stats are worked out again.
@@ -290,8 +351,9 @@ public static partial class Game
         {
             foreach (var link in links.All)
             {
-                if (!canTargetMinions && !IsCompanionLinkTarget(link)) continue;
-                if (LinkTargetAliveLocked(player, link.Target)) continue;
+                if (!canTargetMinions && RequiresMinionLinkPermission(link)) continue;
+                if (LinkTargetAliveLocked(player, link)) continue;
+                if (link.PlayerTarget is { } peer && !LinkPeerPresent(player, peer)) continue;
                 if (IsDespawnedCompanionLink(link)) continue;
                 if (oathProtectsMerc && IsPermanentMercenaryLink(link))
                     continue; // Oath of Fealty: linked permanent mercenary died — link ends without killing the player.
@@ -305,7 +367,7 @@ public static partial class Game
         if (all is null && links.Count > 0 && playerStats.GetValueOrDefault(Stat.NoManaCost) == 0)
         {
             double due = links.ManaCarry + links.All
-                .Where(l => (canTargetMinions || IsCompanionLinkTarget(l)) && LinkTargetAliveLocked(player, l.Target))
+                .Where(l => (canTargetMinions || !RequiresMinionLinkPermission(l)) && LinkTargetAliveLocked(player, l))
                 .Sum(l => l.ManaPerMinute) / 60 * elapsed;
             uint whole = (uint)Math.Min(uint.MaxValue, Math.Floor(due));
             if (player.PlayerMana < whole) outOfMana = true;
@@ -317,10 +379,11 @@ public static partial class Game
         foreach (var link in links.All.ToArray())
         {
             string? why = all;
-            if (why is null && !canTargetMinions && !IsCompanionLinkTarget(link))
+            if (why is null && !canTargetMinions && RequiresMinionLinkPermission(link))
                 why = "link_skills_can_target_minions is gone";
-            if (why is null && !LinkTargetAliveLocked(player, link.Target))
-                why = IsDespawnedCompanionLink(link) ? "its companion left" : "its linked permanent mercenary died (Oath of Fealty)";
+            if (why is null && !LinkTargetAliveLocked(player, link))
+                why = link.PlayerTarget is not null ? "its player target left the area"
+                    : IsDespawnedCompanionLink(link) ? "its companion left" : "its linked permanent mercenary died (Oath of Fealty)";
             if (why is null && outOfMana && link.ManaPerMinute > 0)
                 why = "not enough mana";
             if (why is null && link.LifePerMinute > 0)
@@ -333,17 +396,19 @@ public static partial class Game
                 link.LifePaidAt = now;
                 if (exhausted) why = "not enough life";
             }
+            var position = why is null ? LinkTargetPosition(player, link, now) : null;
             if (why is null && now >= link.Until) why = "its duration ended";
             else if (why is null)
             {
-                bool away = !player.Area.Monsters.TryGetValue(link.Target, out var targetMonster)
-                    || Dist(targetMonster.Walk.Position(now), here) > range;
+                bool away = position is not { } target || Dist(target, here) > range
+                    || !MinionHasClearShot(player, here, target, targetRadius: 0);
                 link.AwaySince = away ? link.AwaySince ?? now : null;
-                if (away && now - link.AwaySince >= LinkSkills.BreakSeconds) why = $"out of range ({range} cells) for 4 s";
+                if (away && now - link.AwaySince >= LinkSkills.BreakSeconds) why = $"out of range ({range} cells) or line of sight for 4 s";
             }
             if (why is null)
             {
-                ApplyFrigidBondLocked(player, link, here, playerStats, now);
+                if (link.PlayerTarget is { } peer) RefreshPlayerLinkStats(player, peer, link, playerStats);
+                if (position is { } endpoint) ApplyFrigidBondLocked(player, link, here, endpoint, playerStats, now);
                 continue;
             }
             EndLinkLocked(player, link, bytes);

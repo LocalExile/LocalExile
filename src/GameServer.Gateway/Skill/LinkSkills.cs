@@ -2,8 +2,7 @@
 
 /// <summary>
 /// The player's links (LinkSkills.cs): Soul, Flame, Vampiric, Protective, Intuitive and Destructive Link. A link
-/// is one of his skills bound to one target for its duration; the target is an allied player (none: there is no party
-/// play) or, with <c>link_skills_can_target_minions</c>, one of his damageable minions. Each link has a source buff on
+/// is one of his skills bound to a target for its duration. Each link has a source buff on
 /// him and a target buff on the target, costs mana per second, breaks after 4 s out of range, and kills him if its
 /// target dies while linked (the gems' text: "If the target dies while linked, you will also die"). Guarded by the
 /// connection's Monsters lock; links go with the connection.
@@ -32,6 +31,7 @@ public sealed class LinkSkills
     public sealed class Link(uint target, ushort skillId, string effectId)
     {
         public uint Target => target;
+        public Player? PlayerTarget { get; init; }
         public ushort SkillId => skillId;
         public string EffectId => effectId;
         public IReadOnlyDictionary<uint, int> SkillStats { get; init; } = new Dictionary<uint, int>();
@@ -41,6 +41,9 @@ public sealed class LinkSkills
         public ushort SourceBuff, TargetBuff, SourceRow, TargetRow;
         public double? AwaySince;
     }
+
+    /// <summary>Connection and link that currently own this player's recipient buff, in the area's frame.</summary>
+    public (Player Source, Link Link)? Incoming { get; set; }
 
     readonly Dictionary<uint, Link> links = [];
     public IReadOnlyCollection<Link> All => links.Values;

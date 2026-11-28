@@ -255,7 +255,8 @@ public static partial class Game
                 // Only the skill's own readiness reaches the target and pending-request clean-up below: a Move taken
                 // inside a totem placement's hold does not touch the held skill's request.
                 if (skillFree && player.LockstepSkill.Target is { } aimedAt && aimedAt != player.Id
-                    && !(player.Area.Monsters.TryGetValue(aimedAt, out var m) && !m.Dead && m.Life > 0))
+                    && !(player.Area.Monsters.TryGetValue(aimedAt, out var m) && !m.Dead && m.Life > 0)
+                    && LivePlayerLinkTarget(player, aimedAt, player.LockstepSkill.Skill) is null)
                     player.LockstepSkill.LoseTarget();
                 // Actor's gate (0x141e941a0 -> 0x141e9479e / 0x141e947aa) lets only Move (0x2909 / 0xc266) cut in after
                 // an attack's contact or while its cancelled backswing lockout (+0x2a0) runs; non-Move uses (object

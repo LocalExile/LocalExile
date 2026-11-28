@@ -80,28 +80,31 @@ public static partial class Game
             else if (target.Hostile) await Attack(player, use, target, requestedAt);   // not the player's own minion
             return;
         }
-        // A self-cast skill (Righteous Fire) targets the player itself: echo it in place, then cast.
-        if (use.TargetId == player.Id && SkillsFor(player).IsGemSkill(use.SkillId))
+        // Self-casts and links to another player are stationary actions on a player entity.
+        var recipient = !SkillsFor(player).IsGemSkill(use.SkillId) ? null
+            : use.TargetId == player.Id ? player : LivePlayerLinkTarget(player, use.TargetId, use.SkillId);
+        if (recipient is not null)
         {
             var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == use.SkillId);
             double at = AreaTime(player);
-            (int X, int Y) self = default;
+            (int X, int Y) self = default, aim = default;
             if (!TryBeginSkillCooldownUse(player, use.SkillId, gem.Effect,
                 gem.Name is null ? null : CooldownForSkill(player, use.SkillId), false,
                 () =>
                 {
                     Interlocked.Increment(ref player.ActionCount);
                     self = player.Walk.Position(at);
+                    aim = recipient.Walk.Position(at);
                     player.Walk.Order(self.X, self.Y, at);
                 }, out var cooldownUse, requestedAt: requestedAt)) return;
             bool acknowledged = false;
-            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionStarted(player.Id, self.X, self.Y, self.X, self.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: player.Id),
-                $"0x01ab player skill 0x{use.SkillId:x4} cast on itself at ({self.X}, {self.Y})",
+            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionStarted(player.Id, self.X, self.Y, aim.X, aim.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
+                $"0x01ab player skill 0x{use.SkillId:x4} cast on player 0x{use.TargetId:x} at ({aim.X}, {aim.Y})",
                 still: () => acknowledged = SkillAcknowledgementAllowed(player, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(player, use.SkillId) ?? true));
             if (!acknowledged) return;
             await SendNativeCooldownRefresh(player);
-            await CastGemSkill(player, use.SkillId, self, self, player.Id, sequence: use.Sequence,
+            await CastGemSkill(player, use.SkillId, self, aim, use.TargetId, sequence: use.Sequence,
                 actionToken: cooldownUse?.ActionToken, cooldownUse: cooldownUse);
             return;
         }

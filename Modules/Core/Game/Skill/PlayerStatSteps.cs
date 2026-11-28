@@ -392,6 +392,9 @@ public static partial class Game
             // A module's own derived stats (GameEvents.DerivedStats), from this fresh snapshot: never written to the raw sources.
             if (GameEvents.DerivedStats.Any)
                 foreach (var run in GameEvents.DerivedStats.For(player)) run(player, stats);
+            int remoraDamage = GetIn(stats, Stat.RemoraLinkGrantsDamagePlusPctWhenOnFullLife);
+            if (remoraDamage != 0 && CountsAsFullLife(player.PlayerLife, player.PlayerMaxLife, stats))
+                AddTo(stats, Stat.DamagePlusPct, remoraDamage);
             ComputeStatSnapshotTail(PlayerTailInputs(player, stats), StatSnapshotStage.Offence);
         });
         Step(PlayerStatStep.TailCritical, (player, stats, _) =>

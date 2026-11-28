@@ -1231,6 +1231,8 @@ public static partial class Game
         {
             if (new[] { Stat.GlobalCannotCrit, Stat.VirtualGlobalCannotCrit, Stat.CannotCriticalStrikeWithAttacks }
                 .Any(name => Player(name) != 0 || Own(name) != 0)) return 0;
+            if (weaponCritical is null && !skills.RequiresShield(gem.Effect) && Player(Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance) != 0)
+                return DisplayedCriticalChance(player, Player(Stat.OverrideMainHandCriticalStrikeChancePctFromCriticalLink), Player);
             var weapon = WeaponProfileFor(player, activeSet: true);
             int basis;
             if (skills.RequiresShield(gem.Effect) && skills.AttackCritChance(gem.Effect, gem.Level) is int shieldCritical)

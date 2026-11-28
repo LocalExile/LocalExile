@@ -763,6 +763,7 @@ public static partial class Game
                 // The "recently" stats (issue #504): hit an enemy, and crit with it when the roll was a critical one.
                 player.RecentEvents.RecordHit(m.PlayerHitAt, critical, attack: true);
                 if (m.Hostile) player.RecentEvents.Record(OwnedEnemyHitRecently, m.PlayerHitAt);
+                TriggerIntuitivePlayerLinkLocked(player, m, at);
                 GainConvergenceOnHitLocked(player, m, ProjectileWorldTime(player), playerStats);
                 if (ElementalOverloadCritLocked(player, SkillCatalog.FirstSkillId, null, playerStats, critical) is { } eoBuff)
                     ProjectilesFor(player).Packet(eoBuff, "elemental overload (default attack)");
@@ -4952,7 +4953,10 @@ public static partial class Game
         if (m.Kit.Count > 0) BossKits.TakeDamage(m, (long)before - m.Life);
         CaptureHitCorpseDestructionLocked(player, m, directPlayerHit: allyAt is null, playerStats);
         if (m is { Hostile: true, Invulnerable: false, EntranceGrace: false } && (ownHit ?? (allyAt is null)))
+        {
             player.RecentEvents.Record(OwnedEnemyHitRecently, hitNow);
+            if (!player.Reservations.Secondary) TriggerIntuitivePlayerLinkLocked(player, m, hitNow);
+        }
         if (allyAt is null)
         {
             player.LastEnemyHitAt = m.PlayerHitAt = hitNow;
