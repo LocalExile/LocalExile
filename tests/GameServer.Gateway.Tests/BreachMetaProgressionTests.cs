@@ -122,11 +122,46 @@ public sealed class BreachMetaProgressionTests
 
         try
         {
-            // 1. Extracted ChayulaTreePassiveSkillGraph ("brequel") has 134 nodes and all 4 root nodes.
+            // 1. Extracted ChayulaTreePassiveSkillGraph ("brequel") has 134 nodes, all 4 root nodes,
+            //    retail [16, 7, 13, 3] sub-tree caps <= PSG point-costing counts, free MultipleChoiceOptions,
+            //    and exact quest progression totals summing to [16, 7, 13, 3].
             var links = PassiveGraphs.Links("brequel");
             Assert.Equal(134, links.Count);
             foreach (ushort root in new ushort[] { 19625, 22476, 42956, 47967 })
                 Assert.True(links.ContainsKey(root), $"missing Genesis Tree root node {root}");
+
+            Assert.Equal([16, 7, 13, 3], BreachGenesisTree.SubTreeCaps);
+            int[] psgCosting = new int[BreachGenesisTree.SubTreeCount];
+            ushort? sampleMcOption = null;
+            foreach (ushort gid in links.Keys)
+            {
+                var node = BreachGenesisTree.FindNode(gid);
+                Assert.NotNull(node);
+                if (node!.IsMultipleChoiceOption) sampleMcOption ??= gid;
+                if (!node.IsStart && !node.IsWomb && !node.IsMultipleChoiceOption)
+                    psgCosting[node.SubTree]++;
+            }
+            for (int sub = 0; sub < BreachGenesisTree.SubTreeCount; sub++)
+                Assert.True(BreachGenesisTree.SubTreeCaps[sub] <= psgCosting[sub],
+                    $"sub-tree {sub} cap {BreachGenesisTree.SubTreeCaps[sub]} exceeds PSG costing nodes {psgCosting[sub]}");
+            Assert.NotNull(sampleMcOption);
+            Assert.Equal(0, BreachGenesisTree.SpentPointsInSubTree(
+                new BreachGenesisTree.SavedTreeState { Allocated = [sampleMcOption!.Value] }, BreachGenesisTree.SubTreeEquipment));
+            // 0x02cf never emits allowed < spent (prevents fatal client exception on upgraded saves).
+            byte[] clampedTree = BreachGenesisTree.BuildTreeStatePacket(
+                new BreachGenesisTree.SavedTreeState { Allocated = [8017, sampleMcOption.Value] }, [0, 0, 0, 0]);
+            Assert.Equal((byte)1, clampedTree[2]);
+
+            var allQuestFlags = new HashSet<int> { BreachHub.LqfTutorialCompleted };
+            for (int i = 0; i < 10; i++) allQuestFlags.Add(BreachHub.LqfTurnInBodyPartFirst + i);
+            for (int i = 0; i < 7; i++) allQuestFlags.Add(BreachHub.LqfTreeJuicedTurnedInFirst + i);
+            Assert.Equal([16, 7, 13, 3], BreachGenesisTree.EarnedPointsForFlags(allQuestFlags));
+
+            // 1b. HideoutScene reserves a second small station spot so Heist & Wombgift lockers never overlap.
+            var lush = HideoutCatalog.Default;
+            Assert.NotNull(lush);
+            var hideoutScene = HideoutScene.Build(lush!, lush!, null);
+            Assert.NotEqual(hideoutScene.SmallStation, hideoutScene.SmallStation2);
 
             // 2. Hiveblood cost formula (0x1424ad630) uses FleshgraftLevel 1..100 (row = level - 1).
             int level80Storage = BreachHiveblood.ResourceValueForLevel(80);
@@ -138,6 +173,15 @@ public sealed class BreachMetaProgressionTests
             // 3. Wombgift creation, Wombgift Locker refusal, and Genesis Tree reward generation across all 4 sub-trees.
             await using var area = await BreachArea.Open();
             var player = area.A;
+
+            // Vruun's BossKits excludes MPWWildBreachBossFingerProjectile (missing SpellProjectile pool +
+            // distribute_projectiles_over_contact_points -> +0x1BA5E6A crash in Lockstep) while keeping his valid skills.
+            var vruun = Game.Monsters.Find("Metadata/Monsters/Breach/WildBreachBoss");
+            Assert.NotNull(vruun);
+            var vruunEffects = BossKits.Effects(Game.SkillsFor(player), vruun!);
+            Assert.DoesNotContain(12798, vruunEffects);
+            Assert.Contains(411, vruunEffects);
+            Assert.Contains(12800, vruunEffects);
             var wombgift = BreachGenesisTree.CreateWombgift(player, "Metadata/Items/Chayula/EquipmentFruit", 80, new Random(21));
             Assert.NotNull(wombgift);
             Assert.Equal(80u, wombgift!.BrequelFruitLevel);
