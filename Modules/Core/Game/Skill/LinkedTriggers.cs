@@ -71,6 +71,29 @@ public static partial class Game
             companion.Monster.Walk.Position(now), StillLinked);
     }
 
+    static void TriggerIntuitivePlayerLinkLocked(Player peer, SpawnedMonster enemy, double now)
+    {
+        if (peer.Links.Incoming is not { } incoming || incoming.Link.EffectId != "IntuitiveLink"
+            || enemy is not { Hostile: true, Invulnerable: false, EntranceGrace: false }
+            || !ActivePlayerLink(incoming.Source, peer, incoming.Link, now)
+            || !IntuitiveLinkSources.TryGetValue(incoming.Link, out var source)) return;
+
+        var caster = incoming.Source;
+        var contact = enemy.Walk.Position(now);
+        var origin = peer.Walk.Position(now);
+        // Queue across actor actions so an immediate spell hit (including a reciprocal link) does not recurse.
+        peer.Area.Defer(_ =>
+        {
+            double at = AreaTime(caster);
+            bool StillLinked() => ActivePlayerLink(caster, peer, incoming.Link, AreaTime(caster));
+            if (!StillLinked() || !LinkedSourceCurrent(caster, source)) return;
+            var session = ProjectilesFor(caster);
+            if (session.Active)
+                ReleaseLinkedSpell(caster, session, source, "Intuitive Link", contact, at, Stat.TriggerOnTriggerLinkTargetHit,
+                    origin, StillLinked);
+        });
+    }
+
     public static LinkedTriggerSource? CaptureCriticalTriggerSource(Player player, ushort skill)
     {
         var gem = SupportedSkill(player, skill);

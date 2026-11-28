@@ -170,6 +170,8 @@ public static partial class Game
         if (devoured)
             session.Enqueue(() => SendWorldRemoval(player, id,
                 $"0x02bd corpse 0x{id:x} ({monster.Label}) devoured by the supported skill"));
+        else if (!corpseDestroyed && ConsumeVoidSphereCorpseLocked(player, id, monster, now))
+            session.WorldRecords(id, () => [InstanceProtocol.RemoveObject(id)], remove: true);
         // The mods (Program.Mods.cs) as in MonsterKilled: their modifiers here, inside the commit; the kill after it.
         var killer = PlayerOf(player);
         var modMonster = ModMonster(monster, position);

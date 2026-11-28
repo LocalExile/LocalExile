@@ -320,8 +320,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Holy Relic nova reaches allies ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Phantasmal Might follows active Phantasms ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Equipped summons use active sources ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
-- Link skills. Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md#link-skills).
-  Docs: [11](../docs/protocol/11-skills.md) Â§13, [Paladin](../docs/game/paladin.md).
+- Link skills affect allied players in the same instance.
+  Their ongoing costs and death penalty stop at the duration or range deadline.
+  Live-tested in predictive and lockstep.
+  Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md#link-skills).
 - Owned minions: relics, chieftains and the 17 golems. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Link skills. Docs: [11](../docs/protocol/11-skills.md) Â§13, [Paladin](../docs/game/paladin.md#link-skills).
 - Saved aura toggles. Docs: [11](../docs/protocol/11-skills.md), [21](../docs/protocol/21-hideouts.md).
@@ -396,15 +398,22 @@ Part of [Status](../Status.md); what to build next in this area is in
   at departure.
   Clones use arrows, arrow rain or elemental shots.
   Lightning Warp queues teleports and hits both endpoints.
+  Bodyswap selects a corpse first on an untargeted cast and uses the explicit valid target when selected.
+  Both ends deal spell damage and a consumed corpse adds a separate fire hit.
 - Instant skills, shared Blink and Guard cooldowns (a guard skill cast from the bar as well as one a trigger releases),
   opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear
   landings across terrain gaps, walk-only door crossing (prison grates via layer-1 sight barriers) while stopping before
   solid walls and projectile-blocking doors with the 5-cell minimum displacement check, Flame Dash 25/60-cell sight-line
   and fallback clamping, pre-cooldown admission, and burning-ground segment DoT, sight-aware movement landing fallback,
-  monster-blocker landing slide, and same-frame `0x02bc` cooldown refreshes queued behind `0x01ce` so predictive clients
-  execute the blink (verified live). `Frostblink of Wintry Blast` (`FrostblinkAltX`) teleports at cast contact with
-  32/42-cell IceDash clamping, hits both ends at 20 base radius without chilled ground, scales hit damage per 5% target
-  chill and removes chill on hit (verified live). A guard's bar entry is held at the
+  monster-blocker landing slide, and cooldown refreshes after `0x01ce`.
+  Lockstep Frostblink refreshes after the action's frame delimiter.
+  Ordinary Frostblink keeps its rarity-based cooldown recovery bonus from enemies at both ends of the teleport.
+  `Frostblink of Wintry Blast` (`FrostblinkAltX`) teleports at cast contact with 32/42-cell IceDash clamping, hits both
+  ends at 20 base radius without chilled ground, scales hit damage per 5% target chill and removes chill on hit
+  (verified live).
+  Royale Frostblink uses its own cooldown and recovery values, and Royale Dash respects attack-in-place reversal.
+  Quickstep crosses terrain with clear sight, stops short of enemies and applies its Presence-based recovery on use.
+  A guard's bar entry is held at the
   skill's own cooldown with a zero recovery rate while its buff runs and counts at the character's recovery after it, as
   the official client shows. The held entry is published before the instant action so the client skips its press
   prediction, and a stat-only skill refresh (a guard or self buff starting/ending) no longer rebuilds the skill bar; a
@@ -445,6 +454,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Revenants consume nearby allies, Smiting Guardians use Smite, and Slamming Zombies attack between slams.
   (including Fire Trap proxy stats, detonation aim, burning-enemy bonus, throw clamping, and lockstep timing).
   Locus Mine keeps close mines armed and aims detonated volleys at the player.
+  Smoke Mine detonates once per sequence, teleports to the selected mine on a clear sight line, and releases two
+  blinding clouds and a timed movement-speed buff. A blocked sight line still allows the clouds and buff.
   Invention scales trap and mine damage by their age at the trigger.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Bladefall places timed volleys and eligible lingering blades for supported mine, totem and triggered casts.
@@ -579,6 +590,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Both Charged Dash gems channel in place, hit along the steered path and release a final wave. Only the base gem teleports.
   The normal gem moves to a legal landing; the Projection variant stays in place.
   Docs: [11](../docs/protocol/11-skills.md#charged-dash-projection-and-release).
+- Void Sphere and Rending pulse while active, pull non-unique enemies, apply distance-scaled Hinder, and consume
+  corpses on death in their area.
+- Hydrosphere recasts move one sphere per player.
+  It drenches enemies along its path, applies cold and lightning Exposure, and pulses using its current ailments.
+- Tornado absorbs projectiles while travelling, then chases enemies and reflects part of the absorbed damage.
+  Elemental Turbulence chases from release and can keep three tornadoes active.
+- Galvanic Field grants a buff that the player's next Shock consumes.
+  Its attached field fires timed beams with per-enemy cooldowns.
+  The base gem scales from the triggering Shock.
 - Player-cast Divine Ire zaps a limited number of nearby enemies while building stages. Release uses the current aim
   and the gem’s beam or burst, with independent hit and damaging ailment multipliers.
 - Player-cast Stormbind paints runes that Hinder until they expire or explode. Rune Blast spends mana to improve
@@ -603,8 +623,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - War, Dread and Defiance Banner spend melee Valour to plant a local aura with a finite radius and duration.
 - Brand system: Storm Brand (+ Indecision), Armageddon Brand (+ Volatility, Recall), Penance Brand (+ Dissipation,
   Conduction), Wintertide Brand, Arcanist Brand, Brand Recall and Brandsurge with attachment, limits, Swiftbrand
-  cadence, `ActiveSigil`/`magma_pustule`/`immolation_brand_burn` buffs and `SigilDisplay` counters. A brand whose
-  enemy dies returns to its cast or recall position.
+  cadence, `ActiveSigil`/`magma_pustule`/`immolation_brand_burn` buffs and `SigilDisplay` counters.
+  A delayed frame settles activations and Wintertide damage through each brand's actual expiration.
+  Conduction removes its spread energy on teardown and keeps the shared monster stacks visible to area observers.
+  Storm Brand beams apply splash once per enemy per activation. Indecision can switch targets every 0.3 seconds.
+  A brand whose enemy dies returns to its cast or recall position.
   Base Penance Brand and Brand Recall were exercised against Amarissa in Predictive and Lockstep on the
   3.29.3d DX12 client. Conduction currently spreads only from its attached monster to two nearby targets.
   Arcanist Brand requires a supported trigger executor for each linked spell.

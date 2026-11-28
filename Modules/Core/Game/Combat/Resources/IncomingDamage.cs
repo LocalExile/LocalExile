@@ -153,6 +153,7 @@ public static partial class Game
         recoupable -= diverted;
         RecordIncomingHitTriggers(player, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at, stunned: false, attacker: attacker);
         (physical, other, chaos) = AbsorbPlayerWard(player, physical, other, chaos, at, playerStats);
+        (physical, other, chaos) = InterceptSoulLinkHit(player, physical, other, chaos, at);
         CrabPhysicalHitLocked(player, physical, at, playerStats);
         bool divineFlesh = Get(Stat.KeystoneDivineFlesh) != 0;
         bool protectsMana = !divineFlesh

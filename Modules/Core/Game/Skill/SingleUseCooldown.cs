@@ -28,7 +28,9 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
             && (State is null || !Reserved || State.Uses > 1 || State.UseVersion == UseVersion)
             && (Stance is null || Stance.CurrentLocked(player));
     }
-    public bool CommitNativeUse(Player player, ushort skillId)
+    public bool CommitNativeUse(Player player, ushort skillId) => CommitNativeUse(player, skillId, synchronizeProgress: false);
+
+    internal bool CommitNativeUse(Player player, ushort skillId, bool synchronizeProgress)
     {
         if (!Current(player)) return false;
         if (Reserved)
@@ -36,7 +38,7 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
             if (CooldownReset)
                 State?.SynchronizeNativeReset(skillId, ResetBaseMilliseconds);
             else
-                State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress: Instant && !player.Connection.LockstepClient);
+                State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress || Instant && !player.Connection.LockstepClient);
             foreach (var (state, version, skill) in SharedUses)
                 state.ConfirmNativeUse(version, skill, synchronizeProgress: true);
         }

@@ -1,12 +1,13 @@
 using GameServer.Core.World;
 
 
-/// <summary>Ordinary Frostblink's distance calculation and clear endpoint admission.
+/// <summary>Instant Frostblink variants' distance calculation and clear endpoint admission.
 /// Invalid endpoints still fail closed instead of guessing the native fallback search.</summary>
 public static class InstantLocationSkill
 {
     public static bool Supported(SkillCatalog skills, int effect) =>
-        skills.EffectId(effect) is "Frostblink" or "FrostblinkHardMode" && skills.IsInstant(effect) && skills.IsMovement(effect);
+        skills.EffectId(effect) is "Frostblink" or "FrostblinkHardMode" or "FrostblinkRoyale"
+        && skills.IsInstant(effect) && skills.IsMovement(effect);
 
     public static bool ObjectTargetSupported(SkillCatalog skills, int effect) =>
         Supported(skills, effect) || skills.IsInstant(effect) && !skills.IsMovement(effect);

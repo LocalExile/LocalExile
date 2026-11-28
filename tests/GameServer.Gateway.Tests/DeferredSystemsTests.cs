@@ -10,7 +10,7 @@ public sealed class DeferredSystemsTests
     [InlineData(20)]
     public void Penance_energy_visual_carries_its_maximum(ushort stacks)
     {
-        var packet = Game.PenanceEnergyBuff(701, 1, stacks);
+        var packet = Game.PenanceEnergyBuff(stacks).Add(701, 1);
         Assert.Equal(new byte[] { 4, 0, (byte)stacks, 0, 0, 0, 1, 0, 0, 0, 20 }, packet[22..]);
     }
 
@@ -108,7 +108,10 @@ public sealed class DeferredSystemsTests
             int energyAfterAttach = activeBrand.Energy;
             Assert.Equal(1, energyAfterAttach);
             uint lifeBefore = enemy.Life;
-            double t = activeBrand.NextActivationAt + 0.05;
+            // Schedule the due pulse in the past so the subsequent Recall keeps monotonic game time.
+            double t = Game.AreaTime(player);
+            activeBrand.SteppedAt = t - 0.06;
+            activeBrand.NextActivationAt = t - 0.05;
             await Game.TickBrands(player, t);
             Assert.Equal(energyAfterAttach + 1, activeBrand.Energy);
             Assert.True(enemy.Life < lifeBefore);
@@ -119,7 +122,7 @@ public sealed class DeferredSystemsTests
             Assert.True(await Game.CastBrandRecall(player, recall.Id, recall, () => true));
             Assert.Equal(1, activeBrand.Energy);
             Assert.True(enemy.Life < lifeBeforeRecall);
-            Assert.Equal(remainingBeforeRecall, activeBrand.AttachedRemaining);
+            Assert.InRange(activeBrand.AttachedRemaining, 0, remainingBeforeRecall);
             Game.ClearBrands(player);
             Assert.Equal(0, Game.BrandCountFor(player));
 

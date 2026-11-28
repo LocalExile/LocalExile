@@ -74,7 +74,9 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
     public ushort NativeSkillId { get; private set; }
     double? nativeRate;
     bool nativeAcknowledged, nativeDirty;
+    long nativeRefreshFrame;
     double spentRate;
+    int useRecoveryBonusPercent;
     double lastAt = at;
     public int Uses { get; private set; } = 1;
     public int SpentUses { get; private set; } = remainingBaseMilliseconds > 0 ? 1 : 0;
@@ -122,6 +124,26 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
         Rate = next;
     }
 
+    /// <summary>Settles a stat refresh while retaining the bonus captured for the current use.</summary>
+    public void RefreshForPlan(double now, double rate)
+    {
+        Refresh(now, rate + useRecoveryBonusPercent / 100.0);
+        if (useRecoveryBonusPercent == 0 || !FullyRecovered) return;
+        useRecoveryBonusPercent = 0;
+        Refresh(now, rate);
+    }
+
+    /// <summary>Applies a conditional recovery bonus to the current single-use reservation.</summary>
+    public void ApplyUseRecoveryBonus(double now, int version, int percent)
+    {
+        if (percent <= 0 || version != UseVersion || Uses != 1 || useRecoveryBonusPercent != 0) return;
+        Refresh(now, Rate);
+        if (FullyRecovered) return;
+        useRecoveryBonusPercent = percent;
+        Refresh(now, Rate + percent / 100.0);
+        nativeDirty = true;
+    }
+
     /// <summary>Holds the entry at full while its skill is active: the official client shows that as the skill's own
     /// cooldown at a zero recovery rate (measured 3.00 / 3.00 / rate 0), and this client takes a zero rate on an entry
     /// it did not just predict (the press prediction is replaced by this entry).</summary>
@@ -148,7 +170,7 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
     public double RemainingSeconds => Ready ? 0 : Rate > 0 ? RemainingBaseMilliseconds / (1000 * Rate) : double.PositiveInfinity;
     public bool TryUse(double now, SingleUseCooldown plan)
     {
-        Refresh(now, plan.RecoveryRate);
+        RefreshForPlan(now, plan.RecoveryRate);
         Capacity(plan.Uses);
         if (!Ready) return false;
         if (FullyRecovered) RemainingBaseMilliseconds = plan.BaseMilliseconds;
@@ -158,6 +180,7 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
         spentRate = Rate;
         nativeRate = null; // No native entry may be fabricated before the original acknowledgement reaches its gate.
         nativeAcknowledged = nativeDirty = false;
+        nativeRefreshFrame = 0;
         NativeSkillId = 0;
         UseVersion++;
         return true;
@@ -196,6 +219,9 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
         nativeDirty = true;
     }
     public bool NeedsNativeRefresh => nativeAcknowledged && nativeDirty;
+    public bool NativeRefreshDue(long frame) => NeedsNativeRefresh && frame >= nativeRefreshFrame;
+    public void DeferNativeRefreshUntil(long frame) => nativeRefreshFrame = Math.Max(nativeRefreshFrame, frame);
+
     public void NativeRefreshed()
     {
         nativeRate = FullyRecovered ? null : Rate;

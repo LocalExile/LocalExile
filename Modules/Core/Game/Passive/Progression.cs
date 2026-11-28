@@ -1580,8 +1580,10 @@ public static partial class Game
             // A pure base stat takes its place before the global increases: the weapon override (Slayer Overwhelm,
             // Blind Prophet's Sightless) replaces the armed weapon's base, already with its local mods, and unarmed
             // melee uses its own Behemoth base. Neither base is a spell value; the spell route stays on SpellCriticalStrike.
-            AttackCriticalStrikeChance = DisplayedCriticalChance(player, AttackBaseCriticalStrike.Chance(!activeWeapon.Unarmed,
-                activeWeapon.Critical, pools.CriticalStrikeChancePct, RawCritical), RawCritical),
+            AttackCriticalStrikeChance = DisplayedCriticalChance(player,
+                RawCritical(Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance) != 0 ? RawCritical(Stat.OverrideMainHandCriticalStrikeChancePctFromCriticalLink)
+                    : AttackBaseCriticalStrike.Chance(!activeWeapon.Unarmed, activeWeapon.Critical, pools.CriticalStrikeChancePct, RawCritical),
+                RawCritical),
             SpellCriticalStrikeChance = DisplayedCriticalChance(player, SpellCriticalStrike.Chance(
                 DamageModel.BaseSpellCriticalStrikeChancePerMyriad, RawCritical,
                 playerIncrease: pools.SpellCriticalStrikeChancePct), RawCritical)
@@ -1611,6 +1613,17 @@ public static partial class Game
             SpellBlockChanceUncapped = Math.Max(0, totalSpell),
             SpellBlockChance = Math.Min(Math.Max(0, totalSpell), pools.SpellBlockChanceMax)
         };
+        if (sources.GetValueOrDefault(Stat.DisplayBulwarkLinkOverridesAttackBlockAndMaximumAttackBlock) != 0)
+        {
+            int linkedBlock = sources.GetValueOrDefault(Stat.OverrideAttackBlockPctFromBulwarkLink);
+            pools = pools with
+            {
+                BlockChance = linkedBlock,
+                BlockChanceUncapped = linkedBlock,
+                BlockChanceMax = sources.GetValueOrDefault(Stat.OverrideMaximumAttackBlockPctFromBulwarkLink),
+                AttackBlockAtMaximum = false,
+            };
+        }
         // "+1% Chance to Block Spell Damage per 5% Chance to Block Attack Damage": the attack value is the final capped
         // chance, including the shield's base. The effect stacks additively and is capped by the spell block maximum.
         if (pools.SpellBlockPer5AttackBlock != 0 && pools.BlockChance > 0)

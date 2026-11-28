@@ -16,14 +16,16 @@ public static partial class Game
     static readonly RuleTable<TotemState.Totem, FormationTarget> FormationTargets = new();
     public static bool SpellTotemEffect(Player player, int effect) => SkillsFor(player).IsSpell(effect)
         && !SkillsFor(player).IsAttack(effect) && (!SkillsFor(player).IsTravel(effect)
-            || SkillsFor(player).EffectId(effect) == BodyswapSacrificeEffect)
+            || SkillsFor(player).EffectId(effect) is CorpseBodyswapEffect or BodyswapSacrificeEffect)
         && (SkillsFor(player).EffectId(effect) == WitherEffect || Supports.Of(effect)?.Types.Contains(47) != true)
         && (TotemSummon(player, effect) is not null || GolemData.Find(SkillsFor(player).EffectId(effect)) is not null
-            || SkillsFor(player).EffectId(effect) is BloodOfferingEffect or BodyswapSacrificeEffect or WitherEffect
+            || SkillsFor(player).EffectId(effect) is BloodOfferingEffect or CorpseBodyswapEffect or BodyswapSacrificeEffect or WitherEffect
             || CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(effect) ?? "")
             || (ArcProxyEffect(SkillsFor(player).EffectId(effect)) || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
                 || ShockNovaEffect(SkillsFor(player).EffectId(effect)) || GlacialCascadeEffect(SkillsFor(player).EffectId(effect))
                 || BladefallEffect(SkillsFor(player).EffectId(effect)) || FrostBombEffect(SkillsFor(player).EffectId(effect))
+                || VoidSphereEffect(SkillsFor(player).EffectId(effect)) || HydrosphereEffect(SkillsFor(player).EffectId(effect))
+                || TornadoEffect(SkillsFor(player).EffectId(effect))
                 || OrbOfStormsEffect(SkillsFor(player).EffectId(effect))
                 || IsPurifyingFlame(SkillsFor(player).EffectId(effect)) || IsWaveOfConviction(SkillsFor(player).EffectId(effect))
                 || IsGroundBladeBlast(SkillsFor(player).EffectId(effect)) || IsBladeBlastOfUnloading(SkillsFor(player).EffectId(effect))
@@ -282,6 +284,13 @@ public static partial class Game
             double range = TotemTargetRange(player, totem.SkillId);
             var gem = GemSkillEffects(player).First(g => g.Id == totem.SkillId);
             string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
+            if (effect == CorpseBodyswapEffect)
+            {
+                CastCorpseBodyswapTotem(player, totem, now, bytes);
+                continue;
+            }
+            if (VoidSphereEffect(effect) && player.ProjectileRuntime is { Active: true } sphereRuntime
+                && sphereRuntime.HasVoidSphere(totem.Id)) continue;
             if (effect == "OrbOfStorms" && player.ProjectileRuntime is { Active: true } stormRuntime
                 && stormRuntime.HasStormOrb(totem.Id)) continue;
             if (effect == BloodOfferingEffect)
@@ -538,7 +547,8 @@ public static partial class Game
                 });
                 continue;
             }
-            if (BladefallEffect(effect) || FrostBombEffect(effect) || OrbOfStormsEffect(effect) || IsPurifyingFlame(effect) || IsWaveOfConviction(effect)
+            if (BladefallEffect(effect) || FrostBombEffect(effect) || OrbOfStormsEffect(effect) || VoidSphereEffect(effect) || HydrosphereEffect(effect) || TornadoEffect(effect)
+                || IsPurifyingFlame(effect) || IsWaveOfConviction(effect)
                 || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect))
             {
                 bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
@@ -559,6 +569,32 @@ public static partial class Game
                             at, Current, (centre, reach, ids, struck) => TotemNovaLocked(player, session, totem, centre, reach,
                                 sequence, damageMore: more, targetFilter: (id, _) => ids.Contains(id), onHit: struck,
                                 ailmentDamageMore: more));
+                    }
+                    else if (VoidSphereEffect(effect))
+                    {
+                        var own = SupportedSkill(player, totem.SkillId).Stats;
+                        double more = Math.Max(0, 1 + own.GetValueOrDefault(Stat.SupportTotemDamagePlusPctFinal) / 100d);
+                        session.ReleaseVoidSphere(totem.Id, gem.Effect, own, at, Current,
+                            (centre, radius, _) => TotemNovaLocked(player, session, totem, centre, radius, sequence,
+                                damageMore: more));
+                    }
+                    else if (HydrosphereEffect(effect))
+                    {
+                        var source = SupportedSkill(player, totem.SkillId);
+                        double more = Math.Max(0, 1 + source.Stats.GetValueOrDefault(Stat.SupportTotemDamagePlusPctFinal) / 100d);
+                        session.ReleaseHydrosphere(totem.Id, gem.Effect, source.Stats, at, Current,
+                            (centre, radius, drenched, cold, lightning) => TotemNovaLocked(player, session, totem, centre, radius,
+                                sequence, damageMore: more, targetFilter: drenched, capturedGem: HydroDamageSource(source, cold, lightning)));
+                    }
+                    else if (TornadoEffect(effect))
+                    {
+                        var source = SupportedSkill(player, totem.SkillId);
+                        var element = TornadoElement(player, source);
+                        var damage = TornadoDamageSource(source, element);
+                        double more = Math.Max(0, 1 + source.Stats.GetValueOrDefault(Stat.SupportTotemDamagePlusPctFinal) / 100d);
+                        session.ReleaseTornado(gem.Effect, source.Level, source, element, totem.At, at, Current,
+                            (centre, radius) => TotemNovaLocked(player, session, totem, centre, radius, sequence,
+                                damageMore: more, capturedGem: damage));
                     }
                     else if (IsPurifyingFlame(effect))
                         SchedulePurifyingFlame(player, session, gem.Effect, SupportedSkill(player, totem.SkillId).Stats,

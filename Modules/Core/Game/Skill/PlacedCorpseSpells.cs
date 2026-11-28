@@ -37,7 +37,7 @@ public static partial class Game
                 && Dist(entry.Value.Walk.Position(now), at) <= radius)
             .OrderBy(entry => Dist(entry.Value.Walk.Position(now), at)).ThenBy(entry => entry.Key);
 
-        void ConsumeSpellCorpse(uint id, SpawnedMonster corpse, double now, bool playerConsumes = true)
+        internal void ConsumeSpellCorpse(uint id, SpawnedMonster corpse, double now, bool playerConsumes = true)
         {
             corpse.CorpseConsumed = true;
             if (playerConsumes)

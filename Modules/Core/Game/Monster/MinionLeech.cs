@@ -12,17 +12,16 @@ public static partial class Game
     static readonly RuleTable<GolemState.Golem, LeechRecoveryState> MinionShieldLeeches = new();
 
     static SpawnedMonster? VampiricMinionAt(Player player, LinkSkills.Link link, double now) =>
-        link.EffectId == "VampiricLink" && now < link.Until && player.PlayerLife > 0 && !player.Closed && !player.LeavingArea
-        && (link.AwaySince is not double away || now - away < LinkSkills.BreakSeconds)
+        link.EffectId == "VampiricLink" && now < LinkEndAt(link) && player.PlayerLife > 0 && !player.Closed && !player.LeavingArea
         && player.Area.Monsters.GetValueOrDefault(link.Target) is { Dead: false, Life: > 0 } monster
         && (player.Minions.Owns(link.Target, monster)
             || (player.Companion is { } comp && comp.EntityId == link.Target && ReferenceEquals(comp.Monster, monster)))
             ? monster : null;
 
-    static bool HasVampiricMinion(Player player, double now)
+    static bool HasVampiricRecipient(Player player, double now)
     {
         foreach (var link in player.Links.All)
-            if (VampiricMinionAt(player, link, now) is not null) return true;
+            if (VampiricPlayerAt(player, link, now) is not null || VampiricMinionAt(player, link, now) is not null) return true;
         return false;
     }
 
@@ -32,11 +31,17 @@ public static partial class Game
     static double MinionLifeRecoveryMultiplier(SpawnedMonster monster) =>
         Math.Max(0, 1 + monster.Effects[Stat.LifeRecoveryRatePlusPct] / 100d);
 
-    static bool RecoverVampiricMinions(Player player, double recovery, double now, bool overTime = false)
+    static bool RecoverVampiricRecipients(Player player, double recovery, double now, bool overTime = false)
     {
         bool redirected = false;
         foreach (var link in player.Links.All)
         {
+            if (VampiricPlayerAt(player, link, now) is { } peer)
+            {
+                RecoverVampiricPlayer(peer, link, recovery, overTime);
+                redirected = true;
+                continue;
+            }
             if (VampiricMinionAt(player, link, now) is not { } monster) continue;
             redirected = true;
             if (monster.Effects[Stat.CannotRecoverLife] != 0) continue;

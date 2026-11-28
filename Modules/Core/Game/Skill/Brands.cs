@@ -71,6 +71,8 @@ public static partial class Game
             "current_number_of_active_trigger_sigils", "current_number_of_inactive_trigger_sigils"),
     ];
 
+    const int StormBrandBeamSearchRadius = 22;
+    const double IndecisionReattachInterval = 0.3;
     const ushort StormBrandDamageBeamRow = 115;       // MiscBeams ConduitSigilBeamEffect
     const ushort PenanceBrandChargeBeamRow = 274;     // MiscBeams PenanceBrandChargeBeam
     const ushort BrandsurgeCastBeamRow = 297;         // MiscBeams BrandDetonateCastBeam
@@ -90,6 +92,8 @@ public static partial class Game
     const int PenanceMaxEnergy = 20;
     const double ArmageddonMeteorDelaySeconds = 0.6;
     const double BrandMinActivationSeconds = 0.033;
+    const double BrandsurgeStepSeconds = 0.5;
+    const int MaxBrandActivationsPerStep = 32;
 
     static readonly string[] WintertideDotSupportMore =
     [
@@ -130,6 +134,7 @@ public static partial class Game
         public required bool PenanceSpreads;
         public required bool PenanceExplodesOnDetach;
         internal PlacedAreaHit? Placement;
+        internal GemSourceLifetimes.SourceLifetime? SourceLifetime;
 
         public uint GroundObjectId;
         public uint AttachedMonsterId;
@@ -138,11 +143,13 @@ public static partial class Game
         public double DetachedAt;
         public int RecallSearchBonus;
         public double NextActivationAt;
+        public double SteppedAt;
 
         // Penance Brand energy stacks on this brand (Dissipation) or contributed to attached monster
         public int Energy;
-        // Enemies energized by Penance Brand of Conduction from this brand
-        public readonly HashSet<uint> EnergizedMonsters = [];
+        // Retain the exact recipients so teardown cannot clear energy on a replacement actor with the same id.
+        internal readonly Dictionary<SpawnedMonster, uint> SpreadRecipients = new(ReferenceEqualityComparer.Instance);
+        public IReadOnlyCollection<uint> EnergizedMonsters => SpreadRecipients.Values;
 
         // Wintertide Brand stage count (1..20)
         public int Stages;
@@ -216,11 +223,10 @@ public static partial class Game
     sealed class MonsterBrandVisuals
     {
         public readonly Dictionary<BrandFamily, (ushort Buff, int Stacks, double Until)> Attached = [];
-        public ushort PenanceBuff;
-        public int PenanceStacks;
         public ushort WintertidePrimaryBuff;
         public double WintertideCarry;
-        public double WintertideLastAt;
+        public double WintertidePending;
+        public SpawnedMonster? WintertideTarget;
     }
 
     sealed class MonsterBrandMark
@@ -228,6 +234,7 @@ public static partial class Game
         public int AttachedCount;
         public int TakenPct;
         public int PenanceEnergy;
+        public ActiveBrand? SpreadSource;
     }
 
     sealed class BrandState
@@ -238,7 +245,6 @@ public static partial class Game
         public readonly List<(uint ObjectId, double RemoveAt)> TempObjects = [];
         public readonly Dictionary<uint, MonsterBrandVisuals> MonsterVisuals = [];
         public readonly Dictionary<uint, WintertideEndDot> WintertideEnds = [];
-        public double LastTickAt = double.NaN;
         public double LastBrandCastAt = double.NegativeInfinity;
         public long NextBrandId = 1;
         public int Epoch;
@@ -366,11 +372,17 @@ public static partial class Game
     }
 
     public static double BrandActivationSeconds(Player player, SupportedGem gem, IReadOnlyDictionary<uint, int> playerStats,
-        double attachedFraction = 0, double overchargeElapsed = 0, int overchargeFasterPctPerSec = 0)
+        double attachedFraction = 0, double overchargeElapsed = 0, int overchargeFasterPctPerSec = 0) =>
+        BrandActivationSeconds(player, gem, playerStats, attachedFraction, overchargeElapsed, overchargeFasterPctPerSec, null);
+
+    static double BrandActivationSeconds(Player player, SupportedGem gem, IReadOnlyDictionary<uint, int> playerStats,
+        double attachedFraction, double overchargeElapsed, int overchargeFasterPctPerSec, double? activationAt)
     {
         var own = gem.Stats;
         int baseMs = BrandStat(own, "base_sigil_repeat_frequency_ms");
-        if (baseMs <= 0) return 0.5;
+        if (baseMs <= 0)
+            return Math.Max(BrandMinActivationSeconds,
+                BrandsurgeTimeFor(overchargeElapsed, 0.5, overchargeFasterPctPerSec) - overchargeElapsed);
         long increased = (long)BrandStat(playerStats, "sigil_repeat_frequency_+%") + BrandStat(own, "sigil_repeat_frequency_+%");
         if (BrandStat(own, "additive_cast_speed_modifiers_apply_to_sigil_repeat_frequency") != 0)
             increased += CastSpeedPct(playerStats) + BrandStat(own, "base_cast_speed_+%")
@@ -381,7 +393,7 @@ public static partial class Game
                 + BrandStat(own, "armageddon_brand_repeat_frequency_+%");
         int notRecent = BrandStat(playerStats, "sigil_repeat_frequency_+%_if_havent_used_a_brand_skill_recently");
         if (notRecent != 0 && (!BrandStates.TryGetValue(player, out var st)
-            || AreaTime(player) - st.LastBrandCastAt > 4.0))
+            || (activationAt ?? AreaTime(player)) - st.LastBrandCastAt > 4.0))
             increased += notRecent;
 
         double more = Math.Max(0.05, 1 + BrandStat(own, "support_rapid_activation_brand_activation_rate_+%_final") / 100.0);
@@ -392,11 +404,33 @@ public static partial class Game
         if (attachedFraction >= 0.75)
             more *= Math.Max(0.05, 1 + (BrandStat(playerStats, "combined_brand_activation_rate_+%_final_if_75%_attached_duration_expired")
                 + BrandStat(own, "from_quality_brand_activation_rate_+%_final_if_75%_attached_duration_expired")) / 100.0);
-        if (overchargeElapsed > 0 && overchargeFasterPctPerSec > 0)
-            more *= 1 + overchargeElapsed * overchargeFasterPctPerSec / 100.0;
-
         double rate = Math.Max(0.05, (1 + increased / 100.0) * more);
-        return Math.Max(BrandMinActivationSeconds, baseMs / 1000.0 / rate);
+        double due = BrandsurgeTimeFor(overchargeElapsed, baseMs / 1000.0 / rate, overchargeFasterPctPerSec);
+        return Math.Max(BrandMinActivationSeconds, due - overchargeElapsed);
+    }
+
+    // Elapsed time in units of unaccelerated time. Each half-second has one more increment than the previous one.
+    static double BrandsurgeProgress(double elapsed, int fasterPct)
+    {
+        if (elapsed <= 0 || fasterPct <= 0) return elapsed;
+        double bonus = fasterPct / 100.0;
+        double steps = Math.Floor(elapsed / BrandsurgeStepSeconds);
+        double boundary = steps * BrandsurgeStepSeconds;
+        return boundary * (1 + bonus * (steps + 1) / 2) + (elapsed - boundary) * (1 + bonus * (steps + 1));
+    }
+
+    static double BrandsurgeTimeFor(double elapsed, double remaining, int fasterPct)
+    {
+        if (fasterPct <= 0) return elapsed + remaining;
+        double progress = BrandsurgeProgress(elapsed, fasterPct) + remaining;
+        if (progress <= 0) return progress;
+        double bonus = fasterPct / 100.0;
+        // Solve the sum of complete half-seconds for the last boundary, then take the fraction of the next step.
+        double quadratic = BrandsurgeStepSeconds * bonus / 2;
+        double linear = BrandsurgeStepSeconds + quadratic;
+        double steps = Math.Floor(2 * progress / (linear + Math.Sqrt(linear * linear + 4 * quadratic * progress)));
+        double boundary = steps * BrandsurgeStepSeconds;
+        return boundary + (progress - BrandsurgeProgress(boundary, fasterPct)) / (1 + bonus * (steps + 1));
     }
 
     public static int BrandRecallCooldownBonusPct(Player player, IReadOnlyDictionary<uint, int> playerStats)
@@ -464,7 +498,7 @@ public static partial class Game
     {
         if (!BrandStates.TryGetValue(player, out var state)) return;
         foreach (var brand in state.Brands)
-            ClearBrandMonsterMarkLocked(brand);
+            ClearBrandMonsterMarkLocked(player, brand);
         int removed = state.Brands.Count;
         if (removed > 0) Interlocked.Add(ref _globalActiveBrandCount, -removed);
         state.Brands.Clear();
@@ -546,6 +580,7 @@ public static partial class Game
 
             var brand = CreateBrandLocked(state, skillId, effect, effectId!, family, supported, playerStats, place, now);
             brand.Placement = placement;
+            if (placement is null) brand.SourceLifetime = CaptureGemSourceLifetimeLocked(player, skillId, effect);
             state.Brands.Add(brand);
             Interlocked.Increment(ref _globalActiveBrandCount);
 
@@ -590,6 +625,8 @@ public static partial class Game
             foreach (var brand in state.Brands.ToArray())
             {
                 if (!state.Brands.Contains(brand) || brand.CannotBeRecalled) continue;
+                if (!StepBrandLocked(player, session, state, brand, playerStats, now, bytes, attachOnGround: false)
+                    || !state.Brands.Contains(brand)) continue;
                 // Detach from old target (triggers Penance / Wintertide detach effects at old position)
                 if (brand.Attached)
                     DetachBrandLocked(player, session, state, brand, now, bytes, spawnGround: false);
@@ -650,6 +687,7 @@ public static partial class Game
             foreach (var fam in recalledFamilies)
                 SpawnTempEffectLocked(player, state, here, PresentationOf(fam).RecallCircleAo, now + 0.6, bytes);
 
+            ApplyWintertidePrimaryLocked(player, state, now);
             ReconcileBrandPresentationLocked(player, state, now, bytes);
             return bytes.Count > 0 ? bytes.Build() : null;
         });
@@ -689,9 +727,21 @@ public static partial class Game
             double aoeMore = SkillArea.RadiusMultiplier(BrandStat(surgeGem.Stats, "brand_detonate_detonating_brand_area_of_effect_+%_final"));
 
             var bytes = new WorldRecordBuilder(player, admission);
-            foreach (var brand in state.Brands)
+            var session = ProjectilesFor(player);
+            var playerStats = CharacterPlayerStats(player);
+            foreach (var brand in state.Brands.ToArray())
             {
                 if (Dist(brand.At, to) > 100 && Dist(brand.At, here) > 100) continue;
+                if (!StepBrandLocked(player, session, state, brand, playerStats, now, bytes, attachOnGround: false)
+                    || !state.Brands.Contains(brand)) continue;
+                if (brand.Attached && double.IsFinite(brand.NextActivationAt))
+                {
+                    double remaining = brand.NextActivationAt - now;
+                    if (brand.Overcharged)
+                        remaining = BrandsurgeProgress(brand.NextActivationAt - brand.OverchargedAt, brand.OverchargeFasterActivationPctPerSec)
+                            - BrandsurgeProgress(now - brand.OverchargedAt, brand.OverchargeFasterActivationPctPerSec);
+                    brand.NextActivationAt = now + BrandsurgeTimeFor(0, Math.Max(0, remaining), fasterAct);
+                }
                 brand.Overcharged = true;
                 brand.OverchargedAt = now;
                 brand.OverchargeSkillId = skillId;
@@ -710,13 +760,15 @@ public static partial class Game
                 SpawnBeamLocked(player, state, here, player.Id, brand.At, brand.Attached ? brand.AttachedMonsterId : 0,
                     BrandsurgeCastBeamRow, now + 0.35, bytes);
             }
+            ApplyWintertidePrimaryLocked(player, state, now);
+            ReconcileBrandPresentationLocked(player, state, now, bytes);
             return bytes.Count > 0 ? bytes.Build() : null;
         });
 
         return true;
     }
 
-    // ---- Main 100ms Brand Tick (GameEvents.CompanionTick) ---------------------------------------------------------------
+    // ---- Brand tick (GameEvents.CompanionTick) -------------------------------------------------------------------------
 
     public static async Task TickBrands(Player player, double now)
     {
@@ -729,8 +781,6 @@ public static partial class Game
                 && state.MonsterVisuals.Count == 0 && state.WintertideEnds.Count == 0 && state.FoulgraspHands.Count == 0)
                 return null;
 
-            double dt = double.IsNaN(state.LastTickAt) ? 0.1 : Math.Clamp(now - state.LastTickAt, 0, 0.5);
-            state.LastTickAt = now;
             var bytes = new WorldRecordBuilder(player, admission);
             var session = ProjectilesFor(player);
 
@@ -738,7 +788,7 @@ public static partial class Game
             if (player.PlayerLife == 0 || state.Epoch != player.ProjectileEpoch)
             {
                 foreach (var b in state.Brands.ToArray())
-                    RemoveBrandCleanlyLocked(state, b, bytes);
+                    RemoveBrandCleanlyLocked(player, state, b, bytes);
                 foreach (var m in state.Meteors)
                     if (m.VisualId != 0) bytes.Remove(m.VisualId);
                 state.Meteors.Clear();
@@ -753,84 +803,9 @@ public static partial class Game
 
             var playerStats = CharacterPlayerStats(player);
 
-            // 1. Step all active brands
             foreach (var brand in state.Brands.ToArray())
-            {
-                if (!state.Brands.Contains(brand)) continue;
-                double durationScale = brand.Overcharged
-                    ? 1.0 + Math.Max(0, now - brand.OverchargedAt) * brand.OverchargeFasterDurationPctPerSec / 100.0
-                    : 1.0;
-
-                if (brand.Attached)
-                {
-                    bool targetAlive = player.Area.Monsters.TryGetValue(brand.AttachedMonsterId, out var target)
-                        && ReferenceEquals(target, brand.AttachedMonster)
-                        && target is { Hostile: true, Dead: false, Life: > 0 };
-                    if (!targetAlive)
-                    {
-                        DetachBrandLocked(player, session, state, brand, now, bytes, spawnGround: true);
-                        continue;
-                    }
-
-                    brand.At = target!.Walk.Position(now);
-                    if (!brand.InfiniteAttachedDuration)
-                    {
-                        brand.AttachedRemaining -= dt * durationScale;
-                        if (brand.AttachedRemaining <= 0)
-                        {
-                            ExpireBrandLocked(player, session, state, brand, now, bytes, replaced: false);
-                            continue;
-                        }
-                    }
-
-                    // Execute all due activations (handles sub-100ms cadence like high-cast-speed Penance Brand cleanly)
-                    int guard = 0;
-                    while (state.Brands.Contains(brand) && brand.Attached && now >= brand.NextActivationAt && guard++ < 5)
-                    {
-                        double interval = BrandActivationSeconds(player, brand.Gem, playerStats, AttachedFraction(brand),
-                            brand.Overcharged ? now - brand.OverchargedAt : 0, brand.OverchargeFasterActivationPctPerSec);
-                        brand.NextActivationAt += interval;
-                        if (brand.NextActivationAt < now - interval) brand.NextActivationAt = now + interval;
-
-                        ActivateBrandLocked(player, session, state, brand, playerStats, now, bytes, fromRecall: false);
-                        if (!state.Brands.Contains(brand)) break;
-
-                        if (brand.RemovedAfterActivating)
-                        {
-                            ExpireBrandLocked(player, session, state, brand, now, bytes, replaced: false);
-                            break;
-                        }
-
-                        // Reattach on activation (Storm Brand of Indecision, Brand Mastery Brand3, Armageddon Brand enchant)
-                        bool shouldReattach = brand.ReattachOnActivation
-                            || BrandStat(playerStats, "brands_reattach_on_activation") != 0
-                            || (brand.Family == BrandFamily.Cataclysm
-                                && BrandStat(playerStats, "armageddon_brand_brands_attach_to_new_enemy_each_activation_%_chance") is int ch and > 0
-                                && AreaRng(player).Next(100) < ch);
-                        if (shouldReattach && brand.Attached)
-                        {
-                            uint prevTarget = brand.AttachedMonsterId;
-                            var candidate = FindAttachTargetLocked(player, state, brand, playerStats, now, excludeMonster: prevTarget);
-                            if (candidate is not null)
-                            {
-                                DetachBrandLocked(player, session, state, brand, now, bytes, spawnGround: false);
-                                AttachToMonsterLocked(player, state, brand, candidate.Value.Id, candidate.Value.Monster, playerStats, now, bytes, triggerImmediately: false, session);
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    brand.DetachedRemaining -= dt * durationScale;
-                    if (brand.DetachedRemaining <= 0)
-                    {
-                        ExpireBrandLocked(player, session, state, brand, now, bytes, replaced: false);
-                        continue;
-                    }
-                    TryAttachBrandLocked(player, session, state, brand, playerStats, now, bytes,
-                        excludeMonster: 0);
-                }
-            }
+                if (state.Brands.Contains(brand))
+                    StepBrandLocked(player, session, state, brand, playerStats, now, bytes);
 
             // 2. Step falling Armageddon Brand meteors
             for (int i = state.Meteors.Count - 1; i >= 0; i--)
@@ -843,7 +818,8 @@ public static partial class Game
             }
 
             // 3. Step Wintertide Brand Cold DoTs (primary attached + secondary Wintertide's End)
-            TickWintertideDotsLocked(player, state, now, dt, bytes);
+            ApplyWintertidePrimaryLocked(player, state, now);
+            TickWintertideEndsLocked(player, state, now, bytes);
             TickFoulgraspHandsLocked(player, state, now, playerStats, bytes);
 
             // 4. Clean up expired temporary effects/beams
@@ -915,6 +891,7 @@ public static partial class Game
             At = at,
             Home = at,
             CreatedAt = now,
+            SteppedAt = now,
             DetachedAt = now,
             AttachedDurationTotal = attachedDur,
             AttachedRemaining = attachedDur,
@@ -928,6 +905,138 @@ public static partial class Game
             PenanceSpreads = BrandStat(own, "penance_brand_spreads_energy") != 0,
             PenanceExplodesOnDetach = BrandStat(own, "penance_brand_explodes_on_death_and_detach") != 0,
         };
+    }
+
+    static bool BrandTargetPresent(Player player, ActiveBrand brand) =>
+        player.Area.Monsters.TryGetValue(brand.AttachedMonsterId, out var target)
+        && ReferenceEquals(target, brand.AttachedMonster) && target is { Hostile: true, Dead: false, Life: > 0 };
+
+    static bool StepBrandLocked(Player player, ProjectileSession session, BrandState state, ActiveBrand brand,
+        IReadOnlyDictionary<uint, int> playerStats, double now, WorldRecordBuilder bytes, bool attachOnGround = true)
+    {
+        if (now < brand.SteppedAt) return false;
+        if (brand.Placement is null && !RefreshBrandSourceLocked(player, brand))
+        {
+            RemoveBrandCleanlyLocked(player, state, brand, bytes);
+            return false;
+        }
+        bool detached = false;
+        if (brand.Attached && !BrandTargetPresent(player, brand))
+        {
+            double endedAt = Math.Clamp(brand.AttachedMonster!.LastLifeEndedAt ?? now, brand.SteppedAt, now);
+            if (!AdvanceBrandDurationLocked(state, brand, endedAt))
+            {
+                ExpireBrandLocked(player, session, state, brand, brand.SteppedAt, bytes, replaced: false);
+                return true;
+            }
+            DetachBrandLocked(player, session, state, brand, endedAt, bytes, spawnGround: true);
+            detached = true;
+        }
+
+        int activations = 0;
+        while (brand.Attached && brand.NextActivationAt <= now)
+        {
+            // Leave the original deadline queued if a long gap exceeds this frame's work budget.
+            if (activations++ >= MaxBrandActivationsPerStep) return false;
+            double at = Math.Max(brand.SteppedAt, brand.NextActivationAt);
+            if (!AdvanceBrandDurationLocked(state, brand, at))
+            {
+                ExpireBrandLocked(player, session, state, brand, brand.SteppedAt, bytes, replaced: false);
+                return true;
+            }
+            brand.At = brand.AttachedMonster!.Walk.Position(at);
+            double interval = BrandActivationSeconds(player, brand.Gem, playerStats, AttachedFraction(brand),
+                brand.Overcharged ? at - brand.OverchargedAt : 0, brand.OverchargeFasterActivationPctPerSec, at);
+            brand.NextActivationAt = at + interval;
+
+            ActivateBrandLocked(player, session, state, brand, playerStats, at, bytes, fromRecall: false);
+            if (!state.Brands.Contains(brand)) return true;
+            if (brand.RemovedAfterActivating)
+            {
+                ExpireBrandLocked(player, session, state, brand, at, bytes, replaced: false);
+                return true;
+            }
+            bool reattach = brand.ReattachOnActivation
+                || BrandStat(playerStats, "brands_reattach_on_activation") != 0
+                || (brand.Family == BrandFamily.Cataclysm
+                    && BrandStat(playerStats, "armageddon_brand_brands_attach_to_new_enemy_each_activation_%_chance") is int chance and > 0
+                    && AreaRng(player).Next(100) < chance);
+            bool switchReady = brand.EffectId != "StormBrandAltX" || at - brand.AttachedAt >= IndecisionReattachInterval - 1e-9;
+            if (reattach && switchReady && FindAttachTargetLocked(player, state, brand, playerStats, at,
+                excludeMonster: brand.AttachedMonsterId) is { } next)
+            {
+                DetachBrandLocked(player, session, state, brand, at, bytes, spawnGround: false);
+                AttachToMonsterLocked(player, state, brand, next.Id, next.Monster, playerStats, at, bytes,
+                    triggerImmediately: false, session);
+            }
+            else if (!BrandTargetPresent(player, brand))
+            {
+                DetachBrandLocked(player, session, state, brand, at, bytes, spawnGround: true);
+                detached = true;
+                break;
+            }
+        }
+
+        if (!AdvanceBrandDurationLocked(state, brand, now))
+            ExpireBrandLocked(player, session, state, brand, brand.SteppedAt, bytes, replaced: false);
+        else if (brand.AttachedMonster is { } current)
+            brand.At = current.Walk.Position(now);
+        else if (attachOnGround && !detached)
+            TryAttachBrandLocked(player, session, state, brand, playerStats, now, bytes, excludeMonster: 0);
+        return true;
+    }
+
+    static bool RefreshBrandSourceLocked(Player player, ActiveBrand brand)
+    {
+        var live = SupportedSkill(player, brand.SkillId);
+        if (live.Effect != brand.Effect || !live.RequirementsMet || live.Host != brand.Gem.Host
+            || live.WornGrant != brand.Gem.WornGrant
+            || brand.SourceLifetime is { } lifetime && !player.GemSourceLifetimes.IsCurrent(lifetime)
+            || !ReferenceEquals(live.SourceGem is { } item ? PlayerInventories.GemIdentity(item) : null,
+                brand.Gem.SourceGem is { } previous ? PlayerInventories.GemIdentity(previous) : null)
+            || PlacedKind(live) is not (false, false) || live.Stats.GetValueOrDefault(Stat.IsTotem) != 0) return false;
+        // A new activation reads the current supports. The duration already granted at placement stays on the brand.
+        brand.Gem = live;
+        brand.Level = live.Level;
+        brand.Quality = live.Quality;
+        return true;
+    }
+
+    static bool AdvanceBrandDurationLocked(BrandState state, ActiveBrand brand, double until)
+    {
+        double from = brand.SteppedAt;
+        until = Math.Max(from, until);
+        bool attached = brand.Attached;
+        ref double remaining = ref (attached ? ref brand.AttachedRemaining : ref brand.DetachedRemaining);
+        bool finite = !attached || !brand.InfiniteAttachedDuration;
+        if (finite)
+        {
+            double spent = until - from;
+            if (brand.Overcharged)
+            {
+                int faster = brand.OverchargeFasterDurationPctPerSec;
+                double start = from - brand.OverchargedAt;
+                spent = BrandsurgeProgress(until - brand.OverchargedAt, faster) - BrandsurgeProgress(start, faster);
+                if (spent >= remaining)
+                    until = brand.OverchargedAt + BrandsurgeTimeFor(start, remaining, faster);
+            }
+            else if (spent >= remaining)
+                until = from + remaining;
+            remaining = Math.Max(0, remaining - spent);
+        }
+        if (brand.WintertidePrimaryDps > 0 && brand.AttachedMonster is { } target && until > from)
+        {
+            uint id = brand.AttachedMonsterId;
+            if (!state.MonsterVisuals.TryGetValue(id, out var vis)) state.MonsterVisuals[id] = vis = new();
+            if (!ReferenceEquals(vis.WintertideTarget, target))
+            {
+                vis.WintertideTarget = target;
+                vis.WintertideCarry = vis.WintertidePending = 0;
+            }
+            vis.WintertidePending += (until - from) * brand.WintertidePrimaryDps;
+        }
+        brand.SteppedAt = until;
+        return !finite || remaining > 0;
     }
 
     static double AttachedFraction(ActiveBrand brand) =>
@@ -1025,7 +1134,7 @@ public static partial class Game
         else if (brand.Family == BrandFamily.Immolation)
             TriggerWintertideEndLocked(player, state, brand, at, playerStats, now, bytes);
 
-        ClearBrandMonsterMarkLocked(brand);
+        ClearBrandMonsterMarkLocked(player, brand);
         brand.AttachedMonsterId = 0;
         brand.AttachedMonster = null;
         brand.DetachedAt = now;
@@ -1072,32 +1181,57 @@ public static partial class Game
         if (brand.Overcharged && brand.OverchargeGem is not null)
             TriggerBrandsurgeExplosionLocked(player, state, brand, at, playerStats, now, bytes);
 
-        RemoveBrandCleanlyLocked(state, brand, bytes);
+        RemoveBrandCleanlyLocked(player, state, brand, bytes);
     }
 
-    static void RemoveBrandCleanlyLocked(BrandState state, ActiveBrand brand, WorldRecordBuilder bytes)
+    static void RemoveBrandCleanlyLocked(Player player, BrandState state, ActiveBrand brand, WorldRecordBuilder bytes)
     {
         RemoveDetachedVisualLocked(brand, bytes);
-        ClearBrandMonsterMarkLocked(brand);
+        ClearBrandMonsterMarkLocked(player, brand);
         brand.AttachedMonsterId = 0;
         brand.AttachedMonster = null;
         if (state.Brands.Remove(brand))
             Interlocked.Decrement(ref _globalActiveBrandCount);
     }
 
-    static void ClearBrandMonsterMarkLocked(ActiveBrand brand)
+    static void ClearBrandMonsterMarkLocked(Player player, ActiveBrand brand)
     {
-        if (brand.AttachedMonster is not { } m) return;
-        if (BrandMonsterMarks.TryGetValue(m, out var mark))
+        foreach (var (recipient, id) in brand.SpreadRecipients)
         {
-            if (brand.Family == BrandFamily.Magma) mark.PenanceEnergy = 0;
-            mark.TakenPct -= brand.AttachedTakenPct;
-            brand.AttachedTakenPct = 0;
-            brand.WintertidePrimaryDps = 0;
-            if (mark.AttachedCount > 0) mark.AttachedCount--;
-            if (mark.AttachedCount == 0 && mark.PenanceEnergy == 0)
-                BrandMonsterMarks.Remove(m);
+            if (!BrandMonsterMarks.TryGetValue(recipient, out var spread) || !ReferenceEquals(spread.SpreadSource, brand))
+                continue;
+            spread.SpreadSource = null;
+            // Another brand may have built up energy on this target after the single spread stack.
+            SetPenanceEnergyLocked(player.Area, id, recipient, spread, Math.Max(0, spread.PenanceEnergy - 1));
         }
+        brand.SpreadRecipients.Clear();
+
+        if (brand.AttachedMonster is not { } monster || !BrandMonsterMarks.TryGetValue(monster, out var mark)) return;
+        mark.TakenPct -= brand.AttachedTakenPct;
+        brand.AttachedTakenPct = 0;
+        brand.WintertidePrimaryDps = 0;
+        if (mark.AttachedCount > 0) mark.AttachedCount--;
+        if (brand.Family == BrandFamily.Magma) ClearPenanceEnergyLocked(player.Area, brand.AttachedMonsterId, monster, mark);
+        else if (mark.AttachedCount == 0 && mark.PenanceEnergy == 0) BrandMonsterMarks.Remove(monster);
+    }
+
+    static void SetPenanceEnergyLocked(GameArea area, uint id, SpawnedMonster monster, MonsterBrandMark mark, int energy)
+    {
+        bool changed = mark.PenanceEnergy != energy;
+        mark.PenanceEnergy = energy;
+        if (changed && ReferenceEquals(area.Monsters.GetValueOrDefault(id), monster))
+        {
+            if (energy == 0) area.Buffs.Clear(id, PenanceEnergyBuffRow);
+            else area.Buffs.Set(id, PenanceEnergyBuff((ushort)energy));
+        }
+        if (energy == 0 && mark.AttachedCount == 0) BrandMonsterMarks.Remove(monster);
+    }
+
+    static void ClearPenanceEnergyLocked(GameArea area, uint id, SpawnedMonster monster, MonsterBrandMark mark)
+    {
+        mark.SpreadSource?.SpreadRecipients.Remove(monster);
+        mark.SpreadSource = null;
+        SetPenanceEnergyLocked(area, id, monster, mark, 0);
     }
 
     // ---- Per-Brand Activation Dispatcher --------------------------------------------------------------------------------
@@ -1133,44 +1267,62 @@ public static partial class Game
         double now, WorldRecordBuilder bytes)
     {
         var origin = brand.At;
-        int radius = BrandEffectiveRadius(player, brand, playerStats);
+        var areaStats = BrandAreaStats(player, brand, playerStats);
+        int Get(uint stat) => areaStats.GetValueOrDefault(stat);
+        int impactRadius = Math.Max(4, SkillArea.Radius(SkillArea.BaseRadius(brand.EffectId, Get), Get, spell: true));
         int beamTargets = Math.Max(1, BrandStat(brand.Gem.Stats, "conduit_sigil_number_of_beam_targets"));
         int extraChainChance = BrandStat(playerStats, "storm_brand_additional_chain_chance_%")
             + BrandStat(brand.Gem.Stats, "storm_brand_additional_chain_chance_%");
         if (extraChainChance > 0 && AreaRng(player).Next(100) < extraChainChance) beamTargets++;
 
-        var targets = new List<(uint Id, SpawnedMonster Monster)>(beamTargets);
-        if (brand.Attached && brand.AttachedMonster is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false })
-            targets.Add((brand.AttachedMonsterId, brand.AttachedMonster));
+        var targets = new List<(uint Id, SpawnedMonster Monster, (int X, int Y) At)>(beamTargets);
+        if (brand.Attached && brand.AttachedMonster is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false } attached)
+            targets.Add((brand.AttachedMonsterId, attached, attached.Walk.Position(now)));
 
         if (targets.Count < beamTargets)
         {
-            var extras = player.Area.Monsters
+            int searchRadius = Math.Max(4, SkillArea.Radius(StormBrandBeamSearchRadius, Get, spell: true));
+            var extras = player.Area.MonstersNear(origin, searchRadius)
                 .Where(kv => kv.Key != brand.AttachedMonsterId
-                    && kv.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
-                    && kv.Value.OwnerId is null && !MonsterAsleep(player, kv.Key)
-                    && Dist(kv.Value.Walk.Position(now), origin) <= radius)
-                .OrderBy(kv => Dist(kv.Value.Walk.Position(now), origin))
-                .ThenBy(kv => kv.Key)
+                    && kv.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false, OwnerId: null })
+                .Select(kv => (Id: kv.Key, Monster: kv.Value, At: kv.Value.Walk.Position(now)))
+                .Where(hit => Dist(hit.At, origin) <= searchRadius)
+                .OrderBy(hit => Dist(hit.At, origin))
+                .ThenBy(hit => hit.Id)
                 .Take(beamTargets - targets.Count);
-            foreach (var kv in extras) targets.Add((kv.Key, kv.Value));
+            targets.AddRange(extras);
         }
 
         if (targets.Count == 0) return;
+
+        // All impacts from one activation share a hit set. Later activations and other brands can hit again.
+        var victims = new Dictionary<uint, SpawnedMonster>(targets.Count);
+        foreach (var (id, monster, at) in targets)
+        {
+            victims.Add(id, monster);
+            SpawnBeamLocked(player, state, origin, brand.AttachedMonsterId, at, id,
+                StormBrandDamageBeamRow, now + 0.25, bytes);
+            SpawnTempEffectLocked(player, state, at, StormBrandImpactAo, now + 0.25, bytes);
+        }
+        foreach (var (_, _, at) in targets)
+        {
+            foreach (var (id, monster) in player.Area.MonstersNear(at, impactRadius))
+            {
+                if (monster is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false, OwnerId: null }
+                    && Dist(monster.Walk.Position(now), at) <= impactRadius)
+                    victims.TryAdd(id, monster);
+            }
+        }
+
         int attachedMorePct = BrandStat(brand.Gem.Stats, "sigil_attached_target_hit_damage_+%_final");
         int extraPen = BrandStat(playerStats, "storm_brand_attached_target_lightning_penetration_%")
             + BrandStat(playerStats, "sigil_attached_target_lightning_penetration_%");
         var multipliers = BrandHitMultipliers(playerStats, brand.Gem);
-
-        foreach (var (tid, monster) in targets)
+        foreach (var (id, monster) in victims)
         {
-            bool isBranded = tid == brand.AttachedMonsterId;
+            bool isBranded = id == brand.AttachedMonsterId;
             double hitMore = isBranded ? Math.Max(0, 1 + attachedMorePct / 100.0) : 1.0;
-            var tAt = monster.Walk.Position(now);
-            SpawnBeamLocked(player, state, origin, brand.Attached ? brand.AttachedMonsterId : 0, tAt, tid,
-                StormBrandDamageBeamRow, now + 0.25, bytes);
-            SpawnTempEffectLocked(player, state, tAt, StormBrandImpactAo, now + 0.25, bytes);
-            DealBrandSpellHitLocked(player, brand.SkillId, brand.Gem, playerStats, multipliers, tid, monster,
+            DealBrandSpellHitLocked(player, brand.SkillId, brand.Gem, playerStats, multipliers, id, monster,
                 now, hitMore, ailmentMore: 1.0, extraPenetrationType: isBranded && extraPen > 0 ? (DamageType.Lightning, extraPen) : null,
                 label: brand.EffectId, placement: brand.Placement);
         }
@@ -1250,7 +1402,8 @@ public static partial class Game
         if (brand.PenancePulses)
         {
             var mark = BrandMonsterMarks.GetOrCreateValue(target);
-            brand.Energy = mark.PenanceEnergy = Math.Min(PenanceMaxEnergy, mark.PenanceEnergy + 1);
+            brand.Energy = Math.Min(PenanceMaxEnergy, mark.PenanceEnergy + 1);
+            SetPenanceEnergyLocked(player.Area, targetId, target, mark, brand.Energy);
 
             int perEnergyHit = BrandStat(brand.Gem.Stats, "magma_brand_hit_damage_+%_final_per_additional_pustule");
             int perEnergyAilment = BrandStat(brand.Gem.Stats, "magma_brand_ailment_damage_+%_final_per_additional_pustule");
@@ -1279,9 +1432,8 @@ public static partial class Game
 
         // Base Penance Brand & Penance Brand of Conduction: build energy stacks on the attached enemy
         var targetMark = BrandMonsterMarks.GetOrCreateValue(target);
-        if (targetMark.PenanceEnergy < PenanceMaxEnergy) targetMark.PenanceEnergy++;
-        brand.Energy = targetMark.PenanceEnergy;
-        if (brand.PenanceSpreads) brand.EnergizedMonsters.Add(targetId);
+        brand.Energy = Math.Min(PenanceMaxEnergy, targetMark.PenanceEnergy + 1);
+        SetPenanceEnergyLocked(player.Area, targetId, target, targetMark, brand.Energy);
 
         // Conduction (PenanceBrandAltY) spreads energy to nearby enemies on activation!
         if (brand.PenanceSpreads)
@@ -1298,8 +1450,9 @@ public static partial class Game
             foreach (var (otherId, other) in spreadTargets)
             {
                 var otherMark = BrandMonsterMarks.GetOrCreateValue(other);
-                if (otherMark.PenanceEnergy < PenanceMaxEnergy) otherMark.PenanceEnergy++;
-                brand.EnergizedMonsters.Add(otherId);
+                otherMark.SpreadSource = brand;
+                brand.SpreadRecipients[other] = otherId;
+                SetPenanceEnergyLocked(player.Area, otherId, other, otherMark, 1);
                 SpawnBeamLocked(player, state, at, targetId, other.Walk.Position(now), otherId,
                     PenanceBrandChargeBeamRow, now + 0.25, bytes);
             }
@@ -1309,7 +1462,7 @@ public static partial class Game
         if (!brand.PenanceExplodesOnDetach && targetMark.PenanceEnergy >= PenanceMaxEnergy)
         {
             TriggerPenanceExplosionLocked(player, state, brand, targetId, target, at, playerStats, now, bytes);
-            RemoveBrandCleanlyLocked(state, brand, bytes);
+            RemoveBrandCleanlyLocked(player, state, brand, bytes);
         }
     }
 
@@ -1320,7 +1473,7 @@ public static partial class Game
         int attachedMorePct = BrandStat(brand.Gem.Stats, "sigil_attached_target_hit_damage_+%_final");
         var multipliers = BrandHitMultipliers(playerStats, brand.Gem);
 
-        void ExplodeAt(uint centreId, SpawnedMonster? centreMonster, (int X, int Y) centreAt, int energy)
+        void ExplodeAt(uint centreId, SpawnedMonster centreMonster, (int X, int Y) centreAt, int energy)
         {
             if (energy <= 0) return;
             bool full = energy >= PenanceMaxEnergy;
@@ -1337,8 +1490,8 @@ public static partial class Game
                 DealBrandSpellHitLocked(player, brand.SkillId, brand.Gem, playerStats, multipliers, id, m,
                     now, brandedMore, 1.0, label: brand.EffectId, placement: brand.Placement);
             }
-            if (centreMonster is not null && BrandMonsterMarks.TryGetValue(centreMonster, out var cm))
-                cm.PenanceEnergy = 0;
+            if (BrandMonsterMarks.TryGetValue(centreMonster, out var mark))
+                ClearPenanceEnergyLocked(player.Area, centreId, centreMonster, mark);
         }
 
         // Explode attached target
@@ -1346,17 +1499,12 @@ public static partial class Game
         ExplodeAt(primaryId, primary, primaryAt, primaryEnergy);
 
         // Conduction: explode any nearby enemies that received spread energy from this brand
-        if (brand.PenanceSpreads && brand.EnergizedMonsters.Count > 0)
+        foreach (var (other, otherId) in brand.SpreadRecipients.ToArray())
         {
-            foreach (uint otherId in brand.EnergizedMonsters.ToArray())
-            {
-                if (otherId == primaryId) continue;
-                if (!player.Area.Monsters.TryGetValue(otherId, out var other)) continue;
-                if (!BrandMonsterMarks.TryGetValue(other, out var om) || om.PenanceEnergy <= 0) continue;
-                ExplodeAt(otherId, other, other.Walk.Position(now), om.PenanceEnergy);
-            }
+            if (!ReferenceEquals(player.Area.Monsters.GetValueOrDefault(otherId), other)) continue;
+            if (!BrandMonsterMarks.TryGetValue(other, out var mark) || !ReferenceEquals(mark.SpreadSource, brand)) continue;
+            ExplodeAt(otherId, other, other.Walk.Position(now), mark.PenanceEnergy);
         }
-        brand.EnergizedMonsters.Clear();
         brand.Energy = 0;
     }
 
@@ -1439,30 +1587,26 @@ public static partial class Game
         }
     }
 
-    static void TickWintertideDotsLocked(
-        Player player, BrandState state, double now, double dt, WorldRecordBuilder bytes)
+    static void ApplyWintertidePrimaryLocked(Player player, BrandState state, double now)
     {
-        // Primary attached Wintertide Brand DoTs (multiple attached brands stack on the same enemy!)
-        var targets = state.Brands.Where(b => b.Attached && b.WintertidePrimaryDps > 0).GroupBy(b => b.AttachedMonsterId);
-        foreach (var group in targets)
+        foreach (var (id, vis) in state.MonsterVisuals)
         {
-            uint id = group.Key;
-            if (!player.Area.Monsters.TryGetValue(id, out var m) || m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }) continue;
-            double totalDps = group.Where(b => ReferenceEquals(b.AttachedMonster, m)).Sum(b => b.WintertidePrimaryDps);
-            if (!(totalDps > 0)) continue;
-
-            var vis = state.MonsterVisuals.TryGetValue(id, out var existing) ? existing : state.MonsterVisuals[id] = new();
-            double step = vis.WintertideLastAt > 0 ? Math.Clamp(now - vis.WintertideLastAt, 0, 0.5) : dt;
-            vis.WintertideLastAt = now;
-            double total = vis.WintertideCarry + totalDps * step * MonsterDotTaken(m, DamageType.Cold, now);
+            double pending = vis.WintertidePending;
+            if (!(pending > 0)) continue;
+            vis.WintertidePending = 0;
+            if (!player.Area.Monsters.TryGetValue(id, out var m) || !ReferenceEquals(m, vis.WintertideTarget)
+                || m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }) continue;
+            double total = vis.WintertideCarry + pending * MonsterDotTaken(m, DamageType.Cold, now);
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(total));
             vis.WintertideCarry = total - damage;
             if (damage <= 0 || ApplyMonsterIndirectDamageLocked(player, m, damage, allyAt: m.Walk.Position(now)) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             CommitAcceptedHitLocked(player, id, m, hit, damage, now, "Wintertide Brand", playerKill: true);
         }
+    }
 
-        // Secondary Wintertide's End DoTs (after detach/expiry)
+    static void TickWintertideEndsLocked(Player player, BrandState state, double now, WorldRecordBuilder bytes)
+    {
         foreach (var (id, end) in state.WintertideEnds.ToArray())
         {
             var m = end.Monster;
@@ -1534,6 +1678,12 @@ public static partial class Game
             var (spellSkillId, spellGem) = linked[idx];
             if (now < triggerState.ReadyAt.GetValueOrDefault(spellGem.Effect)) continue;
             if (GemSkillInstanceDisabled(player, spellGem.Effect, spellSkillId, triggered: true) is not null) continue;
+            var cooldown = CooldownForSkill(player, spellSkillId);
+            if (cooldown is { } available && SingleUseState(player, spellGem.Effect, spellSkillId) is { } stored)
+            {
+                stored.Refresh(now, available.RecoveryRate);
+                if (stored.SpentUses >= available.Uses) continue;
+            }
             bool Current() => session.Active && CurrentGameRules && ReferenceEquals(CombatLifetime, rules)
                 && !player.Closed && !player.LeavingArea && !player.Paused && player.PlayerLife > 0
                 && SameTriggerSource(liveBrand, SupportedSkill(player, brand.SkillId))
@@ -1541,19 +1691,40 @@ public static partial class Game
 
             var release = PrepareTriggeredPayload(player, session, spellSkillId, aim, Current, origin, brand.AttachedMonster);
             if (release is null) continue;
-            if (!PayMana(player, spellSkillId, out uint mana, out uint life))
+            int extraMs = spellGem.Stats.GetValueOrDefault(Stat.SpellCastTimeAddedToCooldownIfTriggered) != 0
+                ? catalog.CastTimeMs(spellGem.Effect) : 0;
+            uint mana, life;
+            if (cooldown is { } plan)
             {
-                brand.TriggerRotation = (idx + 1) % linked.Count;
-                return;
+                plan = plan with { BaseMilliseconds = ActorScale.Saturate((long)plan.BaseMilliseconds + extraMs) };
+                // On a delayed frame the brand still uses each scheduled activation time for recovery.
+                if (!TryBeginCooldownUseCore(player, spellGem.Effect, plan, instant: true, () => { },
+                        out var ticket, null, true, null, spellSkillId, Current, reserveAttack: false, triggered: true, advanceProjectiles: true, cooldownAt: now))
+                {
+                    if (CanPaySkillCost(player, spellSkillId)) continue;
+                    brand.TriggerRotation = (idx + 1) % linked.Count;
+                    return;
+                }
+                if (ticket?.TryExecute(player, spellGem.Effect) != true) continue;
+                // The brand casts without a player action packet, so publish the cooldown in both networking modes.
+                ticket.CommitNativeUse(player, spellSkillId, synchronizeProgress: true);
+                (mana, life) = ticket.Paid ?? (0u, 0u);
+                session.Enqueue(() => SendNativeCooldownRefresh(player));
             }
-            int cdMs = catalog.CooldownMs(spellGem.Effect, spellGem.Level);
-            if (spellGem.Stats.GetValueOrDefault(Stat.SpellCastTimeAddedToCooldownIfTriggered) != 0)
-                cdMs += catalog.CastTimeMs(spellGem.Effect);
-            if (cdMs > 0)
+            else
             {
-                double rate = Math.Max(0.05, 1 + (BrandStat(playerStats, "virtual_cooldown_speed_+%")
-                    + BrandStat(playerStats, "base_spell_cooldown_speed_+%") + BrandStat(spellGem.Stats, "base_cooldown_speed_+%")) / 100.0);
-                triggerState.ReadyAt[spellGem.Effect] = now + cdMs / 1000.0 / rate;
+                if (!PayMana(player, spellSkillId, out mana, out life))
+                {
+                    brand.TriggerRotation = (idx + 1) % linked.Count;
+                    return;
+                }
+                long cdMs = (long)catalog.CooldownMs(spellGem.Effect, spellGem.Level) + extraMs;
+                if (cdMs > 0)
+                {
+                    double rate = Math.Max(0.05, 1 + (BrandStat(playerStats, "virtual_cooldown_speed_+%")
+                        + BrandStat(playerStats, "base_spell_cooldown_speed_+%") + BrandStat(spellGem.Stats, "base_cooldown_speed_+%")) / 100.0);
+                    triggerState.ReadyAt[spellGem.Effect] = now + cdMs / 1000.0 / rate;
+                }
             }
             brand.TriggerRotation = (idx + 1) % linked.Count;
 
@@ -1572,6 +1743,7 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> playerStats, double now, WorldRecordBuilder bytes)
     {
         if (brand.OverchargeGem is not { } surgeGem) return;
+        surgeGem = BrandsurgeDamageGem(player, brand.Gem, surgeGem);
         int radius = (int)Math.Round(SkillRadius(player, surgeGem.Stats, spell: true, surgeGem.Effect) * brand.OverchargeAreaMore);
         SpawnTempEffectLocked(player, state, at, PresentationOf(brand.Family).ExplosionAo, now + 0.55, bytes,
             (float)Math.Clamp(radius / 24.0, 0.7, 3.0));
@@ -1587,9 +1759,50 @@ public static partial class Game
         }
     }
 
+    static readonly (string Tag, uint Stat)[] BrandsurgeConversions =
+    [
+        ("lightning", Stat.SkillPhysicalDamagePctToConvertToLightning),
+        ("cold", Stat.SkillPhysicalDamagePctToConvertToCold),
+        ("fire", Stat.SkillPhysicalDamagePctToConvertToFire),
+        ("chaos", Stat.SkillPhysicalDamagePctToConvertToChaos),
+    ];
+
+    static SupportedGem BrandsurgeDamageGem(Player player, SupportedGem brand, SupportedGem surge)
+    {
+        var items = ItemsFor(player);
+        if (brand.SourceGem is not { } source || items.ByHash(source.TypeHash) is not { } type
+            || items.Gem(type) is not { Variants.Count: > 0 } gem) return surge;
+        int variant = gem.Variant(source.GemVariant).Index;
+        var skills = SkillsFor(player);
+        Span<uint> matched = stackalloc uint[BrandsurgeConversions.Length];
+        int count = 0;
+        foreach (var (tag, stat) in BrandsurgeConversions)
+            if (skills.GemHasTag(type.Row, variant, tag)) matched[count++] = stat;
+        if (count == 0) return surge;
+
+        // Intrinsic conversion takes priority over equipment and support conversion and also feeds ailments.
+        var stats = new Dictionary<uint, int>(surge.Stats);
+        int remaining = 100;
+        for (int i = 0; i < count; i++)
+        {
+            int percent = remaining / (count - i);
+            stats[matched[i]] = percent;
+            remaining -= percent;
+        }
+        return surge with { Stats = stats };
+    }
+
     // ---- Shared Brand Spell Hit Executor --------------------------------------------------------------------------------
 
     static int BrandEffectiveRadius(Player player, ActiveBrand brand, IReadOnlyDictionary<uint, int> playerStats, int extraBaseRadius = 0)
+    {
+        var stats = BrandAreaStats(player, brand, playerStats);
+        int Get(uint stat) => stats.GetValueOrDefault(stat);
+        int radius = SkillArea.Radius(SkillArea.BaseRadius(brand.EffectId, Get), Get, spell: true);
+        return Math.Max(4, radius + extraBaseRadius);
+    }
+
+    static Dictionary<uint, int> BrandAreaStats(Player player, ActiveBrand brand, IReadOnlyDictionary<uint, int> playerStats)
     {
         var own = brand.Gem.Stats;
         int extraAreaPct = AttachedFraction(brand) >= 0.5
@@ -1598,8 +1811,7 @@ public static partial class Game
             extraAreaPct += BrandStat(playerStats, "penance_brand_area_of_effect_+%");
         if (extraAreaPct != 0)
             own = new Dictionary<uint, int>(own) { [SkillArea.BaseIncreased] = own.GetValueOrDefault(SkillArea.BaseIncreased) + extraAreaPct };
-        int radius = SkillRadius(player, own, spell: true, brand.Effect);
-        return Math.Max(4, radius + extraBaseRadius);
+        return SkillAreaStats(player, own, brand.Effect);
     }
 
     static (HitRollModifiers Ordinary, HitRollModifiers Critical) BrandHitMultipliers(
@@ -1617,6 +1829,7 @@ public static partial class Game
     {
         if (m.Invulnerable || MonsterBlocks(m, AreaRng(player), spell: true, now, gem.Stats)) return;
         if (SupportedHitInputsFor(player, skillId, capturedGem: gem) is not { } inputs) return;
+        var caster = inputs.Caster;
         if (placement is not null)
         {
             inputs = inputs with { Caster = TotemCasterStats(inputs.Caster) };
@@ -1641,13 +1854,15 @@ public static partial class Game
         var rolled = WithConditionalSupportDamageLocked(player, gem.Stats, attack: false, m,
             GameEvents.WithOutgoingDamage(player, playerStats, m, hit.Roll(AreaRng(player))), now);
 
-        int critChance = CriticalChanceOn(player, monsterId, SupportedCriticalChance(player, skillId),
-            SupportedCriticalChanceVsBlinded(player, skillId, release: false),
-            SupportedCriticalChanceVsGround(player, skillId, release: false));
+        int Chance(long extra) => SupportedCriticalChanceFor(player, gem, release: false, extra, null, 0, caster);
+        int blindedCrit = player.Pools.VsBlindedCriticalPct;
+        int critChance = CriticalChanceOn(player, monsterId, Chance(0), blindedCrit != 0 ? Chance(blindedCrit) : null,
+            SpellCriticalChanceVsGround(player, Chance, blindedCrit));
         bool critical = RollCriticalStrike(player, critChance, gem.Stats, attack: false, playerStats: playerStats);
         var hitRolls = critical ? multipliers.Critical : multipliers.Ordinary;
         rolled = hitRolls.ApplyDamageMultiplier(rolled, AreaRng(player));
-        int critMult = CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, skillId), now, playerStats, gem.Stats);
+        int critMult = CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, gem, hitWeapon: null, playerStats),
+            now, playerStats, gem.Stats);
 
         var pen = Penetration.Of(playerStats, Stats, attack: false, gem.Stats);
         if (extraPenetrationType is { } ep)
@@ -1766,7 +1981,6 @@ public static partial class Game
         {
             foreach (var (_, entry) in vis.Attached)
                 if (entry.Buff != 0) bytes.World(monsterId, InstanceEntities.RemoveBuff(monsterId, entry.Buff));
-            if (vis.PenanceBuff != 0) bytes.World(monsterId, InstanceEntities.RemoveBuff(monsterId, vis.PenanceBuff));
             if (vis.WintertidePrimaryBuff != 0) bytes.World(monsterId, InstanceEntities.RemoveBuff(monsterId, vis.WintertidePrimaryBuff));
         }
         state.MonsterVisuals.Clear();
@@ -1775,9 +1989,10 @@ public static partial class Game
         state.WintertideEnds.Clear();
     }
 
-    internal static byte[] PenanceEnergyBuff(uint monsterId, ushort instance, ushort energy, uint sourceId = 0) =>
-        InstanceEntities.AddBuff(monsterId, instance, PenanceEnergyBuffRow, sourceId,
-            stacks: energy, list: [PenanceMaxEnergy]);
+    static readonly uint[] PenanceEnergyLimit = [PenanceMaxEnergy];
+
+    internal static Buff PenanceEnergyBuff(ushort energy) =>
+        new(PenanceEnergyBuffRow, Stacks: energy, List: PenanceEnergyLimit);
 
     static void ReconcileBrandPresentationLocked(Player player, BrandState state, double now, WorldRecordBuilder bytes)
     {
@@ -1808,11 +2023,9 @@ public static partial class Game
             }
         }
 
-        // 2. Reconcile monster buffs (ActiveSigil, magma_pustule, immolation_brand_burn)
+        // 2. Reconcile attachment and Wintertide visuals. Penance energy is shared as an area buff.
         var allMonsters = new HashSet<uint>(state.MonsterVisuals.Keys);
         foreach (uint mid in desiredAttached.Keys) allMonsters.Add(mid);
-        foreach (var brand in state.Brands)
-            if (brand.PenanceSpreads) allMonsters.UnionWith(brand.EnergizedMonsters);
 
         foreach (uint mid in allMonsters)
         {
@@ -1851,28 +2064,14 @@ public static partial class Game
                 }
             }
 
-            // Penance Brand energy stacks (BuffDefinitions 1551 magma_pustule)
-            int energy = exists && BrandMonsterMarks.TryGetValue(monster!, out var mark) ? mark.PenanceEnergy : 0;
-            if (energy <= 0 && vis.PenanceBuff != 0)
-            {
-                if (player.Area.Monsters.ContainsKey(mid)) bytes.World(mid, InstanceEntities.RemoveBuff(mid, vis.PenanceBuff));
-                vis.PenanceBuff = 0;
-                vis.PenanceStacks = 0;
-            }
-            else if (energy > 0 && energy != vis.PenanceStacks)
-            {
-                if (vis.PenanceBuff == 0) vis.PenanceBuff = player.NextBuff++;
-                bytes.World(mid, PenanceEnergyBuff(mid, vis.PenanceBuff, (ushort)energy, player.Id));
-                vis.PenanceStacks = energy;
-            }
-
             // Wintertide Brand primary DoT visual (BuffDefinitions 1550 immolation_brand_burn)
             bool hasWinterPrimary = exists && desiredAttached.TryGetValue(mid, out var winterFamilies) && winterFamilies.ContainsKey(BrandFamily.Immolation);
             if (!hasWinterPrimary && vis.WintertidePrimaryBuff != 0)
             {
                 if (player.Area.Monsters.ContainsKey(mid)) bytes.World(mid, InstanceEntities.RemoveBuff(mid, vis.WintertidePrimaryBuff));
                 vis.WintertidePrimaryBuff = 0;
-                vis.WintertideLastAt = 0;
+                vis.WintertideTarget = null;
+                vis.WintertideCarry = 0;
             }
             else if (hasWinterPrimary && vis.WintertidePrimaryBuff == 0)
             {
@@ -1880,7 +2079,7 @@ public static partial class Game
                 bytes.World(mid, InstanceEntities.AddBuff(mid, vis.WintertidePrimaryBuff, WintertidePrimaryBuffRow, player.Id));
             }
 
-            if (vis.Attached.Count == 0 && vis.PenanceBuff == 0 && vis.WintertidePrimaryBuff == 0)
+            if (vis.Attached.Count == 0 && vis.WintertidePrimaryBuff == 0)
                 state.MonsterVisuals.Remove(mid);
         }
 

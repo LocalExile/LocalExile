@@ -20,6 +20,7 @@ public sealed record ProjectileActor(ProjectileActorKey Key, int Team, Func<long
     /// <summary>The actor's Positioned size in cells (a monster's ObjectSize − 1), for <see cref="ProjectileProfile.ContactCells"/>;
     /// −1 is no footprint, which the client never contacts.</summary>
     public int Size { get; init; }
+    public bool CanBeChainTarget { get; init; } = true;
 }
 public readonly record struct TerrainContact(double Fraction, ProjectileVector Normal)
 {

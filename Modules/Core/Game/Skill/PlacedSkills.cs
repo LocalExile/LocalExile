@@ -14,6 +14,7 @@ public static partial class Game
     public static void LoadPlacedSkillsData()
     {
         TrapVisuals = LoadTrapVisuals();
+        LoadSmokeMineData();
     }
 
     static IReadOnlyDictionary<int, string> TrapVisuals = default!;
@@ -289,6 +290,10 @@ public static partial class Game
     }
 
     static readonly RuleTable<PlacedSkills.DamageSnapshot, PlacedSkills.DamageSnapshot> RecentMineAreaProfiles = new();
+    sealed record HydrospherePlacedProfiles(PlacedSkills.DamageSnapshot? Lightning, PlacedSkills.DamageSnapshot? Mixed);
+    static readonly RuleTable<PlacedSkills.DamageSnapshot, HydrospherePlacedProfiles> PlacedHydrosphereDamage = new();
+    sealed record PlacedTornadoElement(DamageType Type);
+    static readonly RuleTable<PlacedSkills.DamageSnapshot, PlacedTornadoElement> PlacedTornadoElements = new();
 
     // Preserve the placement-time offensive inputs. A mine chooses the recent-detonation area profile at release.
     static PlacedSkills.DamageSnapshot? CapturePlacedDamage(Player player, ushort skill, SupportedGem gem,
@@ -420,7 +425,15 @@ public static partial class Game
                 if (count <= 0 || limit <= 0) return null;
                 var context = ReservationContext(player, admission.Skill);
                 var reserve = admission.Mine ? SupportedReservation(player, admission.Skill) : null;
-                var offense = CapturePlacedDamage(player, admission.Skill, gem);
+                string? placedEffect = SkillsFor(player).EffectId(gem.Effect);
+                DamageType? tornadoElement = TornadoEffect(placedEffect) ? TornadoElement(player, gem) : null;
+                var offense = CapturePlacedDamage(player, admission.Skill, TornadoDamageSource(gem, tornadoElement));
+                if (offense is not null && tornadoElement is DamageType kindElement)
+                    PlacedTornadoElements.Add(offense, new(kindElement));
+                if (offense is not null && HydrosphereEffect(placedEffect))
+                    PlacedHydrosphereDamage.Add(offense, new(
+                        CapturePlacedDamage(player, admission.Skill, HydroDamageSource(gem, 0, 100)),
+                        CapturePlacedDamage(player, admission.Skill, HydroDamageSource(gem, 50, 50))));
                 var damage = offense?.Normal.Hit ?? SupportedHitFor(player, admission.Skill, suppress: false);
                 var payload = new Dictionary<uint, int>(gem.Stats);
                 foreach (uint flag in new[] { Stat.IsTrap, Stat.IsRemoteMine, Stat.BaseSkillIsTrapped,
@@ -600,17 +613,33 @@ public static partial class Game
     // A mine that is not armed yet goes off once it is. A use during a running sequence adds the new mines to its end
     // and keeps its speed; a use after the last queued mine has gone off starts a new sequence.
     public static void DetonateMinesLocked(Player player, double now)
+        => DetonateMinesLocked(player, now, player.Walk.Position(now));
+
+    static void DetonateMinesLocked(Player player, double now, (int X, int Y) aim)
     {
         bool running = player.Placed.All.Values.Any(p => p.Mine && !double.IsPositiveInfinity(p.DetonateAt));
         double next = running ? player.Placed.NextChain : now;
         int prior = running ? player.Placed.Chain : 0;
+        var limited = MineSequenceLimits.GetValue(player.Placed, _ => new());
+        if (!running) limited.Clear();
         if (!running) player.Placed.TriggeredInChain = 0;
         var playerAt = player.Walk.Position(now);
         IReadOnlyDictionary<uint, int>? stats = null;
-        foreach (var mine in player.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt)
-            && MineCanDetonateFrom(p, playerAt))
-            .OrderBy(p => p.Armed).ThenBy(p => p.Id))
+        var eligible = player.Placed.All.Values.Where(p => p.Mine && now < p.Until
+            && double.IsPositiveInfinity(p.DetonateAt) && MineCanDetonateFrom(p, playerAt))
+            .OrderBy(p => p.Armed).ThenBy(p => p.Id).ToArray();
+        var chosen = eligible.Where(p => GolemStat(p.Own, Stat.DisableMineDetonationCascade) != 0)
+            .GroupBy(p => p.Effect).ToDictionary(g => g.Key, g => g.MinBy(p => Dist(p.At, aim))!.Id);
+        foreach (var mine in eligible)
         {
+            if (chosen.TryGetValue(mine.Effect, out uint selected) && (mine.Id != selected || !limited.Add(mine.Effect)))
+                continue;
+            if (GolemStat(mine.Own, Stat.MineDetonatesInstantly) != 0)
+            {
+                mine.DetonateAt = Math.Max(now, mine.Armed);
+                prior++;
+                continue;
+            }
             int time = GolemStat(mine.Own, Stat.BaseMineDetonationTimeMs);
             if (time <= 0) time = GolemStat(mine.Own, Stat.SupportRemoteMine2BaseMineDetonationTimeMs);
             if (prior > 0)
@@ -627,6 +656,8 @@ public static partial class Game
         player.Placed.NextChain = next;
         player.Placed.Chain = prior;
     }
+
+    static readonly RuleTable<PlacedSkills, HashSet<int>> MineSequenceLimits = new();
 
     static bool MineCanDetonateFrom(PlacedSkills.Placed mine, (int X, int Y) playerAt)
     {
@@ -740,6 +771,13 @@ public static partial class Game
         KeyValuePair<uint, SpawnedMonster> target = default;
         (int X, int Y) aim = placed.At;
         bool locusAim = placed.Mine && GolemStat(placed.Own, Stat.SupportLocusMineMinesAlwaysTargetYourLocation) != 0;
+        if (effect == CorpseBodyswapEffect)
+        {
+            if (currentSkill && GemSourceLifetimeCurrentLocked(player, placed.Skill, placed.Effect, placed.Source))
+                ReleasePlacedCorpseBodyswap(player, new(placed, inventionMore),
+                    locusAim ? player.Walk.Position(now) : triggeringEnemy.Value?.Walk.Position(now) ?? placed.At, now, bytes);
+            return;
+        }
         if (effect == BodyswapSacrificeEffect)
         {
             if (currentSkill && GemSourceLifetimeCurrentLocked(player, placed.Skill, placed.Effect, placed.Source))
@@ -791,6 +829,9 @@ public static partial class Game
         bool brand = TriggerBrandSpell(player, placed.Effect);
         bool frostBomb = FrostBombEffect(effect);
         bool stormOrb = OrbOfStormsEffect(effect);
+        bool voidSphere = VoidSphereEffect(effect);
+        bool hydrosphere = HydrosphereEffect(effect);
+        bool tornado = TornadoEffect(effect);
         bool staticOrb = effect == "BallLightningAltY";
         bool bladefall = effect == "Bladefall";
         bool purifyingFlame = IsPurifyingFlame(effect);
@@ -802,7 +843,7 @@ public static partial class Game
         bool shockNova = ShockNovaEffect(effect);
         bool cascade = GlacialCascadeEffect(effect);
         bool ruin = effect == TrarthanBargain;
-        if (bladefall || purifyingFlame || conviction || bladeBlast || lance || manabond
+        if (bladefall || purifyingFlame || conviction || bladeBlast || lance || manabond || tornado
             || cascade || effect == "ShockNovaAltX")
         {
             var enemy = triggeringEnemy.Value is not null ? triggeringEnemy
@@ -816,7 +857,8 @@ public static partial class Game
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
             && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm || brand
-                || frostBomb || stormOrb || staticOrb || bladefall || detonateDead || volatileDead || purifyingFlame || conviction || bladeBlast
+                || frostBomb || stormOrb || voidSphere || hydrosphere || tornado || staticOrb || bladefall || detonateDead || volatileDead
+                || purifyingFlame || conviction || bladeBlast
                 || unloading || lance || manabond || shockNova || cascade || ruin))
         {
             var session = ProjectilesFor(player);
@@ -833,6 +875,35 @@ public static partial class Game
                     useProxyOrigin: true));
             else if (frostBomb)
                 session.SchedulePlacedFrostBomb(new(placed, inventionMore), Current);
+            else if (voidSphere)
+            {
+                var placement = new PlacedAreaHit(placed, inventionMore);
+                session.ScheduleContact(ProjectileRuntime.Time(now), Current,
+                    () => session.ReleaseVoidSphere(player.Id, placed.Effect, placed.Own, placed.At, Current,
+                        (centre, radius, time) => placement.Apply(player, centre, radius, time)));
+            }
+            else if (hydrosphere)
+            {
+                session.ScheduleContact(ProjectileRuntime.Time(now), Current,
+                    () => session.ReleaseHydrosphere(player.Id, placed.Effect, placed.Own, placed.At, Current, Pulse));
+                void Pulse((int X, int Y) centre, int radius, Func<uint, (int X, int Y), bool> drenched, int cold, int lightning)
+                {
+                    var contact = placed;
+                    if (lightning > 0 && placed.Offense is { } saved && PlacedHydrosphereDamage.TryGetValue(saved, out var profiles))
+                        contact = placed with { Offense = cold == 0 ? profiles.Lightning : profiles.Mixed };
+                    PlacedAreaDamageLocked(player, contact, centre, radius, ProjectileWorldTime(player), inventionMore,
+                        currentSkill: true, spellDamage: true, targetFilter: drenched);
+                }
+            }
+            else if (tornado)
+            {
+                var placement = new PlacedAreaHit(placed, inventionMore);
+                var element = placed.Offense is { } saved && PlacedTornadoElements.TryGetValue(saved, out var stored)
+                    ? stored.Type : (DamageType?)null;
+                session.ScheduleContact(ProjectileRuntime.Time(now), Current,
+                    () => session.ReleaseTornado(placed.Effect, gem.Level, gem with { Stats = placed.Own }, element, placed.At,
+                        aim, Current, (centre, radius) => placement.Apply(player, centre, radius, ProjectileWorldTime(player))));
+            }
             else if (stormOrb)
                 session.ScheduleContact(ProjectileRuntime.Time(now), Current,
                     () => session.ReleaseStormOrb(player.Id, placed.Effect, placed.Skill, placed.Own, placed.At, Current,
@@ -1335,7 +1406,8 @@ public static partial class Game
                         player.RecentEvents.RecordAmount(StatConditions.DetonatedMine, now);
                     }
                     else if (placed.Mine) placed.Chain = 0;
-                    if (conversion) TriggerConversionTrap(player, placed, trigger, now, bytes);
+                    if (placed.Mine && effect == SmokeMineEffect) TriggerSmokeMine(player, placed, now, bytes);
+                    else if (conversion) TriggerConversionTrap(player, placed, trigger, now, bytes);
                     else PlacedDamageLocked(player, placed, now, trigger, bytes);
                     PlacedChargesLocked(player, placed, nearby, now);
                     if (!placed.Mine && (nearby || skitter || expired))
@@ -1351,7 +1423,7 @@ public static partial class Game
                         TrapFogOfWarLocked(player, placed.At,
                             ownerStats.GetValueOrDefault(Stat.LocalDisplayTriggerLevelXSmokeCloudOnTrapTriggered), now, ownerStats);
                     }
-                    bool rearm = skitter && placed.Mine && effect != "SmokeMine";
+                    bool rearm = skitter && placed.Mine && GolemStat(placed.Own, Stat.MineCannotRearm) == 0;
                     Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : expired ? "duration" : "chain")} trigger; rearm={rearm}");
                     if (rearm)
                     {

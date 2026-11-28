@@ -950,11 +950,13 @@ public static partial class Game
         Func<(int X, int Y), bool>? covers = null, double damageMore = 1, bool spellImpale = false, int extraCriticalIncrease = 0,
         int extraShockChance = 0, CascadePulse? cascade = null, long baseChaos = 0,
         Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null, SkillCriticalRoll? sharedCritical = null,
+        SupportedGem? capturedGem = null,
         uint hexblastTarget = 0, double? ailmentDamageMore = null)
     {
-        var skill = SupportedSkill(player, totem.SkillId);
-        uint? sourceLife = SkillsFor(player).EffectId(skill.Effect) == BodyswapSacrificeEffect ? totem.MaxLife : null;
-        if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true, projectileTotemLife: sourceLife) is not { } inputs) return;
+        var skill = capturedGem ?? SupportedSkill(player, totem.SkillId);
+        uint? sourceLife = SkillsFor(player).EffectId(skill.Effect) is CorpseBodyswapEffect or BodyswapSacrificeEffect ? totem.MaxLife : null;
+        if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true,
+                capturedGem: capturedGem, projectileTotemLife: sourceLife) is not { } inputs) return;
         if (baseChaos > 0) inputs = inputs with { Raw = inputs.Raw.Add(GameServer.Core.World.DamageType.Chaos, new(baseChaos, baseChaos)) };
         var ownerStats = CharacterPlayerStats(player);
         var caster = TotemCasterStats(ownerStats);
