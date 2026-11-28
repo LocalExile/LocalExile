@@ -490,7 +490,7 @@ public static partial class Game
             if (!player.ClientSkillIds.Contains(id) || !player.SingleUseCooldowns.TryGetValue(key, out var state)
                 || key < 0 && key != GuardCooldownKey && state.NativeSkillId != id) continue;
             state.Refresh(now, state.Rate);
-            if (!state.NeedsNativeRefresh) continue;
+            if (!state.NativeRefreshDue(player.Connection.ServerFrame)) continue;
             updates.Add(new(id, state.Held ? state.TotalBaseMilliseconds / 1000f
                     : state.FullyRecovered ? 0 : (float)(state.RemainingBaseMilliseconds / 1000),
                 state.TotalBaseMilliseconds / 1000f, state.Held ? 0f : (float)state.Rate, state.SpentUses));
@@ -507,15 +507,15 @@ public static partial class Game
         if (player.SingleUseCooldowns.Count == 0) return Task.CompletedTask;
         bool dirty = false;
         foreach (var s in player.SingleUseCooldowns.Values)
-            if (s.NeedsNativeRefresh) { dirty = true; break; }
+            if (s.NativeRefreshDue(player.Connection.ServerFrame)) { dirty = true; break; }
         if (!dirty) return Task.CompletedTask;
         int epoch;
         epoch = player.ProjectileEpoch;
         Func<byte[]?> build = () => NativeCooldownRefresh(player, epoch, () => GemSkillEffects(player)
             .Where(g => CooldownFor(player, g.Effect, g.Level, g.Quality) is not null)
             .Select(g => (g.Id, g.Effect)).ToArray());
-        // Queue behind same-frame world records (such as S->C 0x01ce instant actions) for this player alone so
-        // 0x02bc never overtakes 0x01ce on the wire and exhausts the client's stored uses before CanExecute runs.
+        // Follow world-record order. An action executed at the lockstep delimiter may also defer its cooldown correction
+        // to the next frame so the client can consume the use first.
         if (InAreaFrame(player))
         {
             if (build() is { Length: > 0 } bytes)

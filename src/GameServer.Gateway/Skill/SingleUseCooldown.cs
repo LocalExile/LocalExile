@@ -74,6 +74,7 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
     public ushort NativeSkillId { get; private set; }
     double? nativeRate;
     bool nativeAcknowledged, nativeDirty;
+    long nativeRefreshFrame;
     double spentRate;
     int useRecoveryBonusPercent;
     double lastAt = at;
@@ -132,7 +133,7 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
         Refresh(now, rate);
     }
 
-    /// <summary>Applies a conditional recovery bonus to an acknowledged single-use reservation.</summary>
+    /// <summary>Applies a conditional recovery bonus to the current single-use reservation.</summary>
     public void ApplyUseRecoveryBonus(double now, int version, int percent)
     {
         if (percent <= 0 || version != UseVersion || Uses != 1 || useRecoveryBonusPercent != 0) return;
@@ -179,6 +180,7 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
         spentRate = Rate;
         nativeRate = null; // No native entry may be fabricated before the original acknowledgement reaches its gate.
         nativeAcknowledged = nativeDirty = false;
+        nativeRefreshFrame = 0;
         NativeSkillId = 0;
         UseVersion++;
         return true;
@@ -217,6 +219,9 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
         nativeDirty = true;
     }
     public bool NeedsNativeRefresh => nativeAcknowledged && nativeDirty;
+    public bool NativeRefreshDue(long frame) => NeedsNativeRefresh && frame >= nativeRefreshFrame;
+    public void DeferNativeRefreshUntil(long frame) => nativeRefreshFrame = Math.Max(nativeRefreshFrame, frame);
+
     public void NativeRefreshed()
     {
         nativeRate = FullyRecovered ? null : Rate;

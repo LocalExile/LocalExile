@@ -2084,6 +2084,19 @@ public static partial class Game
                             FrostblinkRecoveryBonus(player, skillId, gem.Effect, from, to));
                         player.SkillReadyAt[CooldownKey(player, gem.Effect, skillId)] = now + cooldown.RemainingSeconds;
                     }
+                    if (player.Connection.LockstepClient && InAreaFrame(player) && cooldownUse is { } blink)
+                    {
+                        // The client executes 0x01ce at the frame delimiter; 0x02bc updates uses during decoding.
+                        // A correction anywhere in this frame would pre-spend the client's queued IceDash.
+                        long nextFrame = player.Connection.ServerFrame + 1;
+                        blink.State?.DeferNativeRefreshUntil(nextFrame);
+                        foreach (var (state, _, _) in blink.SharedUses)
+                            state.DeferNativeRefreshUntil(nextFrame);
+                        AfterSeconds(player, 0, () =>
+                        {
+                            if (player.ProjectileActive(epoch)) _ = SendNativeCooldownRefresh(player);
+                        });
+                    }
                     accepted = true;
                     return PlayerInstantAction(player, skillId, rawAim, targetObjectId);
                 }
