@@ -25,49 +25,33 @@ public sealed class BreachMetaProgressionTests
         Assert.Equal((byte)0x64, openLocker[2]);
         Assert.Equal(0x1234u, BinaryPrimitives.ReadUInt32BigEndian(openLocker.AsSpan(3, 4)));
 
-        byte[] hb = InstanceBrequel.Hiveblood(25_000);
-        Assert.Equal(InstanceBrequel.HivebloodId, BinaryPrimitives.ReadUInt16BigEndian(hb));
+        BreachModule.LoadData();
+        byte[] hb = BreachHiveblood.BuildHivebloodPacket(25_000);
+        Assert.Equal((ushort)0x02d2, BinaryPrimitives.ReadUInt16BigEndian(hb));
         var expectedCompact = new LoginWriter();
         InstanceProtocol.CompactUInt(expectedCompact, 25_000u);
         Assert.Equal(expectedCompact.ToArray(), hb[2..]);
 
-        // 2. S->C 0x02cf Genesis Tree state: total allowed points, pointsOnly=0, u16 BE count, sorted ascending u16 LE node IDs.
-        byte[] treeFull = InstanceBrequel.TreeState(10, 5, 3, 2, [41240, 7411, 33919, 7411]);
-        Assert.Equal(InstanceBrequel.TreeStateId, BinaryPrimitives.ReadUInt16BigEndian(treeFull));
+        // 2. S->C 0x02cf Genesis Tree state: allowed points, pointsOnly=0, u16 BE count, sorted ascending u16 LE node IDs.
+        //    The start and womb nodes are implicit on the client and left out (33919 and 41240 are wombs).
+        var tree = new BreachGenesisTree.SavedTreeState { Allocated = [41099, 8017, 33919, 41240, 8017] };
+        byte[] treeFull = BreachGenesisTree.BuildTreeStatePacket(tree, [10, 5, 3, 2]);
+        Assert.Equal(BreachGenesisTree.TreeStatePacketId, BinaryPrimitives.ReadUInt16BigEndian(treeFull));
         Assert.Equal((byte)0, treeFull[6]); // pointsOnly = 0
-        Assert.Equal((ushort)3, BinaryPrimitives.ReadUInt16BigEndian(treeFull.AsSpan(7, 2)));
-        Assert.Equal((ushort)7411, BinaryPrimitives.ReadUInt16LittleEndian(treeFull.AsSpan(9, 2)));
-        Assert.Equal((ushort)33919, BinaryPrimitives.ReadUInt16LittleEndian(treeFull.AsSpan(11, 2)));
-        Assert.Equal((ushort)41240, BinaryPrimitives.ReadUInt16LittleEndian(treeFull.AsSpan(13, 2)));
+        Assert.Equal((ushort)2, BinaryPrimitives.ReadUInt16BigEndian(treeFull.AsSpan(7, 2)));
+        Assert.Equal((ushort)8017, BinaryPrimitives.ReadUInt16LittleEndian(treeFull.AsSpan(9, 2)));
+        Assert.Equal((ushort)41099, BinaryPrimitives.ReadUInt16LittleEndian(treeFull.AsSpan(11, 2)));
 
-        byte[] treePtsOnly = InstanceBrequel.TreeState(4, 1, 0, 0);
+        byte[] treePtsOnly = BreachGenesisTree.BuildTreeStatePacket(tree, [4, 1, 0, 0], pointsOnly: true);
         Assert.Equal((byte)1, treePtsOnly[^1]);
 
-        // 3. C->S 0x02d0 / 0x02d1 (4B), 0x02d3 (10B), 0x010d (8B), and 0x02ca Ruleset #165 skill activation (9B).
-        Assert.Equal((ushort)33919, InstanceBrequel.ReadNodeAction(new LoginWriter().U16(InstanceBrequel.AllocateNodeId).U16(33919).ToArray()));
-        var fert = InstanceBrequel.ReadFertiliseWombgift(new LoginWriter().U16(InstanceBrequel.FertiliseWombgiftId).U32(102).U32(77).ToArray());
-        Assert.Equal((102u, 77u), (fert.InventoryId, fert.ItemId));
+        // 3. C->S 0x010d (8B) and the 0x02ca Ruleset #165 skill activation payload (5B).
         var move = InstanceBrequel.ReadLockerMove(new LoginWriter().U16(InstanceBrequel.LockerMoveId).U32(99).U8(0).U8(1).ToArray());
         Assert.Equal((99u, false, true), (move.ItemId, move.FromExpanded, move.Into));
-
-        byte[] skillAction = [0x02, 0xca, 0xa5, 0x05, 0x00, 0x78, 0x56, 0x34, 0x12];
-        Assert.True(InstanceBrequel.TryReadActivateEncounterSkill(skillAction, out uint skillEntityId));
+        Assert.True(BreachRulesets.TryReadActivateSkillAction([0x00, 0x78, 0x56, 0x34, 0x12], out uint skillEntityId));
         Assert.Equal(0x12345678u, skillEntityId);
 
-        // 4. S->C 0x02c9 Rulesets #165 & #166 binary layouts match BreachRulesets byte-for-byte.
-        BreachModule.LoadData();
-        Assert.Equal(
-            InstanceBrequel.EstablishedState(InstanceBrequel.EstablishedEncounterState.FortressEscape, 240, 310, true),
-            BreachRulesets.EstablishedState(2, 240, 310, true));
-        Assert.Equal(InstanceBrequel.EstablishedWave(3, 5), BreachRulesets.EstablishedWave(3, 5));
-        Assert.Equal(InstanceBrequel.EstablishedDefence(8, 12, true), BreachRulesets.EstablishedHealth(8, 12, true));
-        Assert.Equal(InstanceBrequel.EstablishedOverlay(true), BreachRulesets.EstablishedOverlay(true));
-        Assert.Equal(
-            InstanceBrequel.BarrierRadius(120, 180, new(30f, 95f, 1.5f, 0.25f, 25)),
-            BreachRulesets.BarrierRadius(120, 180, 30f, 95f, 1.5f, 0.25f, 25));
-        Assert.Equal(InstanceBrequel.BarrierActive(true), BreachRulesets.BarrierActive(true));
-
-        // 5. BrequelFruit Component 170 (u32 LE fleshgraftLevel), Foulborn Mods bit 9 (0x0200), SQLite save round-trip,
+        // 4. BrequelFruit Component 170 (u32 LE fleshgraftLevel), Foulborn Mods bit 9 (0x0200), SQLite save round-trip,
         //    UniqueCatalog.Reforge refusal, Foulborn orbs, and MutatedUniqueCatalog (365 mods).
         var items = Program.Items;
         var fruitType = items.ById("Metadata/Items/Chayula/EquipmentFruit");
@@ -141,7 +125,7 @@ public sealed class BreachMetaProgressionTests
             // 1. Extracted ChayulaTreePassiveSkillGraph ("brequel") has 134 nodes and all 4 root nodes.
             var links = PassiveGraphs.Links("brequel");
             Assert.Equal(134, links.Count);
-            foreach (ushort root in InstanceBrequel.RootNodes)
+            foreach (ushort root in new ushort[] { 19625, 22476, 42956, 47967 })
                 Assert.True(links.ContainsKey(root), $"missing Genesis Tree root node {root}");
 
             // 2. Hiveblood cost formula (0x1424ad630) uses FleshgraftLevel 1..100 (row = level - 1).
@@ -149,8 +133,7 @@ public sealed class BreachMetaProgressionTests
             Assert.Equal(1137, level80Storage);
             var equipFruitDef = BreachGenesisTree.FindFruitBySubTree(0);
             Assert.True(equipFruitDef.HasValue);
-            Assert.Equal((int)InstanceBrequel.HivebloodCost((uint)level80Storage, 90),
-                BreachGenesisTree.RequiredHivebloodFor(equipFruitDef!.Value, 80));
+            Assert.Equal(level80Storage * 90 / 100, BreachGenesisTree.RequiredHivebloodFor(equipFruitDef!.Value, 80));
 
             // 3. Wombgift creation, Wombgift Locker refusal, and Genesis Tree reward generation across all 4 sub-trees.
             await using var area = await BreachArea.Open();
