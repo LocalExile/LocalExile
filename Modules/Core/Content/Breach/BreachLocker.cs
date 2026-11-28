@@ -110,6 +110,11 @@ public static class BreachLocker
             ? (move.FromExpanded ? PlayerInventories.ExpandedInventory : PlayerInventories.MainInventory)
             : LockerRow;
         string what = $"0x010d Ctrl+click item {move.ItemId} {(move.Into ? "into" : "out of")} BrequelStorage1";
+        if (player.ModuleWindow is not (LockerWindow or BreachHub.TreeWindow))
+        {
+            module.Log($"{modPlayer.Character} <= {what}: refused (the locker is not open)");
+            return true;
+        }
         var it = items.Items(from).FirstOrDefault(i => i.Id == move.ItemId);
         if (it is null)
         {

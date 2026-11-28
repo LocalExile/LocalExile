@@ -364,7 +364,14 @@ public static class BreachHub
     /// <summary>Closes the Wombgift Locker lid when the player walks away or opens another window.</summary>
     public static async Task TickAsync(Player player)
     {
-        if (!States.TryGetValue(player, out var state) || !state.LockerOpen) return;
+        if (!States.TryGetValue(player, out var state)) return;
+        if (player.ModuleWindow == TreeWindow)
+        {
+            var at = player.Walk.Position(AreaTime(player));
+            long tx = at.X - state.TreeAt.X, ty = at.Y - state.TreeAt.Y, reach = state.TreeReach + 30;
+            if (tx * tx + ty * ty > reach * reach) player.ModuleWindow = null;
+        }
+        if (!state.LockerOpen) return;
         var here = player.Walk.Position(AreaTime(player));
         long dx = here.X - state.LockerAt.X, dy = here.Y - state.LockerAt.Y, far = state.LockerReach + 30;
         if (player.ModuleWindow == BreachLocker.LockerWindow && dx * dx + dy * dy <= far * far) return;

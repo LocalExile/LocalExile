@@ -380,12 +380,15 @@ public static partial class BreachGenesisTree
         return ($"0x02cf Genesis Tree ({state.Allocated.Count} nodes)", BuildTreeStatePacket(state, earned));
     }
 
+    // The tree's packets count only while its window is open (BreachHub sets it at TreeTree), as DeepwaterLocker does.
+    static string? TreeClosed(Player player) => player.ModuleWindow != BreachHub.TreeWindow ? "the Genesis Tree is not open" : null;
+
     /// <summary>Handles <c>C→S 0x02d0</c> (4 bytes: <c>u16 BE 0x02d0, u16 BE nodeGraphId</c>) allocate request.</summary>
     public static async Task<bool> HandleAllocatePacketAsync(IModuleContext module, Player player, byte[] bytes)
     {
         if (bytes.Length < AllocateRefundPacketLength) return false;
         ushort nodeId = BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(2, 2));
-        string? err = await AllocateNodeAsync(player, nodeId);
+        string? err = TreeClosed(player) ?? await AllocateNodeAsync(player, nodeId);
         if (err is not null)
         {
             module.Log($"{PlayerOf(player).Character} <= 0x02d0 allocate Genesis Tree node {nodeId}: refused ({err})");
@@ -403,7 +406,7 @@ public static partial class BreachGenesisTree
     {
         if (bytes.Length < AllocateRefundPacketLength) return false;
         ushort nodeId = BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(2, 2));
-        string? err = await RefundNodeAsync(player, nodeId);
+        string? err = TreeClosed(player) ?? await RefundNodeAsync(player, nodeId);
         if (err is not null)
         {
             module.Log($"{PlayerOf(player).Character} <= 0x02d1 refund Genesis Tree node {nodeId}: refused ({err})");
@@ -425,7 +428,7 @@ public static partial class BreachGenesisTree
         uint inventoryId = BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2, 4));
         uint itemId = BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(6, 4));
 
-        var (err, rewards) = await FertiliseFromInventoryAsync(player, inventoryId, itemId);
+        var (err, rewards) = TreeClosed(player) is { } closed ? (closed, []) : await FertiliseFromInventoryAsync(player, inventoryId, itemId);
         if (err is not null)
         {
             module.Log($"{PlayerOf(player).Character} <= 0x02d3 fertilise Wombgift inv={inventoryId} item={itemId}: refused ({err})");
