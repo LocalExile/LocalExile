@@ -557,6 +557,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing. Eligible placements can summon
   two totems. Skill bars without a saved attack-in-place mask use each bound skill's default.
+- Retained Royale Rejuvenation Totem gems grant the regeneration aura at their own per-level rate.
 - Retained Royale Artillery Ballista gems place a bow totem whose mortar volley uses the gem's own arrow count and
   range.
 - Siege Ballista of Trarthus places a formation within the active totem limit. Each totem fires once at the placement

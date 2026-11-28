@@ -39,6 +39,7 @@ public static partial class Game
     static readonly Dictionary<string, (ushort Buff, int Radius)> TotemAuras = new()
     {
         ["RejuvenationTotem"] = (172, 10),
+        ["RejuvenationTotemRoyale"] = (172, 10),
         [VaalRejuvenationTotemEffect] = (2201, 10),
     };
 
