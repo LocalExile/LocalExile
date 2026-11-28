@@ -305,6 +305,47 @@ public sealed class SettlersTests
                 Assert.True(OperationsData.TryGetMapTier(t1Map.Hash, out int resolvedTier));
                 Assert.Equal(1, resolvedTier);
             }
+
+            // 7. Regression: ApplyFromStoreSnapshot preserves sailing TimerTotal in progress units (never raw seconds)
+            //    and keeps IsAtSea true, while idle PortId=0/EventId=0 normalize to NoneRow (0xFF).
+            uint shipTarget = VillageShippingService.ComputeTravelTime(1, 0, 1.0).ProgressTarget;
+            bridge.MutateSnapshot(account, league, snap =>
+            {
+                var ships = snap.Ships.Where(s => s.ShipIndex != 0 && s.ShipIndex != 1).ToList();
+                ships.Add(new VillageStore.ShipRow(0, VillageShippingService.ShipStateSailing, 1,
+                    now - 100, now + 1800, 0, 1000,
+                    $"{{\"Exports\":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"Elapsed\":{shipTarget / 3},\"Total\":{shipTarget}}}",
+                    "[]", 0, 0, false));
+                ships.Add(new VillageStore.ShipRow(1, VillageShippingService.ShipStateIdle, 0,
+                    0, 0, 0, 0, "{}", "[]", 0, 0, false));
+                return (snap with { Ships = ships }, true);
+            }, persistNow: true);
+            lock (state.Gate)
+            {
+                Assert.Equal(shipTarget, state.Ships[0].TimerTotal);
+                Assert.True(state.Ships[0].IsAtSea);
+                Assert.Equal(InstanceVillage.NoneRow, state.Ships[1].PortRow);
+                Assert.Equal(InstanceVillage.NoneRow, state.Ships[1].FailureRow);
+            }
+
+            // 8. Regression: ProspectingAstrolabe rejects >1 direct astrolabe and rejects stacking on an already-shaped map.
+            var astrolabe = new GameServer.Modules.Settlers.MapOres.ProspectingAstrolabe();
+            var dummyArea = new MapDevice.MapArea(0xF4DD, "MapWorldsBeach", "Beach", 0) { Level = 83 };
+            var dummyOpening = new MapDevice.Opening(dummyArea, MapMods.None);
+            var astrolabeSlot = new MapDeviceSlot(0, 0, 1, GameServer.Modules.Settlers.MapOres.MapOreTables.ProspectingAstrolabeId, "Currency", false);
+            var twoAstrolabes = new MapOpening(null!, [astrolabeSlot, astrolabeSlot], false, dummyOpening);
+            astrolabe.OnMapOpening(twoAstrolabes);
+            Assert.Null(twoAstrolabes.Opening);
+
+            var alreadyShaped = new MapOpening(null!, [astrolabeSlot], false,
+                dummyOpening with { Mods = MapMods.None.WithFragmentStat(Stat.ProspectingAstrolabeEnabledMap, 1) });
+            astrolabe.OnMapOpening(alreadyShaped);
+            Assert.Null(alreadyShaped.Opening);
+
+            var oneAstrolabe = new MapOpening(null!, [astrolabeSlot], false, dummyOpening);
+            astrolabe.OnMapOpening(oneAstrolabe);
+            Assert.NotNull(oneAstrolabe.Opening);
+            Assert.Equal(1, oneAstrolabe.Opening!.Mods.Get(Stat.MonsterInAstrolabeMap));
         }
         finally
         {
