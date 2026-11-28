@@ -551,6 +551,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Void Sphere and Rending pulse while active, pull non-unique enemies, apply distance-scaled Hinder, and consume corpses on death in their area.
 - Hydrosphere recasts move one sphere per player. It drenches enemies along its path, applies cold and lightning Exposure, and pulses with conversion based on its current ailments.
 - Tornado absorbs projectiles while travelling, then chases enemies and reflects part of the absorbed damage. Elemental Turbulence chases from release and can keep three tornadoes active.
+- Galvanic Field grants a buff that the player's next Shock consumes. Its attached field fires timed beams with per-enemy cooldowns. The base gem scales from the triggering Shock.
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) §9a.

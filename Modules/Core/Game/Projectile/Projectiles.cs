@@ -370,6 +370,7 @@ public static partial class Game
             ClearVoidSpheres();
             ClearHydrosphere();
             ClearTornadoes();
+            ClearGalvanicField();
             ClearConvictionWaves();
             ClearBladestorms();
             ClearTrarthus();

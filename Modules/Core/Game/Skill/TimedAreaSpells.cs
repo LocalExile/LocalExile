@@ -5,7 +5,7 @@ public static partial class Game
     static bool TimedAreaSpellEffect(string? effect) =>
         CorpseDamageSpell(effect) || CremationEffect(effect) || BladefallEffect(effect)
         || FrostBombEffect(effect) || VoidSphereEffect(effect) || HydrosphereEffect(effect) || TornadoEffect(effect) || IsBladeVortex(effect)
-        || effect is "BallLightningAltY" or VaalBladeVortexEffect;
+        || GalvanicFieldEffect(effect) || effect is "BallLightningAltY" or VaalBladeVortexEffect;
 
     public sealed partial class ProjectileSession
     {
@@ -79,6 +79,13 @@ public static partial class Game
                     ReleaseHydrosphere(Player.Id, gem.Effect, source.Stats, aim, Current,
                         (centre, radius, drenched, cold, lightning) => Hit(centre, radius, ProjectileWorldTime(Player),
                             targetFilter: drenched, spellSource: HydroDamageSource(source, cold, lightning)));
+                    return;
+                }
+                if (GalvanicFieldEffect(effect))
+                {
+                    ArmGalvanicField(gem.Id, source, Current, (centre, radius, victim, multiplier) =>
+                        Hit(centre, radius, ProjectileWorldTime(Player), stageMore: multiplier,
+                            targetFilter: (id, _) => id == victim));
                     return;
                 }
                 if (TornadoEffect(effect))

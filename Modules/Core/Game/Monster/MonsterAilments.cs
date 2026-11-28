@@ -169,8 +169,12 @@ public static partial class Game
         AlternateAilmentsOnBlockLocked(m, playerStats, now);
         if (RandomRolls.Chance(playerStats(Stat.ChillAttackersFor4SecondsOnBlockPctChance), 100, random))
             InflictedLocked(player, m, m.Ailments.WithoutDamage(Kind.Chill, 4, now, playerStats, Target, area));
-        if (RandomRolls.Chance(playerStats(Stat.ShockAttackersFor4SecondsOnBlockPctChance), 100, random))
-            InflictedLocked(player, m, m.Ailments.WithoutDamage(Kind.Shock, 4, now, playerStats, Target, area));
+        if (RandomRolls.Chance(playerStats(Stat.ShockAttackersFor4SecondsOnBlockPctChance), 100, random)
+            && m.Ailments.WithoutDamage(Kind.Shock, 4, now, playerStats, Target, area) is { } shock)
+        {
+            InflictedLocked(player, m, shock);
+            player.ProjectileRuntime?.GalvanicOnShock(m, now);
+        }
     }
 
     /// <summary>The area of effect modifier a hit's shock spreads by (SkillArea.Modifier): the player's panel total
@@ -424,6 +428,7 @@ public static partial class Game
         long criticalEffect = critical && Player(Stat.KeystoneElementalOverload) == 0
             ? (long)Player(Stat.NonDamagingAilmentEffectPlusPctWithCriticalStrikes)
                 + Skill(Stat.NonDamagingAilmentEffectPlusPctWithCriticalStrikes) : 0;
+        var galvanic = playerHit ? player.ProjectileRuntime?.GalvanicShockBonus() ?? default : default;
         int Attacker(uint name)
         {
             int value = Player(name) + PanelStats.Of(name, Skill);
@@ -436,7 +441,10 @@ public static partial class Game
                 _ => 0,
             };
             if (effect != 0) value = ActorScale.Saturate(value + effect);
-            if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock + extraShockChance);
+            if (name == Stat.ChanceToShockPct)
+                value = ActorScale.Saturate((long)value + frozenShock + extraShockChance + galvanic.Chance);
+            if (name == Stat.VirtualShockDurationPlusPct)
+                value = ActorScale.Saturate((long)value + galvanic.Duration);
             if (name == Stat.ChanceToFreezePct) value = ActorScale.Saturate((long)value + projectileFreezeChance);
             if (!tinctureWeapon) return value;
             return name switch
@@ -479,6 +487,7 @@ public static partial class Game
             else if (effect.Kind == Kind.Shock)
             {
                 player.RecentEvents.Record(StatConditions.ShockedEnemy, now);
+                if (playerHit) player.ProjectileRuntime?.GalvanicOnShock(m, now);
                 if (playerHit && m.Hostile && !m.Dead && m.Life > 0
                     && Player(Stat.CreateHeraldOfThunderStormOnShockingEnemy) != 0)
                     ReservationShockLocked(player, now);
