@@ -76,12 +76,15 @@ public sealed partial class MercenaryModule
         else
         {
             // Campaign: the area's own WorldAreaLeagueChances column (Act 3 16%, later acts less, 100 in five zones, 0 in
-            // Acts 1-2, labyrinth rooms, side areas and Ruthless), while playerLevel <= areaLevel + 10.
+            // Acts 1-2, labyrinth rooms, side areas and Ruthless), while playerLevel <= areaLevel + 10. The five guaranteed
+            // zones ignore the level gate.
             var meta = MercenaryTables.AreaOf(layout.Id);
-            allowed = meta is { IsTown: false, IsHideout: false }
-                && player.Pools.Level <= area.Level + 10;
+            allowed = meta is { IsTown: false, IsHideout: false };
             chance = allowed ? ChanceOf(layout.Id, LeagueFor(player).HardMode, stats) : 0;
-            force |= chance >= 100;
+            bool guaranteed = chance >= 100;
+            if (!guaranteed && player.Pools.Level > area.Level + 10) { allowed = false; chance = 0; }
+            force |= guaranteed;
+            lock (run) run.Guaranteed = guaranteed;
         }
 
         // Allow Phase 2 mods (e.g. 3.26 Mercenaries mod) to enable encounters from Mud Flats onward and scale level
@@ -183,7 +186,7 @@ public sealed partial class MercenaryModule
         if (run.GearItems.Count == 0)
             run.GearItems = MercenaryEquipment.ToInventoryItems(run.Equipment, startingId: 1);
 
-        if (run.RucksackItems.Count == 0 && stats.GetValueOrDefault(Stat.MapMercenaryRucksackIsEmpty) <= 0)
+        if (run.RucksackItems.Count == 0 && !run.Guaranteed && stats.GetValueOrDefault(Stat.MapMercenaryRucksackIsEmpty) <= 0)
             run.RucksackItems = RollRucksack(level, rng, forceFull: stats.GetValueOrDefault(Stat.MapMercenaryRucksackIsFull) > 0);
 
         run.WagerCost = MercenaryTables.WagerGoldCost(level, build.Infamous, stats.GetValueOrDefault(Stat.MapMercenaryWagerGoldAmountPlusPct));
