@@ -919,7 +919,8 @@ public static partial class Game
         bool mana = devour.Mana > 0 && player.PlayerMana < UnreservedMana(player);
         if (!life && !mana) return;
         var playerStats = CharacterPlayerStats(player);
-        life &= !LifeRecovery.NonLeechBlocked(name => GolemStat(playerStats, name));
+        var leech = LeechOf(player);
+        life &= leech.ConvertsLifeToEnergyShield || GolemStat(playerStats, Stat.CannotRecoverLife) == 0;
         mana &= GolemStat(playerStats, Stat.Of("cannot_recover_mana")) == 0;
         if (!life && !mana) return;
         double range = TotemTargetRange(player, totem.SkillId);
@@ -935,17 +936,14 @@ public static partial class Game
         if (corpse is null) return;
         ConsumeSummonCorpseLocked(player, corpse, playerConsumesCorpse: false);
         player.Area.Monsters.Remove(corpseId);
-        if (life) player.PlayerLife = (uint)Math.Min(player.PlayerMaxLife, (long)player.PlayerLife + devour.Life);
-        if (mana) player.PlayerMana = (uint)Math.Min(UnreservedMana(player), (long)player.PlayerMana + devour.Mana);
+        ApplyOwnedLeechLocked(player, leech, life ? devour.Life : 0, mana ? devour.Mana : 0, ProjectileWorldTime(player));
         if (totem.GrantedId != 0)
             bytes.Presentation(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, at.X, at.Y,
                 totem.GrantedId, ++totem.Sequence, 0x0408));
         if (!corpse.CreatedAsCorpse) bytes.Remove(corpseId);
-        bytes.Presentation(player.Id, InstanceProtocol.LifeUpdate(player.Id, player.PlayerLife, player.PlayerReservedLife));
-        bytes.Presentation(player.Id, InstanceProtocol.LifeUpdate(player.Id, player.PlayerMana, (uint)ReservedMana(player), pool: ManaPool));
         devour.NextUse = now + (TotemCastSeconds(player, totem.SkillId) ?? 1);
         Console.WriteLine($"[gateway] totem 0x{totem.Id:x} devours corpse 0x{corpseId:x} at ({at.X}, {at.Y}): "
-            + $"+{(life ? devour.Life : 0)} life, +{(mana ? devour.Mana : 0)} mana (player {player.PlayerLife}/{player.PlayerMaxLife})");
+            + $"leech {(life ? devour.Life : 0)} life, {(mana ? devour.Mana : 0)} mana");
     }
 
     // A nova's contact, on the projectile runtime (under the XP gate and the area's frame): every targetable hostile

@@ -215,15 +215,28 @@ public static partial class Game
         if (amount <= 0) return;
         var session = LeechOf(player);
         if (session.ConvertsLifeToEnergyShield && target.Effects[Stat.CannotHaveEnergyShieldLeechedFrom] != 0) return;
+        ApplyOwnedLeechLocked(player, session, amount, 0, now);
+    }
+
+    // Applies amounts already resolved by a minion hit or a corpse meal. The leech session handles conversion and limits.
+    static void ApplyOwnedLeechLocked(Player player, LeechSession session, double life, double mana, double now)
+    {
+        uint manaCap = (uint)UnreservedMana(player);
         session.SetLifeRecoveryRedirected(now, HasVampiricRecipient(player, now));
-        var instant = session.Hit(now, (amount, 0, 0),
-            player.PlayerLife >= LifeCap(player), player.PlayerMana >= UnreservedMana(player),
+        var instant = session.Hit(now, (life, mana, 0),
+            player.PlayerLife >= LifeCap(player), player.PlayerMana >= manaCap,
             player.EnergyShield.Current >= player.EnergyShield.Maximum);
         if (instant.Life > 0 && !RecoverVampiricRecipients(player, instant.Life, now))
         {
             uint before = player.PlayerLife;
             player.PlayerLife = PetrifiedBlood.RecoverLife(player, before, instant.Life, ref session.LifeInstantCarry, minimum: 1);
             session.InstantLifeChanged |= player.PlayerLife != before;
+        }
+        if (instant.Mana > 0)
+        {
+            uint before = player.PlayerMana;
+            player.PlayerMana = RecoveryPool.Advance(before, manaCap, instant.Mana, ref session.ManaInstantCarry);
+            session.InstantManaChanged |= player.PlayerMana != before;
         }
         player.EnergyShield.Gain(instant.EnergyShield);
         TrimLeechLocked(player);
