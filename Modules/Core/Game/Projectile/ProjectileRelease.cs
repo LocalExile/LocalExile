@@ -591,6 +591,7 @@ public static partial class Game
                 WithIgniteSpread(ignite, playerStats, own, spell, hand))),
             Poison = WithOverheat(player, skillId, PoisonSettingsFrom(ailmentRows, hand, Get, local,
                 projectileAttack: projectileDamage && !spell)),
+            PoisonSkill = hitInputs is null ? default : SkillPoisonStats.Of(hitInputs.ActiveSkill, Get),
             EssenceDrain = EssenceDrainCast(player, skillId, gem.Effect),
             GhorrDotMore = GhorrDotMore(player, skillId),
             Bleed = spell ? MonsterIgnites.Settings.None : WithOverheat(player, skillId, BleedSettings(ailmentRows, "main_hand", Get, local, melee: false,

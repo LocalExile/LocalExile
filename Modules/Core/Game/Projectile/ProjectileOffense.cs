@@ -48,7 +48,9 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     /// <summary>The poison damage and duration its hits deal, captured at release (MonsterPoisons); the default poisons
     /// nothing.</summary>
     public MonsterPoisons.Settings Poison { get; init; }
-    /// <summary>Essence Drain's debuff, put on every monster a projectile hit leaves alive (MonsterEssenceDrains.cs).</summary>
+    /// <summary>The poison rules a Crucible weapon tree granted the released skill by name (SkillPoisonStats): its
+    /// whole hit can poison, and its poisons may deal 100% more damage. The default grants neither.</summary>
+    public SkillPoisonStats PoisonSkill { get; init; }
     public MonsterEssenceDrain.Cast? EssenceDrain { get; init; }
 
     public DamageOverTime? TrarthusBurn { get; init; }

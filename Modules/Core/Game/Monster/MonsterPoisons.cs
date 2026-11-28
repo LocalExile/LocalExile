@@ -30,6 +30,16 @@ public static partial class Game
             spell ? null : weapon is null ? MainHandLocalSources(player) : weapon.LocalSources));
     }
 
+    /// <summary>The poison rules a Crucible weapon tree grants this skill by name (<see cref="SkillPoisonStats"/>):
+    /// its whole hit can poison, and its poisons may deal 100% more damage. Captured with the hit, as
+    /// <see cref="SupportedPoison"/> is, because the stats are the caster's at the release.</summary>
+    public static SkillPoisonStats SupportedPoisonSkill(Player player, ushort skillId)
+    {
+        var gem = SupportedSkill(player, skillId);
+        var merged = MergeSkillStats(FinalPlayerStats(player).ToDictionary(v => v.Item1, v => v.Item2), gem.Stats);
+        return SkillPoisonStats.OfEffect(gem.Effect, (uint key) => merged.GetValueOrDefault(key));
+    }
+
     /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
     public static MonsterPoisons.Settings DefaultAttackPoison(Player player, IReadOnlyDictionary<uint, int> playerStats,
         SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null,
@@ -51,13 +61,12 @@ public static partial class Game
     // the hit's own increases and the monster's resistance, already in <paramref name="mitigated"/>, must not reach it.
     public static void PoisonOnHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated,
         bool spell, bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
-        MonsterPoisons.Settings settings, double now, Random random) =>
+        MonsterPoisons.Settings settings, double now, Random random, SkillPoisonStats poisonSkill = default) =>
         TryPoisonOnHitLocked(player, target, mitigated, spell, critical, playerStats, skill, settings, now, random,
-            out _, out _);
-
+            poisonSkill, out _, out _);
     public static bool TryPoisonOnHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated,
         bool spell, bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
-        MonsterPoisons.Settings settings, double now, Random random, out double perSecond, out double seconds)
+        MonsterPoisons.Settings settings, double now, Random random, SkillPoisonStats poisonSkill, out double perSecond, out double seconds)
     {
         perSecond = seconds = 0;
         if (target.Dead || target.Life == 0 || settings.Seconds <= 0) return false;
@@ -67,7 +76,7 @@ public static partial class Game
         int Player(uint key) => playerStats.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
         int Get(uint name) => Player(name) + Skill(name);
-        bool allDamage = Get(Stat.AllDamageCanPoison) != 0 || !spell && !settings.Secondary && settings.AllDamageWithWeapon;
+        bool allDamage = poisonSkill.AllDamage || Get(Stat.AllDamageCanPoison) != 0 || !spell && !settings.Secondary && settings.AllDamageWithWeapon;
         if ((allDamage ? mitigated.MinTotal : phys + chaos) <= 0) return false;
 
         if (MonsterPoisons.Prohibited(Get)) return false;
@@ -95,21 +104,20 @@ public static partial class Game
         bool additionalAllowed = Get(Stat.CannotInflictAdditionalPoisons) == 0;
         int extraOnFreshTarget = additionalAllowed ? Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies) : 0;
         int extraWithWeapon = additionalAllowed && !spell && !settings.Secondary ? settings.AdditionalWithWeapon : 0;
-        if (!ApplyHitPoisonsLocked(target.Poisons, now, perSecond, seconds,
-            extraOnFreshTarget, doubleChance, random, extraWithWeapon)) return false;
+        if (!ApplyHitPoisonsLocked(target.Poisons, now, perSecond, seconds, extraOnFreshTarget, doubleChance, random, extraWithWeapon, poisonSkill)) return false;
         InflictedLocked(player, target, AilmentType.Poison, now + seconds);
         ReservationPoisonLocked(player, now);
         return true;
     }
 
     static bool ApplyHitPoisonsLocked(MonsterPoisons target, double now, double perSecond, double seconds, int additional,
-        int doubleChance = 0, Random? random = null, int additionalAlways = 0)
+        int doubleChance = 0, Random? random = null, int additionalAlways = 0, SkillPoisonStats poisonSkill = default)
     {
         // Decide whether Lethal Dose applies before inserting any poisons from this hit.
         int extra = additional > 0 && target.Stacks(now) == 0 ? additional : 0;
         extra = ActorScale.Saturate((long)extra + Math.Max(0, additionalAlways));
         bool AddPoison() => target.Add(now,
-            doubleChance > 0 && random is not null && RandomRolls.Chance(doubleChance, 100, random) ? perSecond * 2 : perSecond, seconds);
+            poisonSkill.Doubles(random!) || doubleChance > 0 && random is not null && RandomRolls.Chance(doubleChance, 100, random) ? perSecond * 2 : perSecond, seconds);
         bool applied = AddPoison();
         for (int i = 0; i < extra; i++) applied |= AddPoison();
         return applied;
