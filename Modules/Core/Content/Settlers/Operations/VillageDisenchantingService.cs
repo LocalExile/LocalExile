@@ -179,10 +179,13 @@ public sealed class VillageDisenchantingService(IOperationsHost host)
 
             if (nextElapsed < active.DurationSeconds)
             {
-                // Intermediate progress: update in-memory only (no 1s SQLite full-table write).
+                // Intermediate progress: update in-memory only (no 1s SQLite full-table write) and guard against concurrent pickup.
                 host.MutateSnapshot(account, league, snap =>
-                    (snap with { DisenchantQueue = [active with { ElapsedSeconds = nextElapsed }] }, true),
-                    persistNow: false);
+                {
+                    if (snap.DisenchantQueue.Count == 0 || snap.DisenchantQueue[0].ItemId != active.ItemId)
+                        return (null, false);
+                    return (snap with { DisenchantQueue = [active with { ElapsedSeconds = nextElapsed }] }, true);
+                }, persistNow: false);
                 break;
             }
 

@@ -383,7 +383,11 @@ public sealed class VillageShippingService(IOperationsHost host)
         var (account, league) = VillageStore.ScopeOf(player);
         int shipIdx = FindCommandeeredShip(account, league);
         if (shipIdx < 0) return true;
-        await host.OpenPirateBossPortalAsync(player, shipIdx);
+        // Guard against spawning multiple rescue portals for the same kidnapping in one Kingsmarch instance.
+        string portalKey = $"settlers.pirate.portal.{shipIdx}";
+        if (player.Instance?.ContentState.ContainsKey(portalKey) == true) return true;
+        if (await host.OpenPirateBossPortalAsync(player, shipIdx) && player.Instance is not null)
+            player.Instance.ContentState[portalKey] = "open";
         return true;
     }
 
@@ -401,7 +405,13 @@ public sealed class VillageShippingService(IOperationsHost host)
             return true;
         }
 
-        await CompleteCommandeeredShipAsync(player, shipIdx, rescueBonus: false);
+        if (!await CompleteCommandeeredShipAsync(player, shipIdx, rescueBonus: false))
+        {
+            // Concurrently rescued or abandoned between check and spend — refund ransom gold cleanly.
+            var stash = PersonalStashOf(player);
+            uint after = stash.AddGold(OperationsData.RansomCost);
+            await Send(player, InstanceEntities.Gold(after), $"0x02aa refund Kingsmarch ship ransom (+{OperationsData.RansomCost}g)");
+        }
         return true;
     }
 
@@ -460,7 +470,22 @@ public sealed class VillageShippingService(IOperationsHost host)
         if (arrived.Count == 0) return false;
 
         foreach (var ship in arrived)
-            await ResolveArrivedShipAsync(player, account, league, ship, now);
+        {
+            try
+            {
+                await ResolveArrivedShipAsync(player, account, league, ship, now);
+            }
+            catch
+            {
+                // Restore Sailing state so a transient failure cannot strand the ship in ShipStateResolving forever.
+                host.MutateSnapshot(account, league, snap =>
+                {
+                    var nextShips = snap.Ships.Select(s => s.ShipIndex == ship.ShipIndex && s.State == ShipStateResolving ? ship : s).ToList();
+                    return (snap with { Ships = nextShips }, true);
+                }, persistNow: false);
+                throw;
+            }
+        }
 
         return true;
     }
@@ -575,10 +600,12 @@ public sealed class VillageShippingService(IOperationsHost host)
 
                 if (failure.CrewMembersLost > 0)
                 {
-                    var crew = host.GetWorkersForJob(account, league, (byte)(OperationsData.JobShippingFirst + ship.ShipIndex));
-                    for (int k = 0; k < failure.CrewMembersLost && k < crew.Count; k++)
+                    var crew = host.GetWorkersForJob(account, league, (byte)(OperationsData.JobShippingFirst + ship.ShipIndex)).ToList();
+                    for (int k = 0; k < failure.CrewMembersLost && crew.Count > 0; k++)
                     {
-                        var victim = crew[rng.Next(crew.Count)];
+                        int pickIdx = rng.Next(crew.Count);
+                        var victim = crew[pickIdx];
+                        crew.RemoveAt(pickIdx);
                         await host.KillWorkerAsync(player, account, league, victim.WorkerId,
                             (byte)(OperationsData.JobLostAtSeaFirst + ship.ShipIndex));
                     }
@@ -589,7 +616,7 @@ public sealed class VillageShippingService(IOperationsHost host)
         await FinalizeShipmentRewardsAsync(player, account, league, ship, cargo, failureRow, rewardMultiplier);
     }
 
-    async Task CompleteCommandeeredShipAsync(Player player, int shipIdx, bool rescueBonus)
+    async Task<bool> CompleteCommandeeredShipAsync(Player player, int shipIdx, bool rescueBonus)
     {
         var (account, league) = VillageStore.ScopeOf(player);
         var ship = host.MutateSnapshot<VillageStore.ShipRow?>(account, league, snap =>
@@ -600,12 +627,26 @@ public sealed class VillageShippingService(IOperationsHost host)
             return (snap with { Ships = ships }, found);
         }, persistNow: false);
 
-        if (ship is null) return;
-        uint[] cargo = ParseCargo(ship.CargoJson);
-        double bonus = rescueBonus ? 1.35 : 1.0;
-        await FinalizeShipmentRewardsAsync(player, account, league, ship, cargo, failureRow: 0, rewardMultiplier: bonus);
-        if (OperationsSubsystem.IsVillageArea(player))
-            await host.SyncFullVillageStateAsync(player);
+        if (ship is null) return false;
+        try
+        {
+            player.Instance?.ContentState.TryRemove($"settlers.pirate.portal.{shipIdx}", out _);
+            uint[] cargo = ParseCargo(ship.CargoJson);
+            double bonus = rescueBonus ? 1.35 : 1.0;
+            await FinalizeShipmentRewardsAsync(player, account, league, ship, cargo, failureRow: 0, rewardMultiplier: bonus);
+            if (OperationsSubsystem.IsVillageArea(player))
+                await host.SyncFullVillageStateAsync(player);
+            return true;
+        }
+        catch
+        {
+            host.MutateSnapshot(account, league, snap =>
+            {
+                var nextShips = snap.Ships.Select(s => s.ShipIndex == shipIdx && s.State == ShipStateResolving ? ship : s).ToList();
+                return (snap with { Ships = nextShips }, true);
+            }, persistNow: false);
+            throw;
+        }
     }
 
     async Task FinalizeShipmentRewardsAsync(

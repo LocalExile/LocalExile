@@ -57,6 +57,26 @@ public sealed class RecombinatorService(IOperationsHost host)
         return null;
     }
 
+    public string? ValidateInputPlacementAt(Player player, Item item, InventoryItem? replaced, byte x, byte y)
+    {
+        var bt = ItemsFor(player).ByHash(item.TypeHash);
+        if (bt is null) return "unknown item";
+        bool leftHalf = x < RightSlotX;
+        int maxRight = leftHalf ? RightSlotX : 8;
+        if (x + bt.Width > maxRight || y + bt.Height > 4)
+            return "item does not fit within one Recombinator input half";
+
+        var existing = ItemsOf(player).Items(PlayerInventories.RecombinatorInput);
+        foreach (var other in existing)
+        {
+            if (replaced is not null && other.Id == replaced.Id) continue;
+            bool otherLeft = other.X < RightSlotX;
+            if (otherLeft == leftHalf)
+                return "only one item may be placed in each Recombinator input half";
+        }
+        return null;
+    }
+
     public async Task OnInputInventoryChangedAsync(Player player)
     {
         if (GetInputPair(player) is null)
@@ -163,7 +183,8 @@ public sealed class RecombinatorService(IOperationsHost host)
             combinedWeightFactor *= weightFactor * tierPenalty;
         }
 
-        if (prefixes > 3 || suffixes > 3) return 0;
+        int maxAffixes = bt0.Class.Contains("Jewel", StringComparison.OrdinalIgnoreCase) ? 2 : 3;
+        if (prefixes > maxAffixes || suffixes > maxAffixes) return 0;
 
         double baseBonus = item0.TypeHash == item1.TypeHash ? 1.12 : 1.0;
         double rawChance = Math.Pow(combinedWeightFactor, 0.72) * baseBonus;
@@ -205,7 +226,7 @@ public sealed class RecombinatorService(IOperationsHost host)
 
                 var existingInputs = inv.Items(PlayerInventories.RecombinatorInput);
                 bool leftOccupied = existingInputs.Any(i => i.X < RightSlotX);
-                bool rightOccupied = existingInputs.Any(i => i.X >= RightSlotX);
+                bool rightOccupied = existingInputs.Any(i => i.X >= RightSlotX || (i.X + (catalog.ByHash(i.Item.TypeHash)?.Width ?? 1)) > RightSlotX);
                 byte dstX;
                 if (!leftOccupied) dstX = LeftSlotX;
                 else if (!rightOccupied) dstX = RightSlotX;
@@ -260,6 +281,8 @@ public sealed class RecombinatorService(IOperationsHost host)
                     inv.NextRevision(dstRow), st.RemovedIds, st.AddedItems),
                     $"0x00bf recombinator quick-move into row {dstRow}");
             }
+            if (srcRow == PlayerInventories.RecombinatorInput)
+                await OnInputInventoryChangedAsync(player);
             return true;
         }
     }
@@ -454,11 +477,13 @@ public sealed class RecombinatorService(IOperationsHost host)
         var exp0 = item0.Mods.Where(m => m.Section == ModSection.Explicit).ToList();
         var exp1 = item1.Mods.Where(m => m.Section == ModSection.Explicit).ToList();
 
+        var seen0 = new HashSet<byte>();
         foreach (byte i in idx0)
-            if (i < exp0.Count && catalog.Mods.ByHash(exp0[i].Hash) is { } def)
+            if (seen0.Add(i) && i < exp0.Count && catalog.Mods.ByHash(exp0[i].Hash) is { } def)
                 result.Add((exp0[i], def));
+        var seen1 = new HashSet<byte>();
         foreach (byte i in idx1)
-            if (i < exp1.Count && catalog.Mods.ByHash(exp1[i].Hash) is { } def)
+            if (seen1.Add(i) && i < exp1.Count && catalog.Mods.ByHash(exp1[i].Hash) is { } def)
                 result.Add((exp1[i], def));
 
         return result;
@@ -495,13 +520,19 @@ public sealed class RecombinatorService(IOperationsHost host)
         var prefixPool = new List<(ItemMod Mod, ModCatalog.Mod Def)>();
         var suffixPool = new List<(ItemMod Mod, ModCatalog.Mod Def)>();
 
+        HashSet<uint>? influenceLegalHashes = chosenBase.Influences != ItemInfluence.None
+            ? rolls.Pool(baseType, outIlvl, chosenBase.Influences).Select(p => p.Mod.Hash).ToHashSet()
+            : null;
+        int maxAffixes = baseType.Class.Contains("Jewel", StringComparison.OrdinalIgnoreCase) ? 2 : 3;
+
         void AddPool(Item src)
         {
             foreach (var m in src.Mods)
             {
                 if (m.Section != ModSection.Explicit) continue;
                 if (catalog.Mods.ByHash(m.Hash) is not { } def) continue;
-                if (def.Domain == baseType.ModDomain && def.WeightFor(baseType.Tags) == 0 && !def.EssenceOnly && def.Domain != 9)
+                bool legalByWeight = def.WeightFor(baseType.Tags) > 0 || (influenceLegalHashes?.Contains(m.Hash) == true);
+                if (def.Domain == baseType.ModDomain && !legalByWeight && !def.EssenceOnly && def.Domain != 9)
                     continue;
                 if (def.GenerationType == 1) prefixPool.Add((m, def));
                 else if (def.GenerationType == 2) suffixPool.Add((m, def));
@@ -517,13 +548,13 @@ public sealed class RecombinatorService(IOperationsHost host)
         bool prefixesFirst = rng.Next(2) == 0;
         if (prefixesFirst)
         {
-            PickAffixes(prefixPool, chosenExplicits, usedFamilies, ref hasExclusive, rng);
-            PickAffixes(suffixPool, chosenExplicits, usedFamilies, ref hasExclusive, rng);
+            PickAffixes(prefixPool, chosenExplicits, usedFamilies, ref hasExclusive, maxAffixes, rng);
+            PickAffixes(suffixPool, chosenExplicits, usedFamilies, ref hasExclusive, maxAffixes, rng);
         }
         else
         {
-            PickAffixes(suffixPool, chosenExplicits, usedFamilies, ref hasExclusive, rng);
-            PickAffixes(prefixPool, chosenExplicits, usedFamilies, ref hasExclusive, rng);
+            PickAffixes(suffixPool, chosenExplicits, usedFamilies, ref hasExclusive, maxAffixes, rng);
+            PickAffixes(prefixPool, chosenExplicits, usedFamilies, ref hasExclusive, maxAffixes, rng);
         }
 
         var preservedImplicits = chosenBase.Mods.Where(m => m.Section is ModSection.Implicit or ModSection.Enchant).ToList();
@@ -535,6 +566,7 @@ public sealed class RecombinatorService(IOperationsHost host)
         List<ItemMod> output,
         HashSet<int> usedFamilies,
         ref bool hasExclusive,
+        int maxAffixes,
         Random rng)
     {
         if (pool.Count == 0) return;
@@ -548,6 +580,7 @@ public sealed class RecombinatorService(IOperationsHost host)
             acc += probs[k];
             if (roll <= acc) { targetCount = k; break; }
         }
+        targetCount = Math.Min(targetCount, maxAffixes);
         if (targetCount <= 0) return;
 
         for (int i = pool.Count - 1; i > 0; i--)
@@ -617,6 +650,10 @@ public sealed class RecombinatorService(IOperationsHost host)
             Rarity = rarity,
             Identified = true,
             FracturedCount = 0,
+            Foreseeing = false,
+            ForeseeSeed = 0,
+            Note = null,
+            SkinTransferSource = null,
             Mods = allMods,
             NameWords = nameWords,
             CustomName = null,

@@ -178,7 +178,16 @@ public sealed class VillageRewardsService(IOperationsHost host)
             return true;
         }
 
-        var stacked = items.StackAcross(targetRows, entry.InvItem.Item, ShapeOf, preview: false);
+        // Commit both the player inventory addition and the reward deletion atomically before sending packets
+        // so a crash or disconnect mid-Send can never duplicate the claimed reward.
+        IReadOnlyDictionary<byte, PlayerInventories.Stacking> stacked = null!;
+        Saves.Atomically(() =>
+        {
+            stacked = items.StackAcross(targetRows, entry.InvItem.Item, ShapeOf, preview: false);
+            DeleteClaimedFromStore(player, session, [entry]);
+            return true;
+        });
+
         foreach (var (row, st) in stacked)
         {
             if (!st.Any) continue;
@@ -187,7 +196,7 @@ public sealed class VillageRewardsService(IOperationsHost host)
                 $"0x00bf village reward ctrl-take to row {row}");
         }
 
-        await CommitClaimedEntriesAsync(player, session, [entry]);
+        await NotifyClaimedEntriesAsync(player, session, [entry]);
         return true;
     }
 
@@ -220,11 +229,18 @@ public sealed class VillageRewardsService(IOperationsHost host)
             return true;
         }
 
+        // Direct placement into passive jewel sockets must go through Items.PlaceItem (allocation/cluster/limit checks).
+        if (row == PlayerInventories.PassiveJewels)
+        {
+            RestoreEntries(session, [entry]);
+            return true;
+        }
+
         bool allowDisplace = row is >= 1 and <= 11 or 14 or 15 or 102;
         var displacedPreview = row == PlayerInventories.Cursor
             ? null
             : items.PreviewPurchase(row, (int)cmd.X, (int)cmd.Y, rewardItem, ShapeOf, expandedAllowed, allowDisplace)?.Displaced;
-        if (GameEvents.FirstInventoryRefusal(player, row, rewardItem, displacedPreview) is not null)
+        if (GameEvents.FirstInventoryRefusal(player, row, rewardItem, displacedPreview, (byte)cmd.X, (byte)cmd.Y) is not null)
         {
             RestoreEntries(session, [entry]);
             return true;
@@ -237,14 +253,27 @@ public sealed class VillageRewardsService(IOperationsHost host)
                 RestoreEntries(session, [entry]);
                 return true;
             }
-            var added = items.Add(PlayerInventories.Cursor, 0, 0, rewardItem);
+            InventoryItem added = null!;
+            Saves.Atomically(() =>
+            {
+                added = items.Add(PlayerInventories.Cursor, 0, 0, rewardItem);
+                DeleteClaimedFromStore(player, session, [entry]);
+                return true;
+            });
             await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
                 items.NextRevision(PlayerInventories.Cursor), [], [added]), "0x00bf village reward to cursor");
-            await CommitClaimedEntriesAsync(player, session, [entry]);
+            await NotifyClaimedEntriesAsync(player, session, [entry]);
             return true;
         }
 
-        var placement = items.PlaceIncoming(row, (int)cmd.X, (int)cmd.Y, rewardItem, ShapeOf, out _, expandedAllowed, allowDisplace);
+        PlayerInventories.Placement? placement = null;
+        Saves.Atomically(() =>
+        {
+            placement = items.PlaceIncoming(row, (int)cmd.X, (int)cmd.Y, rewardItem, ShapeOf, out _, expandedAllowed, allowDisplace);
+            if (placement is null) return false;
+            DeleteClaimedFromStore(player, session, [entry]);
+            return true;
+        });
         if (placement is null)
         {
             RestoreEntries(session, [entry]);
@@ -265,8 +294,14 @@ public sealed class VillageRewardsService(IOperationsHost host)
                 items.NextRevision(PlayerInventories.Cursor), [], [rest]), "0x00bf village reward overflow to cursor");
 
         if (PlayerInventories.ShowsOnModel(placement.Row)) await SendEquipment(player, items);
+        if (placement.Row == PlayerInventories.Flask)
+        {
+            await ReconcileTincturesAfterFlaskBarChange(player);
+            await RefreshMagebloodFlasks(player);
+        }
+        await GameEvents.RunInventoryChanged(player, placement.Row);
 
-        await CommitClaimedEntriesAsync(player, session, [entry]);
+        await NotifyClaimedEntriesAsync(player, session, [entry]);
         return true;
     }
 
@@ -296,7 +331,14 @@ public sealed class VillageRewardsService(IOperationsHost host)
             return true;
         }
 
-        var result = items.SocketItem(targetRow, cmd.TargetItemId, (int)cmd.SocketIndex, rewardItem, ShapeOf, items.NewItemId, out _);
+        (InventoryItem Host, InventoryItem? Displaced)? result = null;
+        Saves.Atomically(() =>
+        {
+            result = items.SocketItem(targetRow, cmd.TargetItemId, (int)cmd.SocketIndex, rewardItem, ShapeOf, items.NewItemId, out _);
+            if (result is null) return false;
+            DeleteClaimedFromStore(player, session, [entry]);
+            return true;
+        });
         if (result is not var (updatedHost, displacedGem))
         {
             RestoreEntries(session, [entry]);
@@ -313,7 +355,8 @@ public sealed class VillageRewardsService(IOperationsHost host)
             $"0x00bf village reward socketed into item {updatedHost.Id}");
 
         if (ItemModStats.EquipmentRows.Contains(targetRow)) await SendEquipment(player, items);
-        await CommitClaimedEntriesAsync(player, session, [entry]);
+        await GameEvents.RunInventoryChanged(player, targetRow);
+        await NotifyClaimedEntriesAsync(player, session, [entry]);
         return true;
     }
 
@@ -343,25 +386,32 @@ public sealed class VillageRewardsService(IOperationsHost host)
         var leftover = new List<RewardEntry>();
         var removedByRow = new Dictionary<byte, List<uint>>();
         var addedByRow = new Dictionary<byte, List<InventoryItem>>();
+        // Track pre-existing item IDs per row so newly created stacks merged within this batch are never sent in removedIds.
+        var preExistingByRow = targetRows.ToDictionary(r => r, r => items.Items(r).Select(i => i.Id).ToHashSet());
 
-        foreach (var entry in candidates)
+        Saves.Atomically(() =>
         {
-            var preview = items.StackAcross(targetRows, entry.InvItem.Item, ShapeOf, preview: true);
-            if (preview.Values.Min(s => s.Left) > 0)
+            foreach (var entry in candidates)
             {
-                leftover.Add(entry);
-                continue;
-            }
+                var preview = items.StackAcross(targetRows, entry.InvItem.Item, ShapeOf, preview: true);
+                if (preview.Values.Min(s => s.Left) > 0)
+                {
+                    leftover.Add(entry);
+                    continue;
+                }
 
-            var stacked = items.StackAcross(targetRows, entry.InvItem.Item, ShapeOf, preview: false);
-            foreach (var (row, st) in stacked)
-            {
-                if (!st.Any) continue;
-                (removedByRow.TryGetValue(row, out var rl) ? rl : removedByRow[row] = []).AddRange(st.RemovedIds);
-                (addedByRow.TryGetValue(row, out var al) ? al : addedByRow[row] = []).AddRange(st.AddedItems);
+                var stacked = items.StackAcross(targetRows, entry.InvItem.Item, ShapeOf, preview: false);
+                foreach (var (row, st) in stacked)
+                {
+                    if (!st.Any) continue;
+                    (removedByRow.TryGetValue(row, out var rl) ? rl : removedByRow[row] = []).AddRange(st.RemovedIds);
+                    (addedByRow.TryGetValue(row, out var al) ? al : addedByRow[row] = []).AddRange(st.AddedItems);
+                }
+                taken.Add(entry);
             }
-            taken.Add(entry);
-        }
+            if (taken.Count > 0) DeleteClaimedFromStore(player, session, taken);
+            return taken.Count > 0;
+        });
 
         if (leftover.Count > 0) RestoreEntries(session, leftover);
         if (taken.Count == 0) return true;
@@ -370,42 +420,52 @@ public sealed class VillageRewardsService(IOperationsHost host)
         {
             var latestAdded = new Dictionary<uint, InventoryItem>();
             foreach (var it in added) latestAdded[it.Id] = it;
-            var distinctRemoved = removedByRow.TryGetValue(row, out var rl) ? rl.Distinct().ToArray() : [];
+            var preExisting = preExistingByRow[row];
+            var distinctRemoved = removedByRow.TryGetValue(row, out var rl)
+                ? rl.Where(id => preExisting.Contains(id)).Distinct().ToArray()
+                : [];
             await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row),
                 items.NextRevision(row), distinctRemoved, [.. latestAdded.Values]),
                 $"0x00bf village take-all rewards ({taken.Count} items) -> row {row}");
         }
 
-        await CommitClaimedEntriesAsync(player, session, taken);
+        await NotifyClaimedEntriesAsync(player, session, taken);
         return true;
     }
 
-    /// <summary>C→S <c>0x02ca</c> subtag <c>0x17</c>: DiscardAllRewards.</summary>
+    /// <summary>C→S <c>0x02ca</c> subtag <c>0x17</c>: DiscardAllRewards (clears all rows for this slot, including overflow/unparseable rows).</summary>
     public async Task<bool> HandleDiscardAllRewardsAsync(Player player)
     {
         if (!_sessions.TryGetValue(player, out var session)) return true;
         List<RewardEntry> all;
         lock (session.Gate)
         {
-            if (session.ByItemId.Count == 0) return true;
             all = session.ByItemId.Values.ToList();
             session.ByItemId.Clear();
         }
-        await CommitClaimedEntriesAsync(player, session, all);
+        var (account, league) = VillageStore.ScopeOf(player);
+        host.MutateSnapshot(account, league, snap =>
+        {
+            var remaining = snap.RewardItems
+                .Where(r => !(r.SourceKind == session.SourceKind && r.SourceIndex == session.SlotIndex))
+                .ToList();
+            return (snap with { RewardItems = remaining }, remaining.Count);
+        }, persistNow: true);
+        await NotifyClaimedEntriesAsync(player, session, all);
         return true;
     }
 
     /// <summary>C→S <c>0x02ca</c> subtag <c>0x1b</c>: HarbourNpcNotifAck.</summary>
     public async Task<bool> HandleHarbourNotifAckAsync(Player player, InstanceVillage.HarbourNpcNotifAckCommand cmd)
     {
-        await SyncRewardVisibilityAsync(player, activeNoticeValue: 0);
+        await SyncRewardVisibilityAsync(player, activeNoticeValue: null);
         return true;
     }
 
     /// <summary>C→S <c>0x02ca</c> subtag <c>0x1c</c>: MappingNpcNotifAck.</summary>
     public async Task<bool> HandleMappingNotifAckAsync(Player player, InstanceVillage.MappingNpcNotifAckCommand cmd)
     {
-        await SyncRewardVisibilityAsync(player, activeNoticeValue: 0);
+        await SyncRewardVisibilityAsync(player, activeNoticeValue: null);
         return true;
     }
 
@@ -418,7 +478,7 @@ public sealed class VillageRewardsService(IOperationsHost host)
         }
     }
 
-    async Task CommitClaimedEntriesAsync(Player player, OpenRewardSession session, IReadOnlyList<RewardEntry> entries)
+    void DeleteClaimedFromStore(Player player, OpenRewardSession session, IReadOnlyList<RewardEntry> entries)
     {
         var (account, league) = VillageStore.ScopeOf(player);
         var removeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -440,7 +500,11 @@ public sealed class VillageRewardsService(IOperationsHost host)
             }
             return (snap with { RewardItems = remaining }, remaining.Count);
         }, persistNow: true);
+    }
 
+    async Task NotifyClaimedEntriesAsync(Player player, OpenRewardSession session, IReadOnlyList<RewardEntry> entries)
+    {
+        var (account, league) = VillageStore.ScopeOf(player);
         var byPage = new Dictionary<uint, List<uint>>();
         foreach (var e in entries)
             (byPage.TryGetValue(e.PageInventoryId, out var list) ? list : byPage[e.PageInventoryId] = []).Add(e.InvItem.Id);

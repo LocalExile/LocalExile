@@ -542,8 +542,10 @@ public static class OperationsSubsystem
         GameEvents.Packet(InstanceVillage.RecombinatorQuickMoveId).Add(id, Recombinator.HandleQuickMoveAsync);
         GameEvents.Packet(InstanceVillage.RecombinateId).Add(id, Recombinator.HandleRecombinateAsync);
 
-        // Inventory placement validation and post-change notifications.
+        // Inventory placement validation, pickup lock, and post-change notifications.
+        GameEvents.InventoryPick.Add(id, GuardInventoryPickAsync);
         GameEvents.InventoryRefusal.Add(id, ValidateInventoryRefusal);
+        GameEvents.InventoryPlacementRefusal.Add(id, ValidateInventoryPlacementRefusal);
         GameEvents.InventoryChanged.Add(id, OnInventoryChangedAsync);
 
         // Area enter / leave lifecycle: sync ships, quotas, reward badges, and flush deferred progress.
@@ -611,12 +613,28 @@ public static class OperationsSubsystem
         };
     }
 
+    static Task<bool> GuardInventoryPickAsync(Player player, InstanceItems.PickUpItem pick)
+    {
+        if (PlayerInventories.Row(pick.InventoryId) != PlayerInventories.KalguurMapping)
+            return Task.FromResult(false);
+        var item = ItemsOf(player).Items(PlayerInventories.KalguurMapping).FirstOrDefault(i => i.Id == pick.ItemId);
+        if (item is null) return Task.FromResult(false);
+        return Task.FromResult(Mapping.IsSlotLocked(player, item.Y, item.X));
+    }
+
     static string? ValidateInventoryRefusal(Player player, byte row, Item item) => row switch
     {
         PlayerInventories.KalguurDisenchanting => Disenchanting.ValidatePlacement(player, item),
         PlayerInventories.KalguurMapping => Mapping.ValidatePlacement(player, item),
         PlayerInventories.RecombinatorInput => Recombinator.ValidateInputPlacement(player, item),
         PlayerInventories.RecombinatorOutput => "cannot place items into the Recombinator output slot",
+        _ => null,
+    };
+
+    static string? ValidateInventoryPlacementRefusal(InventoryPlacement placement) => placement.Row switch
+    {
+        PlayerInventories.KalguurMapping => Mapping.ValidatePlacementAt(placement.Player, placement.X, placement.Y, placement.Replaced),
+        PlayerInventories.RecombinatorInput => Recombinator.ValidateInputPlacementAt(placement.Player, placement.Item, placement.Replaced, placement.X, placement.Y),
         _ => null,
     };
 

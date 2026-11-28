@@ -267,13 +267,38 @@ public sealed class VillageMappingService(IOperationsHost host)
         return true;
     }
 
+    /// <summary>Returns true if the slot (<paramref name="slotX"/>, <paramref name="deviceIdx"/>) holds a completed or active/kidnapped map that cannot be removed or displaced.</summary>
+    public bool IsSlotLocked(Player player, int deviceIdx, int slotX)
+    {
+        if (deviceIdx is < 0 or >= OperationsData.MapDeviceCount) return false;
+        var (account, league) = VillageStore.ScopeOf(player);
+        var dev = host.ReadSnapshot(account, league)?.MapDevices.FirstOrDefault(d => d.DeviceIndex == deviceIdx);
+        if (dev is null) return false;
+        int completedCount = ParseSummary(dev.SummaryJson).CompletionPercents.Length;
+        if (slotX < completedCount) return true;
+        return dev.State is DeviceStateRunning or DeviceStateKidnapped && slotX == dev.ActiveMapSlot;
+    }
+
+    public string? ValidatePlacementAt(Player player, byte x, byte y, InventoryItem? replaced)
+    {
+        if (IsSlotLocked(player, y, x))
+            return "cannot overwrite an active or completed Atlas Runner map slot";
+        if (replaced is not null && IsSlotLocked(player, replaced.Y, replaced.X))
+            return "cannot swap out an active or completed Atlas Runner map";
+        return null;
+    }
+
     /// <summary>C→S <c>0x02ca</c> subtag <c>0x0f</c>: RescueKidnappedMappers (opens Abandoned Port portal to Sasan).</summary>
     public async Task<bool> HandleRescueMappersAsync(Player player)
     {
         var (account, league) = VillageStore.ScopeOf(player);
         int devIdx = FindKidnappedDevice(account, league);
         if (devIdx < 0) return true;
-        await host.OpenBanditBossPortalAsync(player, devIdx);
+        // Guard against spawning multiple rescue portals for the same kidnapping in one Kingsmarch instance.
+        string portalKey = $"settlers.bandit.portal.{devIdx}";
+        if (player.Instance?.ContentState.ContainsKey(portalKey) == true) return true;
+        if (await host.OpenBanditBossPortalAsync(player, devIdx) && player.Instance is not null)
+            player.Instance.ContentState[portalKey] = "open";
         return true;
     }
 
@@ -291,7 +316,13 @@ public sealed class VillageMappingService(IOperationsHost host)
             return true;
         }
 
-        await ReleaseKidnappedDeviceAsync(player, account, league, devIdx, rescueBonus: false);
+        if (!await ReleaseKidnappedDeviceAsync(player, account, league, devIdx, rescueBonus: false))
+        {
+            // Concurrently rescued or abandoned between check and spend — refund ransom gold cleanly.
+            var stash = PersonalStashOf(player);
+            uint after = stash.AddGold(OperationsData.RansomCost);
+            await Send(player, InstanceEntities.Gold(after), $"0x02aa refund Kingsmarch mapper ransom (+{OperationsData.RansomCost}g)");
+        }
         return true;
     }
 
@@ -410,6 +441,7 @@ public sealed class VillageMappingService(IOperationsHost host)
 
         var snapBefore = host.ReadSnapshot(account, league);
         var existingBefore = snapBefore?.MapDevices.FirstOrDefault(d => d.DeviceIndex == deviceIdx);
+        if (existingBefore is { State: DeviceStateRunning or DeviceStateKidnapped }) return false;
         int completedCount = existingBefore is not null ? ParseSummary(existingBefore.SummaryJson).CompletionPercents.Length : 0;
 
         var inv = ItemsOf(player);
@@ -596,7 +628,7 @@ public sealed class VillageMappingService(IOperationsHost host)
         return await TryStartNextMapAsync(player, account, league, deviceIdx, clearPause: false);
     }
 
-    async Task ReleaseKidnappedDeviceAsync(Player player, string account, string league, int devIdx, bool rescueBonus)
+    async Task<bool> ReleaseKidnappedDeviceAsync(Player player, string account, string league, int devIdx, bool rescueBonus)
     {
         DeviceSummary? summary = host.MutateSnapshot<DeviceSummary?>(account, league, snap =>
         {
@@ -620,6 +652,7 @@ public sealed class VillageMappingService(IOperationsHost host)
 
         if (summary is not null)
         {
+            player.Instance?.ContentState.TryRemove($"settlers.bandit.portal.{devIdx}", out _);
             int tier = Math.Clamp(summary.MapTier, 1, 17);
             var loot = GenerateMapRunLoot(player, tier, summary.MapIIQ + (rescueBonus ? 60 : 0), 100, Random.Shared);
             OperationsSubsystem.Rewards.AddRewards(account, league, VillageRewardsService.SourceMapping, devIdx, loot, ItemsFor(player).Mods);
@@ -630,6 +663,7 @@ public sealed class VillageMappingService(IOperationsHost host)
             await OperationsSubsystem.Rewards.SyncRewardVisibilityAsync(player);
             await host.SyncFullVillageStateAsync(player);
         }
+        return summary is not null;
     }
 
     static List<Item> GenerateMapRunLoot(Player player, int tier, int mapIIQ, int completionPct, Random rng)
