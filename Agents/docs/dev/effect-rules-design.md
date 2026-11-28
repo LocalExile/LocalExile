@@ -80,8 +80,8 @@ today. `ChargeEvent` grows into this shared event, and the charge code becomes o
 
 ### Order and randomness
 
-Each rule has one position in its event, and the compiler refuses two rules with the same one. Today hit charges use
-`roll_order` and kill charges `kill_charge_order`; both become this position. A rule that takes away what a later rule
+Each rule has one position in its event (`fx_rules.position`), and the compiler refuses two rules with the same one.
+A rule that takes away what a later rule
 grants must run first.
 
 A migrated roll keeps its place and draws exactly when the old code drew: whether a failed condition, a 0% or 100%
@@ -145,7 +145,9 @@ means the same thing, as the hit charges (`{"who":"monster"}`) and minion kill c
 
 Each step is its own pull request with its tests.
 
-1. The shared event: facts copied at the site, owners, blocked hits, active sets. Move the remaining charge rules.
+1. One position per rule; every charge rule rolled on an event as rows; `fx_stats`. Done, except the per-actor active
+   sets: rules still add the used skill's stats through a lookup, so the sets wait for a `used_skill` scope (step 5),
+   and the event's stats and weapon are still read when the charge queue rolls.
 2. Recover, debuff, ailment and remove actions, with the on-kill and on-block recovery.
 3. The triggered-skill pipeline, one source family at a time.
 4. Minions, monsters and totems as actors.
