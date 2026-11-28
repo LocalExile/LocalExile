@@ -31,8 +31,9 @@ public static partial class Game
         long increased = (long)effects[Stat.DamagePlusPct] + effects[Stat.AreaDamagePlusPct] + typedIncrease;
         if (damageOverTime) increased += (long)effects[Stat.DamageOverTimePlusPct] + effects[Stat.BurnDamagePlusPct];
         int Own(uint stat) => skill?.GetValueOrDefault(stat) ?? 0;
-        if (DamageStats.Prohibited(type, Own)) return 0;
         var support = skill?.Select(p => (p.Key, p.Value)) ?? [];
+        if (DamageStats.Prohibited(type, id => Own(id) != 0 || effects[id] != 0 ? 1 : 0)
+            || GemSupportDamage.Prohibited(type, support)) return 0;
         var (general, typed) = GemSupportDamage.Multipliers(DamageTypes.HistoryOf(type), support, MinionAreaDamageTags);
         double factor = Math.Max(0, 1 + increased / 100d) * general * typed
             * Math.Max(0, 1 + Own(Stat.ActiveSkillMinionDamagePlusPctFinal) / 100d)
@@ -48,7 +49,9 @@ public static partial class Game
 
     internal static int InfernalLegionSelfDamage(GolemState.Golem minion, double elapsed, double taken)
     {
-        int coefficient = GolemStat(minion.Own, Stat.MinionFireDamagePctOfMaximumLifeTakenPerMinute);
+        int coefficient = GolemStat(minion.Own, Stat.MinionFireDamagePctOfMaximumLifeTakenPerMinute)
+            + (minion.Definition.Kind == "Zombie" ? GolemStat(minion.Player, Stat.RaisedZombiesFireDamagePctOfMaximumLifeTakenPerMinute)
+            : minion.Definition.Kind is "Skeleton" or "VaalSkeleton" ? GolemStat(minion.Player, Stat.SummonedSkeletonsFireDamagePctOfMaximumLifeTakenPerMinute) : 0);
         if (coefficient <= 0 || elapsed <= 0 || taken <= 0) return 0;
         var state = InfernalLegionSelfBurns.GetOrCreateValue(minion);
         double total = state.Carry + minion.Monster.MaxLife * (coefficient / 6000d) * elapsed * taken
@@ -165,6 +168,6 @@ public static partial class Game
             CommitBossStage(player, id, target, now);
             hit = hit with { StageStarts = false };
         }
-        CommitMinionHitLocked(player, id, target, hit, damage, now, effect, source: minion.Monster, skill: minion.Own, fighter: minion);
+        CommitMinionHitLocked(player, id, target, hit, damage, now, effect, source: minion.Monster, skill: minion.Own, fighter: minion, secondary: true);
     }
 }

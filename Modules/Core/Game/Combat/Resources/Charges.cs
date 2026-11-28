@@ -64,14 +64,7 @@ public static partial class Game
             });
         }
         double now = ProjectileWorldTime(player);
-        bool frozen = m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0;
-        bool bleeding = m.Bleeds.Burning;
-        // "your Marked Enemy": a Mark this player cast, not another player's on the same monster.
-        bool marked = false;
-        foreach (var curse in m.Curses.All.Values)
-            if (curse.Mark && curse.Caster == player.Id) { marked = true; break; }
-        bool selfBleeding = player.IncomingAilments.Bleeding(now);
-        bool selfPoisoned = player.IncomingAilments.PoisonStacks(now) > 0;
+        var (frozen, bleeding, marked, selfBleeding, selfPoisoned) = ChargeHitFacts(player, m, now);
         ChargesOf(player).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(player).EffectId(effect) : null,
             skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: frozen, Bleeding: bleeding, Marked: marked,
             SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned));
@@ -119,6 +112,18 @@ public static partial class Game
             type => Charges.Converted(type, PlayerStat), ChargeScaling.Rules, MaxOf, includePhysicalReduction: false);
     }
 
+    // The target's and the player's state at a hit, as the "on hit" charge rules read it.
+    internal static (bool Frozen, bool Bleeding, bool Marked, bool SelfBleeding, bool SelfPoisoned) ChargeHitFacts(
+        Player player, SpawnedMonster m, double now)
+    {
+        bool marked = false;
+        // "your Marked Enemy": a Mark this player cast, not another player's on the same monster.
+        foreach (var curse in m.Curses.All.Values)
+            if (curse.Mark && curse.Caster == player.Id) { marked = true; break; }
+        return (m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0, m.Bleeds.Burning, marked,
+            player.IncomingAilments.Bleeding(now), player.IncomingAilments.PoisonStacks(now) > 0);
+    }
+
     // A hostile monster the player killed (MonsterKilled): its "on kill" gains, "on Killing a Frozen Enemy" too when the
     // corpse kept a freeze (its killing hit's included) or shattered.
     public static void ChargesOnKill(Player player, SpawnedMonster m, IReadOnlyDictionary<uint, int>? skillStats = null)
@@ -133,6 +138,8 @@ public static partial class Game
         TryGainElusiveLocked(player, critical: false, kill: true, now);
         Func<uint, int>? skill = skillStats is { Count: > 0 } own ? key => own.GetValueOrDefault(key) : null;
         ChargesOf(player).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons, skill));
+        // Only an existing projectile session can hold Cold Snap grounds; a kill never starts one.
+        if (player.ProjectileRuntime is { Active: true } projectiles) projectiles.ColdSnapFrenzyOnKill(m, now);
         SpiritChargeOnKill(player, AreaTime(player));
         SelfBuffsOnKill(player);
         CurseCharges(player, m, death: true, now);
@@ -393,6 +400,8 @@ public static partial class Game
         double castSeconds = WarcryCastSeconds(player, effect, playerStats, own);
         double until = AreaTime(player) + castSeconds;
         int epoch = player.ProjectileEpoch;
+        var bonespire = !triggered && skillId != 0 && Own(Stat.SupportTriggerSeizeTheFleshOnWarcryChancePct) > 0
+            ? SupportedSkill(player, skillId) : null;
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own, DurationKinds(player, effect))
             * SkillDurationModifiers.CallToArmsMore(Player);
         bool suppressBuffs = Own(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
@@ -430,6 +439,8 @@ public static partial class Game
             }
             else if (effectId == "BattlemagesCry")
                 GrantBattlemagesCryExertsLocked(player, skillId, own, playerStats);
+            if (bonespire is not null)
+                TriggerBonespireLocked(player, skillId, bonespire, here, now);
             var warriors = skillId != 0 && IsGeneralsCry(player, effect)
                 ? GeneralsCryReleased(player, skillId, here, radius, epoch)
                 : Task.CompletedTask;

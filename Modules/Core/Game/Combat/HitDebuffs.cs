@@ -43,6 +43,9 @@ public static partial class Game
     // Covered in Ash (BuffDefinitions 807, cover_in_ash): 20% less Movement Speed and 20% increased Fire Damage taken.
     public const ushort CoveredInAshBuffRow = 807;
     public const int CoveredInAshFireTakenPct = 20;
+    const ushort CoveredInFrostBuffRow = 1991;
+    const int CoveredInFrostColdTakenPct = 20, CoveredInFrostCriticalPct = -50;
+    static readonly uint[] CoveredInFrostBuffValues = [unchecked((uint)CoveredInFrostCriticalPct), CoveredInFrostColdTakenPct];
 
     /// <summary>Whether a hit intimidates and unnerves: chance_to_intimidate_on_hit_% (and attacks_intimidate_on_hit_%
     /// for an attack), chance_to_unnerve_on_hit_% (and chance_to_unnerve_on_hit_with_spells_% for a spell), and Grattus
@@ -186,7 +189,8 @@ public static partial class Game
     }
 
     internal static bool TimedWalkDebuff(double now, SpawnedMonster m) => m.MaimedUntil > now || m.HinderedUntil > now
-        || m.TotemHinderedUntil > now || m.CoveredInAshUntil > now || m.DebilitatedUntil > now;
+        || m.TotemHinderedUntil > now || m.CoveredInAshUntil > now || m.DebilitatedUntil > now
+        || WitherHinder(m, now) > 0 || BlightHinder(m, now).Slow > 0;
 
     /// <summary>The increased fire damage Covered in Ash applies at <paramref name="now"/> (20% while active, 0 otherwise).</summary>
     public static int CoveredInAshFireTaken(SpawnedMonster m, double now) => m.CoveredInAshUntil > now ? CoveredInAshFireTakenPct : 0;

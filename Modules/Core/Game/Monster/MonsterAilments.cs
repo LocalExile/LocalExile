@@ -278,7 +278,8 @@ public static partial class Game
         int maimPct = now < m.MaimedUntil ? -30 : 0;
         // The totem notable's local stat specifies 25%. The common 30% Hinder can expire independently.
         int timedHinder = Math.Max(m.HinderedUntil > now ? 30 : 0, m.TotemHinderedUntil > now ? 25 : 0);
-        int hinderPct = Math.Max(groundHinder, Math.Max(SpiderHinder(m, now), timedHinder));
+        int hinderPct = Math.Max(Math.Max(groundHinder, Math.Max(SpiderHinder(m, now), timedHinder)),
+            Math.Max(WitherHinder(m, now), BlightHinder(m, now).Slow));
         int lowLife = MonsterOnLowLife(m) ? m.Effects[Stat.MovementVelocityPlusPctWhenOnLowLife] : 0;
         int totalPct = basePct + maimPct - hinderPct + lowLife;
         bool debilitated = now < m.DebilitatedUntil;
@@ -311,30 +312,29 @@ public static partial class Game
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
-        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true) =>
+        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true, SkillPoisonStats poisonSkill = default) =>
         AilmentsOnHitLocked(player, targetId, m, mitigated, spell, critical, criticalMultiplier, playerStats, skill,
             now, random, default(AttackAilmentGains), reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
-            attackerSize, attackerHasReversedStat);
+            attackerSize, attackerHasReversedStat, poisonSkill);
 
     public static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, AttackAilmentGains attackGains, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
-        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true) =>
+        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true, SkillPoisonStats poisonSkill = default) =>
         AilmentsOnHitLocked(player, targetId, m, mitigated, spell, critical, criticalMultiplier, playerStats, skill,
             now, random, attackGains, false, 0, reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
-            attackerSize, attackerHasReversedStat);
+            attackerSize, attackerHasReversedStat, poisonSkill: poisonSkill);
 
     static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, int sourceEffect, AttackAilmentGains attackGains = default,
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
-        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
-        bool? ownHit = null) =>
+        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true, SkillPoisonStats poisonSkill = default, bool? ownHit = null) =>
         AilmentsOnHitLocked(player, targetId, m, mitigated, spell, critical, criticalMultiplier, playerStats, skill,
             now, random, attackGains, false, 0, reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
-            attackerSize, attackerHasReversedStat, sourceEffect: sourceEffect, ownHit: ownHit);
+            attackerSize, attackerHasReversedStat, sourceEffect: sourceEffect, ownHit: ownHit, poisonSkill: poisonSkill);
 
     static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
@@ -342,7 +342,7 @@ public static partial class Game
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
-        bool areaHit = false, int glacialFreezeMore = 0, int sourceEffect = -1, bool? ownHit = null,
+        bool areaHit = false, int glacialFreezeMore = 0, int sourceEffect = -1, bool? ownHit = null, SkillPoisonStats poisonSkill = default,
         int weaponWitherChance = 0, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None)
     {
         bool owned = ownHit ?? playerHit;
@@ -369,6 +369,9 @@ public static partial class Game
         if (sourceSkill != 0 && !spell && (ownHit ?? playerHit) && m.Hostile
             && skill?.GetValueOrDefault(Stat.TriggerPrismaticBurstOnHitPctChance) is > 0 and var burstChance)
             TriggerPrismaticBurstLocked(player, sourceSkill, sourceEffect, m.Walk.Position(now), now, playerStats, burstChance);
+        if (sourceSkill != 0 && !spell && owned && m is { Hostile: true, EntranceGrace: false, Invulnerable: false }
+            && skill?.GetValueOrDefault(WindburstDistanceStat) is > 0 and var movementMetres)
+            TriggerWindburstLocked(player, sourceSkill, sourceEffect, m.Walk.Position(now), now, movementMetres, playerStats);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, owned, random);
         if (ownHit ?? playerHit) ItemMarksOnHitLocked(player, m, now);
@@ -536,23 +539,22 @@ public static partial class Game
         int poisonStacksBefore = m.Poisons.Stacks(now);
         double poisonUntilBefore = m.Poisons.Until;
         if (TryPoisonOnHitLocked(player, m, mitigated, spell, critical, playerStats, skill, poison, now, random,
-                out double poisonDps, out double poisonSeconds))
-        {
-            player.Area.ActivePoisonMonsters.Add(targetId);
-            if (owned) AlchemistGroundOnAilmentLocked(player, m, DamageType.Chaos, now);
-            if (m.Poisons.Stacks(now) > poisonStacksBefore || m.Poisons.Until > poisonUntilBefore)
-                ShowPoisonBuff(player, targetId, m, PoisonBuffToShow(player, m, now));
-            if (playerHit && Player(Stat.PoisonReflectedToSelf) != 0 && Player(Stat.CannotBePoisoned) == 0
-                && Player(Stat.ImmuneToPoison) == 0
-                // Golden Rule's reflected-poison source stops adding player stacks at 100; this is not an incoming cap.
-                && player.IncomingAilments.PoisonStacks(now) < 100)
+            poisonSkill, out double poisonDps, out double poisonSeconds))
             {
-                int accepted = m.Poisons.Stacks(now) - poisonStacksBefore;
-                for (int i = 0; i < accepted && player.IncomingAilments.PoisonStacks(now) < 100; i++)
-                    player.IncomingAilments.ApplyPoison(now, poisonDps, poisonSeconds, reflected: true, victim: Player);
+                player.Area.ActivePoisonMonsters.Add(targetId);
+                if (owned) AlchemistGroundOnAilmentLocked(player, m, DamageType.Chaos, now);
+                if (m.Poisons.Stacks(now) > poisonStacksBefore || m.Poisons.Until > poisonUntilBefore)
+                    ShowPoisonBuff(player, targetId, m, PoisonBuffToShow(player, m, now));
+                if (playerHit && Player(Stat.PoisonReflectedToSelf) != 0 && Player(Stat.CannotBePoisoned) == 0
+                    && Player(Stat.ImmuneToPoison) == 0
+                    // Golden Rule's reflected-poison source stops adding player stacks at 100; this is not an incoming cap.
+                    && player.IncomingAilments.PoisonStacks(now) < 100)
+                {
+                    int accepted = m.Poisons.Stacks(now) - poisonStacksBefore;
+                    for (int i = 0; i < accepted && player.IncomingAilments.PoisonStacks(now) < 100; i++)
+                        player.IncomingAilments.ApplyPoison(now, poisonDps, poisonSeconds, reflected: true, victim: Player);
+                }
             }
-        }
-        // Fleeing (MonsterFlee): its own draws (AreaRng(player)), so a projectile's reaction draws stay in order.
         int fleeChance = MonsterFlee.Chance(spell, Player, Skill);
         if (owned && m.Bleeds.IgnitedAt(now))
             fleeChance = ActorScale.Saturate((long)fleeChance + Player(Stat.PctChanceToCauseBleedingEnemiesToFleeOnHit));

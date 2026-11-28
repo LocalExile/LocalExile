@@ -953,7 +953,8 @@ public static partial class Game
         uint hexblastTarget = 0, double? ailmentDamageMore = null)
     {
         var skill = SupportedSkill(player, totem.SkillId);
-        if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true) is not { } inputs) return;
+        uint? sourceLife = SkillsFor(player).EffectId(skill.Effect) == BodyswapSacrificeEffect ? totem.MaxLife : null;
+        if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true, projectileTotemLife: sourceLife) is not { } inputs) return;
         if (baseChaos > 0) inputs = inputs with { Raw = inputs.Raw.Add(GameServer.Core.World.DamageType.Chaos, new(baseChaos, baseChaos)) };
         var ownerStats = CharacterPlayerStats(player);
         var caster = TotemCasterStats(ownerStats);

@@ -94,6 +94,7 @@ public static partial class Game
                     "additional_physical_damage_reduction_%" => Stat.BaseAdditionalPhysicalDamageReductionPct,
                     "chance_to_impale_on_attack_hit_%" => Stat.AttacksImpaleOnHitPctChance,
                     "skill_area_of_effect_+%" or "area_of_effect_+%" => Stat.BaseSkillAreaOfEffectPlusPct,
+                    "actor_scale_+%" => Stat.BaseActorScalePlusPct,
                     var plain => Stat.Of(plain),
                 };
             else if (key is Stat.EnergyShieldPlusPctFinalForMinion or Stat.MinionsHaveNoArmourOrEnergyShield)
@@ -118,6 +119,7 @@ public static partial class Game
                     Stat.MinionChaosResistancePct => Stat.BaseChaosDamageResistancePct,
                     Stat.MinionChanceToImpaleOnAttackHitPct => Stat.AttacksImpaleOnHitPctChance,
                     Stat.MinionSpellSuppressionChancePct => Stat.BaseSpellSuppressionChancePct,
+                    Stat.MinionActorScalePlusPct => Stat.BaseActorScalePlusPct,
                     _ => Stat.Of(name),
                 };
             }
@@ -337,12 +339,18 @@ public static partial class Game
                 values[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)
                     + Get(Stat.SkeletonMovementSpeedPlusPct));
             }
-            if (golem.Definition.Kind == "Zombie" && Get(Stat.ZombieChaosElementalDamageResistancePct) is int zombieResistance and not 0)
+            if (golem.Definition.Kind == "Zombie")
             {
-                values[Stat.BaseResistAllElementsPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.BaseResistAllElementsPct)
-                    + zombieResistance);
-                values[Stat.BaseChaosDamageResistancePct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.BaseChaosDamageResistancePct)
-                    + zombieResistance);
+                AddStat(Stat.BaseActorScalePlusPct, Get(Stat.ZombieScalePlusPct));
+                AddStat(Stat.DamagePlusPct, Get(Stat.ZombieDamagePlusPct));
+                AddStat(Stat.PhysicalDamagePlusPct, Get(Stat.ZombiePhysicalDamagePlusPct));
+                AddStat(Stat.AttackSpeedPlusPct, Get(Stat.ZombieAttackSpeedPlusPct));
+                AddStat(Stat.BaseResistAllElementsPct, Get(Stat.ZombieElementalResistancesPct));
+                if (Get(Stat.ZombieChaosElementalDamageResistancePct) is int zombieResistance and not 0)
+                {
+                    AddStat(Stat.BaseResistAllElementsPct, zombieResistance);
+                    AddStat(Stat.BaseChaosDamageResistancePct, zombieResistance);
+                }
             }
             values.Remove(Stat.LifeRegenerationRatePerMinutePct);
             return golem.InheritedMods with { Effects = new(values) };
@@ -624,8 +632,14 @@ public static partial class Game
             radius *= (1 + Raw(Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal) / 100.0)
                 * Math.Sqrt(Math.Max(0, 1 + (mods[Stat.BaseSkillAreaOfEffectPlusPct] + Raw(Stat.BaseSkillAreaOfEffectPlusPct)) / 100.0));
             ushort skill = (ushort)(0x4000 + index);
-            var attack = new MonsterAttack(skill, seconds, range, damage) { Spell = spell, Ranged = spell || variety.RangedWeapon || golem.Weapon is { Melee: false }, Scripted = true };
             var contact = projectile is null ? null : MonsterReleaseFor(player, variety, effect, level, projectile);
+            var attack = new MonsterAttack(skill, seconds, range, damage)
+            {
+                Spell = spell,
+                Ranged = spell || variety.RangedWeapon || golem.Weapon is { Melee: false },
+                Scripted = true,
+                Release = contact,
+            };
             double cd = catalog.CooldownMs(effect, skillLevel) / 1000.0 / Math.Max(.01, 1 +
                 (GolemStat(playerStats, Stat.MinionCooldownRecoveryPlusPct) + (golem.Definition.IsGolem ? GolemStat(playerStats, Stat.GolemCooldownRecoveryPlusPct) : 0) + Own(Stat.MinionCooldownRecoveryPlusPct)) / 100.0);
             var ability = new GolemState.Ability(effect, skill, id, attack, raw, radius, cd, Math.Max(1, catalog.CooldownUses(effect, skillLevel)),
@@ -677,7 +691,7 @@ public static partial class Game
                     mods.Stats, raw, spell, hand, includeActorBaseArea: true);
                 var bleed = spell ? MonsterIgnites.Settings.None
                     : BleedSettings(rows, hand, AilmentStat, weaponLocal, projectile is null, projectile is not null);
-                double bleedMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionBleedingDamagePlusPctFinal) / 100d);
+                double bleedMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionBleedingDamagePlusPctFinal) / 100d) * zombiePhysicalMore;
                 bleed = bleed with { Min = bleed.Min * bleedMore, Max = bleed.Max * bleedMore,
                     CriticalMin = bleed.CriticalMin * bleedMore, CriticalMax = bleed.CriticalMax * bleedMore };
                 var poison = PoisonSettingsFrom(rows, hand, AilmentStat, weaponLocal);
@@ -805,9 +819,10 @@ public static partial class Game
         }
         // The active-minion counts are published numbers, not inputs of a minion's abilities: counting them would rebuild
         // every minion's abilities each time a minion appears or dies.
-        foreach (var p in playerStats.Where(p => p.Key is not (Stat.NumberOfActiveMinions or Stat.NumberOfActivePermanentMinions)
+        foreach (var p in playerStats.Where(p => p.Key is not (Stat.NumberOfActiveMinions or Stat.NumberOfActivePermanentMinions or Stat.NumberOfActiveZombies)
             && ((Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
-                || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal))).OrderBy(p => p.Key)) hash.Add(p);
+                || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)
+                || (Stats.Name(p.Key) ?? "").Contains("zombie", StringComparison.Ordinal))).OrderBy(p => p.Key)) hash.Add(p);
         if (Stat.Dexterity is var dexKey) hash.Add((dexKey, playerStats.GetValueOrDefault(dexKey)));
         hash.Add(OwnerMaximumPowerCharges(playerStats));
         if (GolemStat(playerStats, Stat.MinionsHaveSameMaximumNumOfChargesAsOwner) != 0)
@@ -832,12 +847,23 @@ public static partial class Game
         var m = golem.Monster;
         int previousCorpse = m.Effects[Stat.IsUsableAsCorpseWhenAlive];
         int previousStrength = m.Effects[Stat.Strength];
+        int previousScale = m.Effects.ActorScalePct;
         var mods = GolemModifiers(player, golem, playerStats, now, ownerResistances);
         m.Mods = mods;
         if (previousCorpse != mods.Effects[Stat.IsUsableAsCorpseWhenAlive])
             SetStats(player, golem.Id, [(Stat.IsUsableAsCorpseWhenAlive, mods.Effects[Stat.IsUsableAsCorpseWhenAlive])]);
         if (previousStrength != mods.Effects[Stat.Strength])
             SetStats(player, golem.Id, [(Stat.Strength, mods.Effects[Stat.Strength])]);
+        int currentScale = mods.Effects.ActorScalePct;
+        if (previousScale != currentScale)
+        {
+            SetStats(player, golem.Id, [(Stat.ActorScalePlusPct, currentScale)]);
+            if (player.MinionOrigins.TryGetValue(golem.Id, out var scaleOrigin))
+                player.MinionOrigins[golem.Id] = scaleOrigin with
+                {
+                    Object = SyncOriginStat(scaleOrigin.Object, Stat.ActorScalePlusPct, currentScale, keep: currentScale != 0),
+                };
+        }
         var pools = GolemPools.Calculate(Monsters, m.Variety!, m.Level, golem, playerStats, mods.Effects);
         if (pools.Fatal)
         {
@@ -886,15 +912,20 @@ public static partial class Game
 
     static MonsterObject SyncLifeMaximum(MonsterObject origin, SpawnedMonster monster, uint maximum)
     {
-        IReadOnlyList<(uint Key, int Value)>? stats = origin.Stats;
         int baseLife = monster.Variety is { } variety ? Monsters.BaseLife(variety, monster.Level) ?? 100 : 100;
-        if (maximum != baseLife)
-            stats = [.. (stats ?? []).Where(stat => stat.Key != Stat.MaximumLife), (Stat.MaximumLife, (int)maximum)];
+        return SyncOriginStat(origin, Stat.MaximumLife, (int)maximum, keep: maximum != baseLife) with { Life = maximum };
+    }
+
+    static MonsterObject SyncOriginStat(MonsterObject origin, uint statKey, int value, bool keep)
+    {
+        IReadOnlyList<(uint Key, int Value)>? stats = origin.Stats;
+        if (keep)
+            stats = [.. (stats ?? []).Where(stat => stat.Key != statKey), (statKey, value)];
         else if (stats is not null)
         {
-            var rebuilt = stats.Where(stat => stat.Key != Stat.MaximumLife).ToList();
+            var rebuilt = stats.Where(stat => stat.Key != statKey).ToList();
             stats = rebuilt.Count == 0 ? null : rebuilt;
         }
-        return origin with { Life = maximum, Stats = stats };
+        return origin with { Stats = stats };
     }
 }

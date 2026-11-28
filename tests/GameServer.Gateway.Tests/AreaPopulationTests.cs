@@ -73,4 +73,25 @@ public class AreaPopulationTests
             placed.Add((s.X, s.Y));
         }
     }
+
+    // A league encounter never stands in a sub-area an ExtraTerrainFeatures row adds (the Sacred Grove beside a map, a
+    // Harvest grove's room): that room holds its own mechanic, and the map's content belongs to the main layout only.
+    [Fact]
+    public void Encounter_spots_stay_out_of_feature_areas()
+    {
+        const int w = 240, h = 240;
+        bool Walk(int x, int y) => x is > 6 and < w - 7 && y is > 6 and < h - 7;
+        var room = new List<(int X0, int Y0, int X1, int Y1)> { (w / 2, h / 2, w, h) };
+        static bool InRoom((int X, int Y) p, int half) => p.X >= half && p.Y >= half;
+        int unguardedInside = 0;
+        for (int seed = 0; seed < 40; seed++)
+        {
+            var free = AreaPopulation.EncounterSpot(w, h, Walk, (10, 10), [], [], new Random(seed));
+            if (free is { } f && InRoom(f, w / 2)) unguardedInside++;
+            var guarded = AreaPopulation.EncounterSpot(w, h, Walk, (10, 10), [], [], new Random(seed), featureAreas: room);
+            Assert.NotNull(guarded);
+            Assert.False(InRoom(guarded!.Value, w / 2), $"seed {seed}: an encounter stood inside the feature area");
+        }
+        Assert.True(unguardedInside > 0, "the chooser never reached the room, so the check proves nothing");
+    }
 }

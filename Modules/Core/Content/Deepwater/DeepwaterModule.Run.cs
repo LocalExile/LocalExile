@@ -75,6 +75,7 @@ public sealed partial class DeepwaterModule
                     HasAnyExpBonus = cellRules.HasExp, HasAnyRareSulphur = cellRules.HasRareSulphur,
                 };
                 if (planned is not null) run.OnEnd = (members, success) => Finish(module, planned, members, success);
+                run.OnDeckArrival = p => EnterPseudoHubDeck(module, p);
                 var plan = DeepwaterMonsters.Plan(player.Layout, player.Seed, run, module.Log);
                 run.Planned.AddRange(plan);
                 run.PlannedPacks = plan.Count;
@@ -99,29 +100,13 @@ public sealed partial class DeepwaterModule
             if (pendingMonoliths is { Count: > 0 })
                 await MapEssences.SpawnMonolithsAt(player, pendingMonoliths, new Random(unchecked((int)(player.Seed ^ 0x44574553))));
         }
-        foreach (var lantern in run.Snapshot()) await DeepwaterLanterns.Show(module, player, run, lantern, dropping: made);
-        await DeepwaterLanterns.SendCount(player, run);
-        if (run.CollapseState != 0 && DeepwaterRuleset.Collapse(run.CollapseState) is { } collapse)
-            await modPlayer.Send(collapse, $"0x02c9 ruleset DeepwaterRules mode 3: {run.CollapseState} (sync)");
-        if (DeepwaterCollapse.RemainingTimerSeconds(run, AreaTime(player)) is uint timerLeft and > 0)
-            await modPlayer.Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Deepwater, timerLeft),
-                $"0x0163 mission timer Deepwater: {timerLeft} s (sync)");
-        await DeepwaterLoot.Show(player, run);
-        await DeepwaterExtraction.Show(player, run);
-        await DeepwaterVelka.Show(player, run);
-        // The first lantern's light wakes the packs around the start and collects the Sulphur there.
-        if (first is not null)
-        {
-            await DeepwaterMonsters.Release(module, player, run, first);
-            await DeepwaterLoot.Collect(module, player, run, first);
-        }
-        // The run's owner holds the lanterns (QuestFlags 3550, the client's placement gate) and is its map owner (2020,
-        // the capsule window's gate; G that the owner is the one). Other players get neither (G: the
-        // TransferLanternControlObject that hands the lanterns over is not built).
+        // Set owner/tracker flags BEFORE sending DeepwaterRules mode 3 / mode 2 / mode 1: the client HUD's "Place Lantern"
+        // prompt checks IsDeepwaterLanternController (0x1403fbb40) and ignores mode 1 & mode 2 until mode 3 != 3 sets HUD
+        // visibility bit 11 (0x1403fbdb0 / 0x1403fbe20 / 0x1403fbf10).
+        bool firstOwnerEntry = false;
         if (modPlayer.Character.Equals(run.Controller, StringComparison.OrdinalIgnoreCase) && run.Phase != DeepwaterRun.RunPhase.Ended)
         {
             await SetQuestFlags(player, [DeepwaterConstants.LanternController, DeepwaterConstants.MapOwner]);
-            bool firstOwnerEntry;
             lock (run.Gate)
             {
                 firstOwnerEntry = !run.OwnerEntered;
@@ -140,9 +125,36 @@ public sealed partial class DeepwaterModule
                 }
             }
         }
+        // Always send mode 3 (including 0 at run start) before mode 2 & mode 1 so the Deepwater HUD shows immediately.
+        byte hudState = run.Phase == DeepwaterRun.RunPhase.Ended ? (byte)3 : run.CollapseState;
+        if (DeepwaterRuleset.Collapse(hudState) is { } collapse)
+            await modPlayer.Send(collapse, $"0x02c9 ruleset DeepwaterRules mode 3: {hudState} (sync)");
+        foreach (var lantern in run.Snapshot()) await DeepwaterLanterns.Show(module, player, run, lantern, dropping: made);
+        await DeepwaterLanterns.SendCount(player, run);
+        if (DeepwaterCollapse.RemainingTimerSeconds(run, AreaTime(player)) is uint timerLeft and > 0)
+            await modPlayer.Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Deepwater, timerLeft),
+                $"0x0163 mission timer Deepwater: {timerLeft} s (sync)");
+        await DeepwaterLoot.Show(player, run);
+        await DeepwaterExtraction.Show(player, run);
+        await DeepwaterVelka.Show(player, run);
+        // The first lantern's light wakes the packs around the start and collects the Sulphur there.
+        if (first is not null)
+        {
+            await DeepwaterMonsters.Release(module, player, run, first);
+            await DeepwaterLoot.Collect(module, player, run, first);
+        }
         await DeepwaterExtraction.SyncFlags(player, run);
         await DeepwaterCursedDucats.SyncFlags(player);
         await DeepwaterProgression.SyncQuestItemFlags(player);
+        if (firstOwnerEntry && !run.Voyage)
+            await DeepwaterSpeech.EnterChart(player);
+        if (run.Phase == DeepwaterRun.RunPhase.Ended && (ClientHasQuestFlag(player, DeepwaterConstants.InPseudoHub)
+            || run.Board.OnDeck(player.Walk.Position(AreaTime(player)))))
+        {
+            if (!ClientHasQuestFlag(player, DeepwaterConstants.InPseudoHub))
+                await SetQuestFlags(player, [DeepwaterConstants.InPseudoHub]);
+            await EnterPseudoHubDeck(module, player);
+        }
     }
 
     /// <summary>What each cell of a Voyage adds on its own, precomputed once so the per-kill and per-spawn paths only index
@@ -216,13 +228,20 @@ public sealed partial class DeepwaterModule
         }
         await DeepwaterMonsters.Release(module, player, run, lantern);
         await DeepwaterLoot.Collect(module, player, run, lantern);
-        if (placed == 1 && !player.Character.HasQuestFlag(DeepwaterConstants.FirstLanternPlaced))
-            await SetQuestFlags(player, [DeepwaterConstants.FirstLanternPlaced]);
+        if (placed >= 1 && placed <= DeepwaterConstants.LanternPlacedFlags.Length)
+        {
+            string placedFlag = DeepwaterConstants.LanternPlacedFlags[placed - 1];
+            if (!player.Character.HasQuestFlag(placedFlag))
+                await SetQuestFlags(player, [placedFlag]);
+        }
+        if (placed < total)
+            await DeepwaterSpeech.LanternPlaced(player, placed);
         if (placed == total)
         {
             await DeepwaterUpgrades.GrantFinalLanternAdrenaline(module, player);
             // A Chart's last lantern: the lanterns collapse and its Bathysphere can be used (QuestFlags 3562).
             if (!run.Voyage) await ChartCollapse(module, player, run);
+            else await DeepwaterSpeech.LanternPlaced(player, placed);
         }
     }
 
@@ -248,6 +267,7 @@ public sealed partial class DeepwaterModule
             // The tracker's "return and extract" (QuestFlags 3570) for whoever had its "place lanterns".
             await SetQuestFlags(member, member.Character.HasQuestFlag(DeepwaterConstants.PlaceLanterns)
                 ? [DeepwaterConstants.CanExtract, DeepwaterConstants.ReturnToSurface] : [DeepwaterConstants.CanExtract]);
+            await DeepwaterSpeech.LanternsShrinking(member);
         }
     }
 

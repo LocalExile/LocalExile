@@ -429,7 +429,10 @@ public static partial class Game
                 CommitAcceptedHitLocked(player, id, m, landed, damage, hitAt,
                     $"{skill.EffectId} (footstep){(critical ? " (critical)" : "")}", playerKill: true, deferKill: true, stun: stun);
                 if (m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique) QueueFlaskTrigger(player, FlaskEnchantments.Trigger.RareHit);
-                charges.Add(new(false, critical, m.Rarity, skill.EffectId, own, id == targets[0].Id, hitAt, landed.Life == 0));
+                var facts = ChargeHitFacts(player, m, hitAt);
+                charges.Add(new(false, critical, m.Rarity, skill.EffectId, own, id == targets[0].Id, hitAt, landed.Life == 0,
+                    facts.Frozen, Bleeding: facts.Bleeding, Marked: facts.Marked, SelfBleeding: facts.SelfBleeding,
+                    SelfPoisoned: facts.SelfPoisoned));
                 if (landed.Life == 0) deaths.Add((id, m));
             }
             // All accepted hit consequences and reflected ailments precede the sweep's attributed kills.

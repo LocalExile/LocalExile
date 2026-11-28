@@ -138,6 +138,8 @@ public static class UtilityFlasks
         // negative, the character stat is the reduction, so the sign flips.
         // The finished skill mana cost reads base_mana_cost_-% as its first percentage.
         (Stat.LocalFlaskSkillManaCostPlusPctDuringFlaskEffect, Stat.BaseManaCostMinusPct, -1, false),
+        // The Sorrow of the Divine: "Zealot's Oath during Effect".
+        (Stat.LocalFlaskZealotsOath, Stat.RegenerateEnergyShieldInsteadOfLife, 1, true),
     ];
 
     // The "during effect" flags modules handed over (HandOverDuringEffectFlags), in the order they were handed over.
@@ -202,6 +204,7 @@ public static class UtilityFlasks
         Stat.AllDamageFromCriticalStrikesCanShock, Stat.AllDamageFromCriticalStrikesCanChill,
         Stat.AllDamageFromCriticalStrikesCanFreeze,   // Stormblood
         Stat.BaseManaCostMinusPct,   // "reduced Mana Cost of Skills during Effect"
+        Stat.RegenerateEnergyShieldInsteadOfLife,   // The Sorrow of the Divine
     };
 
     /// <summary>The flask buff flag that stands for Onslaught (the Silver Flask's flask_utility_haste has no stats of its
@@ -685,6 +688,7 @@ public static class UtilityFlasks
                 // The flask's reduced skill mana cost: the finished cost reads it
                 // off the character's stats, and the running flasks reach those only here.
                 Stat.BaseManaCostMinusPct => stat,
+                Stat.RegenerateEnergyShieldInsteadOfLife => stat,   // The Sorrow of the Divine
                 _ when ActorScale.IsInput(stat) || PanelOnly.Contains(stat) || ElementalAilmentInputs.Contains(stat)
                     || HandedFlag(stat) => stat,
                 _ => null,

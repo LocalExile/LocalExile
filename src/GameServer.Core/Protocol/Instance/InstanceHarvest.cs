@@ -45,4 +45,15 @@ public static class InstanceHarvest
     public const int CraftResultLength = 6;
     public static byte[] CraftResult(ushort itemId = 0) =>
         [CraftResultId >> 8, CraftResultId & 0xff, (byte)(itemId >> 8), (byte)itemId, 0, 0];
+
+    /// <summary><c>Rulesets.dat</c> row 105 (<c>HarvestRules</c>): toggles idle plot Harvest buttons on the client
+    /// via S→C <c>0x02c9</c>. Snapshot mode <c>0</c> is 3 bytes; incremental mode <c>1</c> is the exact 7 bytes
+    /// required by client <c>0x14168e017</c>.</summary>
+    public const byte HarvestRulesetRow = 105;
+
+    public static byte[] HarvestRulesSnapshot(bool inProgress, byte rulesetRow = HarvestRulesetRow) =>
+        InstanceRulesets.Data(rulesetRow, [0, (byte)(inProgress ? 1 : 0), 0]);
+
+    public static byte[] HarvestRulesUpdate(bool inProgress, byte rulesetRow = HarvestRulesetRow) =>
+        InstanceRulesets.Data(rulesetRow, [1, (byte)(inProgress ? 1 : 0), 0, 0, 0, 0, 0]);
 }

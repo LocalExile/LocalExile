@@ -112,7 +112,6 @@ public static partial class MapTorment
     static readonly uint[] Unsupported =
     [
         Stat.MapRogueExilesPossessedPctChance, Stat.MapTormentScarabMoreLikelyPct,
-        Stat.MapPossessedMonsterEquipmentDropsConvertedToDustPctChance,
     ];
 
     // A possessed monster's own chance to drop an item of a kind (the Atlas's sextant-era map stats).
@@ -705,6 +704,9 @@ public static partial class MapTorment
                         if (AreaStat(killer, stat) is int chance and > 0 && random.Next(100) < chance)
                             if ((kind == "unique" ? Unique(killer, level, random) : kind == "map" ? drops.Map(level, MonsterRarity.Unique, Math.Max(1, tier), random, 0, 1, 0, 0, corruptEightMods)
                                 : Game.MapScarab(drops, random, level, Game.MapModsOf(player))) is { } extra) items.Add(extra);
+                    int dustChance = AreaStat(killer, Stat.MapPossessedMonsterEquipmentDropsConvertedToDustPctChance);
+                    if (dustChance > 0)
+                        VillageResourceHooks.ConvertPossessedDrops(killer, items, dustChance, random);
                     await Release(killer, area, mark, payout.At);
                 }
             }

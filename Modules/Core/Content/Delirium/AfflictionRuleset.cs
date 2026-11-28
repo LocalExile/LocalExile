@@ -24,7 +24,7 @@ public static class AfflictionRuleset
 
     public static ushort? TerrainPlugin { get; private set; }
     public static byte? PreloadGroup { get; private set; }
-    static ushort? FogEnvironmentRow { get; set; }
+    public static ushort? FogEnvironmentRow { get; private set; }
 
     /// <summary>The Rulesets row of <c>AfflictionEndGameRules</c> (row 103 / <c>0x67</c>), sent via S→C <c>0x1f</c> in Simulacrum arenas.</summary>
     public static byte? Row { get; private set; }
@@ -89,12 +89,64 @@ public static class AfflictionRuleset
                 mirrorX, mirrorY, mirrorEntityId, regions, tiles)
             : null;
 
+    /// <summary>Compacts <paramref name="regions"/> to at most <see cref="byte.MaxValue"/> entries without silently
+    /// dropping active corridors: keeps the mirror region and largest regions, merges excess smallest regions into their
+    /// nearest kept neighbor, and orders by <see cref="FogRegion.DistanceOffset"/> ascending.</summary>
+    public static IReadOnlyList<FogRegion> CompactRegions(IReadOnlyList<FogRegion> regions, Func<int, long>? weightOf = null)
+    {
+        if (regions.Count <= byte.MaxValue) return regions;
+        var work = regions.ToArray();
+        long Weight(int i) => weightOf is not null ? weightOf(i)
+            : Math.Max(1L, work[i].MaxX - work[i].MinX) * Math.Max(1L, work[i].MaxY - work[i].MinY);
+
+        int mirrorIdx = 0;
+        float minDist = work[0].DistanceOffset;
+        for (int i = 1; i < work.Length; i++)
+            if (work[i].DistanceOffset < minDist) { minDist = work[i].DistanceOffset; mirrorIdx = i; }
+
+        var ranked = Enumerable.Range(0, work.Length)
+            .Where(i => i != mirrorIdx)
+            .OrderByDescending(Weight)
+            .ThenBy(i => work[i].DistanceOffset)
+            .ToArray();
+
+        var kept = new List<FogRegion>(byte.MaxValue) { work[mirrorIdx] };
+        for (int i = 0; i < byte.MaxValue - 1 && i < ranked.Length; i++)
+            kept.Add(work[ranked[i]]);
+
+        for (int i = byte.MaxValue - 1; i < ranked.Length; i++)
+        {
+            var extra = work[ranked[i]];
+            int best = 0;
+            double bestD2 = double.MaxValue;
+            for (int k = 0; k < kept.Count; k++)
+            {
+                double dx = extra.OriginX - kept[k].OriginX;
+                double dy = extra.OriginY - kept[k].OriginY;
+                double d2 = dx * dx + dy * dy;
+                if (d2 < bestD2) { bestD2 = d2; best = k; }
+            }
+            var target = kept[best];
+            kept[best] = target with
+            {
+                MinX = Math.Min(target.MinX, extra.MinX),
+                MinY = Math.Min(target.MinY, extra.MinY),
+                MaxX = Math.Max(target.MaxX, extra.MaxX),
+                MaxY = Math.Max(target.MaxY, extra.MaxY),
+            };
+        }
+
+        kept.Sort(static (a, b) => a.DistanceOffset.CompareTo(b.DistanceOffset));
+        return kept;
+    }
+
     /// <summary><see cref="EncounterSnapshot"/> for an explicit Rulesets row.</summary>
     public static byte[] EncounterSnapshot(byte row, bool active, bool ended, float outerElapsed, float innerElapsed,
         float innerDelay, float pauseTimer, bool paused, int mirrorX, int mirrorY, uint mirrorEntityId,
         IReadOnlyList<FogRegion> regions, IReadOnlyList<RewardTile> tiles)
     {
-        int regionCount = Math.Min(regions.Count, byte.MaxValue);
+        var compacted = CompactRegions(regions);
+        int regionCount = compacted.Count;
         int tileCount = Math.Min(tiles.Count, byte.MaxValue);
         var payload = new byte[33 + regionCount * 28 + 1 + tileCount * 13];
         var span = payload.AsSpan();
@@ -113,7 +165,7 @@ public static class AfflictionRuleset
         span[o++] = (byte)regionCount;
         for (int i = 0; i < regionCount; i++)
         {
-            var r = regions[i];
+            var r = compacted[i];
             BinaryPrimitives.WriteInt32LittleEndian(span.Slice(o, 4), r.MinX); o += 4;
             BinaryPrimitives.WriteInt32LittleEndian(span.Slice(o, 4), r.MinY); o += 4;
             BinaryPrimitives.WriteInt32LittleEndian(span.Slice(o, 4), r.MaxX); o += 4;

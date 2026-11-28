@@ -14,7 +14,7 @@ public static partial class Game
     // Call in the admitted contact transaction, before any network await. There is no deferred Game kill closure.
     static void CommitMinionHitLocked(Player player, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
         double now, string by, StunHit? stun = null, SpawnedMonster? source = null, IReadOnlyDictionary<uint, int>? skill = null,
-        GolemState.Golem? fighter = null, bool damageOverTime = false)
+        GolemState.Golem? fighter = null, bool damageOverTime = false, bool secondary = false)
     {
         OwnedKillLocked(monster, hit.Life);
         if (monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster))
@@ -33,6 +33,9 @@ public static partial class Game
         CommitAcceptedHitLocked(player, id, monster, hit, damage, now, by, playerKill: false, stun: stun);
         if (!damageOverTime && monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster))
             ReleaseIntuitiveLinkLocked(player, fighter, monster.Walk.Position(now), now);
+        if (hit.Life == 0 && !damageOverTime && !secondary && monster.Hostile && fighter is { Definition.Kind: "Zombie" }
+            && ReferenceEquals(source, fighter.Monster))
+            ResolveZombieKillExplosionLocked(player, id, monster, fighter, now);
         if (hit.Life == 0 && source is not null) ResolveCursedMinionKillLocked(player, id, monster, source, skill, now);
         if (hit.Life == 0 && !damageOverTime && monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster)
             && skill is not null)
@@ -115,7 +118,7 @@ public static partial class Game
             SpiritChargeOnKill(player, now);
             state.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.PlayerKill, Kill: modMonster));
             var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now,
-                Frozen: monster.Ailments.FrozenAtDeath(now));
+                Frozen: monster.Ailments.FrozenAtDeath(now), Poisons: monster.Poisons.StacksAtDeath(now));
             if (chargeBatch is not null) chargeBatch.Add(charge);
             else CommitAcceptedChargeBatchLocked(player, [charge], CharacterPlayerStats(player));
             if (OnslaughtOnKill(player, now, monster.TauntedAtDeath))

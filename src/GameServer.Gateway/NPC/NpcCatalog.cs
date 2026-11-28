@@ -163,6 +163,9 @@ public sealed class NpcCatalog
             .Select(m => m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Success ? m.Groups[2].Value : m.Groups[3].Value)
             .Where(s => s.Length > 0).Distinct(StringComparer.Ordinal)];
 
+        /// <summary><c>triggerer.GoToKingsmarch()</c>: the row transfers the player to the Kingsmarch hub area.</summary>
+        public bool GoToKingsmarch => Scripts.Contains("GoToKingsmarch(", StringComparison.Ordinal);
+
         /// <summary><c>StartTimer()</c> in Script2 (Act 3 Fairgraves NPCTalk 502): starts the NPC's scripted countdown timer.</summary>
         public bool StartsTimer => Script2.Contains("StartTimer(", StringComparison.Ordinal);
 
