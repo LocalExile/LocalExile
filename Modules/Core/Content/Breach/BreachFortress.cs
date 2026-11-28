@@ -330,8 +330,8 @@ public sealed class BreachFortress
         {
             for (int i = 0; i < guardPacks; i++)
             {
-                var anchor = pathNodes.Count > 0
-                    ? (pathNodes[rng.Next(pathNodes.Count)].X, pathNodes[rng.Next(pathNodes.Count)].Y)
+                var anchor = pathNodes.Count > 0 && pathNodes[rng.Next(pathNodes.Count)] is var node
+                    ? (node.X, node.Y)
                     : layout.Near(((int)Math.Round(state.CoreX + Math.Cos(i * Math.Tau / guardPacks) * 55),
                         (int)Math.Round(state.CoreY + Math.Sin(i * Math.Tau / guardPacks) * 55)));
                 var pack = FortPacks[rng.Next(FortPacks.Count)];
