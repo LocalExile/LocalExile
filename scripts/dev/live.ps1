@@ -476,6 +476,17 @@ function Read-PortBase([string]$file) {
 }
 # The first block of 100 from 21000 to 29900 that no other checkout (a sibling of this one, or a worktree nested in
 # .claude\worktrees of either) records and on whose five ports nothing listens.
+# Whether something accepts a TCP connection on 127.0.0.1:<port> (a server bound elsewhere is still found by the
+# listener table, which the callers keep as the other way to tell). Get-NetTCPConnection can return a partial table
+# (seen on Windows 11 26300: -ClientOnly refused with "missing port" while all three servers ran), so a port is
+# checked by connecting to it.
+function Test-LocalPort([int]$port) {
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try { return $client.ConnectAsync('127.0.0.1', $port).Wait(500) -and $client.Connected }
+    catch { return $false }
+    finally { $client.Dispose() }
+}
+
 function Find-FreePortBase {
     $parent = Split-Path $repo
     $checkouts = @(Get-ChildItem $parent -Directory -ErrorAction SilentlyContinue | ForEach-Object {
@@ -486,7 +497,7 @@ function Find-FreePortBase {
     $listening = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | ForEach-Object { [int]$_.LocalPort })
     for ($base = 21000; $base -le 29900; $base += 100) {
         if (@($claimed | Where-Object { [math]::Abs($_ - $base) -lt 5 }).Count) { continue }
-        if (-not @($base..($base + 4) | Where-Object { $_ -in $listening }).Count) { return $base }
+        if (-not @($base..($base + 4) | Where-Object { $_ -in $listening -or (Test-LocalPort $_) }).Count) { return $base }
     }
     throw 'no free port block between 21000 and 29900: give -PortBase'
 }
@@ -590,7 +601,7 @@ if ($ClientOnly) {
         return
     }
     foreach ($port in @($stack.Ports.patch, $stack.Ports.login, $stack.Ports.gateway)) {
-        Need (@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -gt 0) "local servers must be running before -ClientOnly (missing port $port)"
+        Need ((Test-LocalPort $port) -or @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue).Count -gt 0) "local servers must be running before -ClientOnly (missing port $port)"
     }
     if ($session -eq 'default') { Assert-GlobalSlot }
     if (-not $stack.Base) { Select-LocalGateway $stack.Ports.login -Strict }
@@ -639,7 +650,7 @@ Stop-Processes (Get-OwnServers $servers)
 foreach ($port in ($servers | ForEach-Object { $ports[$_] })) {
     foreach ($c in Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) {
         $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $($c.OwningProcess)" -ErrorAction SilentlyContinue
-        if (-not $proc) { continue }
+        if (-not $proc -or [int]$c.OwningProcess -eq 0) { continue }
         $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $($proc.ParentProcessId)" -ErrorAction SilentlyContinue
         if ($proc.Name -in 'dotnet.exe', 'GameServer.Gateway.exe' -and ((Test-Here $proc) -or (Test-Here $parent))) {
             Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
