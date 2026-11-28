@@ -60,6 +60,12 @@ public static class Act9To10Encounters
         // Act 9 — Kira & Garukhan (2_9_8 The Quarry)
         GameEvents.AreaTick.Add(id, GameEvents.InArea(GarukhanKiraEncounter.Area, GarukhanKiraEncounter.Tick));
         GameEvents.MonsterKilled.Add(id, GarukhanKiraEncounter.OnMonsterKilled);
+        GameEvents.Kill.Add(id, kill =>
+        {
+            if (kill.PlayerKill || kill.Player.Layout.Id != GarukhanKiraEncounter.Area) return;
+            var payload = new MonsterKill(kill.Player, global::Game.ModMonster(kill.Monster, kill.At));
+            kill.Later(() => GarukhanKiraEncounter.OnMonsterKilled(payload));
+        });
         GameEvents.PlayerLeaving.Add(id, (player, _) => GarukhanKiraEncounter.Leaving(player));
         lifetime?.Own(GarukhanKiraEncounter.CleanupOnUnload());
 
@@ -79,6 +85,12 @@ public static class Act9To10Encounters
         // Act 10 — Bannon Defense & Plaguewing (2_10_1 Cathedral Rooftop)
         GameEvents.AreaTick.Add(id, GameEvents.InArea(PlaguewingBannonEncounter.Area, PlaguewingBannonEncounter.Tick));
         GameEvents.MonsterKilled.Add(id, PlaguewingBannonEncounter.OnMonsterKilled);
+        GameEvents.Kill.Add(id, kill =>
+        {
+            if (kill.PlayerKill || kill.Player.Layout.Id != PlaguewingBannonEncounter.Area) return;
+            var payload = new MonsterKill(kill.Player, global::Game.ModMonster(kill.Monster, kill.At));
+            kill.Later(() => PlaguewingBannonEncounter.OnMonsterKilled(payload));
+        });
         GameEvents.PlayerLeaving.Add(id, (player, _) => PlaguewingBannonEncounter.Leaving(player));
         lifetime?.Own(PlaguewingBannonEncounter.CleanupOnUnload());
 

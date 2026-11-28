@@ -44,6 +44,10 @@ public static class CharacterSaves
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ushort? ScryingAreaHash { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ChartData? Chart { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public RitualEncounterData? RitualEncounter { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IncursionTempleData? IncursionTemple { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ExpeditionSagaData? ExpeditionSaga { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public MercenaryContractData? MercenaryContract { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public bool MercenaryLocked { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Note { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? CustomName { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Guid? SkillBarGemId { get; init; }
@@ -186,13 +190,17 @@ public static class CharacterSaves
     public static string? ModuleData(string character, string key) => Look(character) is not { } save ? null
         : save.ModuleData?.GetValueOrDefault(key) ?? (key == "delve.sulphite" ? save.Sulphite?.ToString() : null);
 
-    /// <summary>Changes a module's saved text; a null result changes nothing.</summary>
-    public static bool ChangeModuleData(string character, string key, Func<string?, string?> change)
+    /// <summary>Changes a module's saved text atomically; a null result changes nothing.</summary>
+    public static bool ChangeModuleData(string character, string key, Func<string?, string?> change) => Saves.Atomically(() =>
     {
-        if (change(ModuleData(character, key)) is not { } next) return false;
-        Update(character, s => s with { ModuleData = new(s.ModuleData ?? []) { [key] = next } });
+        var current = Load(character);
+        string? existing = current is null ? null
+            : current.ModuleData?.GetValueOrDefault(key) ?? (key == "delve.sulphite" ? current.Sulphite?.ToString() : null);
+        if (change(existing) is not { } next) return false;
+        var save = current ?? new Save([]);
+        Write(character, save with { ModuleData = new(save.ModuleData ?? []) { [key] = next } });
         return true;
-    }
+    });
 
     /// <summary>Removes a module's saved key atomically; true when the key existed and was removed.</summary>
     public static bool RemoveModuleData(string character, string key) => Saves.Atomically(() =>
@@ -800,6 +808,8 @@ public static class CharacterSaves
         i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods), i.Vestigial, i.HeistBlueprint)
         { SkinTransferSource = i.SkinTransferSource is null ? null : ToSaved(i.SkinTransferSource, mods), MemoryStrands = i.MemoryStrands, Intangibility = i.Intangibility, RequiredLevel = i.RequiredLevel,
             RelicStyle = i.RelicStyle, ScryingAreaHash = i.ScryingAreaHash, Chart = i.Chart, RitualEncounter = i.RitualEncounter,
+            IncursionTemple = i.IncursionTemple, ExpeditionSaga = i.ExpeditionSaga,
+            MercenaryContract = i.MercenaryContract, MercenaryLocked = i.MercenaryLocked,
             Note = i.Note, CustomName = i.CustomName, SkillBarGemId = i.SkillBarGemId };
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
@@ -828,6 +838,8 @@ public static class CharacterSaves
                 ? FromSaved(source, catalog) : throw new InvalidDataException("Nested skin transfers are not supported"),
             Influences = s.Influences, Split = s.Split, Synthesised = s.Synthesised, Vestigial = s.Vestigial,
             HeistBlueprint = s.HeistBlueprint, Chart = s.Chart, RitualEncounter = s.RitualEncounter,
+            IncursionTemple = s.IncursionTemple, ExpeditionSaga = s.ExpeditionSaga,
+            MercenaryContract = s.MercenaryContract, MercenaryLocked = s.MercenaryLocked,
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
             MemoryStrands = s.MemoryStrands, Intangibility = s.Intangibility,
             RelicStyle = s.RelicStyle, ScryingAreaHash = s.ScryingAreaHash, Note = s.Note, CustomName = s.CustomName, SkillBarGemId = s.SkillBarGemId,

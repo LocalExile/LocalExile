@@ -77,7 +77,7 @@ public static class GemlingLegionEncounter
     public static Task Leaving(Player player)
     {
         if (player.Layout.Id != Area) return Task.CompletedTask;
-        if (!player.Closed) player.Area.Buffs.Clear(player.Id, TauntedBuffRow, player.Id);
+        if (!player.Closed) player.Area.Buffs.ClearRow(player.Id, TauntedBuffRow);
         return Task.CompletedTask;
     }
 
@@ -221,6 +221,11 @@ public static class GemlingLegionEncounter
             {
                 if (!members.TryGetValue(id, out var st))
                     members[id] = st = new MemberState { NextSkillAt = now + 2.0, NextTauntAt = now + 5.0 };
+                if (!st.Bound)
+                {
+                    st.Bound = true;
+                    await BindEffects(runner, id, m, EffectsFor(m.Variety!.Id));
+                }
                 ApplyTierStats(m, st, tier);
                 var pos = m.Walk.Position(now);
                 await CastAction(runner, id, m, 6189, pos, 0.75, now, "[Gemling] Restore Life");
@@ -238,13 +243,14 @@ public static class GemlingLegionEncounter
             double dist = Distance(pos, aim);
             string kind = m.Variety!.Id;
 
-            // Captain TauntTarget[5999]
+            // Captain TauntTarget[5999] (ActionType 527 requires targetEntity != null in CanUse;
+            // BuffDefinitions[408] taunted is IsRecovery with GrantedStats [taunt_target_id, is_taunted]).
             if (kind == Captain && now >= st.NextTauntAt && dist <= 45)
             {
                 st.NextTauntAt = now + 9.0 * cdScale;
-                if (await CastAction(runner, id, m, 5999, aim, 0.75, now, "[Gemling Captain] Taunt") is not null)
+                if (await CastAction(runner, id, m, 5999, aim, 0.75, now, "[Gemling Captain] Taunt", targetObjectId: target.Id) is not null)
                 {
-                    target.Area.Buffs.Set(target.Id, new(TauntedBuffRow, target.Id, U68: Buff.Seconds(3.5)));
+                    target.Area.Buffs.Set(target.Id, new(TauntedBuffRow, id, Values: [id, 1], U68: Buff.Seconds(3.5)));
                     return;
                 }
             }
@@ -320,7 +326,7 @@ public static class GemlingLegionEncounter
             cleaned = true;
             hits.Clear();
             foreach (var p in ActivePlayers(runner))
-                if (!p.Closed) p.Area.Buffs.Clear(p.Id, TauntedBuffRow, p.Id);
+                if (!p.Closed) p.Area.Buffs.ClearRow(p.Id, TauntedBuffRow);
             await ClearAllEffects(runner, effects);
             Console.WriteLine("[gateway] Gemling Legion defeated; hazards cleared");
         }

@@ -31,8 +31,11 @@ public static partial class Game
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         // A shot released from an object of the monster's (its trap) leaves that object, not the monster's hand.
         var from = ProjectileSession.Vector(releasedFrom ?? m.Walk.Position(now));
-        var aim = ProjectileSession.Vector(orderedAim ?? (aimedActor is uint targetId && OwnedFighter(player, targetId) is { } golem
-            ? golem.Monster.Walk.Position(now) : player.Walk.Position(now)));
+        var aim = ProjectileSession.Vector(orderedAim ?? (aimedActor is uint targetId
+            ? OwnedFighter(player, targetId) is { } golem ? golem.Monster.Walk.Position(now)
+                : player.Companion is { } comp && comp.EntityId == targetId && CompanionAliveInArea(player, comp)
+                    ? comp.Monster.Walk.Position(now) : player.Walk.Position(now)
+            : player.Walk.Position(now)));
         // A barrage follow-up aimed at where its target stands now turns the monster to it through the session outbox.
         if (TurnToShot && turn && orderedAim is null && releasedFrom is null && (aim - from).Length >= 1)
             session.World(id, GameServer.Core.Protocol.Instance.InstanceProtocol.Orientation(id,
@@ -223,6 +226,15 @@ public static partial class Game
         {
             bool landed = GolemTakeHitLocked(player, golem, shot.MonsterId, shot.Monster, shot.Attack with { Damage = shot.Attack.Damage.Scale(contact.Multiplier * shot.MinionDamageFactor) },
                 Math.Max(AreaTime(player), contact.At / (double)ProjectileRuntime.QuantaPerSecond), area: contact.IsArea || shot.Attack.Projectile?.Lobbed == true);
+            session.Enqueue(() => PublishMinionOutcomes(player));
+            return landed ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
+        }
+        if (player.Companion is { } comp && comp.EntityId == contact.Target.Id && CompanionAliveInArea(player, comp))
+        {
+            bool landed = CompanionTakeEnemyHitLocked(player, comp, shot.MonsterId, shot.Monster,
+                shot.Attack with { Damage = shot.Attack.Damage.Scale(contact.Multiplier * shot.MinionDamageFactor) },
+                Math.Max(AreaTime(player), contact.At / (double)ProjectileRuntime.QuantaPerSecond),
+                area: contact.IsArea || shot.Attack.Projectile?.Lobbed == true);
             session.Enqueue(() => PublishMinionOutcomes(player));
             return landed ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
         }

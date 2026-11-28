@@ -32,9 +32,74 @@ sealed class ElderFight(uint id, SpawnedMonster boss, Player player) : AtlasBoss
     bool intermission;
     double waveAt;
     int waves;
+    // Zana arena presence in MapWorldsElderArena / MapWorldsElderArenaUber: sealing channel & protective bubble.
+    uint zanaId, zanaBubbleFx, zanaChannelFx;
+    bool zanaSpawned, zanaBubbleActive;
+    double zanaBubbleUntil;
+    (int X, int Y) zanaAt;
+
+    static bool HasZanaArena(Player player) => player.Layout.Id is "MapWorldsElderArena" or "MapWorldsElderArenaUber";
+
+    async Task EnsureZana(Player player)
+    {
+        if (zanaSpawned || !HasZanaArena(player)) return;
+        zanaSpawned = true;
+        bool uber = player.Layout.Id == "MapWorldsElderArenaUber";
+        string varietyId = uber ? AtlasBosses.ZanaUberElderVariety : AtlasBosses.ZanaElderVariety;
+        foreach (var (existingId, existing) in player.Area.Monsters)
+            if (existing.Variety?.Id is AtlasBosses.ZanaShaperVariety or AtlasBosses.ZanaElderVariety or AtlasBosses.ZanaUberElderVariety && !existing.Dead)
+            {
+                zanaId = existingId;
+                zanaAt = existing.Walk.Position(AreaTime(player));
+                return;
+            }
+        if (Monsters.Find(varietyId) is not { Supported: true } zanaV || zanaV.Id != varietyId) return;
+        var centre = Stage(player);
+        zanaAt = player.Layout.Near((centre.X + 14, centre.Y + 8));
+        zanaId = await SpawnMonster(player, zanaV, boss.Level, MonsterRarity.Normal, zanaAt.X, zanaAt.Y,
+            friendly: true, scripted: true, owned: (_, m) => { m.NoRewards = true; m.EntranceGrace = true; });
+    }
+
+    async Task ClearZanaBubble()
+    {
+        if (!zanaBubbleActive) return;
+        zanaBubbleActive = false;
+        await RemoveEffect(zanaBubbleFx);
+        zanaBubbleFx = 0;
+        foreach (var peer in Present())
+        {
+            var st = AtlasBosses.EffectsOf(peer);
+            if (st.ZanaBubble)
+            {
+                st.ZanaBubble = false;
+                peer.Area.Buffs.Clear(peer.Id, AtlasBosses.ZanaBubbleBuffRow);
+                await RefreshPlayerStats(peer);
+            }
+        }
+    }
 
     protected override async Task Ticks(Player player, double now)
     {
+        await EnsureZana(player);
+        if (zanaBubbleActive)
+        {
+            if (now >= zanaBubbleUntil) await ClearZanaBubble();
+            else
+            {
+                foreach (var peer in Watchers())
+                {
+                    bool inside = Distance(peer.Walk.Position(now), zanaAt) <= 12;
+                    var st = AtlasBosses.EffectsOf(peer);
+                    if (inside != st.ZanaBubble)
+                    {
+                        st.ZanaBubble = inside;
+                        if (inside) peer.Area.Buffs.Set(peer.Id, new(AtlasBosses.ZanaBubbleBuffRow, zanaId, U68: Buff.Seconds(3)));
+                        else peer.Area.Buffs.Clear(peer.Id, AtlasBosses.ZanaBubbleBuffRow);
+                        await RefreshPlayerStats(peer);
+                    }
+                }
+            }
+        }
         foreach (var slam in pending.Where(p => p.At <= now).ToArray())
         {
             pending.Remove(slam);
@@ -151,13 +216,20 @@ sealed class ElderFight(uint id, SpawnedMonster boss, Player player) : AtlasBoss
     }
 
     /// <summary>The expanding nova (9066): a ring that leaves the Elder and damages everything within 22 units once it
-    /// has passed: the player walks out of it, the way the original's is dodged.</summary>
+    /// has passed: the player walks out of it, or shelters inside Zana's protective bubble.</summary>
     async Task Nova(Player player, (int X, int Y) playerAt, double now)
     {
         var pos = boss.Walk.Position(now);
         var attack = Attack(player, AtlasBosses.ExpandingNovaEffect);
         await Effect(player, pos, AtlasBosses.ElderNovaArt, 2.4, 2f);
         Swing(player, AtlasBosses.ExpandingNovaEffect);
+        if (HasZanaArena(player) && zanaId != 0 && !zanaBubbleActive)
+        {
+            zanaBubbleActive = true;
+            zanaBubbleUntil = now + 2.4;
+            zanaBubbleFx = await Effect(player, zanaAt, AtlasBosses.ZanaBubbleArt, 2.6, 1.5f);
+            await Voice(4712, 323); // "Exile, to me! That thing is about to explode!"
+        }
         // The ring reaches 22 units 1.4 s after the cast; anything still inside takes the skill's damage.
         pending.Add((now + 1.4, pos, 22, attack));
         _ = playerAt;
@@ -171,6 +243,11 @@ sealed class ElderFight(uint id, SpawnedMonster boss, Player player) : AtlasBoss
             waves = 0;
             await Shield(player, true);
             await Teleport(player, Stage(player), now);
+            if (HasZanaArena(player) && zanaId != 0)
+            {
+                zanaChannelFx = await Effect(player, zanaAt, AtlasBosses.ZanaElderChannelArt, 6.0, 1.3f);
+                await Voice(4717, 323); // "Protect me while I seal the portal!"
+            }
             var watchers = Watchers();
             if (watchers.Length > 0) await Nova(player, watchers[0].Walk.Position(now), now);
             waveAt = now + 1.6;
@@ -181,6 +258,8 @@ sealed class ElderFight(uint id, SpawnedMonster boss, Player player) : AtlasBoss
         if (waves == 1)
         {
             intermission = false;
+            await RemoveEffect(zanaChannelFx);
+            zanaChannelFx = 0;
             await Shield(player, false);
             EndIntermission();
             nextTentacles = now + 2;
@@ -192,5 +271,23 @@ sealed class ElderFight(uint id, SpawnedMonster boss, Player player) : AtlasBoss
         if (target is not null) await Tentacles(player, target.Walk.Position(now), now, 4);
         waveAt = now + 1.8;
         busyUntil = now + 1.6;
+    }
+
+    protected override async Task OnIntermissionAborted(Player player)
+    {
+        intermission = false;
+        waves = 0;
+        await ClearZanaBubble();
+        await RemoveEffect(zanaChannelFx);
+        zanaChannelFx = 0;
+    }
+
+    protected override async Task OnCleanup(Player player)
+    {
+        await ClearZanaBubble();
+        await RemoveEffect(zanaChannelFx);
+        zanaChannelFx = 0;
+        if (HasZanaArena(player) && zanaId != 0)
+            await Voice(4715, 323); // "I banish you to the void between voids! May you never be free!"
     }
 }

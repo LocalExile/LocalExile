@@ -79,7 +79,57 @@ public sealed record GambleOffer(ItemCatalog.BaseType Shown, uint Gold, Func<Ran
 public sealed record InventoryPlacement(Player Player, byte Row, GameServer.Core.Protocol.Instance.Item Item,
     GameServer.Core.Protocol.Instance.InventoryItem? Replaced)
 {
+    /// <summary>Target cell X within the inventory row (0 for single-item rows or callers without grid coordinates).</summary>
+    public byte X { get; init; }
+    /// <summary>Target cell Y within the inventory row.</summary>
+    public byte Y { get; init; }
     public IPlayer ModPlayer => Program.PlayerOf(Player);
+}
+
+/// <summary>An optional area encounter evaluating whether and at what level to spawn (<see cref="GameEvents.EncounterSpawn"/>).</summary>
+public sealed class EncounterSpawnRequest(Player player, string kind, byte level, long chance, bool allowed)
+{
+    public Player Player { get; } = player;
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+    /// <summary>Lowercase encounter kind identifier (e.g. <c>"mercenary"</c>).</summary>
+    public string Kind { get; } = kind;
+    /// <summary>Encounter level to spawn at (defaults to area level).</summary>
+    public byte Level { get; set; } = level;
+    /// <summary>Spawn chance percentage (0..100+).</summary>
+    public long Chance { get; set; } = chance;
+    /// <summary>Whether the current area is eligible to spawn this encounter.</summary>
+    public bool Allowed { get; set; } = allowed;
+    /// <summary>When true, guarantees spawning without a random roll.</summary>
+    public bool Force { get; set; }
+}
+
+/// <summary>Evaluates companion follower eligibility and equipment rule overrides (<see cref="GameEvents.CompanionRules"/>).</summary>
+public sealed class CompanionRuleCheck(Player player, bool canHavePermanentFollower)
+{
+    public Player Player { get; } = player;
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+    /// <summary>Whether the player may hire and bring a permanent companion follower.</summary>
+    public bool CanHavePermanentFollower { get; set; } = canHavePermanentFollower;
+    /// <summary>When true, permanent companions ignore per-slot unique item restrictions (retaining disabled-unique,
+    /// level, armour tag, weapon class, and socket checks).</summary>
+    public bool AllowAllUniqueSlots { get; set; }
+}
+
+/// <summary>Evaluates whether a companion may equip an item in an equipment slot (<see cref="GameEvents.CompanionEquip"/>).</summary>
+public sealed class CompanionEquipCheck(Player player, byte equipmentRow, GameServer.Core.Protocol.Instance.Item item,
+    int companionLevel, bool isPermanent)
+{
+    public Player Player { get; } = player;
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+    /// <summary>Equipment slot row (<see cref="PlayerInventories.BodyArmour"/>..<see cref="PlayerInventories.Belt"/>).</summary>
+    public byte EquipmentRow { get; } = equipmentRow;
+    public GameServer.Core.Protocol.Instance.Item Item { get; } = item;
+    public int CompanionLevel { get; } = companionLevel;
+    public bool IsPermanent { get; } = isPermanent;
+    /// <summary>When true, waives per-slot unique item restrictions for this placement.</summary>
+    public bool AllowUnique { get; set; }
+    /// <summary>Optional refusal reason; non-null blocks equipping.</summary>
+    public string? Refusal { get; set; }
 }
 
 /// <summary>What an area's first message carries for a module: terrain data, achievement sets.</summary>

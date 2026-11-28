@@ -79,11 +79,21 @@ public sealed class MercenaryTests
             Assert.True(peer.Player.Npcs.ContainsKey(placed.Body));
             Assert.Equal(Math.Clamp(met.Variety!.ObjectSize - 1, 0, 127), Game.NpcInteractionSize(peer.Player.Npcs[placed.Body]));
 
-            // The press, then the panel's duel choice; the countdown runs on the area's frames.
+            // The press, then the panel's duel choice; non-owner and zero-gold attempts are rejected before the funded owner starts the countdown.
             Assert.True(await GameEvents.AnyNpcTalk(peer.Player, placed.Body, peer.Player.Npcs[placed.Body]));
             Assert.Equal(MercenaryModule.Stage.Talk, Read().Stage);
             byte row = MercenaryTables.EncounterRulesRow!.Value;
+            // Non-owner cannot start the duel.
             Assert.True(await GameEvents.AnyPacket(peer.Player, InstanceRulesets.ActionId,
+                [0x02, 0xca, row, 0x08, .. MercenaryWire.DuelChoice]));
+            Assert.Equal(MercenaryModule.Stage.Talk, Read().Stage);
+            // Owner with 0 gold cannot pay the wager.
+            Assert.True(await GameEvents.AnyPacket(owner.Player, InstanceRulesets.ActionId,
+                [0x02, 0xca, row, 0x08, .. MercenaryWire.DuelChoice]));
+            Assert.Equal(MercenaryModule.Stage.Talk, Read().Stage);
+            // Fund owner gold and start the duel.
+            Game.PersonalStashOf(owner.Player).AddGold(50_000);
+            Assert.True(await GameEvents.AnyPacket(owner.Player, InstanceRulesets.ActionId,
                 [0x02, 0xca, row, 0x08, .. MercenaryWire.DuelChoice]));
             Assert.Equal(MercenaryModule.Stage.Countdown, Read().Stage);
             Assert.Equal(MercenaryWire.CountdownStates, instance.World.MonsterOrigins[placed.Body].Object.StateMachine!.SharedStates);

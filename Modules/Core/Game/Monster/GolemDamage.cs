@@ -8,10 +8,14 @@ public static partial class Game
     static bool GolemEnemyOrderLocked(Player player, uint id, SpawnedMonster enemy, double now, double ownerDistance)
     {
         if (!enemy.Hostile || enemy.Attack is not { } attack || InTown(player) || InGracePeriod(player)) return false;
-        if (player.Golems.IncomingHits.Any(h => h.Enemy == id && h.Generation == enemy.ActionGeneration)) return true;
+        if (player.Golems.IncomingHits.Any(h => h.Enemy == id && h.Generation == enemy.ActionGeneration)
+            || HasCompanionIncomingHit(player, id, enemy.ActionGeneration)) return true;
         if (enemy.BusyUntil > now || MonsterActionFactor(enemy, now) == 0) return false;
         var here = enemy.Walk.Position(now);
         var golem = GolemTargetLocked(player, id, enemy, here, now, ownerDistance);
+        bool golemTaunted = golem.G is not null && golem.G.Taunts.GetValueOrDefault(id) > now;
+        double bestOtherDistance = golem.G is not null ? Math.Min(ownerDistance, golem.Distance) : ownerDistance;
+        if (CompanionEnemyOrderLocked(player, id, enemy, here, now, bestOtherDistance, golemTaunted)) return true;
         if (golem.G is null) return false;
         var to = golem.G.Monster.Walk.Position(now);
         if (golem.Distance > attack.Range + LivingCollision.Size(golem.G.Monster))
@@ -57,7 +61,8 @@ public static partial class Game
     static byte[]? GolemIncomingPresentation(Player player, PlayerMinions.Output output)
     {
         var hit = player.Golems.IncomingHits.FirstOrDefault(h => h.Enemy == output.TargetId && h.Generation == output.Action);
-        if (hit is null || hit.Started || hit.Monster.Dead || hit.Monster.ActionGeneration != hit.Generation || hit.Target.Monster.Dead) return null;
+        if (hit is null) return CompanionIncomingPresentation(player, output);
+        if (hit.Started || hit.Monster.Dead || hit.Monster.ActionGeneration != hit.Generation || hit.Target.Monster.Dead) return null;
         double now = LockstepOrderStart(player, AreaTime(player));
         var from = hit.Monster.Walk.Position(now); var to = hit.Target.Monster.Walk.Position(now);
         hit.Started = true;

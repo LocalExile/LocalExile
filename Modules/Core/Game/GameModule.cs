@@ -116,12 +116,14 @@ public sealed class GameModule : IModule, IDisposable
         // The world.
         global::MapSulphite.LoadMapSulphiteData();
         Rules.LoadQuestEngineData();
+        Rules.LoadLocalCheckpointData();
         global::TourRecords.LoadTourRecordsData();
         global::MapEssenceCatalog.LoadGameData();
         global::MapEssences.LoadGameData();
         global::MapScarabBosses.LoadGameData();
         global::MapScarabContent.LoadGameData();
         global::MapScarabPacks.LoadGameData();
+        global::MapAllflame.LoadGameData();
         global::MapInfluence.LoadGameData();
         global::StrongboxCatalog.LoadGameData();
         global::StrongboxMods.LoadGameData();
@@ -181,6 +183,7 @@ public sealed class GameModule : IModule, IDisposable
         InstanceEvents.AreaDisplayStats.Add(module.Manifest.Id, Rules.MapAreaDisplayStats);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabContent.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabPacks.Opening);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapAllflame.Opening);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapInfluence.Opening);
         GameEvents.Drops.Add(module.Manifest.Id, MapInfluence.Drops);
         GameEvents.Drops.Add(module.Manifest.Id, MapScarabPacks.Drops);
@@ -189,7 +192,6 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.ObjectUse.Add(module.Manifest.Id, MapStrongboxes.Use);
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => MapStrongboxes.Tick(player)));
         GameEvents.ChestsOpened.Add(module.Manifest.Id, MapStrongboxes.OpenNear);
-        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapStrongboxes.CurseStats);
         GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemOnObjectId).Add(module.Manifest.Id, MapStrongboxes.UseItemOn);
         GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemTypeOnObjectId).Add(module.Manifest.Id, MapStrongboxes.UseItemTypeOn);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => { MapStrongboxes.Leave(player); return Task.CompletedTask; });
@@ -231,7 +233,6 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(MapHarbinger.Tick));
         GameEvents.Kill.Add(module.Manifest.Id, MapHarbinger.Kill);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapHarbinger.Leave(conn); return Task.CompletedTask; });
-        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapHarbinger.PlayerStats);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapHarbinger.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapBeyond.Opening);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, MapBeyond.Enter);
@@ -311,6 +312,14 @@ public sealed class GameModule : IModule, IDisposable
         foreach (string earlyArea in global::EarlyActBossPolish.Areas)
             GameEvents.AreaTick.Add(id, GameEvents.InArea(earlyArea, global::EarlyActBossPolish.Tick));
         GameEvents.MonsterKilled.Add(id, global::EarlyActBossPolish.OnMonsterKilled);
+        GameEvents.Kill.Add(id, kill =>
+        {
+            if (kill.PlayerKill || kill.Player.Layout.Id != global::EarlyActBossPolish.Strand
+                || kill.VarietyId is not (global::EarlyActBossPolish.HillockNormal or global::EarlyActBossPolish.HillockUber))
+                return;
+            var payload = new MonsterKill(kill.Player, Rules.ModMonster(kill.Monster, kill.At));
+            kill.Later(() => global::EarlyActBossPolish.OnMonsterKilled(payload));
+        });
         module.Lifetime.Own(global::EarlyActBossPolish.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::EarlyActBossPolish.Leaving(player));
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::KitavaActTen.Area, global::KitavaActTen.Tick));
@@ -326,6 +335,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, Rules.PlayerDebuffStats);
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
         module.Lifetime.Own(global::AtlasBosses.CleanupOnUnload());
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::AtlasBosses.PlayerStats);
+        GameEvents.PlayerLeaving.Add(id, (player, _) => global::AtlasBosses.Leaving(player));
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.GrantLinkedMinionRareModifiers);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ItemMinionsOnKill);

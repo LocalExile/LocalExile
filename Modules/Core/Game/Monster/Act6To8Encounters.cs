@@ -116,6 +116,12 @@ public static class Act6To8Encounters
 
         GameEvents.AreaTick.Add(owner, GameEvents.InArea(GemlingLegionEncounter.Area, GemlingLegionEncounter.Tick));
         GameEvents.MonsterKilled.Add(owner, GemlingLegionEncounter.OnMonsterKilled);
+        GameEvents.Kill.Add(owner, kill =>
+        {
+            if (kill.PlayerKill || kill.Player.Layout.Id != GemlingLegionEncounter.Area) return;
+            var payload = new MonsterKill(kill.Player, global::Game.ModMonster(kill.Monster, kill.At));
+            kill.Later(() => GemlingLegionEncounter.OnMonsterKilled(payload));
+        });
         GameEvents.PlayerLeaving.Add(owner, (p, _) => GemlingLegionEncounter.Leaving(p));
         lifetime?.Own(GemlingLegionEncounter.CleanupOnUnload());
 
@@ -128,6 +134,13 @@ public static class Act6To8Encounters
         foreach (string sideArea in Act6To8SideBossPolish.Areas)
             GameEvents.AreaTick.Add(owner, GameEvents.InArea(sideArea, Act6To8SideBossPolish.Tick));
         GameEvents.MonsterKilled.Add(owner, Act6To8SideBossPolish.OnMonsterKilled);
+        GameEvents.Kill.Add(owner, kill =>
+        {
+            if (kill.PlayerKill || kill.Player.Layout.Id != Act6To8SideBossPolish.ToxicConduits
+                || kill.VarietyId != Act6To8SideBossPolish.LingeringAberration) return;
+            var payload = new MonsterKill(kill.Player, global::Game.ModMonster(kill.Monster, kill.At));
+            kill.Later(() => Act6To8SideBossPolish.OnMonsterKilled(payload));
+        });
         GameEvents.PlayerLeaving.Add(owner, (p, _) => Act6To8SideBossPolish.Leaving(p));
         lifetime?.Own(Act6To8SideBossPolish.CleanupOnUnload());
     }
@@ -240,7 +253,7 @@ internal static class Act6To8Driver
 
     /// <summary>Starts a boss skill action, freezes walk in place, bumps <c>ActionGeneration</c> and <c>BusyUntil</c>.</summary>
     public static async Task<int?> CastAction(Player runner, uint id, SpawnedMonster boss, int effect,
-        (int X, int Y) target, double duration, double now, string? log = null)
+        (int X, int Y) target, double duration, double now, string? log = null, uint? targetObjectId = null)
     {
         var pos = boss.Walk.Position(now);
         boss.Walk.Order(pos.X, pos.Y, now);
@@ -253,7 +266,8 @@ internal static class Act6To8Driver
         {
             var here = boss.Walk.Position(AreaTime(runner));
             seq = runner.NextActionSequence();
-            return InstanceProtocol.ActionStarted(id, here.X, here.Y, target.X, target.Y, skillId, seq, 0x0408);
+            return InstanceProtocol.ActionStarted(id, here.X, here.Y, target.X, target.Y, skillId, seq, 0x0408,
+                targetObjectId: targetObjectId);
         }, log);
         if (sent && SkillsFor(runner).IsChannelled(effect))
             SendAfter(runner, Math.Max(0.35, duration), () =>
