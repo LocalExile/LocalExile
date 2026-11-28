@@ -51,6 +51,8 @@ public static class CharacterSaves
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Note { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? CustomName { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Guid? SkillBarGemId { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Dictionary<string, string>? ContentData { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public MapKeyData? MapKey { get; init; }
     }
 
     public sealed record SavedPlacement(uint Id, byte X, byte Y, SavedItem Item);
@@ -810,7 +812,8 @@ public static class CharacterSaves
             RelicStyle = i.RelicStyle, ScryingAreaHash = i.ScryingAreaHash, Chart = i.Chart, RitualEncounter = i.RitualEncounter,
             IncursionTemple = i.IncursionTemple, ExpeditionSaga = i.ExpeditionSaga,
             MercenaryContract = i.MercenaryContract, MercenaryLocked = i.MercenaryLocked,
-            Note = i.Note, CustomName = i.CustomName, SkillBarGemId = i.SkillBarGemId };
+            Note = i.Note, CustomName = i.CustomName, SkillBarGemId = i.SkillBarGemId,
+            ContentData = i.ContentData is { Count: > 0 } data ? new(data, StringComparer.Ordinal) : null, MapKey = i.MapKey };
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
     /// <see cref="UnknownSavedItemException"/>: dropping it would lose it at the next save.</summary>
@@ -843,6 +846,8 @@ public static class CharacterSaves
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
             MemoryStrands = s.MemoryStrands, Intangibility = s.Intangibility,
             RelicStyle = s.RelicStyle, ScryingAreaHash = s.ScryingAreaHash, Note = s.Note, CustomName = s.CustomName, SkillBarGemId = s.SkillBarGemId,
+            ContentData = s.ContentData is { Count: > 0 } data ? new Dictionary<string, string>(data, StringComparer.Ordinal) : null,
+            MapKey = s.MapKey,
         };
         if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
         // Repair the missing base socket on old ordinary items only if the saved implicit still grants it.

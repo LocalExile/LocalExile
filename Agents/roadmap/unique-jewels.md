@@ -48,7 +48,7 @@ change.
   None is established here as a separate current item that needs adding.
 - Remaining acceptance is per confirmed item: definition, serialized identity/modifiers, save/load, supported effects
   and an independently verified acquisition source.
-  Forbidden Flame/Flesh's granted-node model (#791) is a separate task; this check does not complete #358.
+  Forbidden Flame/Flesh roll their notable and a matching pair grants its stats; this check does not complete #358.
 
 ### 2. Global unique jewels (42 in the catalogue)
 
@@ -94,7 +94,8 @@ Full classification, mechanics, radius/ring model and reuse notes:
 - **Wiki gap check (2026-10-29):** of the poewiki names this catalogue lacked, Bound By Destiny, Megalomaniac,
   Sublime Vision, The Balance of Terror and Watcher's Eye now have item generation (their encounter drop rates and
   conditional-stat consumers are partial).
-  Forbidden Flame and Forbidden Flesh also have item definitions; their granted-node effect remains separate.
+  Forbidden Flame and Forbidden Flesh roll their notable; a matching pair grants its stats (skill grants and the
+  Uber-only hidden variant remain).
 - **Generated specials:** Impossible Escape (`/impossible_escape`, 48 keystone variants) is implemented with the
   keystone-radius allocation bypass; Rational Doctrine's `/unique_jewel` source and its stationary consecrated /
   critical-strike profane ground mechanics are implemented (see [status](../status/progression.md)).

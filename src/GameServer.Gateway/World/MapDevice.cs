@@ -222,6 +222,10 @@ public sealed class MapDevice
 
     public AtlasCatalog? Atlas => _atlas;
 
+    /// <summary>What these slots put on an instance (a map item's mods and quality, the fragments' MapFragmentMods), as an
+    /// activation composes it: for a <c>GameEvents.MapOpening</c> subscriber that opens a map the check refused.</summary>
+    public MapMods ModsOf(IReadOnlyList<Slot> slots, ModCatalog mods) => _runs.Of(slots, mods);
+
     public int Count => _byItemType.Count;
 
     public MapArea? AreaOf(uint itemType) => _byItemType.GetValueOrDefault(itemType);

@@ -181,6 +181,13 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// precedence over <see cref="NameWords"/> when non-null.</summary>
     public string? CustomName { get; init; }
 
+    /// <summary>Server-side data a module keeps with this item (never sent to the client): what a module's item needs to
+    /// remember beyond its mods, keyed by the module. Saved with the item.</summary>
+    public IReadOnlyDictionary<string, string>? ContentData { get; init; }
+
+    /// <summary>The MapKey component's optional fields (<see cref="MapKeyData"/>); null for a plain map key.</summary>
+    public MapKeyData? MapKey { get; init; }
+
     /// <summary>A vendor price: (item type hash, amount) entries, Base flag bit 7 (17-npcs.md §5). Empty for items not
     /// in a shop.</summary>
     public IReadOnlyList<(uint TypeHash, uint Amount)> Price { get; init => field = Owned.List(value); } = [];
@@ -290,7 +297,13 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 case "Map": w.U8(0).U8(0).U8(0); break;
                 // MapKey 0x1424b5290 reads a flag byte, then optional u32/u16/u8. The generic map base already names its
                 // tier; 0 sends no overrides.
-                case "MapKey": w.U8(0); break;
+                case "MapKey":
+                    var key = MapKey;
+                    w.U8((byte)((key?.RewardWord is null ? 0 : 1) | (key?.Area is null ? 0 : 2) | (key?.Extra is null ? 0 : 4)));
+                    if (key?.RewardWord is uint word) w.U32(word);
+                    if (key?.Area is ushort keyArea) w.U16(keyArea);
+                    if (key?.Extra is byte extra) w.U8(extra);
+                    break;
                 case "HeistBlueprint":
                     (HeistBlueprint ?? new HeistBlueprintState(0, 1, 1, false, [])).Write(w);
                     break;
@@ -1060,3 +1073,8 @@ public static class InstanceItems
 /// row. Rotation: quarter turns applied to the room's connection mask as the DeepwaterPlugin cell orientation
 /// (0x141fbeda0); not copied by the client's component copy.</summary>
 public readonly record struct ChartData(byte AreaLevel, byte Rotation, byte Room);
+
+/// <summary>The MapKey component's optional fields (reader 0x1424b5290, a flag byte then each present field): bit 0 a
+/// <c>Words</c> HASH32 (+0x30: the unique a Valdo Map rewards, "Reward: Foil {0}"), bit 1 a <c>WorldAreas</c> HASH16
+/// (+0x20: the layout the map names, "Burial Chambers Map"), bit 2 a u8 (+0x40, meaning unknown). Null sends none.</summary>
+public sealed record MapKeyData(uint? RewardWord = null, ushort? Area = null, byte? Extra = null);

@@ -27,7 +27,10 @@ Their item class is `MapKey` (ItemClassCategory 63, which StashtabAffinityByItem
 - **Shaper Guardian Map:** the area is influenced by the Shaper.
 - **Vaal Temple Map:** the area contains 10 additional guarded Vaal Vessels; always corrupted. Obtained by corrupting
   tier 16 maps.
-- **Valdo Map:** acquired from a Valdo's Puzzle Box.
+- **Valdo Map:** acquired from a Valdo's Puzzle Box. Each is a supporter-made outcome: a layout, fixed MapSupporter
+  modifiers and a Celestial foil unique reward. The client data holds neither the outcomes nor their weights (3.29
+  weights them by the reward's rarity and a factor per modifier, unpublished), so world.db keeps poewiki's
+  trade-observed list and the server rolls the modifiers from the MapSupporter pool.
 
 The tables also hold about 490 older map bases named after areas (`MapTier1_1` "Cursed Crypt Map", `MapAtlasBeach` and
 `MapWorldsBeach` "Beach Map" …, class `Map`, and Maps.dat with each one's `Regular_WorldAreasKey`). They are left over

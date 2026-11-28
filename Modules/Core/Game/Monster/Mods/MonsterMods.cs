@@ -45,6 +45,12 @@ public static partial class Game
         int magicExtra = rarity == MonsterRarity.Magic
             ? Math.Max(0, extraMagicMods + (MapModsOf(player)?.Get(Stat.MapMagicMonsterNumAdditionalModifiers) ?? 0))
             : 0;
+        // map_rare_monster_num_additional_modifiers: rare monsters roll that many more affixes (within their prefix/suffix caps).
+        if (rarity == MonsterRarity.Rare && MapModsOf(player)?.Get(Stat.MapRareMonsterNumAdditionalModifiers) is int rareExtra and > 0)
+        {
+            var rng = AreaRng(player);
+            return rolls.Roll(variety, level, rarity, rng, alone, count: MonsterModCatalog.AffixCount(rarity, level, rng) + rareExtra);
+        }
         if (rarity != MonsterRarity.Magic) return rolls.Roll(variety, level, rarity, AreaRng(player), alone);
         if (magicExtra == 0)
         {

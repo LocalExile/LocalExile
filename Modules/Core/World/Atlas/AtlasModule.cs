@@ -78,6 +78,8 @@ public sealed class AtlasModule : IModule
 
     static async Task CompleteMapOnBossKill(Player player, MonsterInfo monster)
     {
+        // A Valdo Map completes Valdo's Oubliette when it is cleared (ValdoMaps), never its layout's own node.
+        if (ValdoMaps.InValdoMap(player)) return;
         if (AtlasProgress.OfArea(PlayerOf(player).AreaId) is not { } node
             || !AtlasProgress.CompletesMap(node, monster, player.Area)) return;
         await AtlasFeature.DropScryingOrbOnCompletion(player, monster, node);
@@ -131,6 +133,8 @@ public sealed class AtlasModule : IModule
         MemoryTears.LoadData();
         AstrolabesAndVaults.LoadData();
         AtlasAnomalies.LoadData();
+        ValdoMaps.LoadData();
+        VoidbornReliquary.LoadData();
     }
 
     sealed class DeferCrucibleScope : IDisposable
@@ -153,6 +157,8 @@ public sealed class AtlasModule : IModule
         MemoryTears.Register(module.Manifest.Id);
         AstrolabesAndVaults.Register(module.Manifest.Id);
         AtlasAnomalies.Register(module.Manifest.Id);
+        ValdoMaps.Register(module.Manifest.Id);
+        VoidbornReliquary.Register(module.Manifest.Id);
         ExtraPlayerMessages = player => AtlasFeature.Restore(player);
         GameEvents.MapOpening.Add(module.Manifest.Id, AtlasProgress.ApplyScry);
         GameEvents.AreaPopulated.Add(module.Manifest.Id, EldritchInfluence.OnAreaPopulated);

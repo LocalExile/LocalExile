@@ -591,8 +591,8 @@ Condition handling and encounter rewards are separate from creating an item.
 | Jewel | Base | Limit | Effect | Status |
 |---|---|---|---|---|
 | **Bound By Destiny** | Prismatic Jewel | 1 | One each of the influence item bonuses | Generates one modifier for each of the 2/4/6 influence-item thresholds. |
-| **Forbidden Flame** | Crimson Jewel | 1 | Allocates the matching Forbidden Flesh ascendancy notable; corrupted | Item source exists; granted-ascendancy-node effect remains separate. |
-| **Forbidden Flesh** | Cobalt Jewel | 1 | Allocates the matching Forbidden Flame ascendancy notable; corrupted | Item source exists; granted-ascendancy-node effect remains separate. |
+| **Forbidden Flame** | Crimson Jewel | 1 | Allocates the matching Forbidden Flesh ascendancy notable; corrupted | Rolls a notable of a random class (`ForbiddenJewels`); a matching pair grants it (below). |
+| **Forbidden Flesh** | Cobalt Jewel | 1 | Allocates the matching Forbidden Flame ascendancy notable; corrupted | Rolls a notable of a random class (`ForbiddenJewels`); a matching pair grants it (below). |
 | **Megalomaniac** | Medium Cluster Jewel | - | Adds 4 passives; smalls grant nothing; 3 random notable mods; corrupted | Four passives; three rolled notables and an empty small, with no jewel socket. |
 | **Sublime Vision** | Prismatic Jewel | 1 | One aura-bonus modifier | Generates one of 17 aura modifier rows. |
 | **The Balance of Terror** | Cobalt Jewel | 1 | Two random curse modifiers and elemental resistance | Generates elemental resistance and two distinct curse modifiers. |
@@ -619,7 +619,12 @@ The committed client tables contain both historical names and names whose releas
 
 A name, limit, visual or weight row alone does not establish an obtainable item or a requirement to implement it.
 An item definition does not establish complete modifiers, gameplay or drop availability.
-The Forbidden Flame/Flesh granted-node work in #791 is outside this historical-name check.
+The Forbidden Flame/Flesh granted node: the mod's `unique_jewel_grants_notable_hash_part_1/2` value is the notable's
+PassiveSkillGraphId (`passive_hash`); the client derives "Requires Class" from it. A new jewel rolls any notable of a
+random class's ascendancies (Scion: the Ascendant's "Path of …" notables and ascendancy-named options), never
+Reliquarian, Luminary, starting, unused or alternate-ascendancy nodes, Tawhoa, Forest's Strength or the Uber-only hidden
+notables. Socketed Flame and Flesh with the same notable, of the character's class, add that notable's stats once
+unless it is already allocated. Notables that grant a skill only add their stats; the Uber-only variant is not rolled.
 
 [army-rename]: https://www.pathofexile.com/forum/view-thread/1930316
 [beta-jewels]: https://www.pathofexile.com/forum/view-thread/1288610

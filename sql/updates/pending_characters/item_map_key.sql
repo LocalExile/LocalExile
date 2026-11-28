@@ -1,0 +1,1 @@
+ALTER TABLE items ADD COLUMN map_key TEXT;

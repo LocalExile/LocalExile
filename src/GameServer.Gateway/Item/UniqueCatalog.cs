@@ -292,6 +292,10 @@ public sealed partial class UniqueCatalog
             if (All.FirstOrDefault(d => NameKey(d.Name).Equals(parent, StringComparison.OrdinalIgnoreCase)) is { Variants: not null } definition)
                 return definition.Variants.FirstOrDefault(v => v.Name.Equals(wanted, StringComparison.OrdinalIgnoreCase)) is { } selected
                     ? definition with { CreationVariant = selected.Name } : null;
+            // "Forbidden Flame (Witch)": the class whose ascendancy notable the jewel rolls.
+            if (ForbiddenJewels.Is(parent) && ForbiddenJewels.IsClass(wanted)
+                && All.FirstOrDefault(d => d.Name == parent) is { } forbidden)
+                return forbidden with { CreationVariant = wanted };
         }
         return All.FirstOrDefault(d => NameKey(d.Name).Equals(NameKey(name), StringComparison.OrdinalIgnoreCase))
             ?? All.FirstOrDefault(d => name.StartsWith(d.Name + " ", StringComparison.OrdinalIgnoreCase)
@@ -386,6 +390,7 @@ public sealed partial class UniqueCatalog
         if (HiddenMods.TryGetValue($"{NameKey(definition.Name)}|{definition.BaseTypeId}", out var hidden))
             mods.AddRange(Rolled(definition, hidden, ModSection.Hidden, random));
         if (!RollEncounterModifiers(definition, random, mods)) return null;
+        if (ForbiddenJewels.Is(definition.Name)) ForbiddenJewels.Apply(mods, items.Mods, definition.CreationVariant, random);
         item = item with { Mods = mods };
         if (definition.Name.Equals("Tabula Rasa", StringComparison.OrdinalIgnoreCase)
             && definition.BaseTypeId == "Metadata/Items/Armours/BodyArmours/BodyInt1")

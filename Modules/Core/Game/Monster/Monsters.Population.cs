@@ -216,10 +216,13 @@ public static partial class Game
             localTransitions: [.. layout.AreaTransitions.Where(t => t.Transition.DestinationHash16 == layout.Hash
                     && t.Transition.TeleportTo.HasValue)
                 .Select(t => (layout.Near((t.Transition.GridX, t.Transition.GridY)), layout.Near(t.Transition.TeleportTo!.Value)))],
-            additionalPacks: [.. MapScarabPacks.Requests(mapMods), .. MapInfluence.Requests(mapMods)],
+            additionalPacks: [.. MapScarabPacks.Requests(mapMods), .. MapInfluence.Requests(mapMods), .. MapStatMonsters.Requests(mapMods)],
             ordinaryPacks: mapMods?.Get(Stat.MapMonstrousTreasureNoMonsters) is not > 0,
             grounds: layout.Level?.Grounds);
         if (isMapArea) spawns = MapAllflame.ReplacePacks(spawns, mapMods, player.Seed,
+            (x, y) => x >= 0 && y >= 0 && x < layout.GridW && y < layout.GridH && layout.WalkableFor(x, y, 0), notes);
+        // "Area is inhabited by …" and "Area contains …" map stats (MapInhabitants, AdditionalMonstersFromMapStats).
+        if (isMapArea) spawns = MapStatMonsters.Apply(spawns, mapMods, player.Seed, (layout.SpawnX, layout.SpawnY),
             (x, y) => x >= 0 && y >= 0 && x < layout.GridW && y < layout.GridH && layout.WalkableFor(x, y, 0), notes);
         // Twinned doubles the area's own bosses, not the shrines' Atlas guards.
         spawns = WithTwinBosses(spawns, mapMods).ToList();
